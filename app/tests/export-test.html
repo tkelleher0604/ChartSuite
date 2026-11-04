@@ -975,6 +975,7 @@ async function drawnByHand() {
     const free = tx.add('shape', { view, geometry: 'line', points: [[600, 1100], [700, 1160]], format: { Arrow: 'end', Arrowhead: { end: { type: 'diamond', size: 'small' } } } });
     const words = tx.add('shape', { view, geometry: 'text', x: 60, y: 1000, w: 300, h: 30, text: 'Hello world', runs: [{ from: 6, to: 11, Bold: true, Base: 'up', Color: '#102030' }] });
     const list = tx.add('shape', { view, geometry: 'rect', x: 500, y: 1000, w: 300, h: 90, text: 'One\nTwo', format: { Bullet: 'bullet', Align: 'left', Inset: { l: 18, t: 6, r: 6, b: 6 } } });
+    tx.add('shape', { view, geometry: 'rect', x: 1000, y: 900, w: 60, h: 40, name: 'Hatched', format: { Fill: '#ffffff', Pattern: { prst: 'wdUpDiag', fg: '#102030' } } });
     const shrunk = tx.add('shape', { view, geometry: 'rect', x: 860, y: 1000, w: 120, h: 30, text: 'Too much text for this shape to hold on any line at all', format: { Shrink: true } });
     const pic = tx.add('shape', { view, geometry: 'picture', x: 900, y: 1100, w: 60, h: 40, flip: { h: true }, name: 'Logo', alt: 'A square', src: `data:image/png;base64,${PNG}` });
     return { star, note, glue, half, free, words, list, shrunk, pic };
@@ -992,6 +993,8 @@ async function drawnByHand() {
   check('a free line keeps its arrowhead’s style and size, and isn’t called a connector', !!line && tags(line, 'a:tailEnd')[0].getAttribute('w') === 'sm' && nameOf(line) === 'Line' && nameOf(glued) === 'Connector', line && nameOf(line));
   const grad = tags(note, 'a:gradFill')[0];
   check('a gradient is a real gradient fill, at its angle, its stops in the chart’s colors', !!grad && tags(grad, 'a:gs').length === 2 && tags(grad, 'a:lin')[0].getAttribute('ang') === String(90 * 60000) && tags(tags(grad, 'a:gs')[1], 'a:schemeClr')[0]?.getAttribute('val') === 'accent1', grad?.outerHTML.slice(0, 300));
+  const patt = tags(named('Hatched'), 'a:pattFill')[0];
+  check('a pattern is PowerPoint’s pattern, by its name, in the chart’s colors over the fill', patt?.getAttribute('prst') === 'wdUpDiag' && tags(tags(patt, 'a:fgClr')[0], 'a:schemeClr')[0]?.getAttribute('val') === 'accent1' && !!tags(patt, 'a:bgClr').length, patt?.outerHTML.slice(0, 300));
   check('a flip and alt text are the shape’s, the words still reading the right way', tags(note, 'a:xfrm')[0].getAttribute('flipH') === '1' && note.getElementsByTagName('p:cNvPr')[0].getAttribute('descr') === 'A note on the fund', note.getElementsByTagName('p:cNvPr')[0].outerHTML);
   const wordsAt = withText('Hello'), runs = tags(wordsAt, 'a:r');
   check('words part by part are runs in the deck: bold, raised, colored where they are, only there', runs.length === 2 && tags(runs[0], 'a:t')[0].textContent === 'Hello ' && tags(runs[1], 'a:t')[0].textContent === 'world' && tags(runs[1], 'a:rPr')[0].getAttribute('b') === '1' && +tags(runs[1], 'a:rPr')[0].getAttribute('baseline') > 0 && tags(runs[0], 'a:rPr')[0].getAttribute('b') !== '1' && !tags(runs[0], 'a:rPr')[0].getAttribute('baseline') && tags(tags(runs[1], 'a:rPr')[0], 'a:schemeClr')[0]?.getAttribute('val') === 'accent1', wordsAt?.outerHTML.slice(0, 500));
@@ -1005,7 +1008,7 @@ async function drawnByHand() {
   check('the chart’s colors are the deck’s theme, so PowerPoint’s own theme switch recolors what’s in them', slot('a:accent1') === '102030' && slot('a:accent6') === '607080' && slot('a:dk1') === '101010' && slot('a:lt1') === 'fefefe' && tags(star, 'a:solidFill')[0] && tags(tags(star, 'a:solidFill')[0], 'a:schemeClr')[0]?.getAttribute('val') === 'accent1', tags(theme, 'a:clrScheme')[0]?.outerHTML.slice(0, 300));
   check('… and a color that’s none of them stays its own', !Shapes.inTheme(ten)('#abcdef') && Shapes.inTheme(ten)('#102030').slot === 'accent1');
   const svg = Export.svg(s, { pdf: true });
-  check('in the PDF, the gradient is a gradient, the flip mirrored, the bold word bold and raised', /<linearGradient/.test(svg) && /scale\(-1 1\)/.test(svg) && /font-weight="bold"[^>]*>world/.test(svg), svg.length);
+  check('in the PDF, the gradient is a gradient, the flip mirrored, the bold word bold and raised', /<linearGradient/.test(svg) && /<pattern/.test(svg) && /scale\(-1 1\)/.test(svg) &&/font-weight="bold"[^>]*>world/.test(svg), svg.length);
   const blob = await Export.write('pdf', [s], 'Drawn', {});
   check('… and written, a PDF', blob.size > 2000 && new TextDecoder('latin1').decode(await blob.slice(0, 5).arrayBuffer()) === '%PDF-', blob.size);
 }

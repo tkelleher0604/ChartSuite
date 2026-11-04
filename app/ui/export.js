@@ -225,8 +225,12 @@ function body(shape, w, h, s, flip = null) {
   let shade = '', fill = none(s.Fill) ? 'none' : s.Fill, defs = '';
   // A gradient, drawn as the canvas draws it: from colour to colour along its angle.
   if (s.Gradient?.stops?.length) {
-    const id = `grad-${++gradients}`, a = (s.Gradient.angle ?? 0) * Math.PI / 180, x = Math.cos(a) / 2, y = Math.sin(a) / 2;
-    defs = `<defs><linearGradient id="${id}" x1="${n(0.5 - x)}" y1="${n(0.5 - y)}" x2="${n(0.5 + x)}" y2="${n(0.5 + y)}">${s.Gradient.stops.map(([p, c]) => `<stop offset="${p}%" stop-color="${c}"/>`).join('')}</linearGradient></defs>`;
+    const id = `grad-${++gradients}`;
+    defs = `<defs>${Shapes.gradientDef(id, s.Gradient)}</defs>`;
+    fill = `url(#${id})`;
+  } else if (s.Pattern?.prst) {
+    const id = `patt-${++gradients}`;
+    defs = `<defs>${Shapes.patternDef(id, s.Pattern, fill)}</defs>`;
     fill = `url(#${id})`;
   }
   if (o) {
@@ -521,8 +525,8 @@ const xfrm = (x, y, w, h, turn = '') => `<a:xfrm${turn}><a:off x="${x}" y="${y}"
 // A color, as transparent as `clear` (0–100) says.
 const paint = (c, clear = 0) => none(c) ? '<a:noFill/>'
   : `<a:solidFill>${clr(c, clear > 0 ? Math.round((100 - Math.min(100, clear)) * 1000) : '')}</a:solidFill>`;
-// A fill: its gradient, PowerPoint's own, along its angle; or its one color.
-const fillOf = s => { const g = s.Gradient; if (!g?.stops?.length) return paint(s.Fill, s.Transparency); const a = s.Transparency > 0 ? Math.round((100 - Math.min(100, s.Transparency)) * 1000) : '';
+// A fill: its gradient, PowerPoint's own, along its angle; its pattern, PowerPoint's own, by its name, over the fill; or its one color.
+const fillOf = s => { const g = s.Gradient; if (!g?.stops?.length && s.Pattern?.prst) return `<a:pattFill prst="${s.Pattern.prst}"><a:fgClr>${clr(s.Pattern.fg ?? '#000000')}</a:fgClr><a:bgClr>${none(s.Fill) ? '<a:schemeClr val="bg1"><a:alpha val="0"/></a:schemeClr>' : clr(s.Fill)}</a:bgClr></a:pattFill>`; if (!g?.stops?.length) return paint(s.Fill, s.Transparency); const a = s.Transparency > 0 ? Math.round((100 - Math.min(100, s.Transparency)) * 1000) : '';
   return `<a:gradFill rotWithShape="1"><a:gsLst>${g.stops.map(([at, c]) => `<a:gs pos="${Math.round(at * 1000)}">${clr(c, a)}</a:gs>`).join('')}</a:gsLst><a:lin ang="${Math.round(((g.angle ?? 0) % 360 + 360) % 360 * 60000)}" scaled="0"/></a:gradFill>`; };
 // A preset's adjustments, by what's set of them: a rounded rectangle's corners, their radius in thousandths of its shorter side; a callout's tip, as shares of its frame from its middle, or for a line callout, from its corner.
 function adjusts(geometry, s) {

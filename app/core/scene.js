@@ -64,7 +64,7 @@ const printed = (it, s) => (it.typedAt === s ? it.look.Size : half(it.look.Size,
 const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: '#000000', Align: 'center', Spacing: 1, Format: 'value' };
 const CORNER = 16.667;
 const DEFAULTS = {
-  box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Gradient: null, Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Tail: null, Valign: 'middle',
+  box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Gradient: null, Pattern: null, Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Tail: null, Valign: 'middle',
     Frame: 'none', Layer: 0, ...TEXT },
   line: { Shown: false, Outline: '#000000', Weight: 0.75, Dash: 'solid', Arrow: 'none', Arrowhead: null, Connector: 'elbow', Above: null, Layer: 0, ...TEXT, Size: 9 },
   text: { Shown: false, ...TEXT },
@@ -73,11 +73,11 @@ const TEXT_PROPS = Object.keys(TEXT);
 const HAS = Object.fromEntries(Object.entries(DEFAULTS).map(([k, d]) => [k, new Set(Object.keys(d))]));
 // What a note at the view itself can say of every text on the page (dendra.md, Notes); the footer and its number, the
 // chart's own (see the page); and how a box of no form is drawn, which no row of the Key is by itself.
-const ROOT = ['Font', 'Size'], FOOTER = '·footer', NUMBER = '·number', REST = ['Fill', 'Gradient', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'];
+const ROOT = ['Font', 'Size'], FOOTER = '·footer', NUMBER = '·number', REST = ['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'];
 const FORMLESS = { Outline: { value: '#7f7f7f', note: null }, Dash: { value: 'square-dot', note: null } };
 // What a swatch shows: the properties of a box or line that tell marks apart, a frame's kind, or a text's
 // look. A frame's caption says on the chart what it is, so the legend leaves frames out.
-const KEYED = { box: ['Shape', 'Fill', 'Gradient', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'], frame: ['Frame'],
+const KEYED = { box: ['Shape', 'Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'], frame: ['Frame'],
   text: ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color'] };
 // A swatch: a box, line, frame or text in the defaults, with what an output's formats give it.
 function swatch(kind, f) {
@@ -563,7 +563,7 @@ const comparedFrom = new WeakMap(), changeRows = new Map();
 function comparing(wb, chart, view, day, opts) {
   const N = wb.notes(chart), since = sinceOf(N, view, opts.state);
   if (!since || since >= day) return null;
-  const then = stateThen(wb, chart, since, opts.computed), k = `${view}|${since}|${readRows(wb.rows(chart), view).notes}`;
+  const then = stateThen(wb, chart, since, opts.computed), k = `${view}|${since}|${readRows(wb, chart, view).notes}`;
   const kept = !opts.seen?.size && (comparedFrom.get(opts.state) ?? comparedFrom.set(opts.state, new Map()).get(opts.state));
   if (kept && kept.get(k)?.then === then) return kept.get(k);
   const drawnOn = (state, d) => of(wb, chart, view, d, { state, compared: true, looks: 'texts', ...(opts.seen && { seen: opts.seen }) }).byId;
@@ -624,10 +624,12 @@ function unmoved(scene, before, after, formatsOf) {
 
 // What a scene reads of a chart's rows, as they stand: its notes, by their ids, and each view's free shapes.
 const rowsRead = new WeakMap();
-function readRows(rows, view) {
+function readRows(wb, chart, view) {
+  const rows = wb.rows(chart);
   let r = rowsRead.get(rows);
   if (!r) rowsRead.set(rows, r = { notes: rows.filter(x => 'note' in x && x.label !== 'Scale').map(x => x.id).join(), shapes: new Map() });
-  if (!r.shapes.has(view)) r.shapes.set(view, rows.filter(x => 'shape' in x && x.view === view));
+  // (In the order they were made: a shape keeps its place in the stack however often it's moved or restyled.)
+  if (!r.shapes.has(view)) r.shapes.set(view, rows.filter(x => 'shape' in x && x.view === view).sort((a, b) => wb.made(a.shape) < wb.made(b.shape) ? -1 : wb.made(a.shape) > wb.made(b.shape) ? 1 : 0));
   return r;
 }
 
@@ -644,7 +646,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // A view that shows changes draws what's gone too, and says of each mark what's changed (see comparing).
   if (!opts.looks && !opts.compared) { const c = comparing(wb, chart, view, day, opts); if (c) opts = { ...opts, state: c.state, compared: c }; }
   const changes = opts.compared?.marks ? opts.compared : null;
-  const rows = wb.rows(chart), read = readRows(rows, view), notesAre = `${view}|${read.notes}`;
+  const rows = wb.rows(chart), read = readRows(wb, chart, view), notesAre = `${view}|${read.notes}`;
   const shapeRows = read.shapes.get(view);
   const preview = !!(opts.keep || opts.reveal?.length || opts.seen?.size), drawnAs = `${chart}|${view}`;
   const said = new Map(shapeRows.map(r => [r.id, r.role === 'date' && wb.moment ? Log.stoodText(wb.moment) : shapeText(r, opts.computed, day)]));
@@ -1915,7 +1917,7 @@ function legend(N, view, marks) {
 // the sheet's, `u` pixels of the page to one of the sheet: a text box's 12 pt, a title's 20, a date's 11 and a Key's 8
 // are those on the slide, however much the chart is drawn smaller; a Key's, `k` times that. A size or weight its row
 // gives is printed as given.
-const SHAPE_DEFAULTS = { Fill: '#ffffff', Gradient: null, Tail: null, Bullet: 'none', Indent: null, Inset: null, Shrink: false, Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Arrowhead: null, Layer: 0, ...TEXT };
+const SHAPE_DEFAULTS = { Fill: '#ffffff', Gradient: null, Pattern: null, Tail: null, Bullet: 'none', Indent: null, Inset: null, Shrink: false, Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Arrowhead: null, Layer: 0, ...TEXT };
 const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12, Valign: 'top' };
 // The page's own texts: its title, its date, its footer and its number.
 const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' } };

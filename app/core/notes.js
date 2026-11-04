@@ -308,7 +308,7 @@ function lookFrom(data) {
     const root = data.root && typeof data.root === 'object' ? { ...(typeof data.root.Font === 'string' && { Font: data.root.Font }), ...(Number.isFinite(data.root.Size) && { Size: data.root.Size }) } : null;
     const palette = Array.isArray(data.palette?.colors) && data.palette.colors.length === 10 && data.palette.colors.every(c => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) ? { colors: data.palette.colors } : null;
     const shapes = data.shapes && typeof data.shapes === 'object' && !Array.isArray(data.shapes) ? Object.fromEntries(['shape', 'line', 'text'].filter(k => fits.format(data.shapes[k])).map(k => [k, data.shapes[k]])) : null;
-    const rest = data.rest && typeof data.rest === 'object' && !Array.isArray(data.rest) ? Object.fromEntries(Object.entries(data.rest).filter(([l]) => ['Fill', 'Gradient', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'].includes(l))) : null;
+    const rest = data.rest && typeof data.rest === 'object' && !Array.isArray(data.rest) ? Object.fromEntries(Object.entries(data.rest).filter(([l]) => ['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'].includes(l))) : null;
     return { notes, order: (data.order ?? []).map(clean), furniture, ...(root && { root }), ...(paper(data.page) && { page: data.page }), ...(Object.keys(foot).length && { footer: foot }), ...(palette && { palette }), ...(shapes && Object.keys(shapes).length && { shapes }), ...(rest && Object.keys(rest).length && { rest }) };
   } catch { return null; }
 }

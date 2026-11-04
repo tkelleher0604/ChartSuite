@@ -180,8 +180,13 @@ function gradient(o) {
   const stops = o.stops ?? [], id = `dc-grad-${(o.angle ?? 0)}-${stops.map(([at, c]) => `${at}${String(c).replace('#', '')}`).join('-')}`.replace(/[^\w-]/g, '_');
   if (gradients.has(id) && document.getElementById(id)) return id;
   gradients.add(id);
-  const a = (o.angle ?? 0) * Math.PI / 180, x = Math.cos(a) / 2, y = Math.sin(a) / 2;
-  defsHere().insertAdjacentHTML('beforeend', `<linearGradient id="${id}" x1="${0.5 - x}" y1="${0.5 - y}" x2="${0.5 + x}" y2="${0.5 + y}">${stops.map(([at, c]) => `<stop offset="${at}%" stop-color="${c}"/>`).join('')}</linearGradient>`);
+  defsHere().insertAdjacentHTML('beforeend', Shapes.gradientDef(id, o));
+  return id;
+}
+// A pattern fill: its strokes over its Fill, a tile of each in the same place.
+function hatch(o, bg) {
+  const id = `dc-patt-${o.prst}-${String(o.fg ?? '').replace('#', '')}-${String(bg ?? '').replace('#', '')}`.replace(/[^\w-]/g, '_');
+  if (!document.getElementById(id)) defsHere().insertAdjacentHTML('beforeend', Shapes.patternDef(id, o, bg));
   return id;
 }
 function defsHere() {
@@ -203,7 +208,7 @@ const paint = v => !v || v === 'none' ? 'none' : v;
 // as its Transparency, its outline, and its Shadow.
 function bodyMarkup(shape, w, h, s, red, extra = {}) {
   const stroke = red === 'appear' ? BLUE : red === 'go' ? RED : paint(s.Outline), clear = Math.min(100, Math.max(0, s.Transparency ?? 0));
-  return { tagName: 'path', selector: 'body', attrs: { d: Scene.path(shape, w, h, s.Corner, s.Tail), fill: s.Gradient?.stops?.length && !red ? `url(#${gradient(s.Gradient)})` : paint(s.Fill), ...(clear && { 'fill-opacity': 1 - clear / 100 }),
+  return { tagName: 'path', selector: 'body', attrs: { d: Scene.path(shape, w, h, s.Corner, s.Tail), fill: s.Gradient?.stops?.length && !red ? `url(#${gradient(s.Gradient)})` : s.Pattern?.prst && !red ? `url(#${hatch(s.Pattern, paint(s.Fill))})` : paint(s.Fill), ...(clear && { 'fill-opacity': 1 - clear / 100 }),
     stroke, 'stroke-width': px(s.Weight), 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter',
     ...(Scene.shadowOf(s.Shadow) && { filter: `url(#${shadow(drawnAt, Scene.shadowOf(s.Shadow))})` }), ...extra } };
 }
@@ -973,7 +978,7 @@ function mount(el) {
     App.change(tx => tx.note('Position', treeOf(m.record), at, { view: viewOf() }), { dated: false, say: `Moved the label of ${called(m)}` });
   }
   graph.on('node:moved', ({ node }) => { dragging = null; if (node.getData()?.kind === 'label') return movedLabel(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
-  graph.on('node:resized', ({ node }) => { dragging = null; moved([node.id]); });
+  graph.on('node:resized', ({ node }) => { dragging = null; moved([node.id]); spilt([node.id]); });
   graph.on('node:rotating', ({ node }) => { dragging = node.id; showHandles(null); astray(node.id); });
   graph.on('node:rotated', ({ node }) => { dragging = null; turn(node.id, node.getAngle()); });
   graph.on('edge:mouseup', ({ edge }) => { if (scene.byId.get(edge.id)?.geometry === 'line') moved([edge.id]); });
@@ -2430,8 +2435,12 @@ function mount(el) {
     if (still()) return Shell.toast(App.whyNot());
     if (!rest.length) return Shell.toast(`Already as ${word} as each other`, { ms: 2500 });
     App.change(tx => place(tx, new Map(rest.map(m => [m.id, { x: m.x, y: m.y, ...(dim === 'width' ? { w: v } : { h: v }) }]))), { say: `Made ${rest.length === 1 ? called(rest[0]) : `${rest.length} ${rest.every(m => m.type === 'box') ? 'boxes' : 'items'}`} as ${word} as ${called(ms[0])}` });
-    const spills = App.scene.peek() && rest.map(m => App.scene.peek().byId.get(m.id)).filter(m => m?.spills);
-    if (spills?.length) Shell.toast(`${spills.length === 1 ? called(spills[0]) : `${spills.length} boxes`}: its text runs out of its box at that size`, { ms: 4000 });
+    spilt(rest.map(m => m.id));
+  }
+  // What a hand has made too small for its words says so: they're never broken mid-word to fit, nor shrunk where it isn't asked.
+  function spilt(ids) {
+    const sp = ids.map(id => App.scene.peek()?.byId.get(id)).filter(m => m?.spills);
+    if (sp.length) Shell.toast(`${sp.length === 1 ? `${called(sp[0])}: its text runs` : `${sp.length} of them: their text runs`} out at that size`, { ms: 4000 });
   }
   function order(how) {
     const ms = selected().filter(m => m.type !== 'frame' && m.geometry !== 'group').concat(selected().filter(m => m.geometry === 'group').flatMap(g => g.members.map(id => scene.byId.get(id)).filter(Boolean)));

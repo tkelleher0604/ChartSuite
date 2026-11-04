@@ -1386,6 +1386,9 @@ function freeDrawing() {
   const lm = s.byId.get(line), fund = s.byId.get('fund'), blocker = s.byId.get('blocker');
   check('a free line glued runs between what it’s glued to, wherever its row last had it, square where it’s an elbow', lm.points[0][1] >= fund.y && lm.points.at(-1)[1] <= blocker.y + 1 && lm.points.slice(1).every((p, i) => Math.abs(p[0] - lm.points[i][0]) < 0.01 || Math.abs(p[1] - lm.points[i][1]) < 0.01), j(lm.points));
   check('a free shape’s flip and its gradient are in the scene', !!s.byId.get(rect).flip?.h && s.byId.get(rect).look.Gradient.angle === 90);
+  const inStack = w => scene(w).marks.filter(m => m.type === 'shape').map(m => m.id), stacked = inStack(wb);
+  edit(wb, tx => tx.update(list, { x: 44 }));
+  check('a shape moved keeps its place in the stack', j(inStack(wb)) === j(stacked) && scene(wb).byId.get(list).x !== s.byId.get(list).x, j([inStack(wb), stacked]));
   // Margins, and a size of its own.
   const w2 = Log.open(SAMPLE);
   edit(w2, tx => tx.note('Page', { id: MAIN, kind: 'View' }, { size: 'slide', margins: { top: 72, right: 72, bottom: 36, left: 108 } }));

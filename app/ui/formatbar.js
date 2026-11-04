@@ -220,6 +220,7 @@ function named(c, s) {
 // group of one is the only one: "The only name", "The only one with Jurisdiction Delaware".
 function allOf(s, n) {
   const caption = s.caption ?? '', ps = s.outputs ?? [], words = caption.split(' '), all = n === 1 ? 'The only one' : `All ${n}`;
+  if (s.rest) return `${caption} (${n})`;
   // What's changed is said as a state: "All 3 new or changed", "The only one gone".
   if (ps.length && ps.every(Scene.isChange)) return `${all} ${caption[0].toLowerCase()}${caption.slice(1)}`;
   // An option named as it is (Delaware) or a tag goes by its entry: "with Jurisdiction Delaware".
@@ -656,6 +657,7 @@ function wake() { faded = false; clearTimeout(fading); Canvas.active.peek()?.roo
 // Fill: the palette, then how transparent it is.
 const FillPop = ({ close, of }) => html`<${Palette} label="Fill" none close=${close}>
   <${Sub} label="Gradient" of=${of} items=${gradientItems} />
+  <${Sub} label="Pattern" of=${of} items=${patternItems} />
   <${Slider} label="Transparency" k="Transparency" v=${Math.round(value('Transparency') ?? 0)} /></${Palette}>`;
 // A gradient, as PowerPoint's: none, or linear, from the fill to a color lighter or darker of it, or to white; by which way it runs. Its stops say how, and its Fill is what it
 // starts from, so a gradient taken off leaves the fill it had.
@@ -663,9 +665,15 @@ function gradientItems() {
   const now = value('Gradient') ?? null, base = String(value('Fill') ?? '#4472c4'), from = /^#[0-9a-f]{6}$/i.test(base) ? base.toLowerCase() : '#4472c4';
   const ends = [['Lighter', shaded(from, 0.4, 0.6)], ['Darker', shaded(from, 0.5, 0)], ['To white', '#ffffff']], ways = [[90, 'Down'], [0, 'Across'], [45, 'Diagonally down'], [315, 'Diagonally up']];
   const of = (to, angle) => ({ angle, stops: [[0, from], [100, to]] }), is = g => JSON.stringify(g) === JSON.stringify(now);
-  const set = g => ({ run: () => apply('Gradient', g), point: on => on ? preview('Gradient', g) : preview() });
+  const set = g => ({ run: () => g && value('Pattern') ? applyAll([['Gradient', g], ['Pattern', null]]) : apply('Gradient', g), point: on => on ? preview('Gradient', g) : preview() });
   return [{ label: 'None', checked: !now, ...set(null) }, '-', ...ends.flatMap(([word, to]) => ways.slice(0, 2).map(([angle, way]) => ({ label: `${word}, ${way.toLowerCase()}`, checked: is(of(to, angle)), ...set(of(to, angle)) }))), '-',
     ...ways.map(([angle, way]) => ({ label: way, disabled: !now, checked: now?.angle === angle, ...(now && set({ ...now, angle })) }))];
+}
+// A pattern, as PowerPoint's: none, or one of its own, in the outline's color over the fill, which a gradient gives way to.
+function patternItems() {
+  const now = value('Pattern') ?? null, line = String(value('Outline') ?? ''), fg = /^#[0-9a-f]{6}$/i.test(line) ? line.toLowerCase() : '#000000';
+  const set = p => ({ run: () => p && value('Gradient') ? applyAll([['Pattern', p], ['Gradient', null]]) : apply('Pattern', p), point: on => on ? preview('Pattern', p) : preview() });
+  return [{ label: 'None', checked: !now, ...set(null) }, '-', ...Shapes.PATTERNS.map(([prst, label]) => ({ label, checked: now?.prst === prst, ...set({ prst, fg: now?.fg ?? fg }) }))];
 }
 // Outline, as PowerPoint's Shape Outline: the palette, then its Weight ▸ and Dashes ▸, a line's Arrows ▸ and Route
 // ▸, a group's Frame ▸, and No outline.
@@ -840,7 +848,7 @@ function SizeBox({ v, disabled, why }) {
 // The look a mark has: what it draws by, its box's or its line's, and its first text's; a weight as the slide has it,
 // as the bar writes it. Never what it is or where, as PowerPoint's painter copies none of them: not its shape or its corners,
 // its record's Format, its frame, its layer or its route.
-const BOX_LOOK = ['Fill', 'Gradient', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Valign'];
+const BOX_LOOK = ['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Valign'];
 const LINE_LOOK = ['Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'];
 const TEXT_LOOK = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'];
 const LOOK = new Set([...BOX_LOOK, ...LINE_LOOK, ...TEXT_LOOK]);
@@ -1234,12 +1242,12 @@ function reachOfRow(g) {
   const kept = rowsReach.get(sc) ?? rowsReach.set(sc, new Map()).get(sc);
   if (kept.has(g.key)) return kept.get(g.key);
   const marks = [...marksOf(sc, g)].map(id => sc.byId.get(id)).filter(Boolean), keys = new Set(g.outputs.map(p => Tree.key(p))), given = g.swatch?.kind === 'box' ? givenTo(sc.view, g) : [], N = App.notes.peek();
-  const own = marks.filter(m => Object.entries(m.settings ?? {}).some(([l, s]) => s?.note?.view === sc.view && ONE_OFF.has(l) && Tree.idsIn(s.note.pattern).size)).length;
+  // (Its own: a note of it alone. The page's Everything else, at the view, is nothing of its own.)
+  const owning = marks.filter(m => Object.entries(m.settings ?? {}).some(([l, s]) => s?.note?.view === sc.view && ONE_OFF.has(l) && s.note.pattern.id !== sc.view && Tree.idsIn(s.note.pattern).size));
   const masked = !marks.length ? [] : ['Fill', 'Shape', 'Outline'].filter(l => given.includes(l) && marks.every(m => { const n = m.settings?.[l]?.note; return !!n && !keys.has(Tree.key(n.pattern)) && !Tree.idsIn(n.pattern).size; }))
     .map(l => [l, Scene.styleName(N, Tree.bare(marks[0].settings[l].note.pattern))]);
   // (Which they are, for its note's hover.)
-  const ownNames = marks.filter(m => Object.entries(m.settings ?? {}).some(([l, s]) => s?.note?.view === sc.view && ONE_OFF.has(l) && Tree.idsIn(s.note.pattern).size)).map(m => N.nameOf(App.state.peek(), m.record));
-  const out = { marks: marks.length, own, ownNames, masked };
+  const out = { marks: marks.length, own: owning.length, ownNames: owning.map(m => N.nameOf(App.state.peek(), m.record)), masked };
   kept.set(g.key, out);
   return out;
 }

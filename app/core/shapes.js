@@ -143,6 +143,23 @@ const OPEN = new Set(['leftbracket', 'rightbracket', 'leftbrace', 'rightbrace', 
 const HEADS = [...new Set(TABLE.map(t => t[2]))];
 const gallery = () => HEADS.map(head => ({ head, shapes: TABLE.filter(t => t[2] === head).map(t => [t[0], t[1]]) }));
 
+// ---- Pattern fills (dendra.md, Free shapes): PowerPoint's own, by the names its files have, each drawn as a tile: [prst, name, tile's side, its strokes, their width] ----
+const PATTERNS = [
+  ['ltUpDiag', 'Light upward diagonal', 4, 'M-1,1 L1,-1 M0,4 L4,0 M3,5 L5,3', 0.7],
+  ['dkUpDiag', 'Dark upward diagonal', 4, 'M-1,1 L1,-1 M0,4 L4,0 M3,5 L5,3', 1.4],
+  ['wdUpDiag', 'Wide upward diagonal', 8, 'M-2,2 L2,-2 M0,8 L8,0 M6,10 L10,6', 2.1],
+  ['ltDnDiag', 'Light downward diagonal', 4, 'M-1,3 L1,5 M0,0 L4,4 M3,-1 L5,1', 0.7],
+  ['ltHorz', 'Horizontal lines', 4, 'M0,2 H4', 1],
+  ['ltVert', 'Vertical lines', 4, 'M2,0 V4', 1],
+  ['smGrid', 'Small grid', 4, 'M0,2 H4 M2,0 V4', 0.7],
+  ['pct20', 'Dots', 4, 'M0.5,1 H1.5 M2.5,3 H3.5', 1],
+];
+const patternOf = prst => PATTERNS.find(p => p[0] === prst) ?? null;
+// A gradient as a page's definition holds it, its `id`: from color to color along its angle, clockwise from the right, as PowerPoint's linear gradient.
+const gradientDef = (id, o) => { const a = (o.angle ?? 0) * Math.PI / 180, x = Math.round(Math.cos(a) * 5e3) / 1e4, y = Math.round(Math.sin(a) * 5e3) / 1e4; return `<linearGradient id="${id}" x1="${0.5 - x}" y1="${0.5 - y}" x2="${0.5 + x}" y2="${0.5 + y}">${(o.stops ?? []).map(([at, c]) => `<stop offset="${at}%" stop-color="${c}"/>`).join('')}</linearGradient>`; };
+// A pattern as a page's definition holds it, its `id`, its strokes in `fg` over `bg`.
+const patternDef = (id, o, bg) => { const [, , side, d, w] = patternOf(o.prst) ?? PATTERNS[0]; return `<pattern id="${id}" patternUnits="userSpaceOnUse" width="${side}" height="${side}">${bg && bg !== 'none' ? `<rect width="${side}" height="${side}" fill="${bg}"/>` : ''}<path d="${d}" fill="none" stroke="${o.fg ?? '#000000'}" stroke-width="${w}"/></pattern>`; };
+
 // ---- A theme's colors (dendra.md, The palette) ----
 // PowerPoint's Office theme, as its palette shows it: its ten columns (Background 1, Text 1, Background 2, Text 2 and the six accents), each with its tints and shades in PowerPoint's rows.
 const OFFICE = [
@@ -170,7 +187,7 @@ const inTheme = (colors = null) => {
 };
 
 return {
-  TAIL, CALLOUTS, OPEN, OFFICE, SLOTS, swatches, inTheme, shaded, gallery, ids: TABLE.map(t => t[0]), list: TABLE.map(t => [t[0], t[1]]),
+  TAIL, CALLOUTS, OPEN, OFFICE, SLOTS, PATTERNS, patternDef, gradientDef, swatches, inTheme, shaded, gallery, ids: TABLE.map(t => t[0]), list: TABLE.map(t => [t[0], t[1]]),
   has: id => by.has(id),
   name: id => by.get(id)?.name ?? null,
   prst: id => by.get(id)?.prst ?? 'rect',

@@ -351,6 +351,9 @@ function attach(x) {
       const s = 4 / zoom();
       const d = axis ? `M${c},${a} V${b} M${c - s},${a} H${c + s} M${c - s},${b} H${c + s}` : `M${a},${c} H${b} M${a},${c - s} V${c + s} M${b},${c - s} V${c + s}`;
       svg('path', { class: 'dc-gap', d, 'stroke-width': 1.25 / zoom() });
+      // (How far apart, in the sheet's points.)
+      const mid = (a + b) / 2, off = 5 / zoom(), said = svg('text', { class: 'dc-gap', x: axis ? c + off : mid, y: axis ? mid : c - off, 'font-size': 10 / zoom(), 'text-anchor': axis ? 'start' : 'middle', 'dominant-baseline': axis ? 'middle' : 'auto' });
+      said.textContent = `${Math.round(Math.abs(b - a) * x.scale() / Scene.PT * 10) / 10} pt`;
     };
     for (const axis of [0, 1]) {
       const [P, S, Q, T] = axis ? ['y', 'h', 'x', 'w'] : ['x', 'w', 'y', 'h'], overlaps = o => o[Q] < r[Q] + r[T] && o[Q] + o[T] > r[Q];
@@ -445,7 +448,7 @@ function attach(x) {
       const f = input.files[0];
       if (!f) return;
       const r = new FileReader();
-      r.onload = () => { const img = new Image(); img.onload = () => App.change(tx => tx.update(m.id, { src: r.result, crop: null, h: round(m.w * img.height / img.width) }), { dated: false, say: 'Changed the picture' }); img.src = r.result; };
+      r.onload = () => { const img = new Image(); img.onload = () => { App.change(tx => tx.update(m.id, { src: r.result, crop: null, h: round(m.w * img.height / img.width) }), { dated: false, say: 'Changed the picture' }); Shell.select([m.id]); }; img.src = r.result; };
       r.readAsDataURL(f);
     };
     input.click();
@@ -530,15 +533,15 @@ function attach(x) {
   const SHAPE_WORD = { text: 'Text box', legend: 'Key', picture: 'Picture', line: 'Line', group: 'Group', frame: 'Frame' };
   const titleOf = m => m.type === 'box' || m.type === 'line' ? x.called(m) : m.type === 'frame' ? x.called(m) : m.name ?? (m.geometry === 'line' && m.ends?.some(Boolean) ? 'Connector' : m.geometry === 'text' && m.role ? m.texts[0]?.text : m.texts?.[0]?.text?.split('\n')[0] || SHAPE_WORD[m.geometry] || Shapes.name(m.geometry) || 'Shape');
   function reorder(m, to, after) {
-    // (To stand just over or under `to`, in the one order: a layer between it and what's next, or a layer of its own and what's beyond it one more.)
-    const all = scene().marks.filter(q => q.geometry !== 'group' && q.type !== 'frame'), layer = q => q.settings?.Layer?.value ?? q.look?.Layer ?? 0, t = all.indexOf(to), up = after;
-    const next = all.filter(q => q !== m)[all.filter(q => q !== m).indexOf(to) + (up ? 1 : -1)], a = layer(to), b = next ? layer(next) : a + (up ? 2 : -2);
+    // (To stand just over or under `to`, in the one order: a layer between what's under it and what's over it; where those are of one layer, a layer of its own, and the fewer of them a layer further, so a shape moved among shapes leaves the boxes as they were.)
+    const others = scene().marks.filter(q => q !== m && q.geometry !== 'group' && q.type !== 'frame'), layer = q => q.settings?.Layer?.value ?? q.look?.Layer ?? 0, at = others.indexOf(to) + (after ? 1 : 0), under = others.slice(0, at), over = others.slice(at);
+    const a = under.length ? layer(under.at(-1)) : layer(over[0]) - 2, b = over.length ? layer(over[0]) : a + 2;
     const put = (tx, q, v) => { if (q.type === 'shape') tx.update(q.id, { format: { ...x.rowOf(q.id)?.format, Layer: v } }); else tx.note('Layer', x.treeOf(q.record), v, { view: x.viewOf() }); };
     App.change(tx => {
       if (a !== b) return put(tx, m, (a + b) / 2);
+      const up = over.length <= under.length;
       put(tx, m, a + (up ? 0.5 : -0.5));
-      for (const q of all) if (q !== m && (up ? all.indexOf(q) > t : all.indexOf(q) < t) && layer(q) === a) put(tx, q, a + (up ? 1 : -1));
-      void t;
+      for (const q of up ? over : under) put(tx, q, layer(q) + (up ? 1 : -1));
     }, { dated: false, keep: false, say: `Reordered ${titleOf(m)}` });
   }
   function Pane() {

@@ -740,6 +740,7 @@ const Time = (() => {
     if (label === 'Dash') return `Made the outline of ${of} ${String(v).replace(/-/g, ' ')}`;
     if (label === 'Arrowhead') return `Changed the arrowheads of ${of}`;
     if (label === 'Gradient') return v ? `Gave ${of} a gradient` : `Took the gradient off ${of}`;
+    if (label === 'Pattern') return v ? `Gave ${of} a pattern` : `Took the pattern off ${of}`;
     if (label === 'Tail') return `Moved what ${of} points at`;
     if (label === 'Inset') return `Set the inner margins of ${of}`;
     if (label === 'Indent') return v ? `Indented ${of} ${v} pt` : `Took the indent off ${of}`;
