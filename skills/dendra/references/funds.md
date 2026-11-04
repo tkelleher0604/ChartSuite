@@ -56,7 +56,7 @@ Every legal entity is an **Entity**. People are **Individuals**. A body of inves
 
 - **A signing authority runs through an entity.** Chen signs for Fund III (On Behalf Of) via GP III (Via), as its Managing Member (Capacity). The tool names it "Margaret A. Chen for Fund III, via GP III". Capacity Held is worked out: it checks Chen holds that capacity at GP III. A failure means the record or the authority is wrong; report it.
 - **Control, Affiliated Person and close or remote affiliate** are worked out from these. Never enter them.
-- **Evidence:** a document that evidences a position or a signing authority is related to it by Evidence, with the relation's id as the Evidenced side.
+- **Evidence:** a document that evidences an ownership, a position or a signing authority (a stock certificate, an appointment, an LLC agreement) is related to it by Evidence, with the relation's id as the Evidenced side.
 
 ## Registrations, filings and payments
 
