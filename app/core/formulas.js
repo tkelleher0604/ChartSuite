@@ -3563,7 +3563,7 @@ function attention(R, N, day) {
     }
     const t = (checks || required.length) && Tree.treeOf(recs, id);
     if (!t) continue;
-    if (r.tag === false && checks && N.value('Check', t) === true) items.push({ kind: 'error', id });
+    if (r.tag === false && checks && N.check(t)) items.push({ kind: 'error', id });
     const has = edges.get(id), blank = new Set();
     for (const a of required) {
       const e = normal(a.edge);

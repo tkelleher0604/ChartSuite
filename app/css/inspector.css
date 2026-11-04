@@ -13,6 +13,18 @@
 .insp :is(.row, .rr, .ih):focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .ih { position: relative; padding: 16px 20px 12px; border-bottom: 1px solid var(--rule); }
 .ih > .path { margin-bottom: 4px; }
+/* When a record holds, under its title: each day a link to the chart then. */
+.ih > .span { display: flex; flex-wrap: wrap; column-gap: 12px; margin: 2px 0 0; font: var(--t12); color: var(--ink-2); }
+.ih > .span .day { color: var(--accent-ink); cursor: pointer; }
+.ih:focus-visible { outline-offset: -4px; }
+/* A long panel's strip, sticky at its top: its sections, a click from each, Look and Position always in view at its end. */
+.strip { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 12px; padding: 0 20px; height: 28px; border-bottom: 1px solid var(--rule); background: var(--surface); font: var(--t12); color: var(--ink-2); }
+.strip.none { display: none; }
+.strip > .names { flex: 1; min-width: 0; display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+.strip > .pinned { flex: none; display: flex; gap: 12px; padding-left: 12px; border-left: 1px solid var(--rule); }
+.strip .lk { color: inherit; white-space: nowrap; cursor: pointer; }
+.strip .lk:hover { color: var(--ink); }
+.insp > section { scroll-margin-top: 28px; }
 .ih-title { display: block; font: var(--t15); overflow-wrap: anywhere; text-wrap: balance; }
 .ih-title > .and { font-weight: 400; color: var(--ink-3); }
 /* A title wraps, as many lines as it takes, balanced. A tag's title has its box before it, as a checkbox row has. */
@@ -49,6 +61,15 @@ button.lk.hint { margin-left: 8px; color: var(--accent-ink); white-space: nowrap
 .lbl { cursor: default; }
 .ruled > .k .lbl { color: var(--ink-3); }
 .failed > .k .lbl { color: var(--no); }
+.heeds > .k .lbl { color: var(--due); }
+/* A label that says something clicked: why a formula gives it, or who typed it, and when. */
+.lbl.asks:hover { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--rule-2); }
+.typed { display: grid; gap: 2px; min-width: 200px; max-width: 320px; }
+.typed > p { margin: 0; }
+.typed > .who { font-weight: 500; color: var(--ink); }
+.typed > .meta { font: var(--t12); color: var(--ink-2); }
+.typed > .note { margin-top: 6px; color: var(--ink-2); overflow-wrap: anywhere; }
+.typed > .btn { justify-self: start; margin: 6px 0 0 -8px; }
 .grip { position: absolute; left: calc(var(--depth, 0) * 16px + 2px); top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: grab; display: grid; place-items: center; }
 .grip > svg { width: 14px; height: 14px; }
 .row:hover > .grip, .grip:focus-visible { opacity: 1; }
@@ -121,6 +142,8 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .sel.dd::after { content: none; }
 .sel.dd > span::after { content: ""; display: inline-block; width: 10px; height: 6px; margin-left: 8px; background: var(--chev) no-repeat center; vertical-align: 2px; }
 .sel:hover:not(:disabled) { border-color: var(--rule); }
+.sel.add { color: var(--accent-ink); }
+.sel.add > span { text-decoration: underline double; text-underline-offset: 2px; }
 .sel:disabled > span::after { visibility: hidden; }
 .sel.fx > span { font-style: italic; }
 
@@ -174,6 +197,16 @@ section.open > :last-child { margin-bottom: 8px; }
    the document evidencing it, to open. */
 .row.rel { grid-template-columns: minmax(0, 1fr) fit-content(50%); }
 .row.rel > .k { color: var(--ink); }
+/* Each says it's a link: a pointer and an underline; a tooltip says where. */
+.row.rel .lk { cursor: pointer; }
+.row.rel .lk:hover { text-decoration-color: currentColor; }
+/* A box to tick each, for ending several at once: in the row's gutter, shown as it's pointed at or once one's ticked. */
+.row.rel > .tick { position: absolute; left: 3px; top: 7px; width: 13px; height: 13px; opacity: 0; }
+.row.rel:hover > .tick, .row.rel > .tick:focus-visible, section.ticking .tick { opacity: 1; }
+.sect > .ends { height: 20px; margin: 0; padding: 0 6px; font: var(--t12); color: var(--no); }
+.sect > .n > .no { color: var(--no); }
+.row.rel.going > .k, .row.rel.going > .v, .row.rel.going > .facts { color: var(--no); text-decoration: line-through; }
+.row.rel.going .lk { color: inherit; }
 .row.rel > .v { position: relative; display: flex; align-items: baseline; justify-content: flex-end; gap: 4px; text-align: right; font-variant-numeric: tabular-nums; }
 .row.rel > .v:empty { display: none; }
 .row.rel > .v > .lk { flex: 0 1 auto; min-width: 0; color: var(--ink-2); }

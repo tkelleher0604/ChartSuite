@@ -184,7 +184,9 @@ function index(rows) {
     // none, and the list goes on by name.
     optionOrder: p => (byLabel.get('Order') ?? []).find(n => !n.view && n.pattern.out && narrower(n.pattern, p))?.value,
     required: t => value('Required', t) === true,
-    check: t => value('Check', t) === true,
+    // A Check note on a definition: one ruled out is a check failed. On an entry typed by hand: its "no" needs attention.
+    check: t => value('Check', t) === true && !!resolve('Formula', t),
+    heeds: t => value('Check', t) === true && !resolve('Formula', t),
     isStart: t => value('Start', t) === true,
     isEnd: t => value('End', t) === true,
     shown: (t, view) => value('Shown', t, view),

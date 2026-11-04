@@ -26,6 +26,10 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-delta .add { color: var(--accent-ink); }
 .fx-delta .take { color: var(--no); }
 .fx-delta .change { color: var(--due); font-weight: 500; }
+/* What balances, in black, beside what's really lost, in red. */
+.fx-delta .fx-net { color: var(--ink); }
+/* What a formula gives is overridden by saying so: the reason's own command. */
+.fx-override { flex: none; height: 26px; padding: 0 10px; }
 .fx-acts { display: flex; gap: 4px; }
 .fx-acts > .btn { height: 24px; padding: 0 8px; font: var(--t13); }
 .fx-open { width: 24px; height: 24px; }

@@ -819,10 +819,10 @@ function mount(el) {
     const rect = fieldRect(m, it), at = graph.localToGraph(rect.x, rect.y + rect.h), box = root.getBoundingClientRect(), menuAt = { x: box.left + at.x, y: box.top + at.y + 2 };
     // The record, or a blank's: typed over where it's worked out, as the inspector enters one.
     // A blank of an entry its record's kind hasn't yet gives the kind the entry, as the inspector's Add does.
-    const put = out => App.change(tx => {
-      if (r && !r.computed) return tx.update(it.id, out);
-      const at = r?.at ?? it.blank.at, edge = r?.edge ?? it.blank.edge, spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: Tree.specOf(treeOf(at)) }] };
-      if (it.blank && !App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
+    // One that has one to replace goes as the inspector's does, asking from when where it has history to keep (App.put).
+    const put = (out, auto = true) => r ? App.put(it.id, r, out, { auto }) : App.change(tx => {
+      const { at, edge } = it.blank, spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: Tree.specOf(treeOf(at)) }] };
+      if (!App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
       tx.add('record', { at, edge, ...out });
     });
     // A menu under the field, from which Tab goes on to the next field, as from one typed in.
@@ -844,10 +844,10 @@ function mount(el) {
     if (kind.type === 'tag') return picker([{ label: r?.edge ?? it.blank.edge, checked: r?.tag === true, run: () => r?.tag !== true && put({ tag: true }) },
       { label: `Not ${r?.edge ?? it.blank.edge}`, checked: r?.tag === false, run: () => r?.tag !== false && put({ tag: false }) }]);
     const raw = r ? Tree.format(r.field, r.value) : '';
-    openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, text => {
+    openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, (text, keys) => {
       const v = Tree.parse(kind.datatype ?? Tree.classify(text), text);
       if (v === undefined || Tree.clean(text) === '' || (r && v === r.value)) return;
-      put({ field: kind.datatype ?? Tree.classify(text), value: v });
+      put({ field: kind.datatype ?? Tree.classify(text), value: v }, !!keys);
     }, { selectAll: typed === undefined, ph: it.blank?.edge, tab: d => stepField(d, true) });
   }
   function edit(key, target, typed) {
@@ -917,12 +917,12 @@ function mount(el) {
     s.removeAllRanges(); s.addRange(range);
     let done = false;
     const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box);
-    const finish = ok => { if (done) return; done = true; list?.close(); kind?.close(); const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v); else escaped?.(); };
+    const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys); else escaped?.(); };
     ed.addEventListener('keydown', e => {
       e.stopPropagation();
       if (list?.key(e) || kind?.key(e)) return;
       if (e.key === 'Escape') { e.preventDefault(); finish(kept); }
-      else if (e.key === 'Enter' && !(multiline && e.shiftKey)) { e.preventDefault(); finish(true); }
+      else if (e.key === 'Enter' && !(multiline && e.shiftKey)) { e.preventDefault(); finish(true, true); }
       // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
       else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
     });
@@ -1451,6 +1451,7 @@ function mount(el) {
       ...(bound.length ? [{ label: 'History', run: () => Time.open('all') }, '-', { label: 'Hide in this view', disabled: ro, run: () => remove() }] : []),
       // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring).
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: ro, run: () => App.transferring(one.record) }] : []),
+      ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: 'Insert an entity between…', disabled: ro, run: () => App.interposing(one.record) }] : []),
       { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) },
       '-', { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
