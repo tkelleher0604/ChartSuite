@@ -21,7 +21,13 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-end { margin-left: auto; padding-left: 8px; display: flex; align-items: center; gap: 12px; flex: none; font: var(--t12); color: var(--ink-3); }
 .fx-link { border: 0; padding: 0; background: none; font: inherit; color: var(--ink-2); text-decoration: underline dotted var(--ink-3); text-underline-offset: 3px; }
 .fx-link:hover { color: var(--ink); text-decoration-style: solid; }
-.fx-delta { display: flex; gap: 4px; white-space: nowrap; font: var(--t13); color: var(--ink-2); }
+.fx-delta { display: flex; gap: 4px; min-width: 0; white-space: nowrap; font: var(--t13); color: var(--ink-2); }
+.fx-delta > span { flex: none; }
+/* What it's the preview of is never cut for what it says: what's said gives way, what's unchanged first. */
+.fxbar:has(> .fx-end .fx-delta) > :is(.fx-name, .fx-args) { flex: none; }
+.fxbar:has(> .fx-end .fx-delta) > .fx-end { flex: 0 1 auto; min-width: 0; }
+.fx-end > .fx-delta { flex: 0 1 auto; overflow: hidden; }
+.fx-delta > .fx-net { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fx-delta b { font-weight: 500; }
 .fx-delta .add { color: var(--accent-ink); }
 .fx-delta .take { color: var(--no); }
