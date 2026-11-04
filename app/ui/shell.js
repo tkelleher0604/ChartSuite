@@ -224,7 +224,8 @@ const Shell = (() => {
   addEventListener('keydown', e => {
     const top = layers.at(-1);
     if (e.key !== 'Escape' || !top || e.defaultPrevented) return;
-    if (!top.always && e.target.closest?.('input, textarea, [contenteditable], .CodeMirror')) return;
+    // (A checkbox isn't text: Esc on one in a dialog closes the dialog.)
+    if (!top.always && e.target.closest?.(TYPED + ', .CodeMirror')) return;
     e.preventDefault(); e.stopPropagation();
     top.close();
     land();

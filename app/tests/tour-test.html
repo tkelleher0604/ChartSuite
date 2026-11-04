@@ -256,6 +256,13 @@ async function run() {
     kd('x', cv.root); await tick(80);
     check('With… by the keys: a name typed makes no box, as With… asks for one that’s there', cv.root.classList.contains('relating') && !$('.dc-edit'), `${cv.root.classList.contains('relating')} ${!!$('.dc-edit')}`);
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(80);
+    // Esc on a checkbox in a dialog closes the dialog, and leaves what's selected behind it alone.
+    Shell.select(['gp']); await tick(120);
+    let closed = false;
+    Shell.dialog({ title: 'A dialog', body: Shell.html`<label><input type="checkbox" id="esc-box" /> A choice</label>` }).then(() => { closed = true; }); await tick(80);
+    $('#esc-box').focus();
+    kd('Escape', $('#esc-box')); await tick(80);
+    check('Esc on a checkbox in a dialog closes the dialog, what’s selected behind it staying', closed && !$('dialog[open]') && Shell.selection.peek().join() === 'gp', `${closed} ${!!$('dialog[open]')} ${Shell.selection.peek().join()}`);
     // A message with something to do is a stop of F6; it stays while the keys are on it; pressed, the keys go to the view.
     let undone = false;
     Shell.select(['gp']); await tick(120);
