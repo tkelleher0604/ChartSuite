@@ -1352,7 +1352,9 @@ const App = (() => {
     // (Asked for, it takes the keys.)
     preactHooks.useLayoutEffect(() => { if (on && asked.current) { asked.current = false; field.current?.focus(); } }, [on]);
     if (!on) return html`<button type="button" class="lk why-add" onClick=${() => { asked.current = true; setOn(true); }}>Why…</button>`;
-    return html`<label class="why-in" onKeyDown=${enter}><span>Why</span><input ref=${field} class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${why.value} onInput=${e => { why.value = e.target.value; }} /></label>`;
+    // (Esc leaves what's typed here, then the field; only from the bar's other controls does it drop the change.)
+    const esc = e => { if (e.key !== 'Escape') return enter(e); e.preventDefault(); e.stopPropagation(); if (why.peek()) why.value = ''; else setOn(false); };
+    return html`<label class="why-in" onKeyDown=${esc}><span>Why</span><input ref=${field} class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${why.value} onInput=${e => { why.value = e.target.value; }} /></label>`;
   }
   // Viewing, a change pending is a what-if: what would make it is said in place of its verb.
   const makesIn = 'Viewing: switch to Editing to make this';
@@ -1437,7 +1439,7 @@ const App = (() => {
     while (names.has(Tree.norm(name))) name = `Untitled ${i++}`;
     const tx = wb.edit({ chart: c, who: who() }), kept = new Map();
     tx.add('chart', { name }, c);
-    const vs = from ? views.peek() : [], like = vs.find(v => v.layout === 'chart')?.id;
+    const vs = from ? views.peek().filter(v => !v.look) : [], like = vs.find(v => v.layout === 'chart')?.id;
     const recorded = new Map();
     let look = null, given = () => false;
     if (from) {
