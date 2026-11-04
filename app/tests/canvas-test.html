@@ -80,8 +80,6 @@ const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 // (A little under what's asked: the page is near what a run of the suite gives it.)
 const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.9));
-// What's travelling lands, for a check of where it ends up: frames can stop in a headless run while its clock runs on, so a flight can outlast any wait.
-const grounded = async () => { for (const a of document.getAnimations()) { try { a.finish(); } catch {} } await tick(0); };
 const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const txt = el => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -476,41 +474,6 @@ async function run() {
   Shell.select([]); cv().root.focus();
   key('Tab', { shiftKey: true }); await tick(60);
   check('Shift+Tab from nothing selects the last box', Shell.selection.peek()[0] === reading.at(-1));
-  // A nudge moves, leaving the size as it's drawn, where its height is what its rank or the triangles of its width share; and it's said as moved.
-  {
-    const all = sc().marks.filter(m => m.type === 'box'), tall = all.find(m => m.shape === 'triangle') ?? all[0], h0 = tall.h, y0 = tall.y, n0 = App.wb.changes().length;
-    Shell.select([tall.id]); cv().root.focus(); await tick(60);
-    key('ArrowDown'); await tick(60); key('ArrowDown'); await tick(60); key('ArrowDown'); await tick(700);
-    const now = sc().byId.get(tall.id);
-    check('a nudge moves and nothing else: it keeps the height it was drawn at, and History says Moved', Math.abs(now.h - h0) < 0.6 && Math.abs(now.y - y0 - 3 * arrowStep) <= 0.6 && App.wb.changes().length === n0 + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), `${h0} → ${now.h}, ${y0} → ${now.y}, ${Time.describe(App.wb.changes().at(-1))}`);
-    Shell.parts.peek().undo.undo(); await tick(150);
-  }
-  // Going box to box: Ctrl+Alt+arrow to the nearest that way, writing nothing; Esc lets go of a box, and Tab goes on from it.
-  {
-    Shell.select([reading[0]]); cv().root.focus(); await tick(60);
-    const n0 = App.wb.changes().length, from = sc().byId.get(reading[0]);
-    key('ArrowDown', { ctrlKey: true, altKey: true }); await tick(60);
-    const below = sc().byId.get(Shell.selection.peek()[0]);
-    check('Ctrl+Alt+Down goes to the nearest box under this one, writing nothing', !!below && below.id !== from.id && below.y + below.h / 2 > from.y + from.h && App.wb.changes().length === n0, `${from.id} → ${below?.id}`);
-    const at = Shell.selection.peek()[0], k = reading.indexOf(at);
-    key('Escape'); await tick(60);
-    key('Tab'); await tick(60);
-    check('Esc lets go of a box and not the place: Tab goes on from it', Shell.selection.peek()[0] === reading[(k + 1) % reading.length], `${at} → ${Shell.selection.peek()[0]}`);
-    // Relate… by the keys: Tab to the other box, Enter; Esc makes nothing, and the box it began from is selected again.
-    const start = reading[0], other = reading[1];
-    Shell.select([start]); cv().root.focus(); await tick(60);
-    cv().relate(); await tick(60);
-    key('Tab'); await tick(60);
-    check('Relate… by the keys: Tab walks to the other box', Shell.selection.peek()[0] === other && cv().root.classList.contains('relating'), Shell.selection.peek().join());
-    key('Enter'); await tick(120);
-    check('… and Enter takes it, asking the two’s relations, no name opened for typing', [...Shell.selection.peek()].sort().join() === [start, other].sort().join() && !cv().root.classList.contains('relating') && !document.querySelector('.dc-edit'), Shell.selection.peek().join());
-    Shell.select([start]); cv().root.focus(); await tick(60);
-    cv().relate(); await tick(60);
-    key('Tab'); await tick(60);
-    dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(60);
-    check('… and Esc makes nothing, the box it began from selected again', Shell.selection.peek()[0] === start && !cv().root.classList.contains('relating'), Shell.selection.peek().join());
-    Shell.select([]); await tick(60);
-  }
 
   // ---- Relate handles sit on a box's outline, a triangle's on its slopes and base, clear of every line and
   // of the box's grips; a handle clicked, not dragged, selects its box ----
@@ -1059,7 +1022,6 @@ async function run() {
       const pct = $$('aside.inspector input').find(i => i.getAttribute('aria-label') === 'Percentage');
       pct?.focus(); await tick();
       const linesBefore = sc().marks.filter(m => m.type === 'line').map(m => m.id).join();
-      await grounded();
       idly(() => { pct.value = '65%'; pct.dispatchEvent(new Event('input', { bubbles: true })); });
       // The redline drawn is the scene the change, made, draws (on a chart this size, laid out as it's typed).
       const typed = [sc(), ...laid].find(s => s !== App.scene.peek() && s.view === charts()[0].id && txt({ textContent: s.byId.get('own_us_fund')?.texts.map(it => it.text).join(' ') }) === '65%');
@@ -1074,7 +1036,6 @@ async function run() {
       Shell.parts.peek().undo.undo(); Shell.select([]); await tick(160);
       $('.titlebar .asof .dd')?.click(); await tick(120);
       const field = $('.date-pop .date-top input');
-      await grounded();
       idly(() => { field.value = 'June 30, 2025'; field.dispatchEvent(new Event('input', { bubbles: true })); });
       const day = laid.find(s => s.view === charts()[0].id && s.day === '2025-06-30'), R = worked.at(-1);
       field?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(200);
@@ -1775,7 +1736,6 @@ async function layered() {
 // says what it deletes; Align with nothing to do says so ----
 async function pickings() {
   await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
-  await grounded();
   const g = cv().graph, R = () => cv().root.getBoundingClientRect();
   // The lane the GP's or the owner's lines share: a stretch two or more lines run on.
   const lines = sc().marks.filter(m => m.type === 'line'), legs = l => l.points.slice(1).map((p, i) => [l.points[i], p]);

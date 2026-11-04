@@ -279,6 +279,41 @@ async function run() {
     document.activeElement.click(); await tick(80);
     check('… pressed, it’s done and gone, and the keys go to the view', undone && !$('.toast') && pane() === 'view', `${undone} ${!!$('.toast')} ${pane()}`);
   }
+  // A chart by the keys, last, so what it moves disturbs no check above: a nudge keeps a box's size; Ctrl+Alt+arrow goes box to box; Esc keeps the place; Relate… by Tab and Enter.
+  {
+    const cv = Canvas.active.peek(), sc = () => cv.scene(), key = (k, o = {}) => cv.root.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: k, bubbles: true, cancelable: true, ...o }));
+    Shell.show(App.views.peek().find(v => v.layout === 'chart').id); Shell.select([]); await tick(200);
+    const reading = (() => { const rows = []; for (const b of sc().marks.filter(m => m.type === 'box').sort((a, b) => a.y - b.y)) { const r = rows.at(-1); if (r && b.y < r[0].y + r[0].h / 2) r.push(b); else rows.push([b]); } return rows.flatMap(r => r.sort((a, b) => a.x - b.x)).map(b => b.id); })();
+    // (A move leaves the size as it's drawn, where its height is what its rank or the triangles of its width share; and it's said as moved.)
+    const all = sc().marks.filter(m => m.type === 'box'), tall = all.find(m => m.shape === 'triangle') ?? all[0], h0 = tall.h, y0 = tall.y, n0 = N(), step = 8 / sc().page.scale;
+    Shell.select([tall.id]); cv.root.focus(); await tick(60);
+    key('ArrowDown'); await tick(60); key('ArrowDown'); await tick(60); key('ArrowDown'); await tick(700);
+    const now = sc().byId.get(tall.id);
+    check('A nudge moves and nothing else: it keeps the height it was drawn at, and History says Moved', Math.abs(now.h - h0) < 0.6 && Math.abs(now.y - y0 - 3 * step) <= 0.6 && N() === n0 + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), `${h0} → ${now.h}, ${y0} → ${now.y}, ${Time.describe(App.wb.changes().at(-1))}`);
+    Shell.parts.peek().undo.undo(); await tick(250);
+    Shell.select([reading[0]]); cv.root.focus(); await tick(60);
+    const n1 = N(), from = sc().byId.get(reading[0]);
+    key('ArrowDown', { ctrlKey: true, altKey: true }); await tick(60);
+    const below = sc().byId.get(Shell.selection.peek()[0]);
+    check('Ctrl+Alt+Down goes to the nearest box under this one, writing nothing', !!below && below.id !== from.id && below.y + below.h / 2 > from.y + from.h && N() === n1, `${from.id} → ${below?.id}`);
+    const at = Shell.selection.peek()[0], k = reading.indexOf(at);
+    key('Escape'); await tick(60);
+    key('Tab'); await tick(60);
+    check('Esc lets go of a box and not the place: Tab goes on from it', Shell.selection.peek()[0] === reading[(k + 1) % reading.length], `${at} → ${Shell.selection.peek()[0]}`);
+    const start = reading[0], other = reading[1];
+    Shell.select([start]); cv.root.focus(); await tick(60);
+    cv.relate(); await tick(60);
+    key('Tab'); await tick(60);
+    check('Relate… by the keys: Tab walks to the other box', Shell.selection.peek()[0] === other && cv.root.classList.contains('relating'), Shell.selection.peek().join());
+    key('Enter'); await tick(120);
+    check('… and Enter takes it, asking the two’s relations, no name opened for typing', [...Shell.selection.peek()].sort().join() === [start, other].sort().join() && !cv.root.classList.contains('relating') && !$('.dc-edit'), Shell.selection.peek().join());
+    Shell.select([start]); cv.root.focus(); await tick(60);
+    cv.relate(); await tick(60);
+    key('Tab'); await tick(60);
+    dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(60);
+    check('… and Esc makes nothing, the box it began from selected again', Shell.selection.peek()[0] === start && !cv.root.classList.contains('relating'), Shell.selection.peek().join());
+    Shell.select([]); await tick(60);
+  }
   check('Nothing threw', !errors.length, errors.join(' / '));
 }
 
