@@ -275,6 +275,8 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 /* The dialog with the page in it stands at once: nothing of the chart under it shows through as it comes. */
 dialog.dlg:has(.ex)[open] { animation: none; }
 .ex-well { height: min(calc(56vh - var(--said, 0px)), 520px); overflow: auto; display: grid; align-content: safe center; justify-content: safe center; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; background: var(--side); border: 1px solid var(--rule); border-radius: var(--r); }
+.ex-well:not(.full):not(.many) { container-type: size; }
+.ex-well:not(.full):not(.many) .ex-page { width: min(100%, (100cqh - 32px) * var(--a)); justify-self: center; }
 .ex-well.full { grid-template-columns: max-content; }
 .ex-well.many { grid-template-columns: repeat(2, minmax(0, 1fr)); container-type: size; }
 .ex-well.many .ex-page { width: min(100%, (50cqh - 28px) * var(--a)); justify-self: center; }

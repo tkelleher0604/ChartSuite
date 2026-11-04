@@ -479,6 +479,9 @@ function mount(el) {
       framed = z ? z.framed : true;
       left = z && !z.framed ? z : null;
       settle();
+    } else if (was && framed && (was.scale !== page.scale || was.sheet.w !== page.sheet.w || was.sheet.h !== page.sheet.h)) {
+      // (A page drawn at another scale is the same sheet: framed, it stays as large on screen. Another sheet is framed anew.)
+      settle();
     } else if (was && page.placed && was.placed) {
       const dx = page.offset.x - was.offset.x, dy = page.offset.y - was.offset.y;
       if ((dx || dy) && screen.w) { const z = graph.zoom(), t = graph.translate(); quietly(() => graph.translate(t.tx - dx * z, t.ty - dy * z)); }

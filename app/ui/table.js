@@ -2414,7 +2414,7 @@ const Table = (() => {
         const fs = Object.keys(l.filters ?? {}).map(by).filter(Boolean).map(headed), s = !all && l.sort && by(l.sort.key), cols = table.getColumns().filter(c => c.getField() && m.byField.get(c.getField())).length;
         return `${all || shown === n ? `All ${count(n, m.noun)}` : `${shown} of ${count(n, m.noun)}, filtered by ${list(fs)}`}${s ? `, sorted by ${headed(s)}` : ''}; ${count(cols, 'column')}, in their order`; };
       const offs = [Shell.register('export', { name: 'Excel', says: writes, run: ({ all } = {}) => table && excel(all).catch(e => Shell.toast(e?.message || 'Couldn’t export')) }),
-        Shell.register('export', { name: 'CSV', says: writes, run: ({ all } = {}) => table?.download('csv', fileName('csv'), { bom: true }, all ? 'all' : 'active') })];
+        Shell.register('export', { name: 'CSV', says: writes, run: ({ all } = {}) => { table?.download('csv', fileName('csv'), { bom: true }, all ? 'all' : 'active'); Shell.toast(`Downloaded ${fileName('csv')}`); } })];
       unexport = () => offs.forEach(f => f());
     }
     if (!on && unexport) { unexport(); unexport = null; }

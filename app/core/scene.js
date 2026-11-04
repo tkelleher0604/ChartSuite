@@ -6,7 +6,7 @@
 // the sheet.
 //
 // Scene.of(wb, chart, view, day, { state, computed?, reveal, keep, paper?, ahead?, holds? }) →
-//   { chart, view, day, page: { size, w, h, scale, margin, offset, placed, sheet, short, away }, marks, byId, styles, legend, ms }
+//   { chart, view, day, page: { size, w, h, scale, margin, offset, placed, sheet, short, paper? }, marks, byId, styles, legend, ms }
 // `state` is the computed state's records, and `computed` the engine's whole result, for a free shape whose
 // text is a formula. `reveal`, records the view hides, drawn for a while, and `keep`, a restyle's preview, keep the
 // view as it was last drawn (see the layout). `paper`, a size in PAGES, or one turned ("letter portrait"), draws the
@@ -1093,7 +1093,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     frameBounds(frames, boxes);
     // (Sizes typed, and the boxes alone too big for the scale they're laid out for: no need to route them to know.)
     if (typedTexts.length && !last && !whole) {
-      const B = bounds(held ? boxes.filter(b => !b.hand) : boxes), most = Math.min((room.w + 1) / Math.max(1, B.w), (room.h + 1) / Math.max(1, B.h));
+      const B = bounds(held ? boxes.filter(b => !b.hand) : boxes), most = Math.max(0, Math.min((room.w + 1) / Math.max(1, B.w), (room.h + 1) / Math.max(1, B.h)));
       if (most < ceil - 1e-9) return { s: most, ceil, faults: Infinity, bent: Infinity, around: Infinity };
     }
     const stand = !!last || boxes.some(b => b.entered), tops = boxes.map(b => b.y);
