@@ -1968,19 +1968,21 @@ function mount(el) {
   // Tidy (dendra.md, The layout): the boxes selected, or with none, the view's. Each one's place goes, but for where it
   // stands across, its `order` among what's beside it, which the layout keeps; and with none selected, a label's place
   // goes too, and the view is framed on its page again, as it opens. Boxes selected are tidied `around` what stands,
-  // which stays where it is, those the layout placed kept where they're drawn. `tidied` is the workbook as Tidy would
-  // leave it, which a preview draws; `tidyName`, what it's called, by which.
+  // which stays where it is, those the layout placed kept where they're drawn. What it lays out is entered, by the same
+  // change, each place still saying `order` (so History says Tidy): every box stands where Tidy drew it, on every day shown
+  // after. `tidied` is the workbook as the layout finds it for Tidy, which a preview draws; `tidyName`, what it's called, by which.
   const placedHere = () => App.notes.peek().notes('Position').filter(n => n.view === viewOf());
   const tidyBoxes = () => { const base = App.scene.peek(); return !base || !scene ? [] : placeable().filter(m => m.type === 'box').map(m => base.byId.get(m.id)).filter(Boolean); };
   const tidySaid = n => `${n} box${n === 1 ? '' : 'es'}`;
   const tidyName = () => { const n = tidyBoxes().length; return n > 1 ? `Tidy ${tidySaid(n)}` : 'Tidy'; };
-  // Whether there's anything to tidy: a selection; with none, a place entered in the view.
-  const tidyable = () => !!tidyBoxes().length || placedHere().some(n => Number.isFinite(n.value?.x) || Number.isFinite(n.value?.along));
+  // Whether there's anything to tidy: a selection; with none, a place other than Tidy gave, or a box drawn beside Tidy's with none.
+  const tidyable = () => { const ns = placedHere(), byTidy = n => Number.isFinite(n.value?.order);
+    return !!tidyBoxes().length || ns.some(n => (Number.isFinite(n.value?.x) && !byTidy(n)) || Number.isFinite(n.value?.along)) || (ns.some(byTidy) && !!App.scene.peek()?.marks.some(m => m.type === 'box' && !m.entered && !m.revealed)); };
   function tidying() {
     const base = App.scene.peek(), some = tidyBoxes(), writes = new Map();
     for (const m of some.length ? some : base.marks.filter(m => m.type === 'box' && !m.revealed)) writes.set(m.record, { order: round(m.x), ...(some.length && { around: true }) });
     if (some.length) for (const [id, p] of holdsOf(base)) if (!writes.has(id) && treeOf(id)) writes.set(id, p);
-    const ws = [...writes].map(([id, value]) => ({ t: treeOf(id), value })).filter(w => w.t), keys = new Set(ws.map(w => Tree.key(w.t)));
+    const ws = [...writes].map(([id, value]) => ({ id, t: treeOf(id), value })).filter(w => w.t), keys = new Set(ws.map(w => Tree.key(w.t)));
     // (Tidy places the Key afresh, as it does the chart.)
     const key = some.length ? null : base.marks.find(m => m.geometry === 'legend' && m.byPage && rowOf(m.id)?.kept);
     return { writes: ws, gone: some.length ? [] : placedHere().filter(n => !keys.has(Tree.key(n.pattern))), n: some.length, key: key?.id };
@@ -1995,8 +1997,11 @@ function mount(el) {
     return { ...wb, rows: () => rows, notes: () => notes, tidy: tidyName() };
   }
   function tidy() {
-    const { writes, gone, n, key } = tidying(), view = viewOf();
-    if (!App.change(tx => { gone.forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, w.value, { view })); if (key) tx.update(key, { kept: null }); }, { say: n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout', keep: false, dated: false })) return;
+    const { writes, gone, n } = tidying(), view = viewOf(), base = App.scene.peek();
+    // (What its preview draws, entered: the place of each box it lays out, in a place's terms, and the Key where it set it.)
+    const laid = holdsOf(Scene.of(tidied(), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true })), keyId = !n && base.marks.find(m => m.geometry === 'legend' && m.byPage)?.id;
+    const entered = w => { if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value }; };
+    if (!App.change(tx => { gone.forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null }); }, { say: n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout', keep: false, dated: false })) return;
     if (n) return;
     framed = true; left = null;
     settle();

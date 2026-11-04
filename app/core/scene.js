@@ -495,9 +495,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const shapeRows = read.shapes.get(view);
   const preview = !!(opts.keep || opts.reveal?.length), drawnAs = `${chart}|${view}`;
   const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
-  // (A Key kept where it's drawn is drawn there: the scene as it was, so what its change made was laid out ahead for.)
+  // (A Key is drawn from where it's kept or held, either being one: so what its change made was laid out ahead for, and a
+  // Key kept elsewhere since is drawn there, as it would be from nothing.)
   const boxesHeld = opts.holds?.size ? [...opts.holds].filter(([id]) => !shapeRows.some(r => r.shape === id)) : [];
-  const holding = boxesHeld.length ? JSON.stringify(boxesHeld) : '';
+  const holding = JSON.stringify([boxesHeld, ...shapeRows.filter(r => r.geometry === 'legend').map(r => opts.holds?.get(r.shape) ?? r.kept ?? null)]);
   const from = [opts.state, notesAre, shapeRows.map(({ id, kept, ...r }) => JSON.stringify(r)).join(), [...said.values()].join('\n'), day, holding], whence = `${drawnAs}|${opts.paper ?? ''}`;
   if (!preview && !opts.looks) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).

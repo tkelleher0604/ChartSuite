@@ -98,6 +98,9 @@ const closeMenus = async () => { document.body.dispatchEvent(new PointerEvent('p
 
 async function run() {
   await until(() => App.views.peek().length && sc(), 15000);
+  // (canvas-test.html?only=reloaded runs that section alone.)
+  const only = new URLSearchParams(location.search).get('only');
+  if (only) { await size(1440, 900); return eval(only)(); }
   await tick(300);
   const main = charts()[0];
 
@@ -1240,6 +1243,66 @@ async function run() {
 
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
+  await reloaded();
+}
+
+// ---- A reload changes nothing (gui3 N-6.2): a page of six boxes tidied on one day, looked at on others and edited, as Nora's
+// step plan was. What's drawn on each day is what a page opened on that log draws, built from nothing in a frame of its own;
+// and an edit on one day moves nothing on another ----
+async function reloaded() {
+  await show(charts()[0]); Shell.at(null); Shell.select([]); await tick(150);
+  const D = ['2037-03-01', '2037-06-01', '2037-09-01'], on = async d => { Shell.at({ asOf: d }); await until(() => App.scene.peek()?.day === d); await tick(120); };
+  const round2 = v => Math.round(v * 100) / 100, xs = (...vs) => vs.map(v => Number.isFinite(v) ? round2(v) : v);
+  // Every mark, as it's drawn: where, how large, its route, its label, its words; `chartOnly`, its boxes and lines.
+  const drawn = (s, chartOnly = false) => JSON.stringify([...s.marks.filter(m => !chartOnly || m.type === 'box' || m.type === 'line').map(m => [m.id, ...xs(m.x, m.y, m.w, m.h), m.points?.flat().map(round2), m.labelAt && xs(m.labelAt.x, m.labelAt.y), (m.texts ?? []).map(it => (it.lines ?? []).map(l => l.text))]), chartOnly ? 0 : s.page.scale]);
+  const frame = document.body.appendChild(Object.assign(document.createElement('iframe'), { style: 'position:fixed;left:-2000px;width:800px;height:600px' }));
+  frame.srcdoc = `<!doctype html><script src="../../vendor/elkjs/elk.bundled.js"><\/script>${['tree', 'notes', 'log', 'formulas', 'layout', 'scene'].map(f => `<script src="../core/${f}.js"><\/script>`).join('')}<script>
+    window.fresh = (json, c, view, day) => { const wb = Log.open(json), N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, day), N.definitions(S), { relations: N.relations(S), schema: S }); return Scene.of(wb, c, view, day, { state: R.records, computed: R }); };<\/script>`;
+  await until(() => frame.contentWindow?.fresh, 8000);
+  const fresh = d => frame.contentWindow.fresh(JSON.stringify(App.wb.toJSON()), App.chart.peek(), App.scene.peek().view, d);
+  const sameAsFresh = async () => { const off = []; for (const d of D) { await on(d); const a = drawn(App.scene.peek()), b = drawn(fresh(d)); if (a !== b) off.push(d); } return off; };
+
+  const view = App.addView('Steps'); Shell.show(view); await until(() => sc()?.view === view); await tick(200);
+  const keep = new Set(['fund', 'corvane', 'blocker', 'northpine', 'halvard']), st = () => App.state.peek();
+  App.change(tx => { for (const m of App.scene.peek().marks) if (m.type === 'box' && !keep.has(m.record)) tx.note('Shown', Tree.treeOf(st(), m.record), false, { view }); }, { dated: false }); await tick(300);
+  // Holdco between Fund III and the Blocker from the second day, Northpine gone from the third.
+  App.change(tx => {
+    const h = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: h, edge: 'Name', field: 'text', value: 'Calder Ridge Holdco, LLC' });
+    for (const [a, b] of [['fund', h], [h, 'blocker']]) { const o = tx.add('record', { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }); tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: 1 }); }
+    tx.remove('own_fund_blkr');
+  }, { dated: D[1] }); await tick(300);
+  App.change(tx => tx.remove('northpine'), { dated: D[2] }); await tick(300);
+
+  await on(D[1]);
+  const n0 = App.wb.changes().length, boxes = s => s.marks.filter(m => m.type === 'box').map(m => [m.id, m.x, m.y, m.w, m.h]);
+  const preview = boxes(Scene.of(cv().tidied(), App.chart.peek(), view, D[1], { state: st(), computed: App.computed.peek(), ahead: true }));
+  cv().tidy(); await tick(500);
+  const madeBoxes = boxes(App.scene.peek());
+  check('Tidy draws what its preview did, to the half point a place is kept to, one change, and enters it: every box it lays out stands where it’s drawn', App.wb.changes().length === n0 + 1 && madeBoxes.length === preview.length
+    && madeBoxes.every((b, i) => b[0] === preview[i][0] && b.slice(1).every((v, k) => Math.abs(v - preview[i][k + 1]) <= 0.5)) && App.scene.peek().marks.every(m => m.type !== 'box' || m.entered),
+    JSON.stringify([App.wb.changes().length - n0, madeBoxes, preview]));
+  check('… and it’s said as Tidy, and greys, with nothing more to tidy', Time.describe(App.wb.changes().at(-1)) === 'Tidied the layout' && !cv().tidyable(), Time.describe(App.wb.changes().at(-1)));
+  const off0 = await sameAsFresh();
+  check('after Tidy, each day draws what a page opened on the same log draws', !off0.length, off0.join());
+
+  const pages = async () => { const p = {}; for (const d of D) { await on(d); p[d] = drawn(App.scene.peek(), true); } return p; };
+  const before = await pages();
+  const title = () => App.scene.peek().marks.find(m => m.role === 'title').id;
+  await on(D[1]);
+  App.change(tx => tx.update(title(), { text: 'Calder Ridge Fund III: Step Plan' }), { dated: false }); await tick(300);
+  const after = await pages(), moved = D.filter(d => after[d] !== before[d]);
+  check('an edit on one day moves nothing on any other (a title typed, as Nora retitled hers)', !moved.length, moved.map(d => `${d}: ${before[d]} → ${after[d]}`).join(' | '));
+  await on(D[0]);
+  App.change(tx => tx.update(title(), { text: 'Step Plan' }), { dated: false }); await tick(300);
+  const again = await pages(), moved2 = D.filter(d => again[d] !== before[d]);
+  check('… nor does one on the first day, and each page stands', !moved2.length, moved2.join());
+  // A record edited on a later day, which leaves earlier days' records and notes as they were, keeps each day's Key where a page opened on it has it.
+  await on(D[2]);
+  App.change(tx => tx.add('record', { at: 'halvard', edge: 'EIN', field: 'text', value: '11-1111111' }), { dated: D[2] }); await tick(300);
+  const off1 = await sameAsFresh();
+  check('after edits on each day, each day still draws what a page opened on the same log draws', !off1.length, off1.join());
+  frame.remove();
+  Shell.at(null); await show(charts()[0]); Shell.select([]); await tick(150);
 }
 
 // ---- What a change keeps where it's drawn is drawn there again (gui2 L-2.6): two owners of Fund III imported, then
@@ -1422,7 +1485,7 @@ async function stillAsMade() {
   Shell.parts.peek().undo.undo(); await tick(400);
   Shell.select([]); await tick(150);
   cv().tidy(); await tick(600);
-  check('… and Tidy places the Key afresh', !keyRow().kept, JSON.stringify(keyRow().kept));
+  check('… and Tidy places the Key afresh, where it’s then kept', !!keyRow().kept && Math.abs(keyAt()[0] - keyRow().kept.x) <= 0.5 && Math.abs(keyAt()[1] - keyRow().kept.y) <= 0.5, JSON.stringify([keyRow().kept, keyAt()]));
   Shell.parts.peek().undo.undo(); await tick(400);
   check('… and undone, it stands where it stood', !!keyRow().kept && Math.abs(keyAt()[0] - k1[0]) < 1 && Math.abs(keyAt()[1] - k1[1]) < 1, JSON.stringify([keyRow().kept, keyAt(), k1]));
 }
