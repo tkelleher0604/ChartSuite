@@ -246,9 +246,10 @@ const Shell = (() => {
   const shown = el => el.getClientRects().length > 0;
   const tabbables = box => [...box.querySelectorAll(TABBABLE)].filter(shown);
   // Top down as they're drawn: the title bar, the format bar (a table's toolbar is its own, beside its grid), the formula bar, the
-  // view, the bar a change pending has, the inspector, the tabs.
-  const REGIONS = ['title', 'format', 'formula', 'tools', 'view', 'bar', 'inspector', 'tabs'], lastIn = {};
-  document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) lastIn[r.dataset.region] = e.target; });
+  // view, the bar a change pending has, a message with something to do, the inspector, the tabs.
+  const REGIONS = ['title', 'format', 'formula', 'tools', 'view', 'bar', 'toast', 'inspector', 'tabs'], lastIn = {};
+  let lastHeld = null;
+  document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) { lastIn[r.dataset.region] = e.target; lastHeld = r.dataset.region; } });
   const els = n => [...document.querySelectorAll(`[data-region="${n}"]`)].filter(shown);
   // A region given the keys: the view's part, where it takes them itself (a table, at its active cell, as a sheet
   // shown in Excel does); else where it last had them, or else its first control, or itself.
@@ -261,7 +262,7 @@ const Shell = (() => {
     (last?.isConnected && shown(last) && !last.disabled && last.closest('[data-region]')?.dataset.region === n ? last : els(n).map(el => tabbables(el)[0]).find(Boolean) ?? els(n)[0])?.focus();
   }
   function region(d) {
-    const here = document.activeElement?.closest?.('[data-region]')?.dataset.region;
+    const here = document.activeElement?.closest?.('[data-region]')?.dataset.region ?? (orphan() ? lastHeld : null);
     // (A bar with nothing to take the keys isn't a stop, unless they're there already.)
     const live = REGIONS.filter(n => n === here || els(n).some(el => tabbables(el).length || el.tabIndex >= 0)), at = live.indexOf(here);
     if (live.length) enter(live[at < 0 ? (d > 0 ? 0 : live.length - 1) : (at + d + live.length) % live.length]);
@@ -273,19 +274,24 @@ const Shell = (() => {
     if (!t.length) e.preventDefault();
     else if (e.shiftKey ? i <= 0 : i === t.length - 1) { e.preventDefault(); t.at(e.shiftKey ? -1 : 0).focus(); }
   }, true);
-  // The keys are always somewhere. What held them can go (a button a filter's Clear took away, a layer closed): where nothing
-  // has them, they go to the view, a moment after, or at the latest with the next key pressed, which goes with them, so
-  // what's typed never vanishes without a word.
+  // The keys are always somewhere. What held them can go (a button a filter's Clear took away, a layer closed, the panel gone
+  // on to another thing): where nothing has them, they go back to the part of the window they were last in, or else the view,
+  // a moment after, or at the latest with the next key pressed. A grid takes that key, as what's typed into a sheet;
+  // anywhere else it's spent finding them, so that a key meant for something gone never rewrites what's here (a box's name).
   const orphan = () => { const a = document.activeElement; return (!a || a === document.body) && !document.querySelector('dialog[open], .tour-card') && !floats.peek().length; };
-  const land = () => setTimeout(() => { if (orphan()) enter('view'); });
+  const home = () => lastHeld && els(lastHeld).some(el => tabbables(el).length) ? lastHeld : 'view';
+  const land = () => setTimeout(() => { if (orphan()) enter(home()); });
   addEventListener('keydown', e => {
     if (!started || !isLive || e.target !== document.body || e.ctrlKey || e.metaKey || e.altKey || !orphan() || (e.key.length !== 1 && !/^(Arrow|Enter$|Tab$|Home$|End$|Page|Delete$|Backspace$)/.test(e.key))) return;
-    enter('view');
+    enter(home());
     const a = document.activeElement;
     if (!a || a === document.body) return;
     e.preventDefault(); e.stopImmediatePropagation();
-    if (e.key !== 'Tab') a.dispatchEvent(new KeyboardEvent('keydown', { key: e.key, code: e.code, shiftKey: e.shiftKey, bubbles: true, cancelable: true }));
+    if (e.key !== 'Tab' && a.closest('.cells')) a.dispatchEvent(new KeyboardEvent('keydown', { key: e.key, code: e.code, shiftKey: e.shiftKey, bubbles: true, cancelable: true }));
   }, true);
+  // (What's selected changing can take away what had them, a panel's link, and what had them can let go: they don't wait for a key to come back.)
+  on('select', () => { if (keyed && isLive) land(); });
+  document.addEventListener('focusout', e => { if (keyed && isLive && !e.relatedTarget) land(); });
   // A picker (data-grid, the selector of its choices: swatches, shapes, days): one stop for Tab, whichever choice was last on, and the
   // arrows go to the nearest choice that way, as it's drawn, gaps and all; Enter takes it. A list a click opens (data-list, the selector
   // of its rows) goes likewise, up and down alone; what's in a row is a stop only while the row is the list's.
@@ -692,10 +698,12 @@ const Shell = (() => {
     const list = toasts.value;
     // Placed as it comes, and again once the view has drawn what the change did (a table's cells laid out anew).
     useLayoutEffect(() => { if (!list.length) return; placeToasts(true); const t = setTimeout(() => placeToasts(), 120); return () => clearTimeout(t); }, [list]);
-    return html`<div class="toasts" aria-live="polite">${list.map(t => html`
-      <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm}>
-        <span>${t.text}</span>${t.acts.map(([label, run]) => html`<button onClick=${() => { t.dismiss(); run(); }}>${label}</button>`)}${t.stay
-          ? html`<button class="x" aria-label="Dismiss" data-tip="Dismiss" onClick=${t.dismiss}>${icon('x')}</button>` : null}</div>`)}</div>`;
+    // (It stays while the keys are on it, as while the pointer is. What's pressed takes it away, and the keys go to the view.)
+    const away = () => { if (keyed) setTimeout(() => enter('view')); };
+    return html`<div class="toasts" data-region="toast" aria-live="polite">${list.map(t => html`
+      <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm} onFocusIn=${() => clearTimeout(t.timer)} onFocusOut=${t.arm}>
+        <span>${t.text}</span>${t.acts.map(([label, run]) => html`<button onClick=${() => { t.dismiss(); run(); away(); }}>${label}</button>`)}${t.stay
+          ? html`<button class="x" aria-label="Dismiss" data-tip="Dismiss" onClick=${() => { t.dismiss(); away(); }}>${icon('x')}</button>` : null}</div>`)}</div>`;
   }
 
   // ---- Find: records, lists, definitions, what needs attention, views and actions, ranked as you type, each
@@ -1058,8 +1066,15 @@ const Shell = (() => {
   ].forEach(a => register('action', a));
   keys({
     '$mod+Shift+KeyZ': () => part('undo') ? part('undo').redo() : false,
-    // With no layer open: the widened inspector narrows, and then the selection clears.
-    'Escape': () => { if (wide.peek()) narrow(); else if (selection.peek().length) select([]); else return false; },
+    // With no layer open: the widened inspector narrows; from a pane that isn't the view (a toolbar, the tabs), or from nowhere, the
+    // keys go to the view, what's selected staying; and there the selection clears.
+    'Escape': () => {
+      const at = document.activeElement?.closest?.('[data-region]')?.dataset.region;
+      if (wide.peek()) narrow();
+      else if (isLive && (at ? at !== 'view' : orphan())) enter('view');
+      else if (selection.peek().length) select([]);
+      else return false;
+    },
   });
   function stepView(d) {
     const vs = views.peek(), k = vs.findIndex(v => v.id === view.peek()), next = vs[(k + d + vs.length) % vs.length];

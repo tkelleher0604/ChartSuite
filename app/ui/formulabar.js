@@ -1658,7 +1658,8 @@ const FormulaBar = (() => {
       const hints = { hint, completeSingle: false, extraKeys: { Enter: (c, h) => { if (picked) h.pick(); else { h.close(); commitDraft(); } }, Up: (c, h) => { picked = true; unpicked(false); h.moveFocus(-1); }, Down: (c, h) => { picked = true; unpicked(false); h.moveFocus(1); } } };
       const cm = CodeMirror(host.current, {
         value: row.formula, mode: 'dendra', lineWrapping: true, matchBrackets: true, viewportMargin: Infinity, scrollbarStyle: null, readOnly: App.readOnly.peek() || !write,
-        extraKeys: { Enter: () => commitDraft(), Esc: () => discard(), Tab: c => { c.getWrapperElement().closest('.fx-panel')?.querySelector('.fx-reason input')?.focus(); }, 'Ctrl-Space': c => c.showHint(hints) },
+        // (Esc from a row being read closes the rows, as from anywhere in them: the same step as the layer's.)
+        extraKeys: { Enter: () => commitDraft(), Esc: () => { if (draft.peek() || editing.peek() || writing.peek()) discard(); else { open.value = false; outOf(); } }, Tab: c => { c.getWrapperElement().closest('.fx-panel')?.querySelector('.fx-reason input')?.focus(); }, 'Ctrl-Space': c => c.showHint(hints) },
         lint: { delay: 120, getAnnotations: (text, _, c) => Formulas.check(text, ctx()).problems.map(p => {
           const end = text.trimEnd().length, from = p.from < end ? p.from : Math.max(0, end - 1);
           return { from: c.posFromIndex(from), to: c.posFromIndex(Math.max(p.to, from + 1)), message: p.message, severity: 'error' };

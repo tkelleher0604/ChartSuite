@@ -1993,14 +1993,16 @@ let host = null, aimed = null;
 // drawn (dendra.md, inspector).
 function holdsStill(pane) {
   let at = null, top = 0;
-  const mark = e => { at = e.target.closest?.('.row, .rr, .sect, .doc, .ih') ?? null; top = at?.getBoundingClientRect().top ?? 0; };
+  // (Where it is in the panel: the panel itself moving, a format bar coming back over it, is nothing to scroll for.)
+  const here = el => el.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+  const mark = e => { at = e.target.closest?.('.row, .rr, .sect, .doc, .ih') ?? null; top = at ? here(at) : 0; };
   // (Left by the pointer, what has the keys is what's held.)
-  const leave = () => { at = pane.contains(document.activeElement) ? document.activeElement.closest('.row, .rr, .sect, .doc, .ih') : null; top = at?.getBoundingClientRect().top ?? 0; }, scrolled = () => { if (at?.isConnected) top = at.getBoundingClientRect().top; };
+  const leave = () => { at = pane.contains(document.activeElement) ? document.activeElement.closest('.row, .rr, .sect, .doc, .ih') : null; top = at ? here(at) : 0; }, scrolled = () => { if (at?.isConnected) top = here(at); };
   const seen = new MutationObserver(() => {
     if (!at?.isConnected) return;
-    const d = at.getBoundingClientRect().top - top;
+    const d = here(at) - top;
     if (Math.abs(d) >= 1) pane.scrollTop += d;
-    top = at.getBoundingClientRect().top;
+    top = here(at);
   });
   pane.addEventListener('pointermove', mark, { passive: true });
   pane.addEventListener('pointerleave', leave);
@@ -2243,7 +2245,8 @@ preactSignals.effect(() => {
 });
 // The two-box panel asked for (a handle dropped on a box, a box made from one, Relate…) is seen, the panel brought back if
 // it was put away.
-on('relate-open', d => { Shell.showPanel?.(); select(d); });
+// (By the keys, they go with it, to the first tick or the first thing to fill: the two are chosen so as to say how.)
+on('relate-open', d => { Shell.showPanel?.(); select(d); if (Shell.usingKeys.peek()) setTimeout(() => document.querySelector('.insp[data-tour="pair"] .relate .rr :is(button.tag, button.sel, input)')?.focus()); });
 // A relation just added offers its entries while its two boxes stay selected.
 on('select', () => { fresh.value = null; if (ticked.peek().size) ticked.value = new Set(); if (offered.peek().length) offered.value = []; });
 // A definition opened from the formula bar widens the inspector, since its statute set out wide is what the
