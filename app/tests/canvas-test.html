@@ -1156,7 +1156,7 @@ async function run() {
     const boxMenu = Object.fromEntries($$('.float .menu-item').map(x => [txt(x.querySelector('.label')), txt(x.querySelector('kbd'))]));
     check('a box’s menu keys Delete to Delete…, named for what it records (Dissolve…), and Hide in this view to nothing, with History beside them', boxMenu[`${App.deleteVerb([plain])}…`] === Shell.keyLabel('Delete') && 'Hide in this view' in boxMenu && !boxMenu['Hide in this view'] && 'History' in boxMenu, JSON.stringify(boxMenu));
     $$('.float .menu-item').find(x => txt(x.querySelector('.label')) === 'History')?.click(); await tick(250);
-    check('… its History opens History filtered to it', !!$('.hist') && txt($('.hist-focus')).includes('Ninth Street Holdings LLC'), txt($('.hist-focus')));
+    check('… its History opens History filtered to it', !!$('.hist') && txt($('.hist-filter .of')).includes('Ninth Street Holdings LLC'), txt($('.hist-filter .of')));
     Time.close(); await tick(120);
     Shell.parts.peek().undo.undo(); await tick(200);
     // A text box inserted lands in empty room near the middle, never on a box or the Key, and reads its place in the page's points.
