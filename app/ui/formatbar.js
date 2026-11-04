@@ -723,7 +723,7 @@ function resize(f) {
   if (typeof v === 'number' && current?.marks.length) apply('Size', f(v));
 }
 // The size: a field that takes any size typed (11.5), made with Enter, Esc putting it back; and its list.
-function SizeBox({ v, disabled }) {
+function SizeBox({ v, disabled, why }) {
   const back = el => { el.value = String(v); Canvas.active.peek()?.root.focus({ preventScroll: true }); };
   const keys = e => {
     const el = e.currentTarget;
@@ -734,7 +734,7 @@ function SizeBox({ v, disabled }) {
     } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); back(el); }
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); resize(e.key === 'ArrowUp' ? grown : shrunk); }
   };
-  return html`<span class=${'combo size' + (disabled ? ' off' : '')}>
+  return html`<span class=${'combo size' + (disabled ? ' off' : '')} data-tip=${why}>
     <input data-fb="size" value=${String(v)} disabled=${disabled} aria-label="Font size" spellcheck="false" autocomplete="off" inputmode="decimal"
       onFocus=${e => e.currentTarget.select()} onKeyDown=${keys} onBlur=${e => { e.currentTarget.value = String(v); }} />
     <button class="dd" data-fb="sizes" aria-label="Font sizes" disabled=${disabled} onClick=${e => offer(e.currentTarget, STEPS.slice(0, 15).map(z => ({ label: String(z), checked: v === z,
@@ -939,12 +939,12 @@ function insertMenu(e, c) {
     onKeyDown=${ev => { if (ev.key === 'Enter') { close(); run(); } }}><span class="label">${label}</span></div>`;
   const kinds = Canvas.kinds();
   Shell.popover(e.currentTarget, close => html`<div class="insert" role="menu">
-    ${App.readOnly.peek() ? null : kinds.map(k => item(k, () => c.create(k), close))}${kinds.length && !App.readOnly.peek() ? html`<div class="menu-sep" />` : null}
+    ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
     <div class="shapes">${SHAPES.map(([g, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); c.insert(g); }}>${shapeGlyph(g)}</button>`)}</div>
     <div class="menu-sep" />
     ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].map(([g, name]) =>
       item(name, () => g === 'picture' ? picture(c) : c.insert(g), close))}
-    ${App.readOnly.peek() || typeof Table === 'undefined' ? null : html`<div class="menu-sep" />${item('Import…', () => Table.importFile(), close)}`}
+    ${typeof Table === 'undefined' ? null : html`<div class="menu-sep" />${item('Import…', () => Table.importFile(), close)}`}
   </div>`, { placement: 'bottom-start' });
 }
 function picture(c) {
@@ -1055,17 +1055,17 @@ function loadHouse() {
   input.click();
 }
 const houseItems = id => {
-  const ro = App.readOnly.peek();
+  const ro = App.readOnly.peek(), writes = ro ? { disabled: true, tip: App.whyNot() } : {};
   return [...houses.value.map(s => ({ label: s.name, items: [
-      { label: `Apply to ${viewNamed(id)}`, disabled: ro, run: () => applyHouse(id, s) }, { label: 'Apply to every chart view', disabled: ro, run: () => applyHouseAll(s) }, '-',
-      { label: 'Begin a new chart in it', disabled: ro, run: () => App.newChart(s.look) }, '-', { label: 'Download', run: () => downloadHouse(s) }, { label: 'Delete', danger: true, run: () => forgetHouse(s) }] })),
+      { label: `Apply to ${viewNamed(id)}`, ...writes, run: () => applyHouse(id, s) }, { label: 'Apply to every chart view', ...writes, run: () => applyHouseAll(s) }, '-',
+      { label: 'Begin a new chart in it', ...writes, run: () => App.newChart(s.look) }, '-', { label: 'Download', run: () => downloadHouse(s) }, { label: 'Delete', danger: true, run: () => forgetHouse(s) }] })),
     ...(houses.value.length ? ['-'] : []),
     { label: 'Save this look as a house style…', run: () => saveHouse(id) }, { label: 'Load a house style…', run: loadHouse }];
 };
 const matchItems = id => chartViews().filter(v => v.id !== id).map(v => ({ label: v.name, run: () => matchLook(id, v.id) }));
 // A chart tab's: the chart's other chart views to take the look of, and the house styles.
 const lookMenu = id => { const others = matchItems(id);
-  return [{ label: 'Match look', disabled: !others.length || App.readOnly.peek(), tip: others.length ? null : 'This chart has no other chart view', items: others }, { label: 'House style', items: houseItems(id) }]; };
+  return [{ label: 'Match look', disabled: !others.length || App.readOnly.peek(), tip: App.readOnly.peek() ? App.whyNot() : others.length ? null : 'This chart has no other chart view', items: others }, { label: 'House style', items: houseItems(id) }]; };
 
 // While the inspector is widened over the chart there's nothing here to format.
 function Bar() {
@@ -1123,12 +1123,16 @@ function Bar() {
   // A font or size the texts it would change don't share is shown blank, as PowerPoint shows one its selection mixes.
   const several = l => texty && new Set(scopeTexts().map(it => it.look?.[l]).filter(v => v !== undefined)).size > 1;
   const font = !texty ? (any ? '' : 'Arial') : several('Font') ? '' : value('Font'), size = !texty ? (any ? '' : 10) : several('Size') ? '' : shown(value('Size')), align = (texty && value('Align')) || 'center';
-  return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}>
-    <button class="btn dd" data-fb="insert" onClick=${e => insertMenu(e, c)}>Insert</button>
+  // What would write, in Viewing: grey, saying why, pointed at or clicked, as + on the tabs does, showing what it reads all
+  // the same. The scope, the zoom and Arrange, whose writes its menu greys, write nothing of themselves and go on.
+  const why = ro ? App.whyNot() : null, writes = (tip, off) => ro ? { 'aria-disabled': 'true', 'data-tip': why, 'data-keys': null } : { 'data-tip': tip, disabled: off };
+  return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}
+    onClickCapture=${e => { if (e.target.closest('[aria-disabled="true"]')) { e.stopPropagation(); Shell.toast(why); } }}>
+    <button class="btn dd" data-fb="insert" ...${writes(null)} onClick=${e => insertMenu(e, c)}>Insert</button>
     <span class="sep" />
-    <button class="btn icon" data-fb="painter" aria-label="Format painter" data-tip="Format painter" data-keys="Ctrl+Shift+C" aria-pressed=${!!armed} disabled=${ro || none}
-      onClick=${() => armed ? disarm() : arm(true)} onDblClick=${() => arm(false)}>${Shell.icon('painter')}</button>
-    <button class="btn icon" data-fb="clear" aria-label="Clear formatting" data-tip="Clear formatting" data-keys="Ctrl+Space" disabled=${ro || none} onClick=${clearLook}>${Shell.icon('eraser')}</button>
+    <button class="btn icon" data-fb="painter" aria-label="Format painter" data-keys="Ctrl+Shift+C" aria-pressed=${!!armed} ...${writes('Format painter', none)}
+      onClick=${() => armed ? disarm() : arm(true)} onDblClick=${() => ro || arm(false)}>${Shell.icon('painter')}</button>
+    <button class="btn icon" data-fb="clear" aria-label="Clear formatting" data-keys="Ctrl+Space" ...${writes('Clear formatting', none)} onClick=${clearLook}>${Shell.icon('eraser')}</button>
     <span class="sep" />
     <div class=${'scope' + (scope?.own ? ' own' : '') + (none ? ' off' : '')} role="group" aria-label="Format" data-fb="scope" onPointerEnter=${wake}>
       ${none ? html`<button disabled><span>Nothing selected</span></button>` : null}
@@ -1140,28 +1144,28 @@ function Bar() {
         onClick=${e => Shell.menu(e.currentTarget, scopes(), { placement: 'bottom-end', onClose: () => cue() })} />` : null}
     </div>
     <span class="sep" />
-    <button class="btn dd font" data-fb="font" disabled=${!texty} onClick=${e => opener.font(e.currentTarget)}><span>${font}</span></button>
-    <${SizeBox} v=${size} disabled=${!texty} />
-    <button class="btn icon" data-fb="grow" aria-label="Increase font size" data-tip="Increase font size" data-keys="Ctrl+Shift+>" disabled=${!texty} onClick=${() => resize(grown)}>${Shell.icon('grow')}</button>
-    <button class="btn icon" data-fb="shrink" aria-label="Decrease font size" data-tip="Decrease font size" data-keys="Ctrl+Shift+<" disabled=${!texty} onClick=${() => resize(shrunk)}>${Shell.icon('shrink')}</button>
+    <button class="btn dd font" data-fb="font" ...${writes(null, !texty)} onClick=${e => opener.font(e.currentTarget)}><span>${font}</span></button>
+    <${SizeBox} v=${size} disabled=${ro || !texty} why=${why} />
+    <button class="btn icon" data-fb="grow" aria-label="Increase font size" data-keys="Ctrl+Shift+>" ...${writes('Increase font size', !texty)} onClick=${() => resize(grown)}>${Shell.icon('grow')}</button>
+    <button class="btn icon" data-fb="shrink" aria-label="Decrease font size" data-keys="Ctrl+Shift+<" ...${writes('Decrease font size', !texty)} onClick=${() => resize(shrunk)}>${Shell.icon('shrink')}</button>
     <span class="sep" />
-    <button class="btn icon" data-fb="bold" aria-label="Bold" data-tip="Bold" data-keys="Ctrl+B" aria-pressed=${texty && pressed('Bold')} disabled=${!texty} onClick=${() => toggle('Bold')}>${Shell.icon('bold')}</button>
-    <button class="btn icon" data-fb="italic" aria-label="Italic" data-tip="Italic" data-keys="Ctrl+I" aria-pressed=${texty && pressed('Italic')} disabled=${!texty} onClick=${() => toggle('Italic')}>${Shell.icon('italic')}</button>
-    <button class="btn icon" data-fb="underline" aria-label="Underline" data-tip="Underline" data-keys="Ctrl+U" aria-pressed=${texty && pressed('Underline')} disabled=${!texty} onClick=${() => toggle('Underline')}>${Shell.icon('underline')}</button>
-    <button class="btn icon" data-fb="strike" aria-label="Strikethrough" data-tip="Strikethrough" data-keys="Ctrl+Shift+X" aria-pressed=${texty && pressed('Strike')} disabled=${!texty} onClick=${() => toggle('Strike')}>${Shell.icon('strike')}</button>
-    <button class="btn dd" aria-label="Text color" data-tip="Text color" data-fb="color" disabled=${!texty} onClick=${e => opener.color(e.currentTarget)}>${glyph.color(texty ? value('Color') : '#000000')}</button>
-    <button class="btn dd" aria-label="Paragraph" data-tip="Alignment and spacing" data-fb="paragraph" disabled=${!texty} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
+    <button class="btn icon" data-fb="bold" aria-label="Bold" data-keys="Ctrl+B" aria-pressed=${texty && pressed('Bold')} ...${writes('Bold', !texty)} onClick=${() => toggle('Bold')}>${Shell.icon('bold')}</button>
+    <button class="btn icon" data-fb="italic" aria-label="Italic" data-keys="Ctrl+I" aria-pressed=${texty && pressed('Italic')} ...${writes('Italic', !texty)} onClick=${() => toggle('Italic')}>${Shell.icon('italic')}</button>
+    <button class="btn icon" data-fb="underline" aria-label="Underline" data-keys="Ctrl+U" aria-pressed=${texty && pressed('Underline')} ...${writes('Underline', !texty)} onClick=${() => toggle('Underline')}>${Shell.icon('underline')}</button>
+    <button class="btn icon" data-fb="strike" aria-label="Strikethrough" data-keys="Ctrl+Shift+X" aria-pressed=${texty && pressed('Strike')} ...${writes('Strikethrough', !texty)} onClick=${() => toggle('Strike')}>${Shell.icon('strike')}</button>
+    <button class="btn dd" aria-label="Text color" data-fb="color" ...${writes('Text color', !texty)} onClick=${e => opener.color(e.currentTarget)}>${glyph.color(texty ? value('Color') : '#000000')}</button>
+    <button class="btn dd" aria-label="Paragraph" data-fb="paragraph" ...${writes('Alignment and spacing', !texty)} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
     <span class="sep" />
-    <button class="btn dd" aria-label="Shape" data-tip="Shape and shadow" data-fb="shape" disabled=${!boxy} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
-    <button class="btn dd" aria-label="Fill" data-tip="Fill" data-fb="fill" disabled=${!boxy} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
-    <button class="btn dd" aria-label="Outline" data-tip="Outline" data-fb="outline" disabled=${none || textStyle} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle ? value('Outline') : 'none')}</button>
+    <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape and shadow', !boxy)} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
+    <button class="btn dd" aria-label="Fill" data-fb="fill" ...${writes('Fill', !boxy)} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
+    <button class="btn dd" aria-label="Outline" data-fb="outline" ...${writes('Outline', none || textStyle)} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle ? value('Outline') : 'none')}</button>
     <span class="sep" />
-    <button class="btn dd wide" data-fb="align" disabled=${none} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
-    <button class="btn dd wide" data-fb="order" disabled=${!layered} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
-    <button class="btn wide" data-fb="group" disabled=${grouping.disabled} onClick=${grouping.run}>${grouping.label}</button>
+    <button class="btn dd wide" data-fb="align" ...${writes(null, none)} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
+    <button class="btn dd wide" data-fb="order" ...${writes(null, !layered)} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
+    <button class="btn wide" data-fb="group" ...${writes(null, grouping.disabled)} onClick=${grouping.run}>${grouping.label}</button>
     <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none || ro, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: !layered || ro })), '-', grouping, tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', ...[['Gridlines', 'grid'], ['Snap to grid', 'snap'], ['Rulers', 'rulers']].map(([label, k]) => ({ label, checked: Canvas.aids.peek()[k], run: Canvas.aidToggle(k) }))])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
-    <button class="btn" data-fb="tidy" disabled=${tidy.disabled} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label}</button>
+    <button class="btn" data-fb="tidy" ...${writes(null, tidy.disabled)} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label}</button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
       ...[0.5, 0.75, 1, 1.5, 2].map(z => ({ label: `${z * 100}%`, checked: Math.abs(z * 100 - zoom) < 0.5, run: () => c.zoom(z) }))], { placement: 'bottom-end' })}>${zoom}%</button>
   </div>`;

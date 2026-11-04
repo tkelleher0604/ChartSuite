@@ -2029,6 +2029,87 @@ async function format() {
   await Store.forgetHouseStyle('hs1'); await Store.forgetHouseStyle('hs2'); await Shell.parts.peek().formatbar.relist?.();
   Shell.parts.peek().undo.undo(); await tick(300);
 
+  // ---- A look's paper and footer are for a chart begun in it; a view that takes the look keeps its own. No place, Bend or Scale is in one ----
+  await show(named('Structure'));
+  const stP = named('Structure'), actP = named('40 Act'), atView = id => ({ id, kind: 'View' }), pageAt = id => App.notes.peek().resolve('Page', atView(id))?.value, footAt = id => App.notes.peek().resolve('Footer', atView(id))?.value;
+  const firstView = () => charts()[0], endNaming = async () => { $('.chartmenu.naming input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(80); };
+  const dropChart = async () => { Shell.parts.peek().workbook.menu().find(x => x.label === 'Delete chart').run(); await tick(300); await show(named('Structure')); };
+  App.change(tx => { tx.note('Page', atView(stP.id), 'legal'); tx.note('Footer', { kind: 'View' }, { text: 'Confidential', number: true }); }, { dated: false }); await tick(300);
+  const paged = Notes.houseLook([...rows(), { note: 'b', label: 'Bend', pattern: { args: [{ edge: 'Owner', loc: {} }] }, view: stP.id, value: [[1, 2]] }, { note: 's', label: 'Scale', pattern: { kind: 'View' }, view: stP.id, value: 2 }, { note: 'p', label: 'Position', pattern: { kind: 'Entity' }, view: stP.id, value: { x: 1, y: 1 } }], stP.id);
+  check('a look holds the paper and the chart’s footer, and no place, Bend or Scale', paged.page === 'legal' && paged.footer?.text === 'Confidential' && !paged.notes.some(n => ['Bend', 'Scale', 'Position', 'Page', 'Footer'].includes(n.label)), JSON.stringify([paged.page, paged.footer]));
+  const fromFile = Notes.lookFrom(JSON.parse(JSON.stringify(paged)));
+  check('… a file keeps them, and what isn’t a paper or a footer doesn’t come from one', fromFile.page === 'legal' && fromFile.footer.number === true && !('page' in Notes.lookFrom({ notes: [], order: [], page: 7 })) && !('footer' in Notes.lookFrom({ notes: [], order: [], footer: { text: 3 } })) && Notes.lookFrom({ notes: [], order: [], page: { size: 'nonsense' } }).page.size === 'nonsense');
+  await show(actP);
+  const actPage = pageAt(actP.id), actSheet = JSON.stringify([sc().page.w, sc().page.h]), footWas = JSON.stringify(footAt(actP.id));
+  FormatBar.lookMenu(actP.id).find(i => i.label === 'Match look').items.find(i => i.label === 'Structure').run(); await tick(500);
+  check('… a view that takes the look keeps its paper, and the chart’s footer stays as it was', pageAt(actP.id) === actPage && JSON.stringify([sc().page.w, sc().page.h]) === actSheet && JSON.stringify(footAt(actP.id)) === footWas, `${pageAt(actP.id)} ${actSheet}`);
+  Shell.parts.peek().undo.undo(); await tick(300);
+  const fromStyle = App.chart.peek();
+  App.newChart(paged); await tick(500); await endNaming();
+  const v1 = firstView(), own1 = l => rows().filter(r => 'note' in r && r.label === l && r.view === v1.id);
+  check('… a chart begun in it takes both', App.chart.peek() !== fromStyle && pageAt(v1.id) === 'legal' && sc().page.size === 'legal' && footAt(v1.id)?.text === 'Confidential' && footAt(v1.id)?.number === true, `${pageAt(v1.id)} ${JSON.stringify(footAt(v1.id))}`);
+  check('… and no Position, Bend or Scale', !own1('Position').length && !own1('Bend').length && !own1('Scale').length, `${own1('Position').length} ${own1('Bend').length} ${own1('Scale').length}`);
+  await dropChart();
+  App.newChart({ ...paged, page: undefined, footer: undefined }); await tick(500); await endNaming();
+  check('… a style with neither begins on the slide, with no footer, whatever the chart it’s begun from has', pageAt(firstView().id) === undefined && !footAt(firstView().id) && sc().page.size === 'slide', `${pageAt(firstView().id)} ${JSON.stringify(footAt(firstView().id))}`);
+  await dropChart();
+  App.newChart(); await tick(500); await endNaming();
+  check('… and a chart begun in the house look has the first chart view’s paper and the chart’s footer', pageAt(firstView().id) === 'legal' && footAt(firstView().id)?.text === 'Confidential' && rows().filter(r => 'note' in r && r.label === 'Footer').length === 1 && rows().filter(r => 'note' in r && r.label === 'Page' && r.pattern.id === firstView().id).length === 1, `${pageAt(firstView().id)}`);
+  await dropChart();
+  App.change(tx => { tx.note('Page', atView(stP.id), undefined); tx.note('Footer', { kind: 'View' }, undefined); }, { dated: false }); await tick(300);
+
+  // ---- In Viewing, what would write is grey and says why, pointed at or clicked; no picker opens on it and nothing's written ----
+  await show(named('Structure'));
+  Shell.select(['northpine']); await tick(200);
+  App.setViewing(true); await tick(250);
+  const whyV = App.whyNot(), nV = App.wb.changes().length, lastToast = () => txt($$('.toast').at(-1));
+  check('Viewing says Viewing', /^Viewing/.test(whyV), whyV);
+  for (const k of ['insert', 'painter', 'clear', 'font', 'grow', 'shrink', 'bold', 'italic', 'underline', 'strike', 'color', 'paragraph', 'shape', 'fill', 'outline', 'align', 'order', 'group', 'tidy']) {
+    const b = $(`[data-fb="${k}"]`);
+    check(`Viewing, the bar’s ${k} is grey, saying why`, b?.getAttribute('aria-disabled') === 'true' && b.dataset.tip === whyV && !b.dataset.keys, b?.outerHTML.slice(0, 160));
+    b.click(); await tick(60);
+    check(`… clicked, it opens nothing, says why, and writes nothing`, !$('.float:not(.tip)') && lastToast() === whyV && App.wb.changes().length === nV, `${lastToast()} ${!!$('.float:not(.tip)')}`);
+    await closeMenus();
+  }
+  check('Viewing, the font and size still read what’s selected, and the size can’t be typed', !!txt($('[data-fb="font"]')) && $('[data-fb="size"]').disabled && $('[data-fb="sizes"]').disabled && $('[data-fb="size"]').closest('.combo').dataset.tip === whyV, `${txt($('[data-fb="font"]'))}`);
+  $('[data-fb="zoom"]').click(); await tick(100);
+  check('Viewing, the zoom goes on', !$('[data-fb="zoom"]').getAttribute('aria-disabled') && !!$('.float .menu-item'));
+  await closeMenus();
+  $('[data-fb="arrange"]').click(); await tick(100);
+  const arranged = $$('.float .menu-item'), arrangeSays = t => arranged.find(e => txt(e).startsWith(t));
+  check('Viewing, Arrange opens, its writes grey and the aids live', arrangeSays('Align')?.getAttribute('aria-disabled') === 'true' && arrangeSays('Bring to front')?.getAttribute('aria-disabled') === 'true' && arrangeSays('Page setup')?.getAttribute('aria-disabled') === 'true' && !arrangeSays('Gridlines')?.getAttribute('aria-disabled'), arranged.map(txt).join());
+  await closeMenus();
+  const lookV = FormatBar.lookMenu(st.id), matchV = lookV.find(i => i.label === 'Match look'), houseV = lookV.find(i => i.label === 'House style').items;
+  check('Viewing, Match look is grey, saying why; saving a look and loading one, which change no chart, go on', matchV.disabled && matchV.tip === whyV && houseV.find(i => /^Save this look/.test(i.label)) && !houseV.find(i => /^Save this look/.test(i.label)).disabled && !houseV.find(i => /^Load/.test(i.label)).disabled);
+  Shell.select([]); await tick(200);
+  const capV = $$('.row.out .cap').find(c => txt(c) === 'Funds');
+  capV.click(); await tick(150);
+  check('Viewing, a Styles row still aims the ribbon, which shows what it reaches and writes nothing', capV.classList.contains('on') && $('[data-fb="bold"]').getAttribute('aria-disabled') === 'true' && App.wb.changes().length === nV);
+  capV.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await tick(100);
+  check('… double-clicked, it says why rather than do nothing', !$('.row.out .cell') && lastToast() === whyV, lastToast());
+  capV.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 })); await tick(100);
+  const rowItems = $$('.float .menu-item');
+  check('… its menu greys what writes and copies its look', ['Rename', 'Paste look', 'Delete'].every(l => { const e = rowItems.find(x => txt(x).startsWith(l)); return !e || e.getAttribute('aria-disabled') === 'true'; }) && rowItems.find(x => txt(x).startsWith('Copy look'))?.getAttribute('aria-disabled') !== 'true', rowItems.map(txt).join());
+  await closeMenus();
+  FormatBar.aim(null); await tick(100);
+  App.setViewing(false); await tick(300);
+  // A Key row and a picture's Crop, selected.
+  const keyIdV = sc().marks.find(m => m.geometry === 'legend').id;
+  cv().insert('picture', { src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', w: 100, h: 50 }); await tick(400);
+  const picV = sc().marks.find(m => m.geometry === 'picture').id;
+  App.setViewing(true); await tick(250);
+  const nV2 = App.wb.changes().length;
+  Shell.select([picV]); await tick(200);
+  check('Viewing, a picture’s Crop can’t be typed', !!$('.insp [aria-label="Crop Left"]') && $('.insp [aria-label="Crop Left"]').disabled, $('.insp [aria-label="Crop Left"]')?.outerHTML);
+  Shell.select([keyIdV]); await tick(200);
+  const rowV = $('.keyrow');
+  check('Viewing, a Key row has no grip, and its box can’t be ticked', !!rowV && !rowV.querySelector('.grip') && rowV.querySelector('input[type=checkbox]').disabled);
+  rowV.querySelector('.cap').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await tick(100);
+  check('… double-clicked, it says why', !$('.keyrow .cell') && lastToast() === whyV && App.wb.changes().length === nV2, lastToast());
+  App.setViewing(false); await tick(300);
+  Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([]); await tick(150);
+
   // ---- The Styles panel aims the ribbon: a row or its swatch clicked is the scope, what it reaches lit ----
   Shell.select([]); await tick(150);
   const row = capt => $$('.row.out').find(r => txt(r.querySelector('.cap')) === capt), cap = capt => row(capt).querySelector('.cap');

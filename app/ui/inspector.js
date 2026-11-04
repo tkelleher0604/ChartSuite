@@ -1238,7 +1238,7 @@ function Caption({ g, label, put, moves, v }) {
   if (typing) return html`<span class="cellbox" onFocusOut=${e => { if (!e.currentTarget.contains(e.relatedTarget)) setTyping(false); }}>
     <${Field} r=${{ field: 'text', value: g.caption }} datatype="text" label=${label} cls=${g.off ? ' off' : ''} auto put=${out => { setTyping(false); put(out); }} /></span>`;
   const on = typeof FormatBar !== 'undefined' && !!FormatBar.aimedAt?.(g);
-  const rename = () => { if (!App.readOnly.peek()) setTyping(true); };
+  const rename = () => App.readOnly.peek() ? Shell.toast(App.whyNot()) : setTyping(true);
   return html`<button type="button" class=${'cap' + (on ? ' on' : '') + (g.off ? ' off' : '')} aria-label=${label} aria-pressed=${on} onDblClick=${rename}
     onKeyDown=${e => { if (e.key === 'F2' || e.key === 'Enter') { e.preventDefault(); rename(); } }}
     onContextMenu=${e => styleMenu(e, g, v, moves, rename)}>${g.caption}</button>`;
@@ -1302,7 +1302,7 @@ function ShapeView({ id, part }) {
 // A row of the Key's panel: its grip, dragged among the rest; its box, which shows or hides it where it stands; and its
 // caption, clicked to select the row, double-clicked to type over it. Its right-click offers Rename, Hide and Reset.
 function KeyRow({ r, id, row, m, on, shown, show, order, still }) {
-  const [typing, setTyping] = useState(false), rename = () => { if (!still) setTyping(true); };
+  const [typing, setTyping] = useState(false), rename = () => still ? Shell.toast(App.whyNot()) : setTyping(true);
   const owned = !!row.captions?.[r.key] || !!row.order?.includes(r.key) || !shown || r.outputs?.some(p => { const c = N().resolve('Caption', p, App.scene.peek()?.view); return c?.note && T.key(c.note.pattern) === T.key(p) && c.note.view; });
   const reset = () => App.change(tx => { const v = App.scene.peek().view, { [r.key]: _, ...captions } = row.captions ?? {};
     tx.update(id, { captions, hide: (row.hide ?? []).filter(k => k !== r.key), order: (row.order ?? []).filter(k => k !== r.key) });

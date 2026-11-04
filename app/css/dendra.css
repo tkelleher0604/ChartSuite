@@ -97,8 +97,8 @@ kbd { font: var(--t12); color: var(--ink-3); }
 /* ---- Buttons ---- */
 .btn { height: var(--row); padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap;
   border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); color: var(--ink); cursor: default; user-select: none; }
-.btn:hover:not(:disabled) { background-image: linear-gradient(var(--hover), var(--hover)); }
-.btn:active:not(:disabled) { background-image: linear-gradient(var(--press), var(--press)); }
+.btn:hover:not(:disabled, [aria-disabled="true"]) { background-image: linear-gradient(var(--hover), var(--hover)); }
+.btn:active:not(:disabled, [aria-disabled="true"]) { background-image: linear-gradient(var(--press), var(--press)); }
 .btn:disabled, .btn[aria-disabled="true"] { color: var(--ink-3); opacity: .55; }
 .btn.primary { background-color: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 500; }
 .btn.primary:hover:not(:disabled) { background-image: linear-gradient(rgb(255 255 255 / .08), rgb(255 255 255 / .08)); }
@@ -107,7 +107,7 @@ kbd { font: var(--t12); color: var(--ink-3); }
 .btn.danger { background-color: var(--no); border-color: var(--no); color: #fff; font-weight: 500; }
 .btn.ghost { border-color: transparent; background: transparent; }
 .btn.icon { width: var(--row); padding: 0; border-color: transparent; background: transparent; color: var(--ink-2); }
-.btn.icon:hover:not(:disabled) { color: var(--ink); }
+.btn.icon:hover:not(:disabled, [aria-disabled="true"]) { color: var(--ink); }
 .btn.dd::after, .dd::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; flex: none; }
 .btn[aria-pressed="true"], .btn[aria-expanded="true"] { background-image: linear-gradient(var(--press), var(--press)); }
 

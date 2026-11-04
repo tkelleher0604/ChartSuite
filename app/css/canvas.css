@@ -85,7 +85,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 @media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } }
 
 /* A rounded shape's corner handle, PowerPoint's yellow; and where a Key's row dragged would go. */
-.dc-over > .dc-adjust { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #ffc600; border: 1px solid #6b5300; box-shadow: 0 0 0 1px #fff; cursor: ew-resize; touch-action: none; }
+.dc-over > .dc-adjust { position: absolute; box-sizing: border-box; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #ffc000; border: 1px solid #7f6000; cursor: ew-resize; touch-action: none; }
 .dc-over > .dc-keydrop { position: absolute; height: 2px; margin-top: -1px; background: var(--accent); pointer-events: none; }
 
 /* A box's fields: the text pointer over one, and move over a selected box's own room; one pointed at outlined
@@ -147,7 +147,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .font, .fb .combo { height: 28px; border: 1px solid var(--rule-2); background: var(--surface); }
 .fb .font { width: 148px; justify-content: space-between; padding: 0 6px 0 8px; }
 .fb .font > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.fb .font:hover:not(:disabled) { border-color: var(--edge); }
+.fb .font:hover:not(:disabled, [aria-disabled="true"]) { border-color: var(--edge); }
 .fb .combo { display: inline-flex; align-items: center; border-radius: var(--r); flex: none; margin-left: 4px; }
 .fb .combo:hover:not(.off), .fb .combo:focus-within { border-color: var(--edge); }
 .fb .combo > input { width: 40px; height: 26px; padding: 0 0 0 8px; border: 0; background: transparent; font-variant-numeric: tabular-nums; }
@@ -174,7 +174,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 :root[data-theme="dark"] .fb .well > i { box-shadow: inset 0 0 0 1px var(--rule-2); }
 .fb .glyph { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
 .fb .zoom { margin-left: auto; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.fb:has(.btn:disabled) .btn:disabled { opacity: .4; }
+.fb .btn:disabled, .fb .btn[aria-disabled="true"] { opacity: .4; }
 /* The painter armed: the brush, everywhere on the chart. */
 .dc.painting, .dc.painting * { cursor: var(--brush) !important; }
 .dc.dropping, .dc.dropping * { cursor: var(--dropper) !important; }
