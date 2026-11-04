@@ -1619,11 +1619,11 @@ const FormulaBar = (() => {
     if (open.peek()) endEditing();
     open.value = !open.peek();
   }
-  // The rows open on one, to read; with `write`, with the cursor in it, to type into. Reading a rule isn't editing it:
+  // The rows open on one, the keys in it: to read, or with `write` to type into. Reading a rule isn't editing it:
   // a row is written only by a double-click, its pencil, typing at it, or a new row.
   const openAt = (key, { write = false } = {}) => {
     claimed = true; open.value = true; wanted.value = true;
-    if (!write) { reading.value = key; return; }
+    if (!write) { reading.value = key; aim.value = key; return; }
     writing.value = draft.peek()?.def ?? model.peek()?.def?.id ?? null;
     aim.value = key;
     document.querySelector(`.fxbar .fx-row[data-key="${key}"] .CodeMirror`)?.CodeMirror?.setOption('readOnly', false);
@@ -1918,8 +1918,8 @@ const FormulaBar = (() => {
     if (said) return html`<span class="fx-inline" ref=${ref}><${Said} runs=${said} cls="fx-why" onClick=${drop} /></span>`;
     if (m.err?.error.msg) return html`<span class="fx-inline" ref=${ref}><span class="fx-why" onClick=${drop}>${m.err.error.msg}</span></span>`;
     const labels = new Map();
-    for (const r of m.rows) { const l = r.label || r.formula; labels.set(l, labels.get(l) || r.ink); }
-    return html`<span class="fx-inline fx-labels" ref=${ref}>${[...labels].map(([l, ink]) => html`<button class=${ink ? null : 'grey'} onClick=${drop}>${l}</button>`)}</span>`;
+    for (const r of m.rows) { const l = r.label || r.formula, was = labels.get(l); labels.set(l, { key: was?.key ?? r.key, ink: was?.ink || r.ink }); }
+    return html`<span class="fx-inline fx-labels" ref=${ref}>${[...labels].map(([l, { key, ink }]) => html`<button class=${ink ? null : 'grey'} onClick=${() => openAt(key)}>${l}</button>`)}</span>`;
   }
 
   // The definition's rows, over the view, and what reads it.

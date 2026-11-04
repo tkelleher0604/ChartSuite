@@ -291,13 +291,16 @@ async function run() {
   // The look: by where it comes from, said once; colors by PowerPoint's names (the format bar's, here a
   // stand-in where it's missing), a code only for one of the user's own; sizes as the slide has them
   const fb = typeof FormatBar === 'undefined' ? (globalThis.FormatBar = {}) : FormatBar, ownName = fb.colorName;
-  fb.colorName ??= hex => ({ '#dae3f3': 'Blue, Accent 1, Lighter 80%' })[hex.toLowerCase()] ?? null;
+  fb.colorName ??= hex => ({ '#f2f2f2': 'White, Background 1, Darker 5%' })[hex.toLowerCase()] ?? null;
+  const themedFill = { out: { choice: 'Main Fund' }, args: [{ edge: 'Vehicle Type', loc: {} }] }, wasFill = App.notes.peek().resolve('Fill', themedFill, Shell.view.peek())?.value;
+  App.change(tx => tx.note('Fill', themedFill, '#f2f2f2', { view: Shell.view.peek() }));
   App.change(tx => tx.note('Fill', Tree.treeOf(st(), 'fund'), '#123456', { view: Shell.view.peek() })); Shell.select(['fund']); await tick(60);
   const looks = () => { const sec = $$('section').find(s => s.querySelector('.fold')?.textContent === 'Look'); return sec ? [...sec.querySelectorAll('.row')].map(r => r.textContent.trim()) : []; };
   check('the look says where each property comes from once, this box’s own first, a color of one’s own by its code', looks()[0] === 'This box' && looks()[1] === 'Fill#123456'
     && looks().includes('Entity Type: Limited partnership') && !$('.from'), looks().join(' | '));
   Shell.parts.value.undo.undo(); await tick(60);
-  check('… and a theme color by its name', looks().includes('Vehicle Type: Funds') && looks().includes('FillBlue, Accent 1, Lighter 80%'), looks().join(' | '));
+  check('… and a theme color by its name', looks().includes('Vehicle Type: Main fund') && looks().includes('FillWhite, Background 1, Darker 5%'), looks().join(' | '));
+  Shell.parts.value.undo.undo(); await tick(60);
   // Reset says what it reset, as History says it
   App.change(tx => { tx.note('Fill', Tree.treeOf(st(), 'fund'), '#123456', { view: Shell.view.peek() }); tx.note('Weight', Tree.treeOf(st(), 'fund'), 2, { view: Shell.view.peek() }); }, { dated: false }); await tick(60);
   $$('section').find(s => s.querySelector('.fold')?.textContent === 'Look')?.querySelector('.reset')?.click(); await tick(60);
@@ -882,7 +885,7 @@ async function run() {
   check('nothing selected shows the view’s layout and its styles, its name left to its tab', !$('.ih') && !!rowOf('Layout') && $$('.style').length > 3 && $$('svg.sw').length > 5, styleNames().join(', '));
   const outs = $$('.row.out').map(r => `${capOf(r)}/${r.querySelector('.oname')?.textContent ?? ''}`);
   check('a style’s row: its caption, then the outputs it stands for, where it stands for several, as their option list has them', outs.includes('Investors/') && outs.includes('Individual/')
-    && outs.includes('Funds/Main Fund, Parallel Fund, Feeder Fund, AIV, Co-Investment Vehicle, Business Development Company') && outs.includes('Corporation/Corporation, Exempted Company') && !$$('.row.out .oname').some(o => /·/.test(o.textContent)), outs.join(' | '));
+    && outs.includes('Funds/Parallel Fund, Feeder Fund, AIV, Co-Investment Vehicle, Business Development Company') && outs.includes('Corporation/Corporation, Exempted Company') && !$$('.row.out .oname').some(o => /·/.test(o.textContent)), outs.join(' | '));
   check('… one captioned otherwise named on hover, not beneath', $$('.row.out').find(r => capOf(r) === 'Investors')?.querySelector('.v').title === 'Investor Group');
   check('a text style uncaptioned is keyed by the texts it sets, as a box style by its boxes: Names, Jurisdictions', outs.includes('Names/') && outs.includes('Jurisdictions/')
     && $$('.row.out').filter(r => r.querySelector('svg.sw text')).every(r => /s$/.test(capOf(r))), outs.join(' | '));
@@ -936,15 +939,16 @@ async function run() {
   // A row's outputs are in its option list's order: the entry's Options, dragged, order its Styles row too.
   Shell.select([Shell.general({ args: [{ edge: 'Vehicle Type', loc: {} }] })]); await tick(80);
   const optionList = () => $$('[data-drag="opt"] .cell').map(c => c.value), fundsRow = () => $$('.row.out').find(r => capOf(r) === 'Funds')?.querySelector('.oname')?.textContent.split(', ') ?? [];
-  const inOpts = () => fundsRow().length === 6 && JSON.stringify(fundsRow()) === JSON.stringify(optionList().filter(o => fundsRow().includes(o)));
+  const inOpts = () => fundsRow().length === 5 && JSON.stringify(fundsRow()) === JSON.stringify(optionList().filter(o => fundsRow().includes(o)));
   check('an entry in general lists its Styles rows’ outputs in its Options’ order', inOpts(), `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
-  const mf = $$('[data-drag="opt"]').find(e => e.querySelector('.cell').value === 'Main Fund'), og = mf.querySelector('.grip'), top = $$('[data-drag="opt"]')[0];
+  const mf = $$('[data-drag="opt"]').find(e => e.querySelector('.cell').value === 'AIV'), og = mf.querySelector('.grip'), top = $$('[data-drag="opt"]')[0];
+  top.scrollIntoView({ block: 'center' }); await tick();
   og.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientY: y(og) }));
   dispatchEvent(new PointerEvent('pointermove', { clientY: y(mf) - 40 }));
   dispatchEvent(new PointerEvent('pointermove', { clientY: top.getBoundingClientRect().top + 2 }));
   dispatchEvent(new PointerEvent('pointerup', {})); await tick();
-  check('… and Main Fund dragged to the head of its Options heads its Styles row, here and in the view’s Key', optionList()[0] === 'Main Fund' && fundsRow()[0] === 'Main Fund' && inOpts()
-    && Scene.outputName(N(), App.scene.peek().legend.find(r => r.caption === 'Funds').outputs[0]) === 'Main Fund', `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
+  check('… and AIV dragged to the head of its Options heads its Styles row, here and in the view’s Key', optionList()[0] === 'AIV' && fundsRow()[0] === 'AIV' && inOpts()
+    && Scene.outputName(N(), App.scene.peek().legend.find(r => r.caption === 'Funds').outputs[0]) === 'AIV', `${fundsRow().join(', ')} | ${optionList().join(', ')}`);
   Shell.parts.value.undo.undo(); await tick();
   Shell.select([]); await tick();
 
