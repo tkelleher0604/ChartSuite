@@ -99,7 +99,7 @@ kbd { font: var(--t12); color: var(--ink-3); }
   border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); color: var(--ink); cursor: default; user-select: none; }
 .btn:hover:not(:disabled) { background-image: linear-gradient(var(--hover), var(--hover)); }
 .btn:active:not(:disabled) { background-image: linear-gradient(var(--press), var(--press)); }
-.btn:disabled { color: var(--ink-3); opacity: .55; }
+.btn:disabled, .btn[aria-disabled="true"] { color: var(--ink-3); opacity: .55; }
 .btn.primary { background-color: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 500; }
 .btn.primary:hover:not(:disabled) { background-image: linear-gradient(rgb(255 255 255 / .08), rgb(255 255 255 / .08)); }
 .btn.primary:disabled { color: var(--on-accent); }

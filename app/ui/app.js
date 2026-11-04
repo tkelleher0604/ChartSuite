@@ -1156,8 +1156,9 @@ const App = (() => {
   });
   // A new view after the one it copies, or at the end: a chart, or a table of `rows`. A copy takes the
   // original's notes and shapes, but its name. A new chart takes the styles and Shown of the chart shown, or
-  // else of the first, but not where it put things, and its page starts afresh.
-  function addView(name, rows, from) {
+  // else of the first, but not where it put things, and its page starts afresh. A new table opens with a few of its
+  // columns (Table.opening). `also(tx, id)`, what else the one change makes of it.
+  function addView(name, rows, from, also) {
     const vs = views.peek(), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length, taken = new Set(vs.map(v => Tree.norm(v.name)));
     const like = from ?? (rows === undefined ? (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id : null);
     let n = name, i = 2;
@@ -1169,8 +1170,11 @@ const App = (() => {
       tx.note('Name', t, n);
       [...vs.slice(0, at), { id }, ...vs.slice(at)].forEach((v, k) => tx.note('Order', viewTree(v.id), k + 1));
       if (rows !== undefined) tx.note('Layout', t, { rows });
+      if (rows && !from && typeof Table !== 'undefined') Table.opening(tx, id, rows);
+      also?.(tx, id);
       if (like) for (const { id: _, ...r } of book.peek().rows(chart.peek())) {
-        if ('note' in r && r.view === like && (from || r.label !== 'Position')) { const { note, ...x } = r; tx.add('note', { ...x, view: id }); }
+        // (What a table's view says at itself, its Why, it says at the copy.)
+        if ('note' in r && r.view === like && (from || r.label !== 'Position')) { const { note, ...x } = r; tx.add('note', { ...x, ...(x.pattern.id === like && { pattern: t }), view: id }); }
         else if (!from) continue;
         else if ('shape' in r && r.view === from) { const { shape, ...s } = r; tx.add('shape', { ...s, view: id }); }
         else if ('note' in r && !r.view && r.pattern.id === from && r.label !== 'Order' && r.label !== 'Name') tx.note(r.label, t, r.value);
@@ -1195,7 +1199,7 @@ const App = (() => {
     // A new view of what's picked: its id, or null if none is.
     add: anchor => new Promise(done => {
       let chosen = false;
-      Shell.menu(anchor, shows((name, rows) => { chosen = true; done(addView(name, rows)); }),
+      Shell.menu(anchor, shows((name, rows) => { chosen = true; done(addView(name, rows)); if (rows) Shell.showPanel(); }),
         { placement: 'top-start', onClose: () => queueMicrotask(() => chosen || done(null)) });
     }),
     // A view's own menu, on its tab: what it shows, as the inspector's view panel sets it, and copying or
