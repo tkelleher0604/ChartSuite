@@ -144,7 +144,7 @@ const Tour = (() => {
       return () => { clearTimeout(still); clearInterval(timer); removeEventListener('resize', tick); };
     }, [i]);
     if (i < 0) return null;
-    const finish = blank => { if (name.trim()) store.set('name', name.trim()); end(); if (blank) App.blank(); };
+    const finish = blank => { if (name.trim()) store.set('name', name.trim()); end(); if (blank) App.blank()?.then?.(() => Shell.toast('The sample is kept: chart menu, Workbooks', { ms: 9000 })); };
     // A step is said, and leaves focus in the window to do it; the last card is a dialog, which keeps it.
     return html`
       <div class="tour-hole" ref=${hole} />
@@ -156,7 +156,7 @@ const Tour = (() => {
       : html`<form class="tour-card" ref=${card} role="dialog" aria-modal="true" aria-label="Tour" data-trap
           onSubmit=${e => { e.preventDefault(); finish(false); }} onKeyDown=${e => { if (e.key === 'Escape') finish(false); }}>
           <p><b>${Shell.keyLabel('$mod+KeyZ')}</b> undoes anything, and History keeps every change, signed with your name.</p>
-          <label>Your name<input value=${name} onInput=${e => setName(e.target.value)} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, setTimeout(() => el.focus({ preventScroll: true })))} /></label>
+          <label>Your name<input value=${name} onInput=${e => setName(e.target.value)} ref=${el => { if (!el || el.dataset.on) return; el.dataset.on = 1; const take = () => { if (el.isConnected && !el.closest('form').contains(document.activeElement)) el.focus({ preventScroll: true }); }; setTimeout(take); /* (A click that brought it up lands after that: the keys are still its.) */ addEventListener('pointerup', () => setTimeout(take), { once: true }); addEventListener('click', () => setTimeout(take), { once: true }); }} /></label>
           <div class="acts"><button type="button" class="btn" onClick=${() => finish(true)}>Start blank</button><button class="btn primary">Keep this chart</button></div>
         </form>`}`;
   }

@@ -852,12 +852,14 @@ const Shell = (() => {
     const dated = it => App.state.peek()[it.id]?.value ?? '';
     const of = () => (kind === 'soon' && within.value !== 30 ? many('attention').flatMap(a => a.within?.(within.value) ?? []) : needs().filter(it => it.kind === kind)).sort((a, b) => kind === 'soon' || kind === 'overdue' ? String(dated(a)).localeCompare(String(dated(b))) : 0).map(it => {
       const w = say?.(it) ?? { what: '', where: '', figure: '' };
-      return { w, label: [w.what, w.where].filter(Boolean).join(' · '), detail: w.figure || null, names: w.figure ? [w.figure] : [], run: it.go };
+      // A date says who's on the hook for it, where someone is.
+      const on = it.kind === 'overdue' || it.kind === 'soon' ? App.responsible?.(it.id)?.name : null;
+      return { w, on, label: [w.what, w.where, on].filter(Boolean).join(' · '), detail: w.figure || null, names: w.figure ? [w.figure] : [], run: it.go };
     });
     const grouped = xs => {
       const heads = new Map();
       for (const x of xs) { const k = x.w.who ? `${x.w.what}|${x.w.who}` : x.label; if (!heads.has(k)) heads.set(k, []); heads.get(k).push(x); }
-      return [...heads.values()].flatMap(g => g.length < 2 ? g : [{ head: `${g[0].w.what} · ${g[0].w.who} (${g.length})` }, ...g.map(x => ({ ...x, label: x.w.where }))]);
+      return [...heads.values()].flatMap(g => g.length < 2 ? g : [{ head: `${g[0].w.what} · ${g[0].w.who} (${g.length})` }, ...g.map(x => ({ ...x, label: [x.w.where, x.on].filter(Boolean).join(' · ') }))]);
     };
     const days = () => kind === 'soon' ? [{ seg: [30, 90].map(n => ({ label: `Next ${n} days`, pressed: within.value === n, run: () => { within.value = n; } })) }] : [];
     menu(anchor, q => q ? rank(of(), q) : [...days(), ...grouped(of())], { search: true, cls: 'needs', placement: 'top-end' });

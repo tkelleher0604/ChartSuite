@@ -406,6 +406,7 @@ function open(data) {
       // How many rows it adds and removes so far; an item's rows as it leaves them (none where it leaves none); and
       // the note it leaves at a pattern (and view and param), if any.
       size: () => adds.size + removes.size,
+      added: () => [...adds.values()],
       item: id => [...items.get(id) ?? []],
       noteAt(label, pattern, { view, param } = {}) {
         if (!noted) { noted = new Map(); for (const r of all()) if ('note' in r) push(noted, noteKey(r), r); }

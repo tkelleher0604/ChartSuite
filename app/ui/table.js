@@ -1471,7 +1471,11 @@ const Table = (() => {
       : [x.values && `${file ? 'Imported' : 'Pasted'} ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
         .filter(Boolean).join(', ').replace(/^a/, 'A').replace(/^Added/, file ? 'Imported' : 'Added') + (file ? ` from ${file}` : '');
     const asks = [...x.rows, ...x.rels].some(id => App.asksDay(x.records[id], recs));
-    const make = (tx, d, p) => { fill(tx, x.records); for (const id of x.ends) tx.remove(id, p?.asks === 'from' ? d : App.day.peek()); };
+    // What's new, related to nothing a page draws, isn't placed on it: the toast offers Show (App.keepOff).
+    const brand = Object.keys(x.records).filter(id => 'kind' in x.records[id]);
+    let off = [];
+    const make = (tx, d, p) => { fill(tx, x.records); for (const id of x.ends) tx.remove(id, p?.asks === 'from' ? d : App.day.peek()); off = brand.length ? App.keepOff(tx, brand) : []; };
+    const offered = () => (off.length ? ['Show', () => App.change(tx => brand.forEach(id => tx.note('Shown', { id, kind: x.records[id].kind }, true, { view: off[0].id })), { say: c => Time.describe(c) })] : null);
     if (single && !x.rows.length && !x.made.length && !x.rels.length && !x.ends.length && !asks) { App.change(tx => make(tx), { say }); return back(); }
     const shownCols = new Set(m.cols.filter(drawn).map(c => c.key));
     // What it does, in the redline's ink, as the bar says it; what's left out, which it doesn't do, plain. The names it
@@ -1497,7 +1501,7 @@ const Table = (() => {
     // What it's at: the records it writes over, those it adds at, and those it ends.
     const needs = [...new Set([...Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]), ...x.ends])].filter(id => id in entered);
     App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
-      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : App.day.peek() }), make, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
+      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : App.day.peek() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
   // Rows deleted, as one change pending: the records entered there, and what's at them, each ended as App.deleting says.
@@ -2146,7 +2150,10 @@ const Table = (() => {
     let id = null;
     leave();
     // The row made is the row being typed, kept in view under the filters till it's left.
-    if (!App.change(tx => { id = keeping = tx.add('record', { kind: m.rows.kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: s }); })) { keeping = null; return; }
+    // And related to nothing a page draws, it isn't placed on it: the toast offers Show (App.keepOff).
+    let off = [];
+    if (!App.change(tx => { id = keeping = tx.add('record', { kind: m.rows.kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: s }); off = App.keepOff(tx, [id]); },
+      { say: () => (off.length ? `${s} isn’t on ${off[0].name}` : null), go: () => (off.length ? ['Show', () => App.change(tx => tx.note('Shown', { id, kind: m.rows.kind }, true, { view: off[0].id }), { say: c => Time.describe(c) })] : null) })) { keeping = null; return; }
     input.value = '';
     landed(id, () => {
       if (e.key !== 'Tab') return reveal(id);

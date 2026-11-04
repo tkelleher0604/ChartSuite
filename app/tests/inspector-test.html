@@ -594,7 +594,7 @@ async function run() {
   quiet?.click(); await tick(80);
   check('Transfer… asks at once, atop the relation’s panel, whom it goes to, a search; its bar setting it out the same, till then not to be made',
     !!$('.insp > .asking .transfer') && !!pb('.transfer') && !!document.querySelector('.float .menu-find') && document.activeElement === document.querySelector('.float .menu-find')
-    && /^From Fund III Blocker to/.test(spoken($('.asking .transfer'))) && / of Halvard Logistics Holdings, Inc\.$/.test(spoken($('.asking .transfer')))
+    && /^From Fund III Blocker to/.test(spoken($('.asking .transfer'))) && / of Halvard Logistics Holdings, Inc\.·Stock Certificate No\. 7, Halvard Logistics stays with the stake that ends$/.test(spoken($('.asking .transfer')))
     && $('.asking .transfer .amount')?.value === '82%' && $('.asking .from .word')?.textContent === 'On' && $('.asking .from input')?.value === today
     && pb('.btn.primary')?.textContent === 'Transfer' && pb('.btn.primary').disabled && $('.asking .btn.primary')?.disabled, `${$('.asking')?.textContent} / ${pb()?.textContent}`);
   await findIn('Northwind Holdings LLC');
@@ -1288,7 +1288,9 @@ async function saysWhen(C, keep) {
   const spanned = () => spoken($('.ih .span') ?? document.createElement('p')).trim();
   check('a relation’s head says from when, one nobody entered said as what it is', /^From [A-Z][a-z]{2} \d+, \d{4}(, when .* was formed)?$/.test(spanned()), spanned());
   $('.ih .span .lk')?.click(); await tick(60);
-  check('… a click opening the chart then', !!Shell.time.peek()?.asOf, JSON.stringify(Shell.time.peek()));
+  const dayMenu = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
+  await pick('Show the chart then'); await tick(60);
+  check('… a real control: Show the chart then, and Change this day…', dayMenu === 'Show the chart then,Change this day…' && !!Shell.time.peek()?.asOf, `${dayMenu} ${JSON.stringify(Shell.time.peek())}`);
   Shell.at(null); await tick(60);
   Shell.select(['fund']); await tick(60);
   check('an object’s says it by the act its entry records', /^Formed [A-Z][a-z]{2} \d+, \d{4}$/.test(spanned()), spanned());
@@ -1365,7 +1367,7 @@ async function saysWhen(C, keep) {
   check('Find reaches Insert an entity between by Interpose', insertFind.some(x => x.startsWith('Insert an entity between')), insertFind.join(' | '));
   App.interposing(blocked); await tick(80);
   await typeIn('Calder Ridge Holdco, LLC'); await pick('New Entity: Calder Ridge Holdco, LLC'); await tick(80);
-  check('… asking whom and on what day', spoken(pb('.transfer')).trim() === 'Fund III → Calder Ridge Holdco, LLC → Fund III Blocker' && pb('.btn.primary')?.textContent === 'Insert' && App.wb.changes().length === nIns, pb()?.textContent);
+  check('… asking whom and on what day, saying what stays with the stake that ends', spoken(pb('.transfer')).trim() === 'Fund III → Calder Ridge Holdco, LLC → Fund III Blocker·Stock Certificate No. 1, Fund III Blocker stays with the stake that ends' && pb('.btn.primary')?.textContent === 'Insert' && App.wb.changes().length === nIns, pb()?.textContent);
   await type(pb('.from input') ?? $('.asking .from input'), 'January 1, 2037'); await tick(80);
   const on37 = App.wb.asOf(C, '2037-01-01'), named = Object.keys(on37).find(k => on37[k].value === 'Calder Ridge Holdco, LLC'), mid = named && on37[named].at, rels = Object.keys(on37).filter(k => on37[k].args?.some(a => a.at === mid)), pctAt = r => Object.values(on37).find(x => x.at === r && x.edge === 'Percentage')?.value;
   check('… the old ended on the day, the holder over the new at 100%, the new over what it held at the old figure', App.wb.changes().length === nIns + 1 && !on37[blocked] && !!App.wb.asOf(C, '2036-12-31')[blocked]
@@ -1439,6 +1441,12 @@ async function saysWhen(C, keep) {
   Shell.select(['blocker']); await tick(60);
   $$('section').find(s => s.dataset.title === 'Personnel')?.querySelector('.sect .btn.icon')?.click(); await tick();
   await typeIn('Elena Vasquez'); await pick('New Individual: Elena Vasquez'); await tick(80);
+  // (It goes straight to the kind and the day, in its bar, nothing yet made.)
+  const roles = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
+  check('a person named in a list goes straight to the kind, in its bar, then the day, nothing made till Enter', /Director/.test(roles) && pb('.btn.primary')?.disabled && /Elena Vasquez is a/.test(spoken(pb('.what'))) && !Object.keys(st()).some(k => N().nameOf(st(), k) === 'Elena Vasquez'), `${roles} / ${pb()?.textContent}`);
+  await pick('Director'); await tick(60);
+  check('… the keys going on to the day', document.activeElement === pb('.when input') && !pb('.btn.primary').disabled, document.activeElement?.outerHTML.slice(0, 80));
+  key(document.activeElement, 'Enter'); await tick(80);
   const elena = Object.keys(st()).find(k => st()[k].kind === 'Individual' && N().nameOf(st(), k) === 'Elena Vasquez');
   check('a person added from a list, by a relation the view doesn’t draw, stays off the page, the toast saying so, with Show', !!elena && !App.scene.peek().byId.has(elena) && N().resolve('Shown', Tree.treeOf(st(), elena), here2)?.value === false
     && spoken(document.querySelector('.toast span')) === `Elena Vasquez isn’t on ${N().nameOf(st(), here2)}` && [...document.querySelectorAll('.toast button')].some(b => b.textContent === 'Show'), document.querySelector('.toast')?.textContent);
