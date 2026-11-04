@@ -313,7 +313,8 @@ A formula refers to things by name, matched without regard to case, as labels ar
   3. the same, on up the record's path to its object.
 - **A row's label.** On a tag a definition covers, `.[label]` is TRUE where the tag is attested and a row with that label holds there, and FALSE otherwise.
 - **Lists.** A dot after a list looks the name up on each item and gives a list: `Owners.Percentage`.
-- **Missing names.** A name the schema has somewhere, but not at this record, gives nothing, or an empty list. A name the schema doesn't have anywhere is `#NAME?`, and so is a name that matches two things at one step.
+- **A relation's name.** At a record of a relation, the relation's name is the list of who's at its other sides there, as the relation's lists are: `COUNT([Side Letter])` at a fund counts those it has a side letter with.
+- **Missing names.** A name the schema has somewhere, but not at this record, gives nothing, or an empty list. A name the schema doesn't have anywhere is `#NAME?`, and so is a name that matches two things at one step. A role two relations share, read by its label, reads both, which the formula bar says where it's written.
 
 ### Values
 
@@ -346,7 +347,7 @@ So a missing percentage leaves a look-through through it unknown, rather than sm
 
 | Function | Gives |
 | --- | --- |
-| `IF`, `AND`, `OR`, `NOT` | As in Excel, except that IF with no third argument gives nothing where its condition fails. AND and OR stop once the answer is known. They can also go between or before their operands: `a AND NOT b`. Comparisons bind tighter than NOT, NOT tighter than AND, and AND tighter than OR. |
+| `IF`, `AND`, `OR`, `NOT` | As in Excel, except that IF with no third argument gives nothing where its condition fails. AND and OR stop once the answer is known. They can be written as Excel writes them, `AND(a, b, c)`, or between or before their operands: `a AND NOT b`. Comparisons bind tighter than NOT, NOT tighter than AND, and AND tighter than OR. |
 | `=`, `<>`, `<`, `>`, `<=`, `>=`, `+`, `-`, `*`, `/`, `&` | As in Excel, with nothing as above. Comparing values of different kinds, like text with a number, is `#VALUE!`. |
 | `x IN list` | TRUE if x is one of the list's items. |
 | `BLANK()`, `ISBLANK(x)` | Nothing, and whether x is nothing. |
@@ -363,7 +364,9 @@ So a missing percentage leaves a look-through through it unknown, rather than sm
 
 ### Errors
 
-Errors show where the output would be, as in Excel, and pass on to whatever reads them: `#NAME?` for a name the schema doesn't have, `#VALUE!` for the wrong kind of value, `#REF!` for something deleted, `#OPTION?` for a choice row giving text that isn't an option, `#DIV/0!`, and `#CIRCULAR!`. For a tag whose rows are all `←`, a row that runs into an error doesn't hold, and the tag shows the error only if no row holds.
+Errors show where the output would be, as in Excel, and pass on to whatever reads them: `#NAME?` for a name the schema doesn't have, `#VALUE!` for the wrong kind of value, `#REF!` for something deleted, `#OPTION?` for a choice row giving text that isn't an option, or quoted text compared with a choice that's none of its options (`Jurisdiction = "Deleware"`), or a kind with what's no kind, `#DIV/0!`, and `#CIRCULAR!`. For a tag whose rows are all `←`, a row that runs into an error doesn't hold, and the tag shows the error only if no row holds.
+
+**A rule in error.** `#NAME?`, `#OPTION?` and `#CIRCULAR!` say the rule's wrong, not the record: such a rule is in error, and so is whatever reads it, at any remove, and what they give isn't an answer. The engine lists a definition's **flaws**, read off its rows without working them out, each with where it's written and, where one's close, what would mend it, and `Formulas.broken` gives the rules at fault and all they reach. A yes-or-no in error is drawn as one that doesn't hold, so a failure's style stays on what it covers. `#VALUE!` and `#N/A` say what a record lacks, so they're a rule waiting on a fact, not a rule in error.
 
 ## Loops
 

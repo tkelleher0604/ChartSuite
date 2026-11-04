@@ -587,7 +587,10 @@ const FormulaBar = (() => {
       if (a >= b) return null;
       const n = { from: toks[a].pos, to: toks[b - 1].end, text: text.slice(toks[a].pos, toks[b - 1].end), at: toks.slice(a, b).some(t => op(t, '@')) };
       const sub = xs => xs.map(([x, y]) => read(x, y)), f = toks[a].k === 'name' && toks[a].v.toUpperCase();
-      for (const k of ['OR', 'AND']) { const xs = cut(a, b, t => kw(t, k)); if (xs.length > 1) return { ...n, k, kids: sub(xs) }; }
+      // AND(a, b) and OR(a, b), as Excel writes them, are a AND b and a OR b; but `a AND (b)` is `a AND` something.
+      const called = i => (kw(toks[i], 'AND') || kw(toks[i], 'OR')) && op(toks[i + 1], '(') && (i === a || toks[i - 1].k === 'op' && !op(toks[i - 1], ')', '}') || toks[i - 1].k === 'kw');
+      if (called(a) && close.get(a + 1) === b - 1) { const xs = cut(a + 2, b - 1, t => op(t, ',')); return xs.length > 1 ? { ...n, k: toks[a].v, kids: sub(xs) } : read(a + 2, b - 1); }
+      for (const k of ['OR', 'AND']) { let i = a; const xs = cut(a, b, t => { const at = toks.indexOf(t, i); i = at; return kw(t, k) && !called(at); }); if (xs.length > 1) return { ...n, k, kids: sub(xs) }; }
       if (kw(toks[a], 'NOT')) return { ...n, k: 'NOT', kids: [read(a + 1, b)] };
       const xs = cut(a, b, t => kw(t, 'IN') || op(t, '=', '<>', '<', '>', '<=', '>='));
       if (xs.length === 2) return { ...n, k: kw(xs[0][2], 'IN') ? 'IN' : 'CMP', op: xs[0][2].v, kids: sub(xs) };
@@ -1305,7 +1308,7 @@ const FormulaBar = (() => {
     const by = new Map(), def = (X, id) => defOfRecord(X, id), name = (X, id) => def(X, id)?.name;
     // Which, in words: a relation by its place, a value or a yes-or-no by whose it is.
     const who = (X, n, id) => { const r = X.records[id]; return r.args ? n.segmentOf(X.records, id) : n.whereOf(X.records, r); };
-    const bump = (X, n, id, k) => { const q = name(X, id); if (!q) return; if (!by.has(q)) by.set(q, { name: q, def: def(X, id), plus: 0, minus: 0, changed: 0, of: { plus: [], minus: [], changed: [] } }); const e = by.get(q); e[k]++; e.of[k].push({ id, X, say: who(X, n, id) }); };
+    const bump = (X, n, id, k) => { const q = name(X, id); if (!q) return; if (!by.has(q)) { const { id: did, type, edges } = def(X, id); by.set(q, { name: q, def: { id: did, name: q, type, edges }, plus: 0, minus: 0, changed: 0, of: { plus: [], minus: [], changed: [] } }); } const e = by.get(q); e[k]++; e.of[k].push({ id, kind: X.records[Tree.objectOf(X.records, id)]?.kind, get say() { return who(X, n, id); } }); };
     const counts = r => !('tag' in r) || r.tag === true;
     // Counted at what it's at only where that's counted itself: what a definition gives at an entity that goes is.
     const tops = (ids, X) => { const all = new Set(ids), counted = id => all.has(id) && !!name(X, id); return ids.filter(id => !counted(X.records[id]?.at) && !(X.records[id]?.args ?? []).some(a => counted(a.at))); };
@@ -1333,7 +1336,7 @@ const FormulaBar = (() => {
   const noun = d => d?.edges?.length > 1 || d?.type !== 'tag' || /^an?\s/i.test(String((noteOf(d.id) && N().description(noteOf(d.id).pattern)) ?? ''));
   const countedOf = (n, d, of = []) => {
     if (noun(d)) return `${n} ${n === 1 ? lower(d.name) : Tree.plural(lower(d.name))}`;
-    const kinds = new Set(of.map(x => x.X.records[Tree.objectOf(x.X.records, x.id)]?.kind)), k = kinds.size === 1 ? [...kinds][0] : null;
+    const kinds = new Set(of.map(x => x.kind)), k = kinds.size === 1 ? [...kinds][0] : null;
     return `${d.name} at ${n} ${k ? (n === 1 ? lower(k) : Tree.plural(lower(k))) : n === 1 ? 'record' : 'records'}`;
   };
   const sayList = xs => xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs[0] ?? '';

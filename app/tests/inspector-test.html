@@ -129,7 +129,7 @@ async function run() {
   check('… and a value typed lately, as a slip is, is corrected at once, with nothing asked', st().fund_ein?.value === '92-4810339' && !pb(), pb()?.textContent);
   await type(rowOf('EIN').querySelector('.cell'), '92-4810338');
   // … and a value where there was none has nothing to keep
-  $('.add-entry').click(); await tick(); await pick('Value'); await type($('.draft input'), 'Side Note'); await type($('.draft .v textarea, .draft .v input'), 'First');
+  $('.add-entry').click(); await tick(); await pick('New value'); await type($('.draft input'), 'Side Note'); await type($('.draft .v textarea, .draft .v input'), 'First');
   check('… nor one where there was none', Object.values(st()).some(r => r.at === 'fund' && r.edge === 'Side Note' && r.value === 'First') && !pb(), pb()?.textContent);
   Shell.parts.value.undo.undo(); await tick(60);
   await type(rowOf('Formation Date').querySelector('input'), '3/1/2023');
@@ -236,12 +236,12 @@ async function run() {
 
   // Adding an entry, with its specification
   $('.add-entry').click(); await tick();
-  await pick('Tag');
+  await pick('New yes-or-no');
   await type($('.draft input'), 'Side Letters');
-  const added = Object.entries(st()).find(([, r]) => r.at === 'fund' && r.edge === 'Side Letters');
-  check('adding a tag records it attested, with its specification', added && added[1].tag === true && last().adds.some(r => 'spec' in r));
+  const madeRow = () => $$('.row').find(r => r.querySelector(':scope > .k .lbl')?.textContent.trim() === 'Side Letters');
+  check('making a yes-or-no specifies it, and leaves this record’s answer to its rule or its box, offered unticked', !Object.values(st()).some(r => r.at === 'fund' && r.edge === 'Side Letters') && last().adds.some(r => 'spec' in r) && !!madeRow()?.querySelector('.to-rule') && !madeRow()?.querySelector('.tag.on, input:checked'), madeRow()?.outerHTML);
   $('.add-entry').click(); await tick();
-  await pick('Value');
+  await pick('New value');
   await type($('.draft input'), 'Closing Date');
   await type($('.draft .v input'), 'June 30, 2024');
   const field = Object.values(st()).find(r => r.at === 'fund' && r.edge === 'Closing Date');
@@ -400,8 +400,8 @@ async function run() {
   check('… and from the last, to its row, so a key typed next is the window’s', document.activeElement?.matches('.rr-at .row') && document.activeElement.textContent.includes('Voting Percentage'), document.activeElement?.outerHTML.slice(0, 120));
   ghost('New relation').click(); await tick();
   const [nm, ra, rb] = $$('.rr.new input'), nNew = App.wb.changes().length;
-  check('New relation is set out as the relation’s rows: its name, then each side with its role after it, no placeholder saying what a field is', document.activeElement === nm && nm.placeholder === 'New relation'
-    && ![ra, rb].some(x => x.placeholder) && ra.previousElementSibling?.matches('.side') && rb.previousElementSibling?.matches('.side') && ra.getAttribute('aria-label') !== rb.getAttribute('aria-label') && !$('.rr.new .when'),
+  check('New relation is set out as the relation’s rows: its name, then each side with its role after it, each a box that shows, New role', document.activeElement === nm && nm.placeholder === 'New relation'
+    && [ra, rb].every(x => x.placeholder === 'New role') && ra.previousElementSibling?.matches('.side') && rb.previousElementSibling?.matches('.side') && ra.getAttribute('aria-label') !== rb.getAttribute('aria-label') && !$('.rr.new .when'),
     $('.rr.new')?.innerHTML.slice(0, 300));
   for (const [el, v] of [[nm, 'Co-Investment Right'], [ra, 'Holder'], [rb, 'Issuer']]) { el.focus(); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(10); }
   check('… once named, it’s a change pending, as one ticked is: redlined, the bar asking its day, nothing made yet', !!$('.rr.new.adding') && /^Co-Investment Right: Fund III Blocker → The BDC/.test(spoken(pb('.what') ?? document.body))
@@ -814,8 +814,8 @@ async function run() {
   Shell.select(['fund']); await tick();
   rowOf('Jurisdiction').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
   check('Alt+click on a label shows the entry in general', Shell.selection.value[0]?.startsWith('~') && $('.ih .cell')?.value === 'Jurisdiction' && $$('.sect > .fold').some(s => s.textContent === 'Options'));
-  const req = rowOf('Required')?.querySelector('input');
-  check('…with Required', req?.checked === true);
+  const req = rowOf('A blank needs filling in')?.querySelector('input');
+  check('…with whether a blank needs filling in', req?.checked === true);
   Shell.select(['fund']); await tick();
   rowOf('EIN').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
   check('an entry in general hides a Description not yet written, and an empty Formula', $('.ih .cell')?.value === 'EIN' && !rowOf('Description') && !$$('.sect > .fold').some(s => s.textContent === 'Formula'));
@@ -1326,12 +1326,12 @@ async function saysWhen(C, keep) {
   Shell.select(['chen']); await tick(60);
   const pane = document.querySelector('.inspector'), positions = $$('section').find(s => s.dataset.title === 'Positions');
   positions.scrollIntoView(); await tick(30);
-  const topWas = pane.scrollTop, posRow = [...positions.querySelectorAll('.row.rel')].find(r => r.textContent.includes('Northpine'));
+  const posTop = () => $$('section').find(s => s.dataset.title === 'Positions').getBoundingClientRect().top, topWas = posTop(), posRow = [...positions.querySelectorAll('.row.rel')].find(r => r.textContent.includes('Northpine'));
   posRow.querySelector('.v .lk').click(); await tick(60);
   const posId = Shell.selection.peek()[0];
   $('.ih .more').click(); await tick(); await pick('End…'); await tick(60);
   key($('.asking .from input') ?? pb('.from input'), 'Enter'); await tick(120);
-  check('ending a row gone to from a person’s panel comes back to the person, scrolled where it was', Shell.selection.peek().join() === 'chen' && pane.scrollTop === topWas && !st()[posId], `${Shell.selection.peek()} ${pane.scrollTop} ${topWas}`);
+  check('ending a row gone to from a person’s panel comes back to the person, the list where it was', Shell.selection.peek().join() === 'chen' && Math.abs(posTop() - topWas) < 1 && !st()[posId], `${Shell.selection.peek()} ${posTop()} ${topWas} ${pane.scrollTop} ${document.activeElement?.outerHTML.slice(0, 100)}`);
   Shell.parts.value.undo.undo(); await tick(60);
   // Several rows of a list end together, the panel staying on the record; what they break is said in words, with End that too
   Shell.select(['chen']); await tick(60);
@@ -1476,7 +1476,7 @@ const ACTS = {
   peek: () => rowOf('Good Standing').querySelector('.tag').dispatchEvent(new PointerEvent('pointerenter')),
   type: () => { const i = rowOf('EIN').querySelector('.cell'); i.focus(); setTimeout(() => { i.value = '92-4810999'; i.dispatchEvent(new Event('input', { bubbles: true })); }, 30); },
   choose: () => rowOf('Jurisdiction').querySelector('.sel').click(),
-  draft: () => { $('.add-entry').click(); setTimeout(() => pick('Value'), 30); },
+  draft: () => { $('.add-entry').click(); setTimeout(() => pick('New value'), 30); },
 };
 if (ACTS[Q.get('act')]) Shell.ready.then(() => setTimeout(ACTS[Q.get('act')], 100));
 if (Q.has('run')) Shell.ready.then(() => setTimeout(() => run().catch(e => check(`threw: ${e.message}`, false, e.stack)).finally(report), 50));

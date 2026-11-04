@@ -378,7 +378,7 @@ async function checks() {
   const inRoom = [...graph.children].map(b => b.getBoundingClientRect()).every(b => b.left >= room.left && b.right <= room.right && b.top >= below && b.bottom <= room.bottom);
   check('the rows dropped, the boxes they’re about are brought clear of them and into the view', inRoom && shift.y > 0 && shift.x < 0, JSON.stringify(shift));
   typeIn('r2', '> 25%', ' AND '); await wait(20);
-  check('… and as a row is edited, they stay clear of it', [...graph.children].every(b => b.getBoundingClientRect().top >= document.querySelector('.fx-panel').getBoundingClientRect().bottom), JSON.stringify(shift));
+  check('… and as a row is edited, what they moved goes back: nothing’s left pushed off screen', shift.x === 0 && shift.y === 0, JSON.stringify(shift));
   FormulaBar.discard(); document.querySelector('.fx-open').click(); await wait(20);
   // … and what already shows, however near them, holds still, as the rest of the chart does.
   const stood = { ...shift };
@@ -627,10 +627,9 @@ async function checks() {
   Shell.select(['fund', 'tessellate']); await wait(40);
   check('the bar: the most derived that holds, with the rest to pick from', M().title === 'Affiliated Person' && M().options.some(o => o.d.name === 'Look-Through Ownership' && !o.id), M().title);
   await openRows();
-  const lines = [...document.querySelectorAll('.fx-between li .fx-why')].map(x => x.textContent);
-  check('… and open, all that’s between them, each said', lines.length === btw.holds.length + btw.not.length - 1 && lines.some(x => x.startsWith('Fund III has no look-through ownership of Tessellate')), lines.join(' | '));
-  [...document.querySelectorAll('.fx-between li .fx-why')].find(x => x.textContent.startsWith('Fund III has no look-through'))?.click(); await wait(40);
-  check('… a click picks it: its sentence, its rows', M().absent && M().title === 'Look-Through Ownership' && document.querySelector('.fx-said')?.textContent.startsWith('Fund III has no look-through'), M().title);
+  check('… and open, that one in full: the rest are the panel’s, not said twice', !document.querySelector('.fx-between') && M().options.length === btw.holds.length + btw.not.length, M().options.length);
+  FormulaBar.pickLine(btw.not.find(x => x.def === 'def_look_through')?.key); await wait(40);
+  check('… a line picked: its sentence, its rows', M().absent && M().title === 'Look-Through Ownership' && document.querySelector('.fx-said')?.textContent.startsWith('Fund III has no look-through'), M().title);
   Shell.select([]); await wait(20);
   const findFor = q => Shell.parts.peek().find.flatMap(s => s.items(q));
   const pairFound = findFor('Fund III Tessellate').find(x => x.pair);
@@ -779,7 +778,7 @@ async function checks() {
   p = FormulaBar.pending.peek();
   check('typing a formula previews it: 65% rules out Okafor’s half of GP III', p?.from === 'bar' && p.deltas.find(d => d.name === 'Control')?.minus >= 5, JSON.stringify(p?.deltas));
   check('Done and Discard show while it is pending', [...document.querySelectorAll('.fxbar .fx-acts .btn')].map(b => b.textContent).join() === 'Discard,Done');
-  check('the row being edited is a field, what was typed redlined', document.querySelector('.fx-row.editing .CodeMirror .add')?.textContent === '6' && document.querySelector('.fx-row.editing .CodeMirror .del')?.textContent === '2',
+  check('the row being edited is a field showing what’s typed, no marks in the number; what it said stands apart under it, struck', !document.querySelector('.fx-row.editing .CodeMirror .add, .fx-row.editing .CodeMirror .del') && /> 65%/.test(document.querySelector('.fx-row.editing .CodeMirror')?.textContent ?? '') && document.querySelector('.fx-row.editing .fx-before .del')?.textContent === '2',
     document.querySelector('.fx-row.editing')?.textContent);
   const v0 = App.version.peek();
   FormulaBar.commitEdit(); await wait(30);
