@@ -70,10 +70,13 @@ body { margin: 0; background: var(--paper); color: var(--ink); font: var(--t13);
 :where(a) { color: inherit; text-decoration: none; }
 :where(a:hover) { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--rule-2); }
 ::selection { background: var(--selected); }
-/* Focus: one ring, everywhere, fields included; inside the edge of what fills a region. */
+/* Focus: one ring, for the keys, everywhere, fields included; inside the edge of what fills a region. The window goes by the hand
+   last used (data-hand, the shell's): what a mouse gave focus to has no ring, however it got it, but a field being typed in. */
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 :focus:not(:focus-visible) { outline: none; }
 [data-region]:focus-visible, .view > .host > :focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+html[data-hand="mouse"] :focus-visible:not(input, textarea, select, [contenteditable]) { outline: none; }
+html[data-hand="mouse"] .CodeMirror-focused { outline: 1px solid var(--focus); outline-offset: 0; }
 * { scrollbar-width: thin; scrollbar-color: var(--rule-2) transparent; }
 ::placeholder { color: var(--ink-3); opacity: 1; }
 [hidden] { display: none !important; }
@@ -235,7 +238,7 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .amt .amount .cell { width: 7ch; min-width: 5ch; height: 24px; margin: 0; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); color: var(--accent-ink); font-weight: 500; font-variant-numeric: tabular-nums; }
 /* A toast rises over the bar, so neither hides the other. */
 #app:has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 72px); }
-#app:has(.view > .scrub):has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 104px); }
+#app:has(.view > .scrub):has(.view > .pendbar) .toasts { bottom: calc(var(--foot) + 120px); }
 /* The day a change holds from, ends on or is made on, wherever it's asked (App.From): "From" or "Ends on", a menu with All along or
    Never held, and the day, typed over; what's said, the day or All along, in the redline's blue. */
 .from { display: inline-flex; align-items: center; gap: 2px; min-height: var(--row); color: var(--ink-2); }
@@ -324,13 +327,13 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .find { height: var(--row); width: 100%; padding: 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--rule); border-radius: var(--r); background: var(--surface); color: var(--ink-3); cursor: text; }
 .find:hover { border-color: var(--rule-2); }
 /* The day shown; another day, or the log as it stood, is a chip filled in the accent, its × back to today. */
-.asof { display: flex; flex: none; align-items: center; min-width: 228px; border-radius: var(--r); }
+/* It keeps the room of its longest day, so nothing beside it moves; only what it says is the control, at its right, the room empty. */
+.asof { display: flex; flex: none; align-items: center; justify-content: flex-end; min-width: 228px; }
 .asof > .btn { color: var(--ink-2); }
-.asof > .btn.dd { flex: 1; justify-content: flex-end; }
-.asof.past { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
-.asof.past > .btn { color: var(--accent-ink); font-weight: 500; }
-.asof.past > .btn.dd { padding-right: 4px; }
-.asof.past > .btn.icon { width: 24px; height: 24px; margin-right: 2px; }
+.asof.past > .btn { height: 24px; border: 0; border-radius: 0; background-color: var(--selected); color: var(--accent-ink); font-weight: 500; }
+.asof.past > .btn.dd { padding: 0 6px 0 10px; border-radius: var(--r) 0 0 var(--r); }
+.asof.past > .btn.icon { width: 24px; border-radius: 0 var(--r) var(--r) 0; }
+.asof.past > .btn:only-child { padding-right: 10px; border-radius: var(--r); }
 .titlebar .sep { width: 1px; height: 16px; margin: 0 4px; background: var(--rule); }
 .titlebar .btn.primary { margin-left: 4px; }
 
@@ -362,8 +365,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 /* A chart with no box: its one action, over the middle of the page, which takes clicks around it. */
 .view > .void { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .view > .void > .btn { pointer-events: auto; }
-/* The time's ruler, under the view while it shows (table.css). */
-.view:has(> .scrub) { padding-bottom: 32px; }
+/* The time's ruler (table.css): over a chart's foot, so the page doesn't move as it comes and goes, and the bar over it; under a table's last row. */
+.view:has(> .scrub):not(:has(> .host:not([hidden]) > .dc)) { padding-bottom: 48px; }
+.view:has(> .host:not([hidden]) > .dc) > .scrub ~ .pendbar, .view:has(> .scrub):has(> .host:not([hidden]) > .dc) > .pendbar { margin-bottom: 48px; }
 .inspector > .host { min-height: 100%; }
 /* What takes the inspector's place (History) fills it, and scrolls itself. */
 .inspector > .host.aside { position: absolute; inset: 0; min-height: 0; max-width: none; margin: 0; padding: 0; background: var(--surface); }

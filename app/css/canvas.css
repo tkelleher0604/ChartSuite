@@ -11,7 +11,8 @@
 
 .dc-sheet { fill: var(--page); stroke: var(--rule-2); stroke-width: 1px; vector-effect: non-scaling-stroke; }
 :root[data-theme="dark"] .dc-sheet { stroke: transparent; }
-.dc .x6-graph-svg-stage text { user-select: none; }
+/* Small type on an ordinary screen: drawn from its outlines at its true size, a hair apart in the screen's pixels, whatever the zoom, so bold letters don't clog. */
+.dc .x6-graph-svg-stage text { user-select: none; text-rendering: geometricPrecision; letter-spacing: calc(.15px / var(--dc-dz, 1)); }
 .dc .x6-node, .dc .x6-edge { cursor: default; }
 .dc .x6-edge path:first-child { cursor: default; }
 /* What a highlight leaves out fades: a line whole; a box or shape its outline and text but never its fill,
@@ -32,13 +33,23 @@
    it prints. */
 .dc .x6-cell:not(:hover, .dc-on) text.dc-blank { visibility: hidden; }
 
+/* While the chart travels, what's drawn over it, which stands where things end, waits till they're there. */
+.dc.flying :is(.x6-widget-selection, .x6-widget-transform, .dc-marks) { visibility: hidden; }
+.dc-ghosts { pointer-events: none; }
+
 /* The selection: a thin frame and 6 px square handles at its corners and sides, as in Office; a box too
    small on screen for its side handles shows only its corners. */
 .dc .x6-widget-selection-box { border: 1px solid var(--accent) !important; box-shadow: none !important; margin: -3px 0 0 -3px !important; padding: 2px !important; border-radius: 0 !important; }
 .dc .x6-widget-selection-inner { display: none !important; }
 .dc .x6-widget-selection-rubberband { background: rgb(44 76 124 / .06) !important; border: 1px solid var(--accent) !important; opacity: 1 !important; }
 .dc .x6-widget-transform { border: 0 !important; margin: -3px 0 0 -3px !important; padding: 3px !important; box-shadow: none !important; }
-.dc .x6-widget-transform-resize { width: 6px !important; height: 6px !important; margin: 0 !important; border-radius: 0 !important; background: #fff !important; border: 1px solid var(--accent) !important; box-shadow: none !important; }
+/* At rest, one quiet outline: what can be taken hold of stands up as the pointer nears it. A triangle or an oval is outlined by its own shape. */
+.dc .x6-widget-selection-box.by-shape { visibility: hidden; }
+.dc-group.dc-shaped { stroke-dasharray: none; }
+.dc.dragging .dc-shaped { visibility: hidden; }
+.dc .x6-widget-transform-resize { width: 6px !important; height: 6px !important; margin: 0 !important; border-radius: 0 !important; background: #fff !important; border: 1px solid var(--accent) !important; box-shadow: none !important; opacity: 0; transition: opacity var(--quick) var(--ease); }
+.dc.near-grips .x6-widget-transform-resize:not(.on-label), .dc .x6-widget-transform-resize:hover { opacity: 1; }
+.dc .x6-widget-transform-resize.on-label { pointer-events: none; }
 .dc .x6-widget-transform-resize[data-position^="top"] { top: -3px !important; }
 .dc .x6-widget-transform-resize[data-position^="bottom"] { bottom: -3px !important; }
 .dc .x6-widget-transform-resize[data-position$="left"] { left: -3px !important; }
@@ -69,7 +80,7 @@
 .dc-cue { --hue: var(--accent); --w: 1.5px; --o: 1; }
 .dc-sel { --hue: var(--accent); --w: 2px; --o: 1; }
 path:is(.dc-hl, .dc-row, .dc-group, .dc-cue), .x6-edge:is(.dc-hl, .dc-row, .dc-sel, .dc-cue) > path + path {
-  fill: none; stroke: var(--hue); stroke-width: var(--w); stroke-opacity: var(--o); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  fill: none; stroke: var(--hue); stroke-width: var(--w) !important; stroke-opacity: var(--o); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .dc-group { stroke-dasharray: 4 3; }
 path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms var(--ease) 2; }
 @keyframes dc-pulse { 50% { stroke-opacity: .3; } }
@@ -78,8 +89,9 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-relating { fill: none; stroke: var(--accent); stroke-width: 1.5px; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
 
 /* The handles a relation is drawn from, on the outline of the box whose edge the pointer nears. */
-.dc-handle { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--accent); border: 1.5px solid #fff; box-shadow: 0 0 0 0.5px var(--accent); cursor: crosshair; opacity: 0; transition: opacity var(--quick) var(--ease); }
-.dc-handle::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; }
+.dc-handle { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #fff; border: 1px solid var(--accent); cursor: crosshair; opacity: 0; transform: scale(.75); transition: opacity var(--quick) var(--ease), transform var(--quick) var(--ease), background-color var(--quick) var(--ease); }
+.dc-handle.close { background: var(--accent); transform: scale(1.25); }
+.dc-handle::before { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 .dc.relating-on .dc-handle { opacity: 1; }
 .dc:not(.relating-on) .dc-handle { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } }
@@ -98,7 +110,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-field.on { stroke: var(--accent); stroke-width: 1.5px; fill: rgb(44 76 124 / .08); }
 .dc-field.lit { stroke: var(--accent); stroke-width: 1px; fill: rgb(44 76 124 / .05); }
 .dc-field.drop { stroke: var(--accent); stroke-width: 2px; fill: rgb(44 76 124 / .06); }
-.dc-tip { position: absolute; z-index: 4; transform: translateX(-50%); padding: 3px 7px; border-radius: var(--r); background: var(--ink); color: var(--surface); font: var(--t12); white-space: nowrap; pointer-events: none; }
+.dc-tip { position: absolute; z-index: 4; transform: translateX(-50%); padding: 3px 7px; border-radius: var(--r); background: var(--toast); color: var(--toast-ink); font: var(--t12); white-space: nowrap; pointer-events: none; }
 .dc-over > .dc-tip { pointer-events: none; }
 .dc-tip.dc-next { transform: none; }
 /* What says the chart drawn is a preview of Tidy, over it at the top, in the middle: a quiet pill, as the

@@ -287,7 +287,7 @@ const Shell = (() => {
     fill: 'PaintBucket', outline: 'Pen', color: 'Baseline', bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough',
     'align-left': 'AlignLeft', 'align-center': 'AlignCenter', 'align-right': 'AlignRight', layers: 'Layers', group: 'Group', ungroup: 'Ungroup',
     painter: 'Paintbrush', eraser: 'Eraser', grow: 'AArrowUp', shrink: 'AArrowDown', copy: 'Copy', paste: 'ClipboardPaste', trash: 'Trash2',
-    front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine', panel: 'PanelRight', more: 'Ellipsis', alert: 'TriangleAlert',
+    front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine', panel: 'PanelRight', more: 'Ellipsis', alert: 'TriangleAlert', play: 'Play', square: 'Square',
   };
   const lucideOf = name => typeof lucide === 'undefined' ? null : lucide[ICONS[name] ?? name];
   const icon = name => html`<svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${lucideOf(name)?.[2].map(([tag, a]) => h(tag, a)) ?? null}</svg>`;
@@ -351,7 +351,8 @@ const Shell = (() => {
   }
   document.addEventListener('pointerdown', e => {
     const open = floats.peek();
-    if (!open.length || e.target.closest?.('.float')) return;
+    // (What a popover is the way into, the date's ruler, is part of it, so a hand on it doesn't close what shows it.)
+    if (!open.length || e.target.closest?.('.float, [data-floats-on]')) return;
     const top = open.find(x => !x.parent);
     if (top?.anchor instanceof Element && top.anchor.contains(e.target)) return; // its click toggles it
     closeAll();
@@ -508,6 +509,11 @@ const Shell = (() => {
     if (el) tipTimer = setTimeout(() => { if (el.isConnected) tip.value = el; }, 600);
   });
   document.addEventListener('pointerdown', () => { clearTimeout(tipTimer); tip.value = null; }, true);
+  // The hand last used: a ring is for the keys, whatever gave what's focused its focus (dendra.md, Part 3, States; the stylesheet).
+  const hands = document.documentElement;
+  hands.dataset.hand = 'mouse';
+  addEventListener('pointerdown', () => { hands.dataset.hand = 'mouse'; }, true);
+  addEventListener('keydown', e => { if (/^(Tab|Arrow|Home$|End$|Page|F6$|F8$|Enter$|Escape$| $)/.test(e.key)) hands.dataset.hand = 'keys'; }, true);
   function Tip() {
     const el = tip.value, ref = useRef();
     useLayoutEffect(() => { if (!el) return; ref.current.showPopover?.(); return place(el, ref.current, 'bottom', 6); }, [el]);
