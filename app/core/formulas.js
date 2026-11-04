@@ -2351,18 +2351,25 @@ function rowGives(S, t, ri) {
 // `#N/A`, with what it wants: each name read blank, and the record it was read at. `blanks` keeps those a hand could fill in.
 function needs(reads, S) {
   const xs = [...new Map(reads.map(r => [normal(r.name), r.name])).values()], e = err('#N/A', `Needs ${xs.length < 2 ? xs[0] : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`}.`);
-  e.blanks = [...new Map(reads.filter(r => S && fillable(S, r)).map(r => [`${normal(r.name)}|${r.at}`, r])).values()];
+  e.blanks = [...new Map(reads.filter(r => S && fillable(S, r)).map(r => { const at = homeOf(S, r); return [`${normal(r.name)}|${at}`, { name: r.name, at }]; })).values()];
   return e;
 }
 // Whether a name read blank at a record is one a person could type there: no definition gives it, as what a rule gives is its own to say
-// nothing of, and the schema has it at a record of that kind.
-function fillable(S, { name, at }) {
-  const P = S.P, n = normal(name);
+// nothing of, and the schema has it at that record or up from it.
+function fillable(S, r) {
+  const P = S.P;
   P.given ??= new Set(P.defs.flatMap(d => d.error ? [] : [...namesProvided(d, P.reg)]));
-  if (P.given.has(n)) return false;
-  if (!P.schema) return true;
-  const r = S.recs[at], o = r && isObject(r);
-  return specified(P.schema, name).some(l => !o || (!l.args && (l.kind === undefined || same(l.kind, r.kind))));
+  return !P.given.has(normal(r.name)) && !!homeOf(S, r);
+}
+// Where a name read blank would be typed: the nearest up from where it was read that the schema has it at. (With no schema, where it was read.)
+function homeOf(S, { name, at }) {
+  if (!S.P.schema) return at;
+  const locs = specified(S.P.schema, name);
+  for (let id = at, n = 0; id && S.recs[id] && n < 16; id = S.recs[id].at, n++) {
+    const r = S.recs[id];
+    if (locs.some(l => isObject(r) ? !l.args && (l.kind === undefined || same(l.kind, r.kind)) : r.args ? !!l.args && l.args.length === r.args.length && l.args.every(a => r.args.some(b => same(a.edge, b.edge))) : l.args?.length === 1 && same(l.args[0].edge, r.edge ?? ''))) return id;
+  }
+  return null;
 }
 // Can't say (dendra.md, Definitions). A test read through to what it comes to, where what's blank decides: yes, no, nothing where its
 // conditions skip the record, or `{ cant: [{ name, at }] }`. A comparison of order with what's read blank can't be told, wherever it stands;

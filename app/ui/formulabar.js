@@ -1341,7 +1341,7 @@ const FormulaBar = (() => {
     const out = [...by.values()].filter(x => x.plus + x.minus + x.changed).sort((x, y) => (y.plus + y.minus + y.changed) - (x.plus + x.minus + x.changed));
     // What errs where it didn't comes first, as what a wrong kind of value gives is no conclusion, and it would otherwise read as none changing.
     const ek = e => `${e.def}|${e.id}`, inA = new Set(A.errors.map(ek)), inB = new Set(B.errors.map(ek)), wanting = e => e.error.code === '#N/A', plus = B.errors.filter(e => !inA.has(ek(e)) && !wanting(e)), minus = A.errors.filter(e => !inB.has(ek(e)) && !wanting(e));
-    const whereErr = (X, n, e) => (e.at ? [e.at] : (e.args ?? []).map(a => a.at)).filter(at => X.records[at]).map(at => n.shortOf(X.records, Tree.objectOf(X.records, at))).join(' → ');
+    const whereErr = errorAt;
     const said = (X, n, e) => ({ id: ek(e), get say() { return `${whereErr(X, n, e)}: ${e.error.msg ?? e.error.code}`; } });
     // And what fails a check where it didn't, or no longer does, as the status bar counts it: a no that comes or goes is otherwise no conclusion.
     // (A check still being written has no rule in the notes yet, and what it gives is what it's asked to check.)
@@ -1404,11 +1404,13 @@ const FormulaBar = (() => {
     // errors is flawed. Not what it can't say for want of a value (a blank's to fill in), nor what its flaws already say.
     const mine = d.fresh?.id ?? d.def, said = new Set(own.map(f => f.message)), errs = (R2.errors ?? []).filter(e => e.def === mine && !['#N/A', '#NAME?', '#CIRCULAR!', '#OPTION?'].includes(e.error.code) && !said.has(e.error.msg));
     if (errs.length && !own.some(f => !f.warn)) {
-      const recs = R2.records, n = N(), where = e => (e.at ? [e.at] : (e.args ?? []).map(a => a.at)).filter(at => recs[at]).map(at => n.shortOf(recs, Tree.objectOf(recs, at))).join(' → '), at = errs.slice(0, 3).map(where).filter(Boolean);
+      const at = errs.slice(0, 3).map(e => errorAt(R2, N(), e)).filter(Boolean);
       put({ message: `It can’t be worked out at ${sayList(errs.length > 3 ? [...at, `${errs.length - 3} more`] : at) || `${errs.length} ${errs.length === 1 ? 'place' : 'places'}`}: ${errs[0].error.msg ?? errs[0].error.code}`, def: d.def, key: null });
     }
     return early.size ? out.filter(f => !early.has(f.message)) : out;
   }
+  // Whose an error is, in the place rule's words: at a record, by where it is; at what a relation would be, by its sides.
+  const errorAt = (X, n, e) => e.at ? (X.records[e.at] ? (X.records[e.at].kind !== undefined ? n.shortOf(X.records, e.at) : n.whereOf(X.records, e)) : '') : (e.args ?? []).filter(a => X.records[a.at]).map(a => n.shortOf(X.records, Tree.objectOf(X.records, a.at))).join(' → ');
   // Where the cursor is in the row being typed, for what's not wrong yet.
   const caret = () => { const ed = editing.peek(), cm = ed?.cm; return cm?.hasFocus?.() && cm.somethingSelected?.() === false ? { key: ed.key, at: cm.indexFromPos(cm.getCursor()) } : null; };
   // In the bar's words, what a change does to what's worked out (Delta), and for each what it counts: a relation or a noun
@@ -1441,8 +1443,8 @@ const FormulaBar = (() => {
     if (mended.length && !nobody(B, mended[0].def)) return { said: `${mended[0].name} works again`, which: [] };
     if (mended.length) return { said: `${mended[0].name} applies to no one`, which: [] };
     // (Errors, its status line says, and what they were it opens to: so here only what else it concluded, or nothing, where errors are all it moved.)
-    const all = deltasOf(Formulas.diff(A, B), A, B, NA, NB), ds = all.filter(x => x.name !== 'error' && x.name !== 'fail'), moved = all.filter(x => x.name === 'fail').flatMap(x => moves(x, true));
-    return { said: ds.length || !all.length ? deltaWords(ds, true) : '', which: [...moved.map(m => ({ said: m.said, names: m.of.map(o => o.say) })), ...ds.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => ({ said: `${verb} ${countedOf(x[k], x.def, x.of[k])}`, names: x.of[k].map(o => o.say) })))] };
+    const all = deltasOf(Formulas.diff(A, B), A, B, NA, NB), ds = all.filter(x => x.name !== 'error' && x.name !== 'fail');
+    return { said: ds.length || !all.length ? deltaWords(ds, true) : '', which: ds.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => ({ said: `${verb} ${countedOf(x[k], x.def, x.of[k])}`, names: x.of[k].map(o => o.say) }))) };
   }
   // What a change pending leaves as it was, said in black where it takes something away: of the first definition of a
   // relation it takes from that reads as a holding (Control, not an Affiliated Person, a role), who holds what it's about
@@ -1827,7 +1829,7 @@ const FormulaBar = (() => {
       <span class="fx-end">
         <${Delta} p=${p} />
         ${m.computed && m.rec && 'tag' in m.rec && !m.absent && !App.readOnly.value && !draft.value && !App.held(m.id) ? html`<${Override} m=${m} />` : null}
-        ${m.err?.error.code === '#N/A' && m.def?.type === 'tag' && m.err.at && !App.readOnly.value && !draft.value ? html`<button class="btn fx-override" onClick=${() => { preview(null); App.overriding(null, { at: m.err.at, edge: m.def.name }); }}>Override…</button>` : null}
+        ${m.err && m.err.error.code === '#N/A' && m.def?.type === 'tag' && m.err.at && !App.readOnly.value && !draft.value ? html`<button class="btn fx-override" onClick=${() => { preview(null); App.overriding(null, { at: m.err.at, edge: m.def.name }); }}>Override…</button>` : null}
         ${m.covered && !m.covered.agrees && m.rec && !m.computed && !m.absent && !draft.value ? html`<span class="fx-typed-over">Typed over the rule${App.readOnly.value ? null : html` <button class="btn" onClick=${() => { preview(null); App.backToRule(m.id); }}>Back to the rule…</button>`}</span>` : null}
         ${draft.value && !unchanged(draft.value) ? html`<span class="fx-acts">
           ${armed.value ? html`<span class="fx-esc" role="status">Esc again discards your edit</span>` : null}

@@ -606,9 +606,9 @@ const App = (() => {
   // the day asked is given.
   const datedOf = p => (p.asks === 'from' && !p.word) || p.asks === 'on' ? p.day ?? false : p.from ?? false;
   // Whether it can be made: its day a day, where it asks one, its amount a figure or blank, and whatever else it asks given.
-  const ready = p => !(p.asks && p.day === undefined) && !(p.value && p.value.v === undefined) && p.until !== false && (p.fits?.(p) ?? true) && (p.ready?.(p) ?? true) && !lacksWhy(p);
+  const able = p => !(p.asks && p.day === undefined) && !(p.value && p.value.v === undefined) && p.until !== false && (p.fits?.(p) ?? true) && (p.ready?.(p) ?? true);
   // What overrides a rule, or goes back to it, is made only with why (dendra.md, Definitions: Typed over).
-  const lacksWhy = p => !!p.reason && !Tree.clean(why.value ?? '');
+  const lacksWhy = p => !!p.reason && !Tree.clean(why.value ?? ''), ready = p => able(p) && !lacksWhy(p);
   // What its button says: its verb, or what it's called (Dissolve); a deletion as never held is Delete.
   const actOn = p => p.asks === 'until' && p.day === null ? p.verb : p.act ?? p.verb;
   const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring', Change: 'changing', 'Rule out': 'ruling out', Insert: 'inserting', Undo: 'undoing', Redo: 'redoing', Override: 'overriding', 'Back to the rule': 'going back to the rule on' };
@@ -1210,7 +1210,7 @@ const App = (() => {
     const p = pending.value, v = version.value, d = day.value, c = chart.value, shown = FormulaBar.pending.value;
     if (p && !there(p)) return drop(p, gone(p));
     if (!p || p.chart !== c) { previewed = null; if (shown?.from === 'pending') FormulaBar.preview(null); return; }
-    if ((shown && shown.from !== 'pending') || !ready(p)) return;
+    if ((shown && shown.from !== 'pending') || !able(p)) return;
     if (shown && previewed?.p === p && previewed.v === v && previewed.d === d) return;
     previewed = { p, v, d };
     FormulaBar.preview(would(tx => p.make(tx, p.day, p), { dated: datedOf(p), ids: p.ids }), 'pending');
