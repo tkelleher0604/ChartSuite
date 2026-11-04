@@ -865,7 +865,7 @@ const Table = (() => {
     // narrow first column had wrapped, so the grid ran on three times its rows' height, blank.
     t.rowManager.normalizeHeight = function () { this.renderer.rerenderRows(); };
     t.on('cellEditCancelled', () => back());
-    t.on('cellClick', (e, cell) => { if (e.target.closest('.tag')) flip(cell); });
+    t.on('cellClick', (e, cell) => { if (e.target.closest('.tag, .cant')) flip(cell); });
     t.on('rangeChanged', range => { remember(range); soon(); tally(); });
     t.on('rangeAdded', range => { remember(range); if (quiet.has(range)) quiet.delete(range); else soon(); tally(); });
     t.on('rangeRemoved', tally);
@@ -1189,7 +1189,7 @@ const Table = (() => {
     if (c.key === '$why') return null;
     if (c.type === 'list') return m.at && !c.fx && !c.choice && namesIn(raw).join('\n') !== (m.names ?? []).join('\n') ? { list: [row, c, raw] } : null;
     const s = clean(raw);
-    if (!s) return back(m.id) ?? (entered ? { gone: m.id } : null);
+    if (!s) return back(m.id) ?? (m.over ? { rule: m.id } : entered ? { gone: m.id } : null);
     const out = value(typeFor(c, r, s), s);
     if (!out) return false;
     if (r && JSON.stringify(valueOf(out)) === JSON.stringify(valueOf(r))) return back(m.id);
@@ -1211,13 +1211,15 @@ const Table = (() => {
     if (lists.length) stage(real, () => ({ keys: [], plan: lists.map(({ list: [row, c, raw] }) => ({ row, key: [], cells: [[c, raw]] })) }), { verb: 'Add' });
     // (What doesn't change over time goes the same way, so it's corrected for all time, whatever the day shown.)
     const waits = w => !!w.back || (w.typed && (App.held(w.typed.id) !== undefined || App.asksFrom(w.typed.id, w.typed.out) || App.fixedAt(w.typed.id, w.typed.slot)));
-    const asked = ws.filter(waits);
-    ws = ws.filter(w => !waits(w));
+    const asked = ws.filter(waits), overs = ws.filter(w => w.rule).map(w => w.rule);
+    ws = ws.filter(w => !waits(w) && !w.rule);
     asked.forEach((w, i) => {
       ran = true;
       if (w.back) App.put(w.back, st[w.back], false);
       else App.put(w.typed.id, w.typed.slot, w.typed.out, { auto: auto && i === asked.length - 1 });
     });
+    // (Cleared, what's typed over a rule goes back to it, which asks why.)
+    if (overs.length) { ran = true; App.backToRule(overs); }
     if (!ws.length) return true;
     const records = Object.fromEntries(ws.filter(w => w.put).map(w => w.put));
     return edit(tx => { fill(tx, records); ws.forEach(w => w.gone ? tx.remove(w.gone) : w.side && side(tx, st, ...w.side)); }, say);
@@ -1270,15 +1272,17 @@ const Table = (() => {
   // Clears the cells of the range: the values entered there go, as one change; what's waiting of them on the bar goes from
   // it; a list's relatives end, as Delete… asks.
   function clear() {
-    const ids = new Set(), entered = App.entered.value, lists = [], st = App.state.peek();
+    const ids = new Set(), entered = App.entered.value, lists = [], st = App.state.peek(), overs = [];
     for (const r of table.getRanges()) for (const cell of r.getCells().flat()) {
       const m = cell.getField() && atCell(cell);
       if (columnOf(cell)?.type === 'list') lists.push(writing(cell, ''));
       else if (m?.id && App.held(m.id) !== undefined) App.put(m.id, st[m.id], false);
+      else if (m?.over && m.id) overs.push(m.id);
       else if (m?.id && m.id in entered && columnOf(cell).type !== 'edge' && columnOf(cell).key !== '$out') ids.add(m.id);
     }
     if (lists.some(Boolean)) write(lists);
     if (ids.size) edit(tx => ids.forEach(id => tx.remove(id)), () => `Cleared ${count(ids.size, 'value')}`);
+    if (overs.length) { ran = true; App.backToRule(overs); }
   }
 
   // ---- Pasting from Excel ----
@@ -2498,9 +2502,13 @@ const Table = (() => {
     const ids = [...new Set([row.getData().id, ...[...picked].filter(inGrid)])].filter(id => id in App.entered.value);
     const writes = canWrite(), d = ids.length && writes && deletion(ids), cs = cellsOf(), many = new Set(cs.map(x => x.getRow())).size > 1;
     const settles = typeof Inspector !== 'undefined' && Inspector.settling?.(row.getData().id);
+    // A rule's box: typed over, or back to the rule, as its entry's menu in the panel has it.
+    const m = writes && c?.type === 'tag' && atCell(cell), R = App.computed.peek(), says = m?.id && 'tag' in (App.state.peek()[m.id] ?? {}) && R.computed?.[m.id];
+    const ruling = !m ? null : m.cant ? { label: 'Override…', run: () => App.overriding(null, { at: m.at, edge: c.path.at(-1) }) } : says ? { label: 'Override…', run: () => App.overriding(m.id) } : m.over ? { label: 'Back to the rule…', run: () => App.backToRule(m.id) } : null;
     Shell.menu({ x: e.clientX, y: e.clientY }, [
       // A deadline's row: what settles it (Paid…, Filed…), as its panel's button does.
       ...(settles ? [settles, '-'] : []),
+      ...(ruling ? [ruling, '-'] : []),
       { label: 'Copy', keys: '$mod+KeyC', run: () => table.copyToClipboard('range') },
       ...(writes ? [{ label: 'Clear contents', keys: 'Delete', run: clear }, { label: 'Fill down', keys: '$mod+KeyD', run: () => fillFrom(true) }] : []),
       ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, valuesIn(c, row.getData())) }] : []),
@@ -2714,7 +2722,7 @@ const Table = (() => {
           : { t: 's', v: text(type, v) };
         // What's typed over a rule stays marked on the way out: the cell filled (see excelFile), and what the rule says, why, who and until when, as its note.
         const mark = d._m[field(c)];
-        if (mark?.over && mark.id) { const o = App.overOf(mark.id), was = App.computed.peek().covered?.[mark.id]?.value, says = typeof was === 'boolean' ? (was ? 'Yes' : 'No') : was?.t === 'date' ? Tree.formatDate(was.iso, 'short') : typeof was === 'number' ? Tree.format(type, was) : String(was ?? 'nothing'); cell.c = [{ a: o?.who ?? 'Dendra', t: `Typed over: the rule says ${says}.${o?.why ? ` ${o.why}.` : ''}${o?.until ? ` Until ${Tree.formatDate(o.until, 'short')}.` : ''}${o ? ` ${o.who}, ${Tree.formatDate(Tree.isoOf(new Date(o.when)), 'short')}.` : ''}` }]; cell.c.hidden = true; overCells.push(at(i + 2, j)); }
+        if (mark?.over && mark.id) { const o = App.overOf(mark.id); cell.c = [{ a: o?.who ?? 'Dendra', t: `Typed over: the rule ${App.ruleSaid(mark.id)}.${o?.why ? ` ${o.why}.` : ''}${o?.until ? ` Until ${Tree.formatDate(o.until, 'short')}.` : ''}${o ? ` ${o.who}, ${Tree.formatDate(Tree.isoOf(new Date(o.when)), 'short')}.` : ''}` }]; cell.c.hidden = true; overCells.push(at(i + 2, j)); }
       });
     });
     ws['!ref'] = X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length + 1, c: Math.max(0, cols.length - 1) } });

@@ -2185,8 +2185,8 @@ const FormulaBar = (() => {
     if (kind === 'blank') return { what: edge, where: whose(id), figure: by ? `${defOfRecord(Rv, null, by.def)?.name ?? ''} can’t say` : '' };
     // What's typed over a rule, whose, what the rule says, and why, until when.
     if (kind === 'overrides') {
-      const c = Rv.covered[id], o = Rv === R.peek() ? App.overOf(id) : null, says = v => v === true ? 'says Yes' : v === false ? 'says No' : v?.t === 'date' ? `says ${Tree.formatDate(v.iso, 'short')}` : typeof v === 'number' ? `says ${Tree.format(r.field, v)}` : Formulas.isError(v) ? (v.code === '#N/A' ? 'can’t say' : `gives ${v.code}`) : `says ${v ?? 'nothing'}`;
-      return { what: n.nameOf(recs, id), where: [r.args ? n.segmentOf(recs, id) : whose(r.at), o?.why].filter(Boolean).join(' · '), figure: `${Tree.outputText(r)}; the rule ${says(c?.value)}${o?.until ? `, until ${Tree.formatDate(o.until, 'short')}` : ''}` };
+      const o = Rv === R.peek() ? App.overOf(id) : null;
+      return { what: n.nameOf(recs, id), where: [r.args ? n.segmentOf(recs, id) : whose(r.at), o?.why].filter(Boolean).join(' · '), figure: `${Tree.outputText(r)}; the rule ${App.ruleSaid(id, Rv)}${o?.until ? `, until ${Tree.formatDate(o.until, 'short')}` : ''}` };
     }
     const where = r.args ? n.segmentOf(recs, id) : whose(r.at), rel = r.args ? r : recs[r.at]?.args ? recs[r.at] : null, t = rel && Tree.treeOf(recs, r.args ? id : r.at), first = t && n.edges(t)[0];
     const side = first && rel.args.find(a => Tree.same(a.edge, first)), who = side ? n.shortOf(recs, Tree.objectOf(recs, side.at)) : undefined;

@@ -906,7 +906,8 @@ const Time = (() => {
     const moved = Object.keys(SAID).map(k => ({ k, was: count(was, k), now: count(now, k) })).filter(x => x.was !== x.now);
     const cleared = [...was].filter(([k]) => !now.has(k)).map(([, a]) => say(a, before)), appeared = [...now].filter(([k]) => !was.has(k)).map(([, a]) => say(a, after));
     // Of each check, who it flagged just after, and who that moved in and out, by name.
-    const flags = flagsOf(after), gone = flagsOf(before), shift = Object.fromEntries(Object.entries(flags).map(([d, f]) => { const a = new Set([...(gone[d]?.fails ?? []), ...(gone[d]?.cant ?? [])]), b = new Set([...f.fails, ...f.cant]); return [d, { in: [...b].filter(x => !a.has(x)), out: [...a].filter(x => !b.has(x)) }]; }));
+    const flags = flagsOf(after), gone = flagsOf(before), but = (xs, ys) => (xs ?? []).filter(x => !(ys ?? []).includes(x));
+    const shift = Object.fromEntries(Object.entries(flags).map(([d, f]) => [d, { in: but(f.fails, gone[d]?.fails), out: but(gone[d]?.fails, f.fails), cantIn: but(f.cant, gone[d]?.cant), cantOut: but(gone[d]?.cant, f.cant) }]));
     // And of a rule's change, what it did to what the rules conclude, in the words its preview had, and which.
     const out = { i, moved, cleared, appeared, flags, shift, ...(isRule(c) && FormulaBar.saying?.(before.R, after.R, before.N, after.N)) };
     effects.set(c.id, out);
@@ -1009,6 +1010,7 @@ const Time = (() => {
   // A rule's own History can have what moved people in and out of it.
   const movers = signal(false);
   // Who a check flagged then, in a line.
+  const movedWords = s => [['Started failing', s.in], ['Stopped failing', s.out], ['Now can’t say', s.cantIn], ['No longer can’t say', s.cantOut]].filter(([, who]) => who.length).map(([said, who]) => `${said}: ${who.join(', ')}`).join(' · ');
   const flaggedThen = f => [f.fails.length ? `Failing then: ${f.fails.slice(0, 6).join(', ')}${f.fails.length > 6 ? ` and ${f.fails.length - 6} more` : ''}` : f.says ? 'Failing then: no one' : 'It applied to no one then', f.cant.length ? `Couldn’t say: ${f.cant.slice(0, 6).join(', ')}${f.cant.length > 6 ? ` and ${f.cant.length - 6} more` : ''}` : ''].filter(Boolean).join(' · ');
   function History() {
     const t = Shell.time.value, E = ever.value, m = mode.value, ref = useRef(), k = kind.value, sel = Shell.selection.value, unfold = unfolded.value, opened = opens.value, viewing = App.viewing.value, asking = App.pending.value?.reverse;
@@ -1020,7 +1022,7 @@ const Time = (() => {
       .some(r => rule ? 'note' in r && !r.view && rule.rule.has(Tree.key(r.pattern)) && r.label !== 'Order' : near.has(r.record) || ('note' in r && [...Tree.idsIn(r.pattern)].some(id => near.has(id))));
     // A rule's own, with what moved people in and out of it: what's entered that changed who it flagged, worked out as they're shown. Of those, the change's own words.
     const ruleDef = rule ? N.notes('Formula').find(x => !x.view && rule.rule.has(Tree.key(x.pattern)))?.note : null, moving = rule && movers.value && !!ruleDef;
-    const moves = c => { const s = known(c)?.shift?.[ruleDef]; return !!s && (s.in.length > 0 || s.out.length > 0); };
+    const moves = c => { const s = known(c)?.shift?.[ruleDef]; return !!s && !!movedWords(s); };
     const linesOf = c => near && !c.amends && !(moving && !touches(c)) ? read(c, near) : reading(c);
     const changes = m === 'all' ? entries.value.filter(e => standing(e) && (k === 'all' || kindsOf(e.change).has(k)) && (!near || ((touches(e.change) || (moving && moves(e.change))) && linesOf(e.change).length))).reverse() : [];
     // (Asked for one at a time, while nothing else is happening, each shown once it's known to have moved someone.)
@@ -1060,7 +1062,7 @@ const Time = (() => {
         ${fx?.moved.length ? html`<div class="effect">${fx.moved.map(x => `${SAID[x.k]} ${x.was} → ${x.now}`).join(' · ')}</div>` : null}
         ${fx?.said ? html`<div class="effect said">${fx.said}</div>` : null}
         ${ruleDef && fx?.flags?.[ruleDef] ? html`<div class="effect flagged">${flaggedThen(fx.flags[ruleDef])}</div>` : null}
-        ${moving && fx?.shift?.[ruleDef] && !touches(c) ? html`<div class="effect moved">${[fx.shift[ruleDef].in.length ? `Started failing: ${fx.shift[ruleDef].in.join(', ')}` : '', fx.shift[ruleDef].out.length ? `Stopped failing: ${fx.shift[ruleDef].out.join(', ')}` : ''].filter(Boolean).join(' · ')}</div>` : null}
+        ${moving && fx?.shift?.[ruleDef] && !touches(c) ? html`<div class="effect moved">${movedWords(fx.shift[ruleDef])}</div>` : null}
         ${shows ? html`<div class="hist-more" onClick=${ev => ev.stopPropagation()}>
           ${lines.map(l => html`${lines.length > 1 ? html`<div class="ln">${l.text}</div>` : null}${lineMore(l)}${l.sub.map(s => html`<div class="ln sub">${s.text}</div>${lineMore(s)}`)}`)}
           ${before.length ? html`<div class="st">Before</div>${before.map(w => html`<div class="ln sub"><button class="lk" onClick=${() => stand(w.change)}>${describe(w.change)}</button> <span class="fig">${w.change.who}, ${short(Tree.isoOf(new Date(w.change.when)))}</span>${App.wb.reasons(w.change.id).map(r => html`<div class="note">${r.text}</div>`)}</div>`)}` : null}

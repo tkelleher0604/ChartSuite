@@ -835,8 +835,7 @@ function Entry({ it, at, depth }) {
   </div>`;
 }
 // What a value typed over a rule says, under it, so no reader can miss that it isn't what the rule says; and the way back to the rule.
-const ruleSays = id => { const v = App.computed.value.covered?.[id]?.value, r = recs()[id];
-  return v === null || v === undefined ? 'says nothing here' : Formulas.isError(v) ? (v.code === '#N/A' ? 'can’t say' : `gives ${v.code}`) : `says ${typeof v === 'boolean' ? (v ? 'Yes' : 'No') : v?.t === 'date' ? short(v.iso) : typeof v === 'number' ? T.format(r.field, v) : String(v)}`; };
+const ruleSays = id => App.ruleSaid(id, App.computed.value);
 // (Who said so, why and until when go with it: a decision kept in the open, dendra.md, Definitions: Typed over.)
 const backToRule = id => App.backToRule(id);
 function TypedOver({ id, depth }) {
@@ -1972,7 +1971,7 @@ function GeneralView({ p, style }) {
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
       ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('A blank needs filling in', n.required(p), on => flag('Required', p, on))}
       ${type === 'tag' ? checkRow('A no needs attention', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
-      ${kind || rel || def || (dated && (n.isStart(dp) || n.isEnd(dp))) ? null : checkRow('Changes over time', dated ? n.changing(p) : !n.fixed(p), on => flag('Fixed', p, dated ? (on ? false : undefined) : (on ? undefined : true)))}
+      ${kind || rel || def || writing || (dated && (n.isStart(dp) || n.isEnd(dp))) ? null : checkRow('Changes over time', dated ? n.changing(p) : !n.fixed(p), on => flag('Fixed', p, dated ? (on ? false : undefined) : (on ? undefined : true)))}
       ${dated ? ['Start', 'End'].map(l => checkRow(l, l === 'Start' ? n.isStart(dp) : n.isEnd(dp), on => flag(l, dp, on))) : null}
       ${adds.length ? html`<${AddRow} items=${() => adds} />` : null}
     </div>
@@ -2127,7 +2126,7 @@ function rulesList(anchor = { x: 40, y: 44 }) {
   const relations = App.layouts.peek().relations.filter(l => !worked.has(T.norm(l.name))).map(l => item(l.rows, 'Relation'));
   const part = (head, xs) => xs.length ? [{ head }, ...xs.sort(by)] : [];
   // Every value typed over a rule, on the one list: whose, what the rule says, why and who said so.
-  const R = App.computed.peek(), overs = Object.keys(R.covered).filter(x => !R.covered[x].agrees && recs()[x]).map(x => { const o = App.overOf(x), r = recs()[x]; return { label: `${r.args ? segment(x) : `${r.edge} · ${bound(N().whereOf(recs(), r))}`}`, detail: `${T.outputText(r)}; the rule ${ruleSays(x)}`, names: ['Typed over', 'Override', 'Overrides', 'Waiver', 'Exception', o?.why ?? ''], run: () => { select([r.args ? x : objectOf(x)]); emit('why-open', x); } }; });
+  const R = App.computed.peek(), overs = Object.keys(R.covered).filter(x => !R.covered[x].agrees && recs()[x]).map(x => { const o = App.overOf(x), r = recs()[x]; return { label: `${r.args ? segment(x) : `${r.edge} · ${bound(N().whereOf(recs(), r))}`}`, detail: `${T.outputText(r)}; the rule ${ruleSays(x)}`, tip: [`${T.outputText(r)}; the rule ${ruleSays(x)}`, o?.why].filter(Boolean).join(' · '), names: ['Typed over', 'Override', 'Overrides', 'Waiver', 'Exception', o?.why ?? ''], run: () => { select([r.args ? x : objectOf(x)]); emit('why-open', x); } }; });
   menu(anchor, [...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations), ...part('Typed over', overs)], { search: true });
 }
 Shell.register('action', { id: 'rules', name: 'Rules', names: ['Checks', 'Check', 'Definitions', 'Formulas', 'List of rules', 'Relations', 'Overrides', 'Typed over', 'Waivers'], menu: 'chart', order: 11, run: () => setTimeout(() => rulesList()) });
