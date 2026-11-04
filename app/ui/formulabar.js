@@ -8,11 +8,12 @@
 // Hovering part of a formula shows its value. Clicking a fact, or a lit computed line, steps down to its
 // reason, by the clause the parent cited, and the breadcrumb steps back. The definition's rows drop over the
 // view under the sentence (the chevron, Ctrl+Shift+U, or a click on the sentence) until the selection changes,
-// clear of what they're about: those that hold in ink, the rest grey. Two objects show the most derived
-// relation that holds between them; one picked that doesn't shows its rows, all grey (why not). Any pending
-// change is redlined before it's made, whoever asks (FormulaBar.preview). It also answers Find's "=", and gives
-// the other panes a record's reason, the sentence it says for a record (FormulaBar.sentence), and a relation's
-// words. Where a record is, it says by the core's place rule (Notes.placed, whereOf).
+// clear of what they're about: those that hold in ink, the rest grey; read until asked to be written. Every ground
+// a record has is said, the direct one first. Two objects show what's between them (FormulaBar.between): the most
+// derived relation that holds, and open, all that hold and all that a formula could give them, why not. Any pending
+// change is redlined before it's made, whoever asks (FormulaBar.preview). It also answers Find's "=" and two names,
+// and gives the other panes a record's reason, the sentence it says for a record, as plain text with every ground
+// (FormulaBar.because), and a relation's words. Where a record is, it says by the core's place rule (Notes.placed, whereOf).
 const FormulaBar = (() => {
   const { html, signal, computed, effect, on, emit } = Shell;
   const { batch } = preactSignals;
@@ -132,7 +133,9 @@ const FormulaBar = (() => {
   const aim = signal(null);       // a row to put the cursor in, by its key
   const formula = signal(Shell.store.get('formula') === 'shown');   // the rows shown under why, as asked for once
   const wanted = signal(false);   // the rows asked for while they're open: a row aimed at, or one edited
-  effect(() => { if (!open.value) wanted.value = false; });
+  const writing = signal(null);   // the definition whose rows are being written; otherwise they're read, and nothing on them edits
+  const reading = signal(null);   // the row clicked while reading, by its key: lit as the cited one is
+  effect(() => { if (!open.value) { wanted.value = false; writing.value = null; reading.value = null; } });
   on('why-open', id => { asked.value = { id, clause: finder.peek().via.get(id) ?? null, under: Shell.selection.peek() }; });
 
   // The bar's subject is the selection, whatever the view shown is: the same click says the same thing on a table as on
@@ -231,7 +234,7 @@ const FormulaBar = (() => {
       const sides = N().sides(recs, id), ends = sides.map(x => Tree.objectOf(recs, x.at));
       if (!pair.every(o => ends.includes(o))) continue;
       const [a, b] = ends;
-      options.push({ key: `rec|${id}`, entered: true, d: { name: N().nameOf(recs, id), edges: sides.map(x => x.edge) }, a, b, id, on: recs[id].tag ?? null });
+      options.push({ key: `rec|${id}`, entered: true, d: { name: N().nameOf(recs, id), edges: sides.slice(0, 2).map(x => x.edge) }, a, b, id, on: recs[id].tag ?? null });
     }
     return options;
   }
@@ -375,7 +378,7 @@ const FormulaBar = (() => {
   const finder = computed(() => {
     const m = model.value, Rv = R.value, colors = new Map(), map = new Map(), via = new Map(), ed = editing.value, hv = hover.value;
     if (!m?.rows?.length) return { colors, map, via, m };
-    const lit = m.rows.filter(r => ed ? r.key === ed.key : r.cited || hv?.key === r.key);
+    const lit = m.rows.filter(r => ed ? r.key === ed.key : r.cited || hv?.key === r.key || reading.value === r.key);
     const keyed = new Map();
     let next = 0;
     for (const r of lit) for (const n of [...r.ev?.names ?? []].sort((a, b) => a.from - b.from)) {
@@ -470,8 +473,8 @@ const FormulaBar = (() => {
     const key = subjectKey.value;
     if (key === last.key) return;
     const m = model.peek(), t = trail.peek(), k = m?.id ? t.findIndex(x => x.id === m.id) : -1;
-    const down = k < 0 && !!m?.computed && last.map.has(m.id);
-    hover.value = null; touch.value = null; pick.value = null;
+    const down = k < 0 && !!m?.computed && (stepping || last.map.has(m.id));
+    hover.value = null; touch.value = null; pick.value = null; writing.value = null; reading.value = null;
     if (draft.peek()) { draft.value = null; preview(null); }
     trail.value = k >= 0 ? t.slice(0, k) : down ? [...t, last.crumb] : [];
     last = { key, map: finder.peek().map, crumb: m && { id: m.id, title: m.title, clause: m.clause, place: placeText(m) } };
@@ -623,7 +626,7 @@ const FormulaBar = (() => {
         else if (n.k === 'LET') walk(n.kids.at(-1), [...lets, ...n.kids.slice(0, -1).flatMap((x, k, l) => k % 2 ? [] : [{ name: x.text, text: l[k + 1]?.text }])]);
         else if (n.k === 'AND') walk(n.kids.find(x => !truth(x, lets)), lets);
         else if (n.k === 'OR') n.kids.forEach(x => walk(x, lets));
-        else failed.push(...missed(Rv, d, id, n, lets, within, own).map(f => ({ ...f, row: i })));
+        else failed.push(...missed(Rv, d, id, n, lets, within, !!g.none).map(f => ({ ...f, row: i })));
       };
       // What held, by its parts: OR's that held, AND's every one.
       const leaves = (n, lets) => n.k === 'OR' ? leaves(n.kids.find(x => truth(x, lets)) ?? n.kids[0], lets) : n.k === 'AND' ? n.kids.flatMap(x => leaves(x, lets)) : [n];
@@ -635,12 +638,12 @@ const FormulaBar = (() => {
   // What a failed part read, as reasons are said, with what it wanted beside what it found: "a member, not a
   // managing member"; "(98.4%, not 100%)". A NOT failed where what it negates held, which is said as it is. A
   // list that lacked what was sought is said by what came nearest (see nearest).
-  function missed(Rv, d, id, n, lets, within, own = true) {
+  function missed(Rv, d, id, n, lets, within, none = false) {
     if (n.k === 'NOT') return [{ parts: within(n.kids[0]) }];
     if (n.k === 'ANY' || (n.k === 'IN' && isObj(Rv.records[ask(Rv, d, id, lets, n.kids[0].text)?.value?.id]))) return nearest(Rv, d, id, n, lets);
     if (n.k !== 'CMP' && n.k !== 'IN') { const ps = within(n); return gather(Rv, id, new Set(), ps).length ? [{ parts: ps }] : notCalled(Rv, d, id, lets, n) ?? [{ parts: ps }]; }
-    // A total a row before read is said as what it counted, not by all it looked through.
-    const total = !own && n.kids.find(k => /^SUM\(/i.test(k.text)), counted = total && noneCounted(Rv, d, id, lets, n, total);
+    // Of a pair with no record, a total is said as what it counted, not by all it looked through.
+    const total = none && n.kids.find(k => /^SUM\(/i.test(k.text)), counted = total && noneCounted(Rv, d, id, lets, n, total);
     if (counted) return counted;
     // The side that read records is what was found; the other, what was wanted.
     const [x, y] = n.kids, found = within(y).length && !within(x).length ? y : x, wanted = found === x ? y : x, parts = within(found);
@@ -746,12 +749,12 @@ const FormulaBar = (() => {
       return [{ parts: ids.map(y => of(y) ? { id: of(y), items: [{ id: y }] } : { id: y }), ...(w !== undefined && (c.k === 'IN' || c.op === '=') && ids.length && { not: { ids, text: notOf(recs, ids.at(-1), w) } }) }];
     }
     const some = [ask(Rv, d, id, lets, B.text)?.value ?? []].flat(Infinity).some(v => v?.t === 'rec' && v.id);
-    return absent(Rv, d, id, at, B, { x: x && ask(Rv, d, id, lets, x.text)?.value?.id, c: !x && some ? all[0] : null }) ?? [];
+    return absent(Rv, d, id, at, B, { x: x && ask(Rv, d, id, lets, x.text)?.value?.id, c: !x && some ? all[0] : null, rest: all.slice(1) }) ?? [];
   }
   // A list with none of what was sought, said of whose list it is: x isn't among GP III's general partners;
   // the signing authority is not evidenced by anything; Fund III-A has no documents, or no Certificate of
   // Limited Partnership (what its Document Type names), or none with a status of Filed.
-  function absent(Rv, d, id, lets, B, { x = null, c = null } = {}) {
+  function absent(Rv, d, id, lets, B, { x = null, c = null, rest = [] } = {}) {
     const m = /^(?:(.*\S)\s*\.\s*)?(?:\[([^\]]+)\]|([A-Za-z_]\w*))$/.exec(B.text.replace(/^COUNT\((.*)\)$/i, '$1').trim());
     if (!m) return null;
     const recs = Rv.records, list = m[2] ?? m[3], o = ask(Rv, d, id, lets, m[1] ?? '@')?.value?.id, up = o && Tree.objectOf(recs, o), owner = isObj(recs[up]) ? up : o;
@@ -768,8 +771,11 @@ const FormulaBar = (() => {
       const w = e && (c.k === 'IN' || c.op === '=') && !other.at && ask(Rv, d, id, lets, other.text)?.value;
       if (w === undefined || w === null || w === false || p) return null;
       const entry = e[1] ?? e[2], noun = singular(list), ws = either([w].flat().map(z => show(z))), one = [w].flat().length === 1 ? `${an(ws)}${ws}` : `one of ${ws}`;
-      [pre, yes] = typeOf(entry, noun) ? [[...who, ` has no ${ws}`], [...who, ` has ${one}`]]
-        : [[...who, ` has no ${lower(noun)} with ${article(entry)} ${lower(entry)} of ${ws}`], [...who, ` has ${article(noun)} ${lower(noun)} with ${article(entry)} ${lower(entry)} of ${ws}`]];
+      // What else it would have to be, for what clears it: with a status of Executed, Filed or Final.
+      const more = rest.flatMap(q => { const [s, o] = q.kids?.[0]?.at ? q.kids : [...(q.kids ?? [])].reverse(), f = /^@\s*\.\s*(?:\[([^\]]+)\]|([A-Za-z_]\w*))$/.exec(s?.text ?? ''), v = f && !o?.at && ask(Rv, d, id, lets, o.text)?.value;
+        return f && v !== undefined && v !== null && v !== false ? [` with ${article(f[1] ?? f[2])} ${lower(f[1] ?? f[2])} of ${either([v].flat().map(z => show(z)))}`] : []; }).join(' and');
+      [pre, yes] = typeOf(entry, noun) ? [[...who, ` has no ${ws}`], [...who, ` has ${one}${more}`]]
+        : [[...who, ` has no ${lower(noun)} with ${article(entry)} ${lower(entry)} of ${ws}`], [...who, ` has ${article(noun)} ${lower(noun)} with ${article(entry)} ${lower(entry)} of ${ws}${more}`]];
     }
     const subj = named ? owner : null;
     return [{ clause: { subj, pre, obj, post: [], yes: { subj, pre: yes, obj, post: [] } } }];
@@ -1141,9 +1147,12 @@ const FormulaBar = (() => {
         const facts = reasons(Rv, id, null, false, false, null, row)?.slice(0, -1) ?? [];
         return [{ text: `. ${['Also', named(row)].filter(Boolean).join(' ')}${facts.length ? ': ' : ''}`, fresh: true }, ...facts];
       });
-      const cites = [...new Set(others.map(named).filter(Boolean))];
-      const full = sentence(Rv, [...reasons(Rv, id, clause, true, true, would), ...also, ...clearsOf(Rv, id)]);
-      return full && { full, short: sentence(Rv, [...reasons(Rv, id, clause, false, true, would), ...(others.length ? [{ text: `. ${['Also', cites.join(', ')].filter(Boolean).join(' ')}` }] : [])]) };
+      const cites = [...new Set(others.map(named).filter(Boolean))], rest = others.length ? [{ text: `. ${['Also', cites.join(', ')].filter(Boolean).join(' ')}` }] : [];
+      const clears = clearsOf(Rv, id), full = sentence(Rv, [...reasons(Rv, id, clause, true, true, would), ...also, ...clears]);
+      if (!full) return null;
+      // Where the whole won't fit the bar's one row: its first ground in full, or in short, the others named.
+      const short = sentence(Rv, [...reasons(Rv, id, clause, false, true, would), ...rest]), mid = also.length || clears.length ? sentence(Rv, [...reasons(Rv, id, clause, true, true, would), ...rest]) : null;
+      return { full, mid, short };
     } catch { return null; }
   }
   // The sentence the bar says for a record, in full, as plain text, for other panes and exports; null for a
@@ -1343,6 +1352,7 @@ const FormulaBar = (() => {
       return;
     }
     endEditing();
+    writing.value = null;
     if (!d) return;
     draft.value = null; preview(null);
     if (!unchanged(d)) commit(rowsChange(d), `Edited ${defOf(d.def)?.name ?? 'the formula'}`);
@@ -1350,6 +1360,7 @@ const FormulaBar = (() => {
   function discard() {
     endEditing();
     problem.value = null;
+    writing.value = null;
     if (draft.peek()) { draft.value = null; preview(null); }
     const a = document.activeElement;
     if (a?.closest?.('.fxbar')) a.blur();
@@ -1358,7 +1369,7 @@ const FormulaBar = (() => {
   let unlayer = null;
   effect(() => {
     const on = open.value || !!draft.value;
-    if (on && !unlayer) unlayer = Shell.layer(() => { if (draft.peek() || editing.peek()) discard(); else open.value = false; });
+    if (on && !unlayer) unlayer = Shell.layer(() => { if (draft.peek() || editing.peek() || writing.peek()) discard(); else open.value = false; });
     else if (!on && unlayer) { unlayer(); unlayer = null; }
   });
   // The chevron, or Ctrl+Shift+U: the rows open, or closed, a draft still pending.
@@ -1366,8 +1377,16 @@ const FormulaBar = (() => {
     if (open.peek()) endEditing();
     open.value = !open.peek();
   }
-  // The rows open with the cursor in one, to type into.
-  const openAt = key => { claimed = true; open.value = true; wanted.value = true; aim.value = key; };
+  // The rows open on one, to read; with `write`, with the cursor in it, to type into. Reading a rule isn't editing it:
+  // a row is written only by a double-click, its pencil, or a new row.
+  const openAt = (key, { write = false } = {}) => {
+    claimed = true; open.value = true; wanted.value = true;
+    if (!write) { reading.value = key; return; }
+    writing.value = draft.peek()?.def ?? model.peek()?.def?.id ?? null;
+    aim.value = key;
+    document.querySelector(`.fxbar .fx-row[data-key="${key}"] .CodeMirror`)?.CodeMirror?.setOption('readOnly', false);
+  };
+  const writable = m => !!m.def && !m.absent && !App.readOnly.value && (writing.value === m.def.id || draft.value?.def === m.def.id);
   // While a row is edited, a click on the chart names a record in it (point mode), and the panel holds just
   // that row.
   function startEditing(cm, key) {
@@ -1440,9 +1459,9 @@ const FormulaBar = (() => {
   // Its names in their colours, squiggles from check() (one that runs off the end under its last character),
   // completion from suggest(), the value of the part under the pointer just after it, the name that closes a
   // loop underlined in red, and what's been typed redlined. Enter commits; Esc discards.
-  function Formula({ row, m, colors, grey, would, focus }) {
+  function Formula({ row, m, colors, grey, would, focus, write }) {
     const host = useRef(), cmr = useRef(), props = useRef();
-    props.current = { row, m, colors, would };
+    props.current = { row, m, colors, would, write };
     useLayoutEffect(() => {
       const ctx = () => ({ computed: R.peek(), def: props.current.m.def?.id, at: props.current.m.at });
       const hint = c => {
@@ -1451,7 +1470,7 @@ const FormulaBar = (() => {
           from: c.posFromIndex(s.from), to: c.posFromIndex(s.to) } : null;
       };
       const cm = CodeMirror(host.current, {
-        value: row.formula, mode: 'dendra', lineWrapping: true, matchBrackets: true, viewportMargin: Infinity, scrollbarStyle: null, readOnly: App.readOnly.peek(),
+        value: row.formula, mode: 'dendra', lineWrapping: true, matchBrackets: true, viewportMargin: Infinity, scrollbarStyle: null, readOnly: App.readOnly.peek() || !write,
         extraKeys: { Enter: () => commitDraft(), Esc: () => discard(), 'Ctrl-Space': c => c.showHint({ hint, completeSingle: false }) },
         lint: { delay: 120, getAnnotations: (text, _, c) => Formulas.check(text, ctx()).problems.map(p => {
           const end = text.trimEnd().length, from = p.from < end ? p.from : Math.max(0, end - 1);
@@ -1467,7 +1486,7 @@ const FormulaBar = (() => {
         change(m.def.id, rows => rows.map(r => r.key === row.key ? { ...r, formula: v } : r));
       });
       cm.on('inputRead', (c, ch) => { if (/[\w[.]/.test(ch.text.join(''))) c.showHint({ hint, completeSingle: false }); });
-      cm.on('focus', c => { hover.value = null; startEditing(c, props.current.row.key); });
+      cm.on('focus', c => { hover.value = null; if (!c.getOption('readOnly')) startEditing(c, props.current.row.key); });
       const wrap = cm.getWrapperElement();
       wrap.addEventListener('mousemove', e => {
         const { row } = props.current;
@@ -1485,7 +1504,8 @@ const FormulaBar = (() => {
       return () => { wrap.remove(); if (hover.peek()?.key === props.current.row.key) hover.value = null; };
     }, []);
     useLayoutEffect(() => {
-      const cm = cmr.current, { row, m, colors, would } = props.current, hv = hover.value;
+      const cm = cmr.current, { row, m, colors, would, write } = props.current, hv = hover.value, still = App.readOnly.peek() || !write;
+      if (cm.getOption('readOnly') !== still) cm.setOption('readOnly', still);
       if (aim.value === row.key) { aim.value = null; requestAnimationFrame(() => { cm.focus(); cm.setCursor(cm.lineCount(), 0); }); }
       if (!cm.hasFocus() && cm.getValue() !== row.formula) cm.setValue(row.formula);
       cm.operation(() => {
@@ -1609,7 +1629,7 @@ const FormulaBar = (() => {
   // the rows, where it's read and edited.
   function Inline({ m }) {
     const w = why.value, ref = useRef(), [fit, setFit] = useState(0), width = useRef(0);
-    const says = [w?.full, w?.short].filter(Boolean), said = says[Math.min(fit, says.length - 1)];
+    const says = [w?.full, w?.mid, w?.short].filter(Boolean), said = says[Math.min(fit, says.length - 1)];
     useLayoutEffect(() => setFit(0), [w]);
     useLayoutEffect(() => { const s = ref.current?.querySelector(':scope > .fx-why'); if (s && fit < says.length - 1 && s.scrollWidth > s.clientWidth + 1) setFit(fit + 1); });
     useLayoutEffect(() => {
@@ -1651,10 +1671,11 @@ const FormulaBar = (() => {
     return html`<div class=${'fx-panel' + (editing.value ? ' editing' : '')} ref=${ref}>
       ${w ? html`<p class="fx-said"><${Said} runs=${w.full} cls="fx-why" /></p>` : null}
       ${m.options ? html`<${Between} m=${m} />` : null}
-      <div class="fx-rows" hidden=${!rows}>${rows ? m.rows.map(r => html`<${Row} key=${r.key} r=${r} m=${m} colors=${r.cited || editing.value?.key === r.key || hover.value?.key === r.key ? f.colors : null} editable=${editable} />`) : null}</div>
+      <div class="fx-rows" hidden=${!rows}>${rows ? m.rows.map(r => html`<${Row} key=${r.key} r=${r} m=${m} colors=${r.cited || editing.value?.key === r.key || hover.value?.key === r.key || reading.value === r.key ? f.colors : null} editable=${editable} />`) : null}</div>
       <div class="fx-foot">
-        ${rows && editable ? html`<button class="btn icon fx-add" aria-label="Add a row" data-tip="Add a row" onClick=${() => addRow(m)}>${Shell.icon('plus')}</button>` : null}
-        ${said ? html`<button class="btn ghost fx-show" onClick=${() => { wanted.value = false; showing(!rows); }}>${rows ? 'Hide the formula' : 'Show the formula'}</button>` : null}
+        ${rows && editable && m.def ? html`<button class="btn icon fx-add" aria-label="Add a row" data-tip="Add a row" onClick=${() => addRow(m)}>${Shell.icon('plus')}</button>` : null}
+        ${said && m.def ? html`<button class="btn ghost fx-show" onClick=${() => { wanted.value = false; showing(!rows); }}>${rows ? 'Hide the formula' : 'Show the formula'}</button>` : null}
+        ${writing.value === m.def?.id && !draft.value ? html`<button class="btn ghost fx-done" data-tip="Done" data-keys="Esc" onClick=${discard}>Done</button>` : null}
         <${Uses} m=${m} />
       </div>
     </div>`;
@@ -1750,23 +1771,28 @@ const FormulaBar = (() => {
   }
 
   // A row: its label, its formula, and what the rows would give where an entry overrides them.
+  // Read, until it's asked to be written (openAt): a click shows it, lit on the chart, and only a double-click or its
+  // pencil gives a label to type over, a formula to type in, a grip and a way to delete it.
   function Row({ r, m, colors, editable }) {
-    const cls = 'fx-row' + (r.cited ? ' cited' : r.ink ? ' alt' : ' grey') + (r.gone ? ' gone' : '') + (editing.value?.key === r.key ? ' editing' : '') + (editable ? ' editable' : '');
+    const write = editable && writable(m);
+    const cls = 'fx-row' + (r.cited ? ' cited' : r.ink ? ' alt' : ' grey') + (r.gone ? ' gone' : '') + (editing.value?.key === r.key ? ' editing' : '') + (write ? ' editable' : '') + (reading.value === r.key ? ' reading' : '');
     const keep = r.gone, point = usePoint(() => !keep && preview(rowsChange({ ...draftOf(m.def.id), rows: draftOf(m.def.id).rows.map(x => x.key === r.key ? { ...x, gone: true } : x) }), 'row'),
       () => pending.peek()?.from === 'row' && previewDraft());
     const reorder = e => {
       const item = e.currentTarget.closest('.fx-row'), items = [...item.parentElement.querySelectorAll(':scope > .fx-row')];
       Shell.drag(e, { item, items, onDrop: (from, i) => change(m.def.id, rows => { const l = rows.slice(); l.splice(i, 0, l.splice(from, 1)[0]); return l; }) });
     };
-    return html`<div class=${cls} data-key=${r.key}>
-      ${editable ? html`<span class="fx-grip" aria-hidden="true" onPointerDown=${reorder} />` : null}
-      ${editable ? html`<input class="bare fx-label" value=${r.label} size=${Math.max(2, r.label.length)} spellcheck="false" aria-label="Label"
+    const reads = write ? {} : { onClick: () => { reading.value = reading.peek() === r.key ? null : r.key; }, onDblClick: editable ? () => openAt(r.key, { write: true }) : null };
+    return html`<div class=${cls} data-key=${r.key} ...${reads}>
+      ${write ? html`<span class="fx-grip" aria-hidden="true" onPointerDown=${reorder} />` : null}
+      ${write ? html`<input class="bare fx-label" value=${r.label} size=${Math.max(2, r.label.length)} spellcheck="false" aria-label="Label"
           onInput=${e => change(m.def.id, rows => rows.map(x => x.key === r.key ? { ...x, label: e.target.value } : x))} />`
         : html`<span class="fx-label" title=${r.label.length > 28 ? r.label : null}>${r.label}</span>`}
-      ${r.gone ? html`<div class="fx-cm gone">${r.formula}</div>` : html`<${Formula} row=${r} m=${m} colors=${colors} grey=${!r.ink} would=${wouldOf(m, r)} focus=${r.key === fresh} />`}
+      ${r.gone ? html`<div class="fx-cm gone">${r.formula}</div>` : html`<${Formula} row=${r} m=${m} colors=${colors} grey=${!r.ink} would=${wouldOf(m, r)} focus=${r.key === fresh} write=${write} />`}
       ${problem.value?.key === r.key ? html`<p class="fx-problem" role="alert">${problem.value.message}</p>` : null}
-      ${editable ? html`<button class="btn icon fx-x" aria-label=${keep ? 'Keep row' : 'Delete row'} data-tip=${keep ? 'Keep row' : 'Delete row'} ...${point}
-          onClick=${() => change(m.def.id, rows => rows.map(x => x.key === r.key ? { ...x, gone: !x.gone } : x))}>${Shell.icon('x')}</button>` : null}
+      ${write ? html`<button class="btn icon fx-x" aria-label=${keep ? 'Keep row' : 'Delete row'} data-tip=${keep ? 'Keep row' : 'Delete row'} ...${point}
+          onClick=${() => change(m.def.id, rows => rows.map(x => x.key === r.key ? { ...x, gone: !x.gone } : x))}>${Shell.icon('x')}</button>`
+        : editable ? html`<button class="btn icon fx-pencil" aria-label="Edit row" data-tip="Edit row" onClick=${e => { e.stopPropagation(); openAt(r.key, { write: true }); }} onDblClick=${e => e.stopPropagation()}>${Shell.icon('Pencil')}</button>` : null}
     </div>`;
   }
   // What the rows would give where an entry overrides them, after the cited row: "C Corporation" beside the
@@ -1834,18 +1860,22 @@ const FormulaBar = (() => {
   // Why isn't X here: a list of a record's computed relatives, by the relation its items are in, and who could be on it:
   // a search of every object a rule of that relation could say it of, but those on it. Picked, the two are selected,
   // with that relation open, saying why not.
-  function whyIsnt(anchor, id, relation, side) {
-    const Rv = R.peek(), recs = Rv.records, def = Rv.computed[relation]?.def, d = defOf(def);
-    if (!d) return;
-    const on = new Set(Tree.index(recs).kinds ? nearOf(Rv, id, id).filter(r => Rv.computed[r]?.def === def && recs[r].tag !== false).flatMap(r => recs[r].args.map(g => Tree.objectOf(recs, g.at))) : []);
-    const items = Object.keys(recs).filter(x => isObj(recs[x]) && !Tree.isView(recs[x]) && x !== id && !on.has(x) && Formulas.evaluateRow(Rv, def, 0, { [side]: x, [d.edges.find(e => !Tree.same(e, side))]: id }))
+  const isntKept = new WeakMap();
+  function isntHere(id, relation, side) {
+    const Rv = R.peek(), recs = Rv.records, def = Rv.computed[relation]?.def, d = defOf(def), memo = isntKept.get(Rv) ?? isntKept.set(Rv, new Map()).get(Rv), k = `${id}|${def}|${side}`;
+    if (!d || d.edges.length !== 2) return [];
+    if (memo.has(k)) return memo.get(k);
+    const other = d.edges.find(e => !Tree.same(e, side)), on = new Set(nearOf(Rv, id, id).filter(r => Rv.computed[r]?.def === def && recs[r].tag !== false).flatMap(r => recs[r].args.map(g => Tree.objectOf(recs, g.at))));
+    const items = Object.keys(recs).filter(x => isObj(recs[x]) && !Tree.isView(recs[x]) && x !== id && !on.has(x) && Formulas.evaluateRow(Rv, def, 0, { [side]: x, [other]: id }))
       .map(x => ({ label: nameOf(Rv, x), names: [N().shortOf(recs, x)], run: () => {
-        const other = d.edges.find(e => !Tree.same(e, side)), [a, b] = Tree.same(d.edges[0], side) ? [x, id] : [id, x];
-        batch(() => { Shell.select([x, id]); pick.value = `${def}|${a}|${b}`; });
-        open.value = true;
+        const [a, b] = Tree.same(d.edges[0], side) ? [x, id] : [id, x];
+        Shell.select([x, id]);
+        pickLine(`${def}|${a}|${b}`);
       } }));
-    Shell.menu(anchor, items, { search: true });
+    memo.set(k, items);
+    return items;
   }
+  const whyIsnt = (anchor, id, relation, side) => Shell.menu(anchor, isntHere(id, relation, side), { search: true });
   // Find takes two names: "Fund III Tessellate" selects them both, whose panel and bar say what's between them.
   // Each name is an object's, its name or short name, or the fewest words its name begins with or has.
   function namedIn(q) {
@@ -1854,17 +1884,20 @@ const FormulaBar = (() => {
     const objects = Object.keys(st).filter(id => isObj(st[id]) && !Tree.isView(st[id])).map(id => ({ id, names: [n.shortOf(st, id), n.nameOf(st, id)].map(norm) }));
     const best = part => { const t = part.join(' '), w = ` ${t} `, score = ({ names }) => names.includes(t) ? 0 : names.some(x => x.startsWith(`${t} `)) ? 1 : names.some(x => ` ${x} `.includes(w)) ? 2 : 3;
       return objects.map(o => [score(o), o.names[1].length, o]).filter(x => x[0] < 3).sort((a, b) => a[0] - b[0] || a[1] - b[1])[0]; };
+    if ((best(words)?.[0] ?? 3) < 2) return [];   // one name, already
     let pair = null;
     for (let i = 1; i < words.length; i++) {
       const a = best(words.slice(0, i)), b = best(words.slice(i));
       if (a && b && a[2].id !== b[2].id && (!pair || a[0] + b[0] < pair[0])) pair = [a[0] + b[0], a[2].id, b[2].id];
     }
     if (!pair) return [];
+    // Said of the first, as a list of it is, so what names a thing or its list comes first: "Manager close" is the
+    // Manager's Close Affiliate Of before it's the Manager and an analysis called Close and Remote.
     const [, a, b] = pair;
-    return [{ label: `${n.shortOf(st, a)} and ${n.shortOf(st, b)}`, names: [q], run: () => Shell.select([a, b]) }];
+    return [{ of: a, pair: true, label: `${n.shortOf(st, a)} and ${n.shortOf(st, b)}`, names: [`${n.nameOf(st, a)} and ${n.nameOf(st, b)}`], run: () => Shell.select([a, b]) }];
   }
   Shell.register('find', { items: q => q ? namedIn(q) : [] });
 
   return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, light: ids => { lit.value = ids; },
-    reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, because, between, pickLine, whyIsnt, model, finder, pending, draft, hover, open };
+    reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, because, between, pickLine, isntHere, whyIsnt, model, finder, pending, draft, hover, open };
 })();
