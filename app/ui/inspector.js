@@ -1360,7 +1360,7 @@ function LaterView({ id }) {
     lists.get(list).push({ who, amount: amount ? T.format('percent', amount.value) : rel.choice ?? '' }); }
   return html`<div class="insp"><${Head} path=${x.kind ? [{ label: x.kind }] : []} title=${bound(name)} />
     <div class="later"><span>${words} ${short(d ?? gone.day)}</span><button class="btn" onClick=${() => Shell.at(on === Log.today() ? null : { asOf: on })}>Show the chart then</button>${change ? html`<button class="btn" disabled=${!!change.disabled} data-tip=${change.tip ?? null} onClick=${change.run}>Change this day…</button>` : null}<button class="btn" onClick=${() => Time.of([id])}>History</button></div>
-    <div class="then">${entries.map(e => html`<div class="row"><div class="k">${then[e].edge}</div><div class="v">${T.outputText(then[e])}</div></div>`)}
+    <div class="rows then">${entries.map(e => html`<div class="row"><div class="k">${then[e].edge}</div><div class="v">${T.outputText(then[e])}</div></div>`)}
       ${[...lists].map(([list, items]) => html`<div class="st">${list}</div>${items.map(it => html`<div class="row"><div class="k">${it.who}</div><div class="v">${it.amount}</div></div>`)}`)}</div></div>`;
 }
 // A box or line the chart shown hides by its own note (Delete, Hide in this view): said, with the way to show it

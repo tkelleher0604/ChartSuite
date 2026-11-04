@@ -124,6 +124,7 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
 .cell:disabled { color: inherit; background: transparent; }
 .cell.fx { font-style: italic; }
 .cell.add { color: var(--accent-ink); text-decoration: underline double; text-underline-offset: 2px; }
+.rows.then > .st { margin: 12px 0 2px; padding: 0 16px; font: 500 var(--t12); color: var(--ink-3); }
 .cell.bad, .cell[aria-invalid="true"] { border-color: var(--no); box-shadow: 0 0 0 1px var(--no); }
 /* Typed over: what it said, struck, before what's typed, whole: wrapped, never cut; a date kept on its line. */
 .cellbox:has(> .del) { flex-wrap: wrap; }

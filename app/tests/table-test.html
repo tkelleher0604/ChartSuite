@@ -211,8 +211,15 @@ async function historyChecks(ours, fund) {
   // ---- A rename says from when ----
   const fundName = Object.keys(st()).find(id => st()[id].at === fund && st()[id].edge === 'Name');
   Shell.at({ asOf: '2037-03-01' }); await tick(80);
-  const renamed = App.change(tx => tx.update(fundName, { value: 'Calder Ridge Fund III, L.P.' })); await tick(80);
+  const fundWas = st()[fundName].value, renamed = App.change(tx => tx.update(fundName, { value: 'Calder Ridge Fund III, L.P.' })); await tick(80);
   check('A rename says from when', / to Calder Ridge Fund III, L\.P\. from Mar 1, 2037$/.test(Time.describe(renamed)), Time.describe(renamed));
+  // What's typed before names it as it was then; and it says what it was called, as of a day after.
+  const earlier = App.wb.changes().filter(c => c.when < renamed.when && c.chart === App.chart.peek()).map(c => Time.describe(c));
+  const shortId = Tree.entryAt(st(), fund, 'Short Name'), shortened = App.change(tx => tx.update(shortId, { value: 'Fund Three' })); await tick(80);
+  const saying = App.wb.changes().filter(c => c.when < renamed.when && c.chart === App.chart.peek()).map(c => Time.describe(c));
+  check('An entry names a record as it was named then, whatever it’s been renamed since', saying.some(x => /\bFund III\b/.test(x)) && !saying.some(x => /Fund Three/.test(x)) && !earlier.some(x => x.includes('Calder Ridge Fund III, L.P.')), saying.filter(x => /Fund (III|Three)\b/.test(x)).slice(0, 2).join(' / '));
+  undo(); await tick(60);
+  check('… and a record says what it was called, and until when', App.formerNames(fund, '2037-06-01')[0]?.name === fundWas && App.formerNames(fund, '2037-06-01')[0]?.until === '2037-03-01' && !App.formerNames(fund, '2037-01-01', App.wb.asOf(App.chart.peek(), '2037-01-01')).length, JSON.stringify(App.formerNames(fund, '2037-06-01')));
   undo(); await tick(60);
   Shell.at(null); await tick(80);
 
@@ -324,7 +331,21 @@ async function historyChecks(ours, fund) {
   const heads = $$('.openlist .ol-head').map(x => x.textContent);
   check('The status list groups failures of one rule by one person, under a head', heads.some(x => /^Capacity Held · David R\. Okafor \(\d+\)$/.test(x)), heads.join(' / '));
   check('… each under it where it is, with what’s wrong', $$('.openlist .ol-row').some(x => /David R\. Okafor for Fund III, via GP III/.test(x.textContent) && /not a managing member/.test(x.textContent)), $$('.openlist .ol-row')[0]?.textContent);
+  const stay = $$('.openlist .ol-row')[0]; stay?.click(); await tick(60);
+  check('… which stays open as its rows are clicked', !!$('.openlist') && $$('.openlist .ol-row').length > 1);
+  $('.openlist .ol-tabs button')?.click(); await tick(60);
+  check('… All lists every kind, each under its head', $$('.openlist .ol-head').some(x => /errors?$/.test(x.textContent)), $$('.openlist .ol-head').map(x => x.textContent).join(' / '));
   $('.openlist .btn.icon')?.click(); await tick(40);
+  check('… and it closes', !$('.openlist'));
+
+  // Blank by choice.
+  const pine = Object.keys(st()).find(id => st()[id].kind === 'Entity' && App.notes.peek().nameOf(st(), id).startsWith('Northpine')), blanks0 = App.needs.peek().filter(a => a.kind === 'blank').length;
+  check('What’s blank that others of its kind have stands apart from what’s required', App.blanksApart.peek().some(b => b.id === pine && b.edge === 'Responsible' && b.ours), JSON.stringify(App.blanksApart.peek().filter(b => b.id === pine)));
+  App.sayNotOurs(pine, 'Responsible'); await tick(60);
+  check('A blank can be said not to be ours: a change pending, with room for why', $('.pendbar .btn.primary')?.textContent === 'Not ours' && !!$('.pendbar'), $('.pendbar')?.textContent);
+  App.commit(); await tick(120);
+  check('… said in History as what it is, and listed apart', App.notOurs(pine, 'Responsible') && /^Said Responsible of Northpine.* isn’t ours$/.test(Time.describe(last())) && App.blanksApart.peek().some(b => b.id === pine && b.edge === 'Responsible' && !b.ours) && App.needs.peek().filter(a => a.kind === 'blank').length === blanks0, Time.describe(last()));
+  undo(); await tick(100);
 }
 async function run() {
   // ---- The sheet tabs are the View objects, in their Order ----
@@ -514,6 +535,23 @@ async function run() {
   press('Enter'); await tick(150);
   check('… and Enter makes it, said with the file’s name', !!named('Hollis Bay Holdings, LLC') && N() === n0 + 1 && $('.toast span')?.textContent === 'Imported Hollis Bay Holdings, LLC from entities.csv', $('.toast span')?.textContent);
   undo(); await tick(150);
+  // Nothing's taken on trust: a row with too many values is held back, with its mend; a value that isn't one is said; each column guessed by what it holds.
+  n0 = N();
+  Table.importing('Northwind Opco\tInc.\tDelaware\tCorporation\t6/2/2019\nHarbor Point GP Ltd\tCayman Islands\tExempted Company\t9/28/2022\nHarbor Point Partners, L.P.\tCayman Islands\tLimited Partnership\t9/30/2022\nNorthwind Europe B.V.\tNetherlands\tLimited Liability Company\t1/15/2021\nSaltmarsh Logistics LLC\tDelaware\tLimited Liability Company\t2021\nAcme Holdings LLC\tDelaware\tCorporation\tsomeday\n', 'messy.csv'); await tick(250);
+  const impFlags = () => $$('.imp-grid tr.flag').map(x => x.textContent.replace(/\s+/g, ' ').trim()), impSays = () => $('.imp-says')?.textContent ?? '', impTo = () => $$('.imp-grid tr.to select').map(s => s.selectedOptions[0]?.textContent.trim());
+  check('Import flags a row with more values than the rows have columns, and what doesn’t read, before anything’s made', impFlags().some(x => /^5 values, where the rows have 4: held back/.test(x) && /Read as “Northwind Opco, Inc\.”/.test(x)) && impFlags().some(x => /“someday”: Not a date/.test(x)) && /1 row held back/.test(impSays()) && /1 value left out/.test(impSays()) && N() === n0, `${impFlags().join(' | ')} / ${impSays()}`);
+  check('… each column guessed by what most of it holds', impTo().slice(0, 4).join() === 'Name,Jurisdiction,Entity Type,Formation Date', impTo().join());
+  $('.imp-grid tr.flag .lk').click(); await tick(120);
+  check('… the mend reads the row as it should be, and it’s no longer held', !/held back/.test(impSays()) && !impFlags().some(x => /held back/.test(x)) && $$('.imp-grid tbody td').some(x => x.textContent === 'Northwind Opco, Inc.'), impSays());
+  const yearCell = $$('.imp-grid tbody td').find(x => x.textContent === 'someday');
+  yearCell.click(); await tick(60);
+  const impIn = $('.imp-grid td.typing input'); impIn.value = 'Mar 2022'; impIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(120);
+  check('… a cell can be fixed there, and a date reads as it’s known', !impFlags().length && $$('.imp-grid tbody td').some(x => x.textContent === 'Mar 2022') && $$('.imp-grid tbody td').some(x => x.textContent === '2021'), impFlags().join());
+  $('.imp-foot .btn.primary').click(); await previewed(); await tick(100);
+  $('.pendbar .btn.primary').click(); await tick(250);
+  const salt = named('Saltmarsh Logistics LLC'), acme = named('Acme Holdings LLC');
+  check('… and it’s all made as it was mended, a date kept as known', !!named('Northwind Opco, Inc.') && at(salt, 'Formation Date')?.value === '2021' && at(acme, 'Formation Date')?.value === '2022-03' && N() === n0 + 1, `${at(salt, 'Formation Date')?.value} ${at(acme, 'Formation Date')?.value}`);
+  undo(); await tick(150);
 
   // One cell pasted that only changes a value is made at once, as one typed is, with Undo.
   n0 = N();
@@ -560,6 +598,20 @@ async function run() {
   undo(); await tick(150); undo(); await tick(150);
   undo(); await tick(150);
 
+  // What's ended isn't silently left out: a table says how many, with a way to include them, read as of their last day.
+  {
+    const h = named('Halvard Logistics Holdings, Inc.');
+    App.change(tx => tx.add('record', { at: h, edge: 'Dissolution Date', field: 'date', value: '2037-06-01' }), { dated: false }); await tick(120);
+    Shell.at({ asOf: '2038-01-01' }); await tick(250);
+    check('A table as of a day says what it leaves out as ended', /\d+ ended left out/.test($('.tbar .tout.ended')?.textContent ?? '') && !Table.grid.getRows().some(r => r.getData().id === h), $('.tbar')?.textContent);
+    $('.tbar .tout.ended .lk').click(); await tick(300);
+    const kept = Table.grid.getRows().map(r => r.getData()).find(d => d.id === h);
+    check('… and Include reads it, as of its last day, not to be typed in', kept?._ended === '2037-06-01' && /With \d+ ended/.test($('.tbar .tout.ended')?.textContent ?? '') && !!Table.grid.getRow(h)?.getElement().classList.contains('ended'), $('.tbar')?.textContent);
+    $('.tbar .tout.ended .lk').click(); await tick(250);
+    Shell.at(null); await tick(200);
+    undo(); await tick(150);
+    Shell.show(views()[0].id); await tick(100); Shell.show(ent); await until(() => !!Table.grid && $$('.grid .tabulator-row').length > 0); await tick(300);
+  }
   // ---- Excel-grade: a heading dragged, its menu, the bar above the grid, a column inserted, fills, the new row ----
   // How one person looks at a table (sort, filters, grouping, frozen columns, widths) is kept per view in this browser,
   // and is no change.
@@ -1437,6 +1489,11 @@ async function run() {
     check('Dates are grouped by month till grouped by whose, or what falls due', ways[0] === 'Month' && ways.includes('Whose') && ways.includes('What') && !!tool('Grouped by Whose') && heads.length > 1 && !heads.includes('Overdue'), `${ways.join()} / ${heads.slice(0, 4).join()}`);
     tool('Grouped by Whose').click(); await tick(); item('Month').click(); await tick(300);
     check('… and Month groups them by month again', !Table.look(dv).group && Table.model(dv).groups[0] === 'overdue' && !!tool('Grouped by month'), Table.model(dv).groups.slice(0, 3).join());
+    // What's marked stays marked; and a date's filter keeps what's overdue with what's coming.
+    {
+      const wbD = await Table.workbook(), wsD = wbD.Sheets[wbD.SheetNames[0]], rowsD = XLSX.utils.sheet_to_json(wsD, { header: 1, blankrows: false }), headD = rowsD[1], st_ = headD.indexOf('Status'), marksD = wsD['!marks'];
+      check('Excel carries what’s overdue and due soon, as a fill and a Status column', st_ >= 0 && rowsD.some(r => r[st_] === 'Overdue') && [...marksD.values()].includes('overdue'), headD.join());
+    }
   }
   // Another day shown with a row selected, however it's scrolled, the rows are drawn where the grid stands.
   {

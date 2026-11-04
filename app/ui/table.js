@@ -218,8 +218,12 @@ const Table = (() => {
   function endedBy() {
     const wb = App.shown.peek(), c = App.chart.peek(), day = App.day.peek(), version = App.version.peek();
     if (ending?.wb === wb && ending.c === c && ending.day === day && ending.version === version) return ending.out;
-    const entered = App.entered.peek(), seen = new Set(), out = [], then = new Map(), asOf = d => then.get(d) ?? then.set(d, wb.asOf(c, d)).get(d);
-    for (const r of wb.rows(c)) if ('record' in r && !seen.has(r.record) && (Tree.isObject(r) ? r.kind !== 'View' : r.args?.length > 1) && !entered[r.record]) {
+    const entered = App.entered.peek(), seen = new Set(), out = [], then = new Map(), asOf = d => then.get(d) ?? then.set(d, wb.asOf(c, d)).get(d), rows = wb.rows(c).filter(r => 'record' in r);
+    // (Only what could have ended by then: what has an end on or before the day, or stands at or on what has, as a relation does at a side dissolved. Of a chart seen long before it's made, that's little, however much isn't there yet.)
+    const stopped = new Set(rows.filter(r => r.before && r.before <= day).map(r => r.record)), ends = new Set(App.notes.peek().notes('End').map(n => norm(n.pattern.args?.[0]?.edge ?? '')));
+    for (const r of rows) if (r.field === 'date' && r.at && r.value <= day && ends.has(norm(r.edge ?? ''))) stopped.add(r.at);
+    for (let grew = true; grew;) { grew = false; for (const r of rows) if (!stopped.has(r.record) && (r.at ? stopped.has(r.at) : Tree.argsOf(r).some(a => stopped.has(a.at)))) { stopped.add(r.record); grew = true; } }
+    for (const r of rows) if (stopped.has(r.record) && !seen.has(r.record) && (Tree.isObject(r) ? r.kind !== 'View' : r.args?.length > 1) && !entered[r.record]) {
       seen.add(r.record);
       const off = App.heldUntil(r.record, day);
       if (off) out.push({ id: r.record, day: off.day, last: off.last, then: asOf(off.last) });
@@ -897,7 +901,6 @@ const Table = (() => {
     t.rowManager.normalizeHeight = function () { this.renderer.rerenderRows(); };
     t.on('cellEditCancelled', () => back());
     t.on('cellClick', (e, cell) => { if (e.target.closest('.tag') && !cell.getRow().getData()._ended) flip(cell); });
-    host.classList.toggle('marks-blanks', !!look.blanks);
     t.on('rangeChanged', range => { remember(range); soon(); tally(); });
     t.on('rangeAdded', range => { remember(range); if (quiet.has(range)) quiet.delete(range); else soon(); tally(); });
     t.on('rangeRemoved', tally);
@@ -985,6 +988,7 @@ const Table = (() => {
     shownM.value = m;
     // Under a table whose rows are a kind's or a relation's, a row for a new one, where the chart can be changed.
     el.classList.toggle('adds', !m.isDatatype && !m.red && !App.readOnly.peek());
+    el.classList.toggle('marks-blanks', !!lookOf(view).blanks);
     if (!table || built.view !== view || built.sig !== signature(m)) { drewFrom = from; since(now); return build(m); }
     if (!ready) return table.on('tableBuilt', () => refresh());
     if (!flight && !arrange(m)) { drewFrom = from; since(now); return build(m); }
@@ -1428,10 +1432,11 @@ const Table = (() => {
     const most = (vs, ok) => vs.filter(ok).length * 2 > vs.length, free = t => [...cols.filter(x => x.type === t && !taken.has(x.key) && x.shown), ...cols.filter(x => x.type === t && !taken.has(x.key) && !x.shown)];
     for (let j = 0; j < width; j++) {
       const vs = of(j);
-      if (!vs.length) continue;
+      // (What only a stray row or two has is no column of the rows'.)
+      if (vs.length * 2 < grid.length) continue;
       const isOption = x => v => x.options?.some(o => same(o, v)), hits = x => vs.filter(isOption(x)).length;
       const choice = free('choice').filter(x => most(vs, isOption(x))).sort((a, b) => hits(b) - hits(a))[0];
-      const c = choice ?? (most(vs, v => Tree.classify(v) === 'percent') ? free('percent')[0] : most(vs, v => Tree.classify(v) === 'date') ? free('date')[0] : null);
+      const c = choice ?? (most(vs, v => Tree.classify(v) === 'percent') ? free('percent')[0] : most(vs, v => Tree.classify(v) === 'date' || /^\d{4}$/.test(v)) && vs.some(v => Tree.classify(v) === 'date') ? free('date')[0] : null);
       if (c) { out[j] = c.key; taken.add(c.key); }
     }
     const keys = keysOf(m, m.cols).filter(k => !taken.has(k.key));
@@ -1970,7 +1975,7 @@ const Table = (() => {
   function filterOf(m, l = lookOf(m.view)) {
     const fs = Object.entries(l.filters ?? {}).map(([k, vs]) => [m.cols.find(c => c.key === k), vs]).filter(([c, vs]) => c && !(Array.isArray(vs) && !vs.length)).map(([c, vs]) => {
       // (Overdue is of what falls due: what's only past isn't late.)
-      if (!Array.isArray(vs)) { const { from, to } = rangeOf(vs), f = field(c), late = vs.range === 'overdue' || vs.overdue; return d => { if (blank(d[f])) return false; const v = Tree.firstDay(d[f]); return (!from || v >= from) && (!to || v <= to) && (!late || v >= App.day.peek() || !!d._m[f]?.due || vs.range !== 'overdue' && !vs.overdue); }; }
+      if (!Array.isArray(vs)) { const { from, to } = rangeOf(vs), f = field(c), late = vs.range === 'overdue' || vs.overdue; return d => { if (blank(d[f])) return false; const v = Tree.firstDay(d[f]); return (!from || v >= from) && (!to || v <= to) && (!late || v >= App.day.peek() || !!d._m[f]?.due); }; }
       const ok = new Set(vs.map(v => JSON.stringify(v)));
       return d => valuesIn(c, d).some(v => ok.has(JSON.stringify(v)));
     });
@@ -2282,7 +2287,7 @@ const Table = (() => {
       <button type="button" data-tool="group" class=${"btn ghost dd" + (groupC ? " on" : "")} aria-haspopup="menu" onClick=${e => groupMenu(e.currentTarget)}>${groupC ? `Grouped by ${headed(groupC)}` : m.rows === "date" ? "Grouped by month" : "Group"}</button>
       ${fs.length ? html`<button type="button" class="btn ghost" onClick=${clearFilters}>Clear filters</button>` : null}
       ${m.isDatatype ? null : html`<button type="button" class="btn ghost" disabled=${App.readOnly.value} onClick=${importFile}>Import…</button>`}
-      <button type="button" data-tool="blanks" class=${'btn ghost' + (l.blanks ? ' on' : '')} aria-pressed=${!!l.blanks} onClick=${() => { setLook(view, { blanks: l.blanks ? undefined : true }); cells?.querySelector('.tabulator')?.parentElement?.classList.toggle('marks-blanks', !l.blanks); }}>Blanks</button>
+      <button type="button" data-tool="blanks" class=${'btn ghost' + (l.blanks ? ' on' : '')} aria-pressed=${!!l.blanks} onClick=${() => { setLook(view, { blanks: l.blanks ? undefined : true }); el?.classList.toggle('marks-blanks', !l.blanks); }}>Blanks</button>
       ${m.ended?.length ? html`<span class="tout ended" role="status"><span>${l.ended ? `With ${m.ended.length} ended` : `${m.ended.length} ended left out`}</span><button type="button" class="lk" data-tip=${m.ended.slice(0, 6).map(e => `${e.name}, ${Tree.formatDate(e.day, 'short')}`).join('; ')} onClick=${() => { setLook(view, { ended: l.ended ? undefined : true }); drewFrom = null; refresh(); }}>${l.ended ? 'Leave out' : 'Include'}</button></span>` : null}
       ${out ? html`<span class="tout" role="status"><b>${rowName(sel)}</b> is filtered out<span class="sep">·</span><button type="button" class="lk" onClick=${() => { clearFilters(); setTimeout(() => track(sel)); }}>Clear filters</button></span>` : null}
       ${m.later?.length ? html`<span class="tout later" role="status">${m.later.length} ${m.later.length === 1 ? 'starts' : 'start'} later:${' '}<button type="button" class="lk" onClick=${() => Shell.at({ asOf: m.later[0].day })}><b>${m.later[0].name}</b>, ${Tree.formatDate(m.later[0].day, 'short')}</button>${m.later.length > 1 ? ` and ${m.later.length - 1} more` : ''}</span>` : null}
@@ -2645,7 +2650,7 @@ const Table = (() => {
     const rows = range.getComponent().getRows(), all = table.getRows('active').length;
     if (!rows.length || (rows.length === all && all > 1)) return;
     // A scheduled date's row is the record it's of, though that starts later.
-    const st = App.state.peek(), ids = [...new Set(rows.map(r => r.getData()._rec ?? r.getData().id))].filter(id => st[id] || App.heldFrom(id));
+    const st = App.state.peek(), ids = [...new Set(rows.map(r => r.getData()._rec ?? r.getData().id))].filter(id => st[id] || App.heldFrom(id) || App.heldUntil(id));
     picking = true;
     Shell.select(ids.slice(0, 50));
     picking = false;
@@ -2805,7 +2810,7 @@ const Table = (() => {
     const value = (d, c) => { const mm = d._m[field(c)]; return mm && 'was' in mm ? mm.was : d[field(c)]; };
     const needs = App.needs.peek(), st = App.state.peek(), kinds = new Map(), requires = needs.filter(a => a.kind === 'blank' && !a.error);
     for (const a of needs) { if (!kinds.has(a.id)) kinds.set(a.id, new Set()); kinds.get(a.id).add(a.kind); if (a.kind === 'error' && !a.error && st[a.id]?.at) { const k = `at:${st[a.id].at}`; if (!kinds.has(k)) kinds.set(k, new Set()); kinds.get(k).add(st[a.id].edge); } }
-    const failing = new Set(needs.filter(a => a.kind === 'error' && !a.error).map(a => a.id)), marks = new Map(), N = App.notes.peek();
+    const failing = new Set(needs.filter(a => a.kind === 'error' && !a.error).map(a => a.id)), marks = new Map();
     const line = [App.asOfWords().line, [App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name, viewOf(m.view)?.name].filter(Boolean).join(', '), rowsWords(all)].filter(Boolean).join(' · ');
     const ws = { A1: { t: 's', v: line } }, at = (r, j) => X.utils.encode_cell({ r, c: j });
     const status = rows.map(d => statusOf(m, d, kinds, requires)), withStatus = status.some(Boolean), statusAt = cols.length;

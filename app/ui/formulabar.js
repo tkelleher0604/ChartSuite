@@ -2117,7 +2117,7 @@ const FormulaBar = (() => {
     const st = App.state.peek(), n = N(), words = norm(q).split(' ').filter(Boolean);
     if (words.length < 2) return [];
     const related = Tree.index(st).relations;
-    const objects = Object.keys(st).filter(id => isObj(st[id]) && !Tree.isView(st[id])).map(id => ({ id, ties: related.get(id)?.length ?? 0, names: [n.shortOf(st, id), n.nameOf(st, id), ...App.formerNames(id, App.day.peek(), st).map(f => f.name)].map(x => norm(x).replace(/^the /, '')) }));
+    const objects = Object.keys(st).filter(id => isObj(st[id]) && !Tree.isView(st[id])).map(id => ({ id, ties: related.get(id)?.length ?? 0, names: [n.shortOf(st, id), n.nameOf(st, id), ...App.formerNames(id, App.day.peek(), st).map(f => f.name)].map(x => norm(x).replace(/^the /, '').replace(/[,.]/g, '')) }));
     // Its name, what its name begins with, or words its name has; between equals, the one with the most relations.
     const best = part => { const t = part.join(' '), w = ` ${t} `, score = ({ names }) => names.includes(t) ? 0 : names.some(x => x.startsWith(`${t} `)) ? 1 : names.some(x => ` ${x} `.includes(w)) ? 2 : 3;
       return objects.map(o => [score(o), o.ties, o]).filter(x => x[0] < 3).sort((a, b) => a[0] - b[0] || b[1] - a[1])[0]; };

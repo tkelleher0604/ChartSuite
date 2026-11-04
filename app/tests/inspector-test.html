@@ -1360,6 +1360,25 @@ async function run() {
 async function saysWhen(C, keep) {
   const typeIn = async q => { const f = document.querySelector('.float .menu-find'); f.textContent = q; f.dispatchEvent(new Event('input', { bubbles: true })); await tick(); };
   const finding = async q => { Shell.find(q); await tick(150); const out = [...document.querySelectorAll('.findpal .menu-item .label, .findpal .label')].map(x => x.textContent); Shell.closeAll(); await tick(30); return out; };
+  // Find finds what people search by: a value, whose it is, a former name, what a formula gives none of; a hit says what it found.
+  const finds = async q => { Shell.find(q); await tick(150); const got = [...document.querySelectorAll('.findpal .menu-head, .findpal .menu-item')].map(e => e.classList.contains('menu-head') ? `#${e.textContent}` : `${e.querySelector('.label').textContent}|${e.querySelector('.detail')?.textContent ?? ''}`); Shell.closeAll(); await tick(30); return got; };
+  const einOf = st()[Tree.entryAt(st(), 'fund', 'EIN')]?.value, shortOf = N().shortOf(st(), 'fund');
+  if (einOf) {
+    let hits = await finds(einOf.slice(0, 6));
+    check('Find finds a value, saying what it found and in what field', hits.includes(`${shortOf} › EIN|${einOf}`) && hits[0] === '#Values', hits.slice(0, 3).join(' / '));
+    hits = await finds(`${shortOf} EIN`);
+    check('… a value by whose it is, in two words', hits[1] === `${shortOf} › EIN|${einOf}`, hits.slice(0, 3).join(' / '));
+  }
+  const jurisdictionOf = st()[Tree.entryAt(st(), 'fund', 'Jurisdiction')]?.choice;
+  if (jurisdictionOf) { const hits = await finds(jurisdictionOf); check('… every entity at a value', hits.some(x => x === `${shortOf} › Jurisdiction|${jurisdictionOf}`), hits.slice(0, 4).join(' / ')); }
+  // What nothing requires stands apart under Blank, and the list stays open.
+  { const blankNow = document.querySelector('.status .counts > .blank');
+    if (blankNow) { blankNow.click(); await tick(120);
+      const heads2 = [...document.querySelectorAll('.openlist .ol-head')].map(x => x.textContent), rows2 = [...document.querySelectorAll('.openlist .ol-row')];
+      check('The list under Blank sets what’s not required apart from what is', !!document.querySelector('.openlist') && (heads2.some(x => /not required/.test(x)) || rows2.length > 0), heads2.join(' / '));
+      rows2[0]?.click(); await tick(100);
+      check('… and stays open as a row is clicked', !!document.querySelector('.openlist'));
+      document.querySelector('.openlist .btn.icon')?.click(); await tick(40); } }
   const blocked = Object.keys(st()).find(k => st()[k].args && N().nameOf(st(), k) === 'Ownership' && st()[k].args.some(a => a.at === 'fund') && st()[k].args.some(a => a.at === 'blocker'));
   Shell.select([blocked]); await tick(60);
   const spanned = () => spoken($('.ih .span') ?? document.createElement('p')).trim();

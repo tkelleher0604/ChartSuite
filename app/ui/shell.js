@@ -904,14 +904,24 @@ const Shell = (() => {
     const lines = openLines(o), name = chartName.peek() ?? 'Chart', asOf = App.asOfWords().line;
     await Table.plainFile({ name: `${name} - What's open`, sheet: 'What’s open', title: `${asOf} · ${name}: what’s open: ${tally.peek().map(c => c.say(c.n)).join(', ') || 'nothing'}`, head: OPEN_HEAD, rows: lines, widths: [16, 34, 34, 16, 22, 70], wrap: [1, 2, 5], marks: lines.map(l => ({ 0: OPEN_MARK[l[0]] ?? 'wrap' })) });
   }
+  // Going to one, what's selected on the chart comes out from under the list, as a wheel scrolls the chart, by as little as will do.
+  function goFromList(it) {
+    it.go();
+    setTimeout(() => {
+      const chart = document.querySelector('.dc-graph'), list = document.querySelector('.openlist'), id = selection.peek()[0];
+      const box = chart && list && id && chart.querySelector(`[data-cell-id="${CSS.escape(String(id))}"]`)?.getBoundingClientRect();
+      const top = list?.getBoundingClientRect().top;
+      if (box && box.bottom > top - 8) chart.dispatchEvent(new WheelEvent('wheel', { deltaY: box.bottom - top + 24, bubbles: true, cancelable: true }));
+    }, 60);
+  }
   function OpenList() {
     const o = opened.value;
     if (!o) return null;
     App.version.value; App.chart.value; time.value;
     const set = x => { opened.value = { ...opened.peek(), ...x }; }, sel = selection.value, { main, optional, ours } = openRows(o), isNew = part('time')?.newSinceToday?.();
     const counts_ = tally.value, row = (r, label) => html`<div class=${'ol-row k-' + r.kind} role="button" tabindex="0" aria-current=${sel.some(k => k === r.it.id || App.state.peek()[r.it.id]?.at === k) ? 'true' : null}
-        onClick=${() => r.it.go()} onKeyDown=${e => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); r.it.go(); }
+        onClick=${() => goFromList(r.it)} onKeyDown=${e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goFromList(r.it); }
           else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); (e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling)?.focus?.(); } }}>
         <span class="c what">${label ?? r.w.what}</span><span class="c where">${r.w.where}</span><span class="c fig">${r.w.figure}</span><span class="c who">${r.on}</span><span class="c why" data-tip=${r.why || null}>${r.why}</span>
         ${r.it.say && !App.readOnly.value ? html`<button type="button" class="lk ours" onClick=${e => { e.stopPropagation(); r.it.say(); }}>${r.it.apart === 'ours' ? 'Ours after all…' : 'Not ours…'}</button>` : null}</div>`;

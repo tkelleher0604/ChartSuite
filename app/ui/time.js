@@ -325,7 +325,9 @@ const Time = (() => {
       for (const id of ch.removes) { const r = rows.get(id), v = r && named.get(r.record)?.find(x => x.row.id === id); if (v) v.to = i; }
     });
     for (const [id, vs] of named) if (vs.length < 2) named.delete(id);
-    return { rows, by, recs: recordsOf(mine), changes, named, thens: new Map(), byId: new Map(changes.map(ch => [ch.id, ch])), at: new Map(changes.map((ch, i) => [ch.id, i])), live: new Set(wb.rows(c).map(r => r[Log.typeOf(r)])) };
+    // (A record's latest version, the live one where it has one: a rename undone is no name of it.)
+    const live = wb.rows(c).filter(r => 'record' in r);
+    return { rows, by, recs: { ...recordsOf(mine), ...recordsOf(live) }, changes, named, thens: new Map(), byId: new Map(changes.map(ch => [ch.id, ch])), at: new Map(changes.map((ch, i) => [ch.id, i])), live: new Set(wb.rows(c).map(r => r[Log.typeOf(r)])) };
   });
   // The chart's notes as they are now, whatever moment or day is shown, so an entry's words never change with where you're
   // standing; and the names of what its definitions work out.
@@ -797,7 +799,9 @@ const Time = (() => {
       case 'Footer': return gone ? 'Took the footer off' : 'Set the footer';
       // Said as the rule's page says them.
       case 'Check': return gone || n.value === false ? `Made ${of} count no failure as an error` : `Made a failure of ${of} count as an error`;
-      case 'Required': if (!gone) return n.value === false ? `Made a blank ${of} need no filling in` : `Made a blank ${of} need filling in`;   // falls through
+      // (At one record's own tree, a blank said not to be ours, or ours after all: dendra.md, Ours to track.)
+      case 'Required': { const at = n.pattern.args?.[0]; if (at?.loc?.id) { const whose = N.shortOf(recs, at.loc.id); return gone ? `Made ${at.edge} of ${whose} ours after all` : `Said ${at.edge} of ${whose} isn’t ours`; } }
+        if (!gone) return n.value === false ? `Made a blank ${of} need no filling in` : `Made a blank ${of} need filling in`;   // falls through
       case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
       case 'Fixed': return gone ? `Made ${of} change over time` : `Made ${of} one for all time`;
       // A field's look in a group's boxes, given beside its output (dendra.md, Fields): "Made Jurisdiction not bold in the
@@ -880,7 +884,7 @@ const Time = (() => {
       else if ('record' in r) out.add(r.kind === 'View' ? 'looks' : 'records');
       else if ('chart' in r) out.add('records');
       else if ('shape' in r) out.add('looks');
-      else if ('note' in r && !(r.label === 'Position' && r.value?.kept)) out.add(!r.view && r.pattern.kind !== 'View' && RULES.has(r.label) ? 'rules' : 'looks');
+      else if ('note' in r && !(r.label === 'Position' && r.value?.kept)) out.add(r.label === 'Required' && r.pattern.args?.[0]?.loc?.id ? 'records' : !r.view && r.pattern.kind !== 'View' && RULES.has(r.label) ? 'rules' : 'looks');
     }
     if (spec && !out.size) out.add('rules');
     return out;
@@ -1046,7 +1050,7 @@ const Time = (() => {
       const narrow = [byWho.peek(), byDays.peek()?.said, byWords.peek() && `“${byWords.peek()}”`, focus.peek() && (focus.peek().rule ? `changes to ${focus.peek().name}` : `changes to ${focus.peek().map(id => N.nameOf(ever.peek().recs, id)).join(', ')}`), kind.peek() !== 'all' && KINDS.find(([x]) => x === kind.peek())[1]].filter(Boolean);
       const chartName = App.wb.charts().find(x => x.chart === App.chart.peek())?.name ?? 'Chart';
       await Table.plainFile({ name: `${chartName} - History`, sheet: 'History', title: `History of ${chartName}: ${list.length} ${list.length === 1 ? 'change' : 'changes'}${narrow.length ? `, ${narrow.join(', ')}` : ''}. Exported ${short(Log.today())}${App.who() ? ` by ${App.who()}` : ''}.`,
-        head: ['Recorded', 'Who', 'What', 'Why', 'Status', 'Undone', 'What it holds'], rows, widths: [18, 18, 60, 40, 22, 14, 80], when: [0], wrap: [2, 3, 4, 6] });
+        head: ['Recorded', 'Who', 'What', 'Why', 'Status', 'Undone', 'What it holds'], rows, widths: [22, 20, 60, 40, 22, 14, 80], wrap: [2, 3, 4, 6] });
     } catch (x) { Shell.toast(x?.message || 'Couldn’t export'); } finally { stop(); }
   }
   // A reason given and undone stays on what it was about, struck, as an undone change does.
@@ -1162,7 +1166,7 @@ const Time = (() => {
     const k = new Set(keys), E = ever.value, t = Shell.time.value, upto = t?.stood ? t.at ?? E.byId.get(t.stood)?.when : null, all = [...entries.value].filter(e => !struck(e) && !e.change.about && !e.change.reverses && (!upto || e.change.when <= upto)
       && [...e.change.adds, ...e.change.removes.map(id => E.rows.get(id)).filter(Boolean)].some(r => 'note' in r && !r.view && k.has(Tree.key(r.pattern)) && r.label !== 'Order'));
     worked.value;
-    return all.map(e => ({ change: e.change, who: e.change.who, when: e.change.when, reasons: App.wb.reasons(e.change.id), fx: known(e.change), head: e.change.says ?? headOf(read(e.change, { rule: k })) }));
+    return all.map(e => ({ change: e.change, who: e.change.who, when: e.change.when, reasons: App.wb.reasons(e.change.id), fx: known(e.change), head: e.change.says ?? (part => { const all = reading(e.change); return all.length > 1 ? `${part[0]?.text ?? all[0].text}, and ${all.length - 1} more` : part[0]?.text ?? all[0]?.text ?? 'Changed the chart'; })(read(e.change, { rule: k })) }));
   }
   const everything = () => { focus.value = null; kind.value = 'all'; byWho.value = null; byDays.value = null; byWords.value = ''; };
   // History takes the inspector's place while it's open: the chart's, everything, from the chart menu, or a record's own.

@@ -200,7 +200,7 @@ dialog.dlg .dlg-foot:empty { display: none; }
 .tbar > .tout > * { flex: none; }
 .tbar > .tout > b { flex: 0 1 auto; }
 .grid .tabulator .tabulator-row.ended .tabulator-cell { color: var(--ink-3); font-style: italic; }
-.grid .marks-blanks .tabulator-row .tabulator-cell.empty { background-color: color-mix(in srgb, var(--due) 18%, transparent); }
+.grid.marks-blanks .tabulator-row .tabulator-cell.empty { background-color: color-mix(in srgb, var(--due) 18%, transparent); }
 /* The record selected a row the filters leave out: said, with Clear filters, before the count. */
 .tbar > .tout { display: flex; align-items: center; min-width: 0; margin-left: auto; padding-left: 12px; color: var(--ink-2); white-space: nowrap; }
 .tbar > .tout > b { min-width: 0; margin-right: .3em; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--ink); }
@@ -266,7 +266,7 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .insp .cols > .cols-list { max-height: none; overflow: visible; }
 
 /* ---- The cells selected, at the status bar's end: counted, and their numbers summed and averaged ---- */
-.tstats { display: flex; gap: 16px; margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--rule); color: var(--ink-3); white-space: nowrap; }
+.tstats { display: flex; gap: 16px; margin-right: 12px; padding-right: 12px; border-right: 1px solid var(--rule); color: var(--ink-3); white-space: nowrap; }
 .tstats b { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* ---- The date control: a calendar beside the chart's own days ---- */
