@@ -2499,7 +2499,8 @@ async function tablesAsk() {
   // Who's responsible, and Good Standing lost.
   check('Good Standing lost is counted among the errors', App.needs.peek().some(a => a.kind === 'error' && st()[a.id]?.edge === 'Good Standing' && st()[a.id].tag === false));
   await show('Dates');
-  check('With nothing saying who, Dates has no Responsible column', !column('Responsible'));
+  const owedBefore = Table.grid.getRows().find(r => /^Fund III Blocker/.test(r.getData()['f:$of']));
+  check('Dates says who’s responsible, as the sample records it', !!column('Responsible') && owedBefore?.getData()['f:$resp'] === 'Rebecca A. Moretti', `${!!column('Responsible')} ${owedBefore?.getData()['f:$resp']}`);
   App.change(tx => tx.add('record', { at: named('Calder Ridge III Blocker, Inc.'), edge: 'Responsible', field: 'text', value: 'Priya N. Raman' }), { dated: false }); await tick(300);
   const owed = Table.grid.getRows().find(r => /^Fund III Blocker/.test(r.getData()['f:$of']));
   check('… with an entity’s Responsible, its dates say who', !!column('Responsible') && owed?.getData()['f:$resp'] === 'Priya N. Raman', `${!!column('Responsible')} ${owed?.getData()['f:$resp']}`);

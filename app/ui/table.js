@@ -153,20 +153,6 @@ const Table = (() => {
     const t = Tree.treeOf(st, top), e = t && N.edges(t)[0], a = r.args.find(x => same(x.edge, e ?? '')) ?? r.args[0];
     return Tree.objectOf(st, a.at);
   }
-  // Who's Responsible for a record: said at it, or else up what it's at to the object it's of: an entry of that name, in its
-  // words, or a relation of that name, by the other side's short name. Null where nothing says.
-  function responsible(st, id, N) {
-    const said = x => {
-      const e = entryAt(st, x, 'Responsible');
-      if (e && !blank(valueOf(st[e])) && typeof valueOf(st[e]) !== 'boolean') return String(valueOf(st[e]));
-      const rel = (Tree.index(st).relations.get(x) ?? []).find(r => st[r].args?.length === 2 && st[r].tag !== false && same(N.nameOf(st, r), 'Responsible')), other = rel && st[rel].args.find(a => a.at !== x);
-      return other ? N.shortOf(st, Tree.objectOf(st, other.at)) : null;
-    };
-    const seen = new Set();
-    for (let x = id; x && st[x] && !seen.has(x); x = st[x].at) { seen.add(x); const s = said(x); if (s) return s; }
-    const up = [...seen].at(-1), o = st[up] && (st[up].args ? ownerOf(st, up, N) : null);
-    return o ? said(o) : null;
-  }
   // Names as a list's cell holds them, each on its own or after a semicolon.
   const namesIn = raw => String(raw ?? '').split(/[;\n]/).map(clean).filter(Boolean);
 
@@ -244,7 +230,7 @@ const Table = (() => {
       if (labels.size !== 1) lead.push({ key: '$entry', title: 'What', type: 'text', shown: true });
       if (kind) { base = { kind }; up = true; } else trail.push({ key: '$of', title: 'Whose', type: 'text', shown: true });
       // Who's on the hook for a date, where the chart says: its own record's Responsible, or else that of what it's of.
-      if (rows === 'date' && ids.some(id => responsible(st, id, N))) trail.push({ key: '$resp', title: 'Responsible', type: 'text', shown: true });
+      if (rows === 'date' && ids.some(id => App.responsible(id, st))) trail.push({ key: '$resp', title: 'Responsible', type: 'text', shown: true });
     } else {
       base = isKind ? { kind: rows.kind } : rows;
       ids = isKind ? Tree.index(st).kinds.get(norm(rows.kind)) ?? []
@@ -310,7 +296,7 @@ const Table = (() => {
       if (c.key === '$value') return { id: row, at: st[row].at, v: st[row].value };
       if (c.key === '$entry') return { v: N.nameOf(st, row) };
       if (c.key === '$of') { const o = ownerOf(st, st[row].args ? row : st[row].at, N); return { v: Time.whose(st, st[row].args ? row : st[row].at, N), group: N.shortOf(st, o), gid: o }; }
-      if (c.key === '$resp') return { v: responsible(st, row, N) ?? undefined };
+      if (c.key === '$resp') return { v: App.responsible(row, st)?.short };
       let at = c.up ? st[row].at : row;
       if (c.type === 'list') {
         for (const e of c.minePath) at = entryAt(st, at, e);
