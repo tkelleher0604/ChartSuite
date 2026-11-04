@@ -290,7 +290,7 @@ function attach(x) {
         tx.update(m.id, { flip: next.h || next.v ? next : null, ...(them.length > 1 && (across ? { x: round(2 * cx - ax - m.w / 2) } : { y: round(2 * cy - ay - m.h / 2) })), ...(row.rotate && { rotate: (360 - row.rotate) % 360 }) });
       }
     }, { dated: false, say: `Flipped ${them.length === 1 ? x.called(them[0]) : `${them.length} shapes`} ${across ? 'across' : 'upside down'}${no.length ? `; ${no.length === 1 ? 'a box stays' : `${no.length} boxes stay`} as ${no.length === 1 ? 'it is' : 'they are'}` : ''}` });
-    x.did(() => flip(how));
+    did(() => flip(how));
   }
   // Turned by `by` degrees, clockwise: a free shape about its middle, a line about its middle, a group about the group's, each member with it; a box doesn't turn, which is said.
   function turnBy(by, ms = x.selectedNow()) {
@@ -309,7 +309,7 @@ function attach(x) {
       }
       for (const g of groups) { const row = x.rowOf(g.id); tx.update(g.id, { rotate: ((((row?.rotate ?? 0) + by) % 360 + 360) % 360) || undefined }); }
     }, { dated: false, say: `Turned ${groups.length === 1 && !one.length ? 'the group' : turnable.length === 1 ? x.called(turnable[0]) : `${turnable.length} shapes`} ${by}°${stay.length ? `; ${stay.length === 1 ? `${x.called(stay[0])} stays square` : `${stay.length} boxes stay square`}` : ''}` });
-    x.did(() => turnBy(by));
+    did(() => turnBy(by));
   }
   // A line's angle, as its panel reads it and takes it typed: from its start to its end, clockwise from the right.
   const angleOf = m => { const [p, q] = [m.points[0], m.points.at(-1)]; return ((Math.atan2(q[1] - p[1], q[0] - p[0]) * 180 / Math.PI) % 360 + 360) % 360; };

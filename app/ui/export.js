@@ -421,7 +421,7 @@ async function pptx(scenes, title, author, say) {
   p.defineLayout({ name: 'Dendra', width: W / 96, height: H / 96 });
   p.layout = 'Dendra';
   // The theme's fonts are the page's own (dendra.md, Notes), so what's typed in the deck later stays in style: the first page's, where they differ.
-  const themeFont = scenes[0]?.page.look?.Font ?? 'Arial', palette = typeof App !== 'undefined' ? App.notes.peek()?.resolve('Palette', { kind: 'View' })?.value?.colors ?? null : null;
+  const themeFont = scenes[0]?.page.look?.Font ?? 'Arial', palette = scenes[0]?.palette ?? null;
   inTheme = Shapes.inTheme(palette);
   p.theme = { headFontFace: themeFont, bodyFontFace: themeFont };
   Object.assign(p, { title, subject: '', author, company: '' });
@@ -970,8 +970,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       <div class="ex-pick ex-foot">
         <input type="text" aria-label="Footer" placeholder="Footer" value=${text} spellcheck="false" onInput=${e => { choice.text = e.target.value; }} onChange=${e => setText(e.target.value)} />
         <div class="menu-seg ex-rows" role="group" aria-label="Footer position">${[['left', 'Left'], ['center', 'Center'], ['right', 'Right']].map(([v, label]) => html`<button type="button" aria-pressed=${(at ?? 'left') === v} onClick=${() => setAt(v)}>${label}</button>`)}</div>
-        <label><input type="checkbox" checked=${date} onChange=${e => setDate(e.target.checked)} />Date</label>
         <label><input type="checkbox" checked=${number} onChange=${e => setNumber(e.target.checked)} />Page numbers</label>
+        <label><input type="checkbox" checked=${date} onChange=${e => setDate(e.target.checked)} />Date</label>
       </div>
       ${says.length ? html`<div class="ex-warns">${says.slice(0, 4).map(t => html`<p class="ex-says">${t}</p>`)}</div>` : null}
       <div class="ex-well"><figure class="ex-page" style=${`--a: ${page.aspect}`}><img src=${page.src} alt="" /></figure></div>

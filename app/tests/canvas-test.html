@@ -77,7 +77,7 @@ window.EyeDropper = undefined;  // (the way a browser without its own goes, whic
 // slide points, the keys, how a highlight draws, and that what's drawn is the scene however it came to be. The
 // window is set to each size it's checked at.
 const out = [];
-const check = (name, ok, detail = '') => { document.body.dataset.last = `${out.length} ${name}`; out.push({ name, ok: !!ok, detail: String(detail ?? '') }); };
+const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
 const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
@@ -1272,8 +1272,130 @@ async function run() {
   await aidsAndTurns();
   await inViewing();
   await insertHolds();
+  // ---- Drawing, as PowerPoint's hand expects: a line aimed and glued, Insert by dragging, copies, flip and turn, keys, runs (gui5 Gus) ----
+  await drawnByHand();
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
+}
+
+async function drawnByHand() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(200);
+  const shapeRows = () => App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r && r.view === App.scene.peek().view), known = new Set(shapeRows().map(r => r.shape));
+  const n0 = App.wb.changes().length, rowOf = id => App.shown.peek().item(App.chart.peek(), id).at(-1), mk = id => App.scene.peek().byId.get(id), newest = () => { const r = shapeRows().filter(r => !known.has(r.shape)).at(-1); if (r) known.add(r.shape); return r; };
+  const undoAll = async () => { for (let i = App.wb.changes().length; i > n0; i--) { Shell.parts.peek().undo.undo(); await tick(120); } Shell.select([]); await tick(150); };
+  const at = (x, y) => { const p = cv().graph.localToGraph(x, y), r = cv().root.getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; };
+  const ptr = (t, [x, y], on, o = {}) => on.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'pointerup' ? 0 : 1, pointerId: 1, view: window, ...o }));
+  const gesture = async (from, to, on, o = {}) => { ptr('pointerdown', from, on, o); for (let i = 1; i <= 6; i++) { ptr('pointermove', [from[0] + (to[0] - from[0]) * i / 6, from[1] + (to[1] - from[1]) * i / 6], document.body, o); await tick(16); } ptr('pointerup', to, document.body, o); await tick(350); };
+  const p = sc().page, box = mk('northpine'), mid = m => [m.x + m.w / 2, m.y + m.h / 2];
+  // An arrow drawn from open room onto a box: glued, the free end where it was let go.
+  cv().draw('arrow-line'); await tick(60);
+  check('Insert’s arrow waits for a drag, the pointer a crosshair', cv().root.classList.contains('drawing'));
+  const open = [p.w - 30, p.h - 20];
+  await gesture(at(...open), at(...mid(box)), cv().root);
+  const line = newest();
+  check('… a drag draws it, any angle, its far end glued to the box it’s let go on, no record made', line.geometry === 'line' && line.ends?.[1] === 'northpine' && !line.ends?.[0] && line.format?.Arrow === 'end' && !cv().root.classList.contains('drawing'), JSON.stringify(line));
+  check('… and its panel calls it a connector because it’s glued, with where to', /Connector/.test(txt($('.insp .ih'))) && /Northpine/.test(txt($('.insp'))), txt($('.insp .ih')));
+  // Moved, the box takes it along.
+  const end0 = mk(line.shape).points.at(-1);
+  Shell.select([]); await tick(100);
+  await drag(box, 30, -8);
+  const end1 = mk(line.shape).points.at(-1);
+  check('… and it follows the box as that moves', Math.hypot(end1[0] - end0[0], end1[1] - end0[1]) > 5, JSON.stringify([end0, end1]));
+  // Its handle dragged off: it lets go.
+  Shell.select([line.shape]); await tick(200);
+  const grips = $$('.dc-end');
+  check('a line selected has a handle at each end', grips.length === 2, grips.length);
+  await gesture(at(...mk(line.shape).points.at(-1)), at(p.w - 200, p.h - 60), grips[1]);
+  check('… dragged into the open, that end lets go and goes there, and it’s a line again', !rowOf(line.shape).ends && Math.abs(mk(line.shape).points.at(-1)[0] - (p.w - 200)) < 2 && !/Connector/.test(txt($('.insp .ih'))), JSON.stringify(rowOf(line.shape)));
+  // A head and a style are one change, and neither undoes the other.
+  App.change(tx => { FormatBar.write(tx, 'Arrowhead', { end: { type: 'oval', size: 'large' } }); FormatBar.write(tx, 'Arrow', 'both'); }); await tick(200);
+  check('an arrowhead’s style and size stay on a free line, with its arrow, one change', rowOf(line.shape).format.Arrowhead?.end?.type === 'oval' && rowOf(line.shape).format.Arrow === 'both', JSON.stringify(rowOf(line.shape).format));
+  // A click places one where it's clicked; Shift keeps proportions; Ctrl from the middle.
+  cv().draw('rect'); await tick(60);
+  await gesture(at(200, 60), at(200, 60), cv().root);
+  const placed = newest();
+  check('a shape clicked is placed there, as large as it comes', placed.geometry === 'rect' && Math.abs(placed.x + placed.w / 2 - 200) < 2 && placed.w === 140, JSON.stringify(placed));
+  cv().draw('oval'); await tick(60);
+  await gesture(at(300, 60), at(380, 90), cv().root, { shiftKey: true });
+  const square = newest();
+  check('… dragged with Shift, its proportions kept', Math.abs(square.w - square.h) < 1 && square.w > 50, JSON.stringify(square));
+  cv().draw('diamond'); await tick(60);
+  await gesture(at(500, 90), at(560, 120), cv().root, { ctrlKey: true });
+  const centred = newest();
+  check('… with Ctrl, from its middle', Math.abs(centred.x + centred.w / 2 - 500) < 1.5 && Math.abs(centred.y + centred.h / 2 - 90) < 1.5, JSON.stringify(centred));
+  // Copies.
+  Shell.select([placed.shape]); await tick(150);
+  const before = App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r).length;
+  key('d', { code: 'KeyD', ctrlKey: true }); await tick(300);
+  const dup = newest();
+  check('Ctrl+D copies a shape a step down and right', App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r).length === before + 1 && dup.x > placed.x && dup.geometry === 'rect', JSON.stringify(dup));
+  const shapeEl = $(`.dc [data-cell-id="${placed.shape}"]`).querySelector('path'), [sx, sy] = at(placed.x + 20, placed.y + 20), mouse = (t, x, y, on = document, o = {}) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'mouseup' ? 0 : 1, ctrlKey: true, view: window, ...o }));
+  mouse('mousedown', sx, sy, shapeEl);
+  for (let i = 1; i <= 6; i++) { mouse('mousemove', sx + i * 8, sy + i * 6); await tick(16); }
+  check('… Ctrl+drag shows what it’s copying where it would land', !!$('.dc-ghost'));
+  mouse('mouseup', sx + 48, sy + 36); await tick(300);
+  const dragged = newest();
+  check('… and let go, it copies: the first stays where it was', dragged.shape !== placed.shape && rowOf(placed.shape).x === placed.x && Math.abs(dragged.x - placed.x - 48 / cv().graph.zoom()) < 3, JSON.stringify([dragged.x, placed.x]));
+  Shell.select(['northpine']); await tick(150);
+  key('d', { code: 'KeyD', ctrlKey: true }); await tick(200);
+  const ed = $('.dc-edit');
+  check('Ctrl+D on a box asks the new record’s name, saying what it’s like', !!ed && /like/.test(ed.dataset.ph ?? '') && /Northpine/.test(ed.dataset.ph ?? ''), ed?.dataset.ph);
+  ed.textContent = 'Second Logistics, Inc.'; ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(350);
+  const twin = Shell.selection.peek()[0], st = App.state.peek();
+  check('… a new record of its kind, with what’s chosen at it, said so', st[twin]?.kind === st.northpine.kind && App.notes.peek().nameOf(st, twin) === 'Second Logistics, Inc.' && mk(twin)?.settings.Shape.value === mk('northpine').settings.Shape.value && /like/.test(txt($$('.toast').at(-1))), `${twin} ${txt($$('.toast').at(-1))}`);
+  // Flip and turn.
+  Shell.select([placed.shape]); await tick(150);
+  cv().flip('h'); await tick(200);
+  check('a shape flips, mirrored in its frame', rowOf(placed.shape).flip?.h === true && /scale\(-1/.test(cv().graph.getCellById(placed.shape).getMarkup()[0].attrs.transform ?? ''), JSON.stringify(rowOf(placed.shape).flip));
+  check('… and the PDF mirrors it', /scale\(-1 1\)/.test(Export.svg(App.scene.peek(), {})));
+  Shell.select(['northpine']); await tick(120);
+  cv().flip('h'); await tick(120);
+  check('a box doesn’t flip, and says why', /box doesn.t flip/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  Shell.select([placed.shape]); await tick(120);
+  key('ArrowRight', { altKey: true }); await tick(200);
+  check('Alt+arrow turns it by 15 degrees, and the selection stays', rowOf(placed.shape).rotate === 15 && Shell.selection.peek()[0] === placed.shape, rowOf(placed.shape).rotate);
+  const w0 = rowOf(placed.shape).w;
+  key('ArrowRight', { shiftKey: true }); await tick(800);
+  check('Shift+arrow sizes it about its middle', Math.abs(rowOf(placed.shape).w - w0 - 8 / sc().page.scale) < 1, `${rowOf(placed.shape).w} ${w0}`);
+  key('F4', { code: 'F4' }); await tick(200);
+  check('F4 does the last act again', rowOf(placed.shape).rotate === 30, rowOf(placed.shape).rotate);
+  // A group turns about its middle.
+  Shell.select([placed.shape, square.shape]); await tick(150);
+  cv().group(); await tick(200);
+  const g = Shell.selection.peek()[0], was = { ...rowOf(square.shape) };
+  cv().turn(g, 90); await tick(250);
+  check('a group turns, its shapes round its middle', Math.abs(rowOf(square.shape).x - was.x) > 5 && rowOf(square.shape).rotate === 90, JSON.stringify([rowOf(square.shape).x, was.x, rowOf(square.shape).rotate]));
+  // Words, part by part.
+  const tb = cv().insert('text', { x: 40, y: 40, text: 'Hello world' }); await tick(200);
+  Shell.select([tb]); await tick(120);
+  cv().edit(tb); await tick(120);
+  const typing = $('.dc-edit'), word = typing.firstChild, sel = getSelection(), rng = document.createRange();
+  rng.setStart(word, 6); rng.setEnd(word, 11); sel.removeAllRanges(); sel.addRange(rng); await tick(60);
+  typing.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', ctrlKey: true, bubbles: true, cancelable: true })); await tick(100);
+  check('as it’s typed, a word selected takes Bold, and the bar says so', Canvas.rich.peek()?.Bold === true && /data-run/.test(typing.innerHTML), typing.innerHTML);
+  typing.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(300);
+  const spans = mk(tb).texts[0].lines[0].spans;
+  check('… kept as a run: the scene’s line has a span of it, bold, and its width', rowOf(tb).runs?.[0]?.from === 6 && rowOf(tb).runs[0].Bold === true && spans?.length === 2 && spans[1].text === 'world' && spans[1].look.Bold === true, JSON.stringify(rowOf(tb).runs));
+  check('… drawn so on the chart and in the PDF', /font-weight[^<]*700/.test(JSON.stringify(cv().graph.getCellById(tb).getMarkup())) && /font-weight="bold"[^>]*>world/.test(Export.svg(App.scene.peek(), {})));
+  // Same height: what's selected, and only that.
+  await undoAll();
+  const tops = sc().byId.get('inv_aiv').y, inRow = sc().marks.filter(m => m.type === 'box' && Math.abs(m.y - tops) < 1 && !['inv_us', 'inv_aiv'].includes(m.id)), others = inRow.map(m => m.h);
+  Shell.select(['inv_aiv', 'inv_us']); await tick(150);
+  App.change(tx => tx.note('Position', Tree.treeOf(App.state.peek(), 'inv_aiv'), { x: mk('inv_aiv').x - sc().page.offset.x, y: mk('inv_aiv').y - sc().page.offset.y, w: mk('inv_aiv').w, h: mk('inv_aiv').h * 0.6, hand: true }, { view: sc().view }), { dated: false }); await tick(250);
+  cv().match('height'); await tick(300);
+  check('Same height changes only what’s selected, and says what it matched', inRow.length > 2 && inRow.every((m, i) => Math.abs(mk(m.id).h - others[i]) < 0.5) && /as tall as/.test(txt($$('.toast').at(-1))), JSON.stringify([inRow.map((m, i) => [mk(m.id).h, others[i]]), txt($$('.toast').at(-1))]));
+  await undoAll();
+  // The Selection Pane.
+  const pic = cv().insert('rect', { x: 60, y: 60, w: 60, h: 40 }); await tick(200);
+  cv().pane(true); await tick(150);
+  const rows = () => $$('.dc-pane .row:not(.off)'), off0 = $$('.dc-pane .row.off').length, rowFor = id => rows().find(r => r.dataset.row === id), inOrder = sc().marks.filter(m => m.geometry !== 'group' && m.type !== 'frame').map(m => m.id).reverse();
+  check('the Selection Pane lists all that’s drawn, what’s in front first', JSON.stringify(rows().map(r => r.dataset.row)) === JSON.stringify(inOrder) && !!rowFor(pic), JSON.stringify([rows().length, inOrder.length]));
+  rowFor(pic).querySelector('[aria-label="Lock"]').click(); await tick(200);
+  check('… a shape locked there no hand moves', rowOf(pic).locked === true && mk(pic).locked === true && !!rowFor(pic).querySelector('[aria-label="Unlock"]'));
+  rowFor(pic).querySelector('[aria-label="Hide"]').click(); await tick(200);
+  check('… hidden there it’s drawn nowhere, and stays listed, with Show', !mk(pic) && $$('.dc-pane .row.off [aria-label="Show"]').length === off0 + 1 && !Export.svg(App.scene.peek(), {}).includes(pic));
+  cv().pane(false);
+  await undoAll();
 }
 
 // ---- Boxes go where they're put (gui3 P-21 to P-24): dragged or typed, a box stands exactly there, over another if that's
