@@ -330,7 +330,7 @@ function apply(label, value) {
   const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]), first = firstFor(c, scope, label, value), under = scope.root ? narrower(c.scene(), label, value) : null;
   const says = [kept.length && `${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own`, first.say, under?.say].filter(Boolean);
   // (A text property goes to every field, so to more notes than one: said as the one act it is.)
-  const inView = `${Time.looked(label, value, scope.caption)} in ${App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && (!!scope.outputs || !!scope.root) && !fieldOf(c);
+  const inView = `${Time.looked(label, value, scope.caption)} in ${scope.root ? lookTaker(c.scene().view) : App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && (!!scope.outputs || !!scope.root) && !fieldOf(c);
   // (The footer's the chart's, on every page.)
   const marks = scopesOf(c).marks, ofFoot = !!marks.length && marks.every(isFoot) && Time.looked(label, value, 'the footer');
   App.change(tx => { write(tx, c, label, value); if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || null,
@@ -1112,7 +1112,8 @@ function giveLook(to, look, say) {
   const shown = ids.includes(Shell.view.peek()) && moves(Shell.view.peek());
   const c = App.change(tx => { for (const id of ids) { if (placed.has(id)) Export.placing(tx, placed.get(id), id); left = Math.max(left, Notes.takeLook(tx, rows, id, look, { has: hasHere }).left); } tx.says(say); },
     { dated: false, keep: !placed.size, say: () => {
-      const named = id => ids.length > 1 ? `${viewNamed(id)}: ` : '', over = ids.flatMap(id => Scene.says(sceneOf(id), b => App.notes.peek().shortOf(App.state.peek(), b.record)).filter(t => t.startsWith('The Key overlaps')).slice(0, 1).map(t => named(id) + t));
+      // (Of a plan, said once: its places are one set.)
+      const named = id => to.length > 1 ? `${viewNamed(id)}: ` : '', over = ids.filter(id => planOf(id)[0] === id).flatMap(id => Scene.says(sceneOf(id), b => App.notes.peek().shortOf(App.state.peek(), b.record)).filter(t => t.startsWith('The Key overlaps')).slice(0, 1).map(t => named(id) + t));
       const keeps = leaves.map(([id, l]) => `${ids.length > 1 ? `${viewNamed(id)} keeps` : 'It keeps'} ${listed(l)}`), bits = [...keeps, ...over, ...left ? [`${left} ${left === 1 ? 'setting' : Tree.plural('setting')} of what this chart hasn’t got stayed behind`] : []];
       return bits.length ? `${say}. ${bits.join('. ')}` : say; },
       // (A Key now over a box: Tidy sets the chart clear of it. Else what differs from its style, of the page shown.)
