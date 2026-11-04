@@ -60,8 +60,8 @@
 // App.From({ day, set, auto, asks, word }), the control that asks either ("From" a day or "All along"; "Ends on" a
 // day or "Never held"; a transfer's "On" a day); App.pending, the one change pending, begun by App.stage(…),
 // App.deleting(ids, what) or App.transferring(id) (where App.transferable(id)), made by App.commit() and dropped by
-// App.discard(), which says so, with Redo; App.Pending, its bar, the window's one, which the shell shows under
-// whichever view is shown, and App.Asking, its controls where it was asked; App.workOn(day), another day's working-out,
+// App.discard(), which says so, with Redo; App.Pending, its bar, the window's one and its one home, which the shell shows
+// under whichever view is shown; App.LookBand, what a look says of itself over it; App.workOn(day), another day's working-out,
 // as showing it would work it out; App.addView; App.who(); App.blank(); App.showMade(tx, ids, view), boxes a change makes
 // on a chart shown there by it, where the view would hide them; App.put(id, slot, out, { auto }), a value typed, made at
 // once or asking from when (App.asksFrom), App.held(id), what's pending of it, and App.overriding(id), a computed tag's

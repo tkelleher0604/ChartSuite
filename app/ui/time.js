@@ -138,7 +138,7 @@ const Time = (() => {
     const v = App.views.peek().find(x => x.id === id), l = App.lookOf(id)?.compare;
     if (!l) return;
     if (App.readOnly.peek()) return Shell.toast(App.whyNot());
-    if (App.change(tx => { writeChanges(tx, id, l.value); tx.says(changesSaid(v, l.value)); }, { dated: false, say: changesSaid(v, l.value) })) App.looking(id, { compare: undefined }, changesSaid(v, l.value));
+    if (App.change(tx => { writeChanges(tx, id, l.value); tx.says(changesSaid(v, l.value)); }, { dated: false, say: changesSaid(v, l.value) })) App.letGo(id, 'compare');
   }
   // The latest of the chart's days before a day: what a comparison with a date begins on.
   const dayBefore = d => events.peek().map(e => e.day).filter(x => x < d).at(-1) ?? d;

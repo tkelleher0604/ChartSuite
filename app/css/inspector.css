@@ -217,6 +217,7 @@ section.open > :last-child { margin-bottom: 8px; }
 /* A relative: its name in ink, taking the room, and its role or figure set at the right; beneath, its facts;
    the document evidencing it, to open. */
 .row.rel { grid-template-columns: minmax(0, 1fr) fit-content(50%); }
+.row.rel { cursor: pointer; }
 .row.rel > .k { color: var(--ink); }
 /* Each says it's a link: a pointer and an underline; a tooltip says where. */
 .row.rel .lk, .doc .lk { cursor: pointer; }

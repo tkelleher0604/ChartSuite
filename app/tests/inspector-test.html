@@ -1371,6 +1371,27 @@ async function saysWhen(C, keep) {
   const controllers = $$('section').find(s => s.dataset.title === 'Controllers'), chenControl = [...(controllers?.querySelectorAll('.row.rel') ?? [])].find(r => r.textContent.includes('Chen'));
   check('a fund’s Controllers are open, and a controller’s row says its ground', controllers?.classList.contains('open') && /via GP III, its general partner; managing member there/.test(spoken(chenControl?.querySelector('.facts') ?? document.body)), chenControl?.textContent);
   check('… a long list a formula gives is folded', !$$('section').find(s => s.dataset.title === 'Affiliated Person Of')?.classList.contains('open'));
+  // Silence is never the answer: a list a formula could give, empty here, says so; Why isn't… is a search of who could be on it, which selects the two.
+  Shell.select(['bdc']); await tick(120);
+  const noneC = $$('section.none-list').find(s => s.dataset.title === 'Controllers');
+  check('the BDC’s Controllers: none, as a section the strip names', spoken(noneC?.querySelector('.val') ?? document.body) === 'none' && !!noneC?.querySelector('.why-isnt'), noneC?.textContent);
+  noneC?.querySelector('.why-isnt').click(); await tick(100);
+  const whoCould = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
+  check('… Why isn’t… offers who could be on it', whoCould.includes('Margaret A. Chen'), whoCould.join());
+  await pick('Margaret A. Chen'); await tick(150);
+  check('… and picked, the two are selected, saying why not', Shell.selection.peek().length === 2 && Shell.selection.peek().includes('bdc'), Shell.selection.peek().join());
+  Shell.select(['fund']); await tick(120);
+  check('… and a list with some on it isn’t said to have none', !$$('section.none-list').some(s => s.dataset.title === 'Controllers'), $$('section.none-list').map(s => s.dataset.title).join());
+  // What runs through another on its list is one stake: nested, and said so, so nobody adds them.
+  Shell.select(['tessellate']); await tick(120);
+  const through = $$('section').find(s => s.dataset.title === 'Look-Through Investors');
+  check('Tessellate’s look-through: three rows of one stake, said so', spoken(through?.querySelector('.sect .n') ?? document.body) === '3 · one stake, 66%' && [...through.querySelectorAll('.row.rel')].map(r => r.style.getPropertyValue('--nest')).join() === ',1,2', `${through?.querySelector('.sect .n')?.textContent} ${[...(through?.querySelectorAll('.row.rel') ?? [])].map(r => r.getAttribute('style')).join('|')}`);
+  // A row that lights opens on a click, anywhere on it.
+  const lit = through?.querySelector('.row.rel'), litFor = lit && lit.querySelector('.k');
+  lit?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  await tick(120);
+  check('a row clicked anywhere on it opens what’s said of it', Shell.selection.peek().length === 1 && !!st()[Shell.selection.peek()[0]]?.args, Shell.selection.peek().join());
+  Shell.select(['fund']); await tick(120);
   // Who typed a fact is a click on its label
   rowOf('EIN').querySelector('.lbl').click(); await tick(60);
   check('a typed fact’s label says who typed it and when', !!document.querySelector('.float .typed .who')?.textContent && /\d:\d\d/.test(document.querySelector('.float .typed .meta')?.textContent ?? ''), document.querySelector('.float .typed')?.textContent);

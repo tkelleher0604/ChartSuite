@@ -80,6 +80,8 @@ const App = (() => {
     putLook(c, view, now);
     lookStep(say, () => putLook(c, view, was), () => putLook(c, view, now));
   }
+  // A look kept, gone as a look, with no step: what it said is the chart's now.
+  const letGo = (view, ...keys) => { const c = chart.peek(), l = { ...lookOf(view, c) }; for (const k of keys) delete l[k]; putLook(c, view, l); };
   // What a box knows, as a table's columns know its row: its kind, and each entry down from it by its path, as it reads there.
   const KIND = '$kind';
   function valueAt(st, id, key) {
@@ -117,13 +119,12 @@ const App = (() => {
   const showAll = view => looking(view, { only: undefined, filters: undefined, ticks: undefined }, 'Showed all');
   // The look's boxes made the page's, as one change: each it keeps off hidden by its own note.
   function keepShown(view) {
-    const m = seenIn(view), name = views.peek().find(v => v.id === view)?.name, was = lookOf(view);
+    const m = seenIn(view), name = views.peek().find(v => v.id === view)?.name;
     if (!m) return;
     // (Only what the page draws, or what's shown over what it doesn't: nothing need be said of what was never on it.)
     const drawn = drawnPage.peek(), writes = [...m].filter(([id, on]) => state.peek()[id] && (on || drawn?.byId.has(id))), hid = writes.filter(([, on]) => !on).map(([id]) => id);
     if (!change(tx => { for (const [id, on] of writes) tx.note('Shown', Tree.treeOf(state.peek(), id), on, { view }); }, { dated: false, say: `Hid ${hid.length === 1 ? notes.peek().nameOf(state.peek(), hid[0]) : `${hid.length} boxes`} in ${name}` })) return;
-    const c = chart.peek(), { only: _, filters: __, ticks: ___, ...rest } = was;
-    putLook(c, view, rest);
+    letGo(view, 'only', 'filters', 'ticks');
   }
   // A table opened to read: a tab of this window, made as a view is, which Keep makes the chart's and Close takes away.
   function lookTable(name, rows, why = false) {
@@ -1816,7 +1817,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, workAt, state, needs,
-    readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
+    readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone, annotate, broken,
   };
 })();

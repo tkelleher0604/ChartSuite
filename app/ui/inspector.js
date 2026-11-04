@@ -1056,6 +1056,8 @@ function rowName(x) {
   return `${segment(x)}${lead ? `, ${lead}` : ''}`;
 }
 const placeName = x => recs()[x]?.args ? rowName(x) : nameOf(x);
+// What's worked out of a list's chains, kept with what it's worked out from.
+const chains = new WeakMap();
 // A list's + adds to it as Add's list of it does (addTo): who, one the chart has or a new one named.
 function Relatives({ id }) {
   const { lists: held0, docs, nots } = relatives(id), later = coming.value.get(id) ?? [];
@@ -1104,7 +1106,8 @@ function Relatives({ id }) {
   // so three rows of 66% are said to be one, and nobody adds them.
   const chained = items => {
     if (!worked(items) || !items.every(it => recs()[it.rid]?.field === 'percent')) return null;
-    const R = App.computed.value, r = recs(), by = new Set(items.map(it => it.rid)), up = new Map();
+    const R = App.computed.value, r = recs(), by = new Set(items.map(it => it.rid)), up = new Map(), k = items.map(it => it.rid).join(), memo = chains.get(R) ?? chains.set(R, new Map()).get(R);
+    if (memo.has(k)) return memo.get(k);
     const down = ps => (ps ?? []).flatMap(p => [p.id, ...down(p.items)]);
     for (const it of items) {
       let row = null;
@@ -1112,12 +1115,14 @@ function Relatives({ id }) {
       const here = r[it.rid].args.find(a => T.same(a.edge, it.mine))?.at, to = row && down(row.parts).find(x => x && x !== it.rid && by.has(x) && r[x]?.args?.some(a => a.at === here));
       if (to) up.set(it.rid, to);
     }
-    if (!up.size) return null;
+    if (!up.size) { memo.set(k, null); return null; }
     const under = new Map(), depth = new Map(), rows = [];
     for (const it of items) { const p = up.get(it.rid); if (p) (under.get(p) ?? under.set(p, []).get(p)).push(it); }
     const roots = items.filter(it => !up.has(it.rid)), put = (it, d) => { rows.push(it); depth.set(it.rid, d); (under.get(it.rid) ?? []).forEach(x => put(x, d + 1)); };
     roots.forEach(it => put(it, 0));
-    return { rows, depth, stakes: roots.length, total: T.format('percent', roots.reduce((s, it) => s + r[it.rid].value, 0)) };
+    const out = { rows, depth, stakes: roots.length, total: T.format('percent', roots.reduce((s, it) => s + r[it.rid].value, 0)) };
+    memo.set(k, out);
+    return out;
   };
   const counted = (items, chain = chained(items)) => { const bad = items.filter(it => entriesAt(it.rid).some(e => recs()[e].tag === false && failed(e))).length;
     if (App.broken.value.reach.has(App.computed.value.computed[items[0].rid]?.def)) return html`${items.length} · <span class="no">can’t be relied on</span>`;
