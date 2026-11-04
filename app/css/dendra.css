@@ -412,8 +412,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .status { margin-left: auto; padding: 0 16px; flex: none; color: var(--ink-2); }
 .status, .status > .counts { display: flex; align-items: center; gap: 4px; }
 .status .btn { height: 24px; padding: 0 4px; }
-.status .overdue, .status .error { color: var(--no); }
-.status .soon, .status .blank { color: var(--due); }
+.status .overdue, .status .error, .status .broken { color: var(--no); }
+.status .soon, .status .blank, .status .overrides { color: var(--due); }
+.status .broken { font-weight: 600; }
 
 /* The launch cover, set before first paint by the head script, so nothing of the app shows first. */
 html[data-splash]::after { content: ""; position: fixed; inset: 0; z-index: 2147483647; background: #727f95; }
@@ -521,6 +522,12 @@ li.CodeMirror-hint-active { background: var(--hover); color: var(--ink); }
 /* Why, on a change pending and on a History entry: a word away, or typed. */
 .why-in { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 200px; min-width: 160px; color: var(--ink-2); font-weight: 400; }
 .why-in > .cell { flex: 1 1 auto; min-width: 0; height: 24px; margin: 0; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); }
+/* Why asked for and not yet given: what its button waits on. */
+.why-in.needed > span { font-weight: 500; color: var(--due); }
+.why-in.needed > .cell { border-color: var(--due); }
+.when.until { display: inline-flex; align-items: center; }
+.when.until > .word { margin-right: 6px; color: var(--ink-2); font-weight: 400; }
+.when.until .cell.date { width: 96px; height: 24px; margin: 0; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); }
 button.lk.why-add { margin: 0; padding: 0 2px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
 .hist-row > .note > .by { color: var(--ink-3); }
 .hist-row > .why-in { display: flex; margin-top: 4px; }

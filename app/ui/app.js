@@ -29,7 +29,8 @@ const App = (() => {
   Store.open({ sample: SAMPLE }).then(use, () => use(Log.open(SAMPLE)));
 
   const who = () => Store.who() || 'You';
-  const day = computed(() => Shell.time.value?.asOf ?? Log.today());
+  // The day shown: the one asked for; of the log as it stood, the day of that moment, for everything was as it was; else today.
+  const day = computed(() => { const t = Shell.time.value; return t?.asOf ?? (t?.stood ? Tree.isoOf(new Date(t.at ?? book.value.changes().find(c => c.id === t.stood)?.when ?? Date.now())) : Log.today()); });
   // Viewing or Editing, the window's (dendra.md, Workbook): each chart's, for this tab; a chart opens as this browser was
   // told to open it, or else in Editing. Viewing, nothing writes.
   const modes = signal((() => { try { return JSON.parse(sessionStorage.getItem('dendra.modes')) ?? {}; } catch { return {}; } })());
@@ -76,10 +77,13 @@ const App = (() => {
   const definitions = computed(() => notes.value.definitions(schema.value));
   const relations = computed(() => notes.value.relations(schema.value));
   let worked;
-  const result = computed(() => worked = Formulas.computeState(entered.value, definitions.value, { relations: relations.value, schema: schema.value }, worked));
+  // What the rules read besides what's entered: the relations and the schema, the day shown, which TODAY() is (dendra.md, Definitions: Today), and
+  // what each record has been called, by which a rule can point at it.
+  const namesOn = d => ({ relations: relations.peek(), schema: schema.peek(), day: d, named: shown.peek().named(chart.peek()) });
+  const result = computed(() => { relations.value; schema.value; day.value; shown.value; return worked = Formulas.computeState(entered.value, definitions.value, chart.value ? namesOn(day.peek()) : { relations: relations.value, schema: schema.value }, worked); });
   // Another day's working-out, as showing it would work it out: what the canvas lays out ahead for a day typed in the
   // date control. Shown then, it's worked out again from the same, which gives this one (Formulas.computeState).
-  const workOn = d => chart.peek() ? Formulas.computeState(shown.peek().asOf(chart.peek(), d), definitions.peek(), { relations: relations.peek(), schema: schema.peek() }, worked) : null;
+  const workOn = d => chart.peek() ? Formulas.computeState(shown.peek().asOf(chart.peek(), d), definitions.peek(), namesOn(d), worked) : null;
   // The same, kept with what's entered that day while the log stands: an export's pages, each at its own day.
   const workedOn = new WeakMap();
   const workAt = d => { if (d === day.peek()) return result.peek(); const e = shown.peek().asOf(chart.peek(), d); return workedOn.get(e) ?? workedOn.set(e, workOn(d)).get(e); };
@@ -352,20 +356,37 @@ const App = (() => {
   function putting(tx, id, slot, out) {
     const r = id ? state.peek()[id] : null, mine = !!r && !r.computed;
     if (!out) return mine && tx.remove(id);
+    // What a rule calls a record it points at goes with its name, as a relation's name in one does (dendra.md, Definitions: a record by its name).
+    if (mine && r.field === 'text' && r.value !== out.value && state.peek()[r.at]?.kind && /^(?:name|short name)$/.test(Tree.norm(r.edge ?? ''))) tx.reword(r.value, out.value);
     if (mine) tx.set(id, withOut(id, slot, out)); else tx.add('record', enterAt(tx, withOut(id, slot, out)));
   }
   // Whether a value typed asks from when, wherever it's typed (the panel, the chart, the bar, a table's cell): an output
   // put in place of one a record has, where there's history to keep. A date says its own day, and a value where there was
   // none has nothing to keep; nor has what a Fixed note says doesn't change over time (an EIN, a file number), nor one typed
   // lately, as a slip is (today, or since the chart was opened), while it's for the day shown. What a formula gives, typed
-  // over, asks.
+  // over, asks. A date a note says recurs, its Changes over time ticked (a questionnaire's), typed later than it was is a new
+  // one, whenever it's typed, from its own day; the old one stands on its.
   function asksFrom(id, out) {
     const r = id && state.peek()[id];
-    if (!r || !out || r.kind !== undefined || r.field === 'date' || out.field === 'date') return false;
+    if (!r || !out || r.kind !== undefined) return false;
     if (result.peek().computed[id]) return true;
+    if (r.field === 'date' || out.field === 'date') return recurs(id, r, out);
     if (fixedAt(id)) return false;
     const row = book.peek().item(chart.peek(), id).find(v => Log.validOn(v, day.peek()));
     return !!row && !(lately(firstSaid(id, row)) && (!Shell.time.peek()?.asOf || row.since === day.peek()));
+  }
+  const recurs = (id, r, out) => r.field === 'date' && out.field === 'date' && out.value > r.value && notes.peek().changing(Tree.treeOf(state.peek(), id));
+  const recursAt = slot => { const recs = state.peek(); return !!recs[slot.at] && notes.peek().changing(Tree.treeOf({ ...recs, '': { at: slot.at, edge: slot.edge, field: 'date', value: '' } }, '')); };
+  // Whether what's typed says other than what a rule covering it says: a decision, which asks why (dendra.md, Definitions: Typed over).
+  function overRule(id, out) {
+    const R = result.peek();
+    if (!id || !out) return false;
+    if (R.computed[id]) return true;
+    const c = R.covered[id];
+    if (!c) return false;
+    if (Formulas.isError(c.value)) return true;
+    const says = c.value?.t === 'date' ? c.value.iso : c.value;
+    return says !== ('tag' in out ? out.tag : 'choice' in out ? out.choice : out.value);
   }
   // What a Fixed note says doesn't change over time, a record or a blank one (`slot`), which is one fact, whatever the day shown.
   const fixedAt = (id, slot) => { const recs = state.peek(), t = id && recs[id] ? Tree.treeOf(recs, id) : slot?.at && recs[slot.at] ? Tree.treeOf({ ...recs, '': { at: slot.at, edge: slot.edge, tag: true } }, '') : null; return !!t && notes.peek().fixed(t); };
@@ -387,16 +408,21 @@ const App = (() => {
   // for a tag, Rename for a name; several, each.
   const typedPending = typed => {
     const [t] = typed, r = state.peek()[t.id] ?? t.slot;
-    const act = typed.length > 1 || t.out.args ? null : 'tag' in t.out ? (t.out.tag ? 'Attest' : 'Rule out') : Tree.same(r.edge ?? '', 'Name') ? 'Rename' : null;
+    // (What's typed over a rule is a decision, said as one: its button Override, and it asks why, and until when if it ends.)
+    const reason = typed.some(x => x.over || overRule(x.id, x.out));
+    const act = typed.length > 1 || t.out.args ? (reason ? 'Override' : null) : reason ? 'Override' : 'tag' in t.out ? (t.out.tag ? 'Attest' : 'Rule out') : Tree.same(r.edge ?? '', 'Name') ? 'Rename' : null;
     // (A long run says its last few, the newest being what's just typed, and how many before them.)
-    const shown = typed.slice(-3), more = typed.length - shown.length;
-    return { typed, act, what: typed.length > 1 ? `${typed.length} values` : typedWords(t), parts: typed.length > 1 ? [...(more ? [html`<span class="add">${more} more</span>`] : []), ...shown.map(x => html`<span class="add">${typedWords(x)}</span>`)] : null,
-      needs: typed.map(x => x.id).filter(x => !result.peek().computed[x]) };
+    const shown = typed.slice(-3), more = typed.length - shown.length, words = x => { const w = typedWords(x), v = 'tag' in x.out ? (x.out.tag ? 'Yes' : 'No') : null; return reason && v ? `${w}: ${v}, where the rule ${ruleSaid(x.id)}` : w; };
+    return { typed, act, reason, what: typed.length > 1 ? `${typed.length} values` : words(t), parts: typed.length > 1 ? [...(more ? [html`<span class="add">${more} more</span>`] : []), ...shown.map(x => html`<span class="add">${words(x)}</span>`)] : null,
+      needs: typed.map(x => x.id).filter(x => x && !result.peek().computed[x]) };
   };
+  // What the rule says of a record, in a phrase: says No; can't say.
+  const ruleSaid = id => { const R = result.peek(), v = id && R.computed[id] ? state.peek()[id].tag : R.covered[id]?.value; return v === true ? 'says Yes' : v === false ? 'says No' : 'can’t say'; };
   // Typed: made at once, where it asks nothing; or a change pending, asking from when, the day shown till another is
   // typed, or All along, which corrects it. One typed while another's pending goes with it, from the one day, and typed
-  // back to what it was (`out` false), it goes from it. `auto`: the keys go to the day, as they do on Enter.
-  function put(id, slot, out, { auto = false } = {}) {
+  // back to what it was (`out` false), it goes from it. `auto`: the keys go to the day, as they do on Enter. `over`, said to
+  // override what a rule can't say, where there's no record for it to be over.
+  function put(id, slot, out, { auto = false, over = false } = {}) {
     const p = mine(), now = p?.typed ?? null;
     if (out === false || (!out && now?.some(t => t.id === id))) {
       if (!now) return;
@@ -404,12 +430,16 @@ const App = (() => {
       if (left.length) amend(p, typedPending(left)); else discard({ quiet: true });
       return;
     }
-    if (!asksFrom(id, out) && !now?.some(t => t.id === id)) return change(tx => putting(tx, id, slot, out), { told: replaces(id, out), dated: !fixedAt(id, slot) });
-    const typed = [...(now ?? []).filter(t => t.id !== id), { id, slot, out }];
+    // (The first of a date that recurs holds from its own day, as what comes after does.)
+    const first = !id && out?.field === 'date' && slot?.at && out.value <= day.peek() && recursAt(slot);
+    if (!asksFrom(id, out) && !overRule(id, out) && !over && !now?.some(t => t.id === id)) return change(tx => putting(tx, id, slot, first ? { ...out, since: out.value } : out), { told: replaces(id, out), dated: first ? false : !fixedAt(id, slot) });
+    const typed = [...(now ?? []).filter(t => t.id !== id), { id, slot, out, over }];
     if (now) { amend(p, { ...typedPending(typed), instead: null }); if (auto) setTimeout(() => { const i = document.querySelector('.pendbar .when input'); i?.focus(); i?.select(); }); return; }
     let told = null;
-    stage({ verb: 'Change', source: 'typed', asks: 'from', day: day.peek(), auto, along: 'a correction', instead: partOfTransfer(id, out), ...typedPending(typed),
-      make: (tx, d, q) => { told = d && q.typed.length === 1 && !('tag' in q.typed[0].out) ? `${typedWords(q.typed[0])} from ${Tree.formatDate(d, 'short')}` : null; q.typed.forEach(t => putting(tx, t.id, t.slot, t.out)); },
+    // (A date that recurs is offered its own day: the day it says, All along if it only corrects.)
+    const own = id && recurs(id, state.peek()[id], out) && out.value <= day.peek();
+    stage({ verb: 'Change', source: 'typed', asks: 'from', day: own ? out.value : day.peek(), auto, along: 'a correction', instead: partOfTransfer(id, out), ...typedPending(typed),
+      make: (tx, d, q) => { told = d && q.typed.length === 1 && !('tag' in q.typed[0].out) ? `${typedWords(q.typed[0])}${q.typed[0].out.field === 'date' && q.typed[0].out.value === d ? '' : ` from ${Tree.formatDate(d, 'short')}`}` : null; q.typed.forEach(t => putting(tx, t.id, t.slot, q.until && (t.over || overRule(t.id, t.out)) ? { ...t.out, before: q.until } : t.out)); },
       say: c => told ?? Time.describe(c) });
   }
   // A date typed over another is made at once, a date saying its own day, and says what it replaces (dendra.md, Time).
@@ -429,8 +459,24 @@ const App = (() => {
   }
   // A value typed that's pending, as it would read, of the chart shown: its output, or undefined.
   const typedOut = id => { const p = pending.value; return p?.typed && p.chart === chart.value ? p.typed.find(t => t.id === id)?.out : undefined; };
-  // A computed tag overridden (dendra.md, Part 2: the reason's Rule out… or Attest…): entered the other way, as a change pending.
-  function overriding(id) { const r = state.peek()[id]; if (r && 'tag' in r) put(id, r, { tag: !r.tag }, { auto: true }); }
+  // A computed tag overridden (dendra.md, Definitions: Typed over): entered the other way, as a change pending, which asks why. What a rule can't say,
+  // which has no record to be the other way (`slot`), is entered as a yes.
+  function overriding(id, slot) {
+    const r = id && state.peek()[id];
+    if (r && 'tag' in r) return put(id, r, { tag: !r.tag }, { auto: true, over: true });
+    if (slot) put(null, slot, { tag: true }, { auto: true, over: true });
+  }
+  // Back to the rule (dendra.md, Definitions: Typed over): what's typed over a rule ends on a day, as any record does, asking why as it was asked why it was
+  // typed, so what stood stood, and as of a day before it reads as it did. Never held takes it back as a mistake.
+  function backToRule(id) {
+    const r = state.peek()[id], N = notes.peek();
+    if (!r) return;
+    const what = r.args ? `${N.nameOf(state.peek(), id)}: ${N.segmentOf(state.peek(), id)}` : `${r.edge} of ${N.whereOf(state.peek(), r)}`;
+    stage({ verb: 'Change', act: 'Back to the rule', source: `back ${id}`, what: `${what}: back to the rule, which ${ruleSaid(id)}`, asks: 'until', day: day.peek(), reason: true, needs: [id], auto: true,
+      make: (tx, d) => tx.remove(id, d ?? null), say: c => Time.describe(c) });
+  }
+  // Who typed a record over a rule, when, why and until when, as it stands on the day shown; null where nothing did.
+  const overOf = id => { const by = enteredBy(id); return by && { who: by.who, when: by.when, why: by.note, until: by.before, since: by.since }; };
   // What a "no" is (dendra.md, Color): a check failed, 'fails', in red; a typed one a Check note says needs attention,
   // 'heeds', in amber; any other, plain.
   function noTone(id, recs = state.peek()) {
@@ -560,7 +606,9 @@ const App = (() => {
   // the day asked is given.
   const datedOf = p => (p.asks === 'from' && !p.word) || p.asks === 'on' ? p.day ?? false : p.from ?? false;
   // Whether it can be made: its day a day, where it asks one, its amount a figure or blank, and whatever else it asks given.
-  const ready = p => !(p.asks && p.day === undefined) && !(p.value && p.value.v === undefined) && (p.fits?.(p) ?? true) && (p.ready?.(p) ?? true);
+  const ready = p => !(p.asks && p.day === undefined) && !(p.value && p.value.v === undefined) && p.until !== false && (p.fits?.(p) ?? true) && (p.ready?.(p) ?? true) && !lacksWhy(p);
+  // What overrides a rule, or goes back to it, is made only with why (dendra.md, Definitions: Typed over).
+  const lacksWhy = p => !!p.reason && !Tree.clean(why.value ?? '');
   // What its button says: its verb, or what it's called (Dissolve); a deletion as never held is Delete.
   const actOn = p => p.asks === 'until' && p.day === null ? p.verb : p.act ?? p.verb;
   const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring', Change: 'changing', 'Rule out': 'ruling out', Insert: 'inserting', Undo: 'undoing', Redo: 'redoing' };
@@ -618,6 +666,8 @@ const App = (() => {
   // pending, and the toast says why.
   function commit() {
     const p = mine();
+    // (Why it's refused has the keys: what it wants is said in its place, and is where to type it.)
+    if (p && !ready(p) && lacksWhy(p)) { document.querySelector('.pendbar .why-in input')?.focus(); return null; }
     if (!p || !ready(p)) return null;
     if (!there(p)) return drop(p, gone(p)), null;
     let empty = false;
@@ -1227,19 +1277,25 @@ const App = (() => {
   // saying; a word away on anything else. Kept apart from the change pending, so what's typed here redlines nothing.
   const why = signal('');
   function Why({ p, enter }) {
-    const [on, setOn] = preactHooks.useState(p.act === 'Rule out' || p.act === 'Attest' || !!why.peek()), asked = preactHooks.useRef(false), field = preactHooks.useRef();
+    const [on, setOn] = preactHooks.useState(p.act === 'Rule out' || p.act === 'Attest' || !!p.reason || !!why.peek()), asked = preactHooks.useRef(false), field = preactHooks.useRef();
     // (Asked for, it takes the keys.)
     preactHooks.useLayoutEffect(() => { if (on && asked.current) { asked.current = false; field.current?.focus(); } }, [on]);
-    if (!on) return html`<button type="button" class="lk why-add" onClick=${() => { asked.current = true; setOn(true); }}>Why…</button>`;
-    return html`<label class="why-in" onKeyDown=${enter}><span>Why</span><input ref=${field} class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${why.value} onInput=${e => { why.value = e.target.value; }} /></label>`;
+    if (!on && !p.reason) return html`<button type="button" class="lk why-add" onClick=${() => { asked.current = true; setOn(true); }}>Why…</button>`;
+    return html`<label class=${'why-in' + (lacksWhy(p) ? ' needed' : '')} onKeyDown=${enter}><span>Why</span><input ref=${field} class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" aria-required=${p.reason ? 'true' : null} value=${why.value} onInput=${e => { why.value = e.target.value; }} /></label>`;
+  }
+  // Until when what's typed over a rule stands: blank, for as long as it isn't taken back. Past it, the rule says again (dendra.md, Definitions: Typed over).
+  function Until({ p, enter }) {
+    const [text, setText] = preactHooks.useState('');
+    const typed = e => { const t = Tree.clean(e.target.value); setText(e.target.value); const d = t ? Tree.parseDate(t) : null; amend(p, { until: !t ? null : d && (p.day == null || d > p.day) ? d : false }); };
+    return html`<span class="when until" onKeyDown=${enter}><span class="word">Until</span><span class="hug"><input class="cell date" spellcheck=${false} autocomplete="off" aria-label="Until" aria-invalid=${p.until === false ? 'true' : null} value=${text} onInput=${typed} /></span></span>`;
   }
   function Controls({ p, auto, hint }) {
     const enter = e => { if (e.key === 'Enter' && !e.defaultPrevented && !e.target.closest('.lk')) { e.preventDefault(); e.stopPropagation(); commit(); } };
     const shown = typeof FormulaBar !== 'undefined' ? FormulaBar.pending.value : null, fails = failsOf(shown?.from === 'pending' ? shown.R2 : null);
     // A check it fails, clicked, is asked about in the formula bar, at the record it's about.
-    const why = f => { Shell.select([f.at]); Shell.emit('why-open', f.id); };
+    const whyOf = f => { Shell.select([f.at]); Shell.emit('why-open', f.id); };
     const endable = p.verb === 'Delete' ? fails.filter(f => f.ends) : [];
-    return html`${fails.length ? html`<button type="button" class="fails" title=${fails.length > 1 ? fails.map(f => f.text).join('\n') : null} onClick=${() => why(fails[0])}>${Shell.icon('alert')}<span>Fails ${fails[0].text}${fails.length > 1 ? ` and ${fails.length - 1} more` : ''}</span></button>` : null}
+    return html`${fails.length ? html`<button type="button" class="fails" title=${fails.length > 1 ? fails.map(f => f.text).join('\n') : null} onClick=${() => whyOf(fails[0])}>${Shell.icon('alert')}<span>Fails ${fails[0].text}${fails.length > 1 ? ` and ${fails.length - 1} more` : ''}</span></button>` : null}
       ${endable.length ? html`<button type="button" class="btn too" onClick=${() => endToo(p, endable)}>${endable.length > 1 ? 'End those too' : 'End that too'}</button>` : null}
       ${p.value ? html`<span class="amt" onKeyDown=${enter}><${Amount} key=${p.n} p=${p} auto=${auto} /></span>` : null}
       ${p.instead ? html`<button type="button" class="btn too" onClick=${p.instead.run}>${p.instead.label}</button>` : null}
@@ -1248,9 +1304,10 @@ const App = (() => {
       ${hint && p.asks ? html`<kbd class="tokey">F6</kbd>` : null}
       ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} alts=${p.alts?.(p)} along=${p.along} bad=${p.bad?.(p)} change=${String(p.source).startsWith('amend')} set=${d => amend(p, { day: d })} /></span>`
         : p.from ? html`<span class="when">From ${p.from > day.value ? dayLink(p.from) : Tree.formatDate(p.from, 'short')}</span>` : null}
+      ${p.reason && p.act === 'Override' ? html`<${Until} key=${p.n} p=${p} enter=${enter} />` : null}
       <${Why} key=${p.n} p=${p} enter=${enter} />
       <span class="acts"><button class="btn" onClick=${() => discard()}>Discard</button>
-      <button class="btn primary" disabled=${!ready(p)} onClick=${commit}>${actOn(p)}</button></span>`;
+      <button class="btn primary" aria-disabled=${ready(p) ? null : 'true'} disabled=${!ready(p) && !lacksWhy(p)} data-tip=${lacksWhy(p) ? 'Say why first' : null} onClick=${commit}>${actOn(p)}</button></span>`;
   }
   // The window's one bar, under the view shown, while a change is pending in the chart shown: what it does, in the
   // redline's ink, and its controls, which take the keys as it's begun unless those where it was asked do.
@@ -1343,7 +1400,7 @@ const App = (() => {
   function keepOff(tx, ids) {
     const vs = views.peek().filter(v => v.layout === 'chart'), now = day.peek(), wb = shown.peek(), c = chart.peek(), kept = [];
     if (!vs.length || typeof Scene === 'undefined') return kept;
-    const d = [now, ...tx.added().filter(r => r.args && r.since).map(r => r.since)].sort().at(-1), after = tx.asOf(d), R = Formulas.computeState(after, definitions.peek(), { relations: relations.peek(), schema: schema.peek() }, worked), I = Tree.index(after);
+    const d = [now, ...tx.added().filter(r => r.args && r.since).map(r => r.since)].sort().at(-1), after = tx.asOf(d), R = Formulas.computeState(after, definitions.peek(), namesOn(d), worked), I = Tree.index(after);
     for (const v of vs) {
       const by = Scene.looks(wb, c, v.id, d, { state: R.records, computed: R }).byId;
       for (const id of ids) {
@@ -1363,7 +1420,7 @@ const App = (() => {
   function showMade(tx, ids, view = Shell.view.peek(), d = day.peek()) {
     const N = notes.peek();
     if (views.peek().find(v => v.id === view)?.layout !== 'chart' || !N.notes('Shown').some(n => n.value === false && (!n.view || n.view === view))) return;
-    const after = tx.asOf(d), R = Formulas.computeState(after, definitions.peek(), { relations: relations.peek(), schema: schema.peek() }, worked);
+    const after = tx.asOf(d), R = Formulas.computeState(after, definitions.peek(), namesOn(d), worked);
     const drawn = Scene.looks(shown.peek(), chart.peek(), view, d, { state: R.records, computed: R }).byId;
     for (const id of ids) if (after[id]?.kind && !drawn.has(id)) tx.note('Shown', { id, kind: after[id].kind }, true, { view });
   }
@@ -1638,8 +1695,8 @@ const App = (() => {
 
   return {
     get wb() { return book.value; },
-    chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, workAt, state, needs,
+    chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs,
     readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
-    enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone, annotate, broken,
+    enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, noTone, annotate, broken,
   };
 })();

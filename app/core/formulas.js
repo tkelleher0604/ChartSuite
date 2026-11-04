@@ -439,12 +439,20 @@ function depend(S, kind, name, key) {
 }
 
 // What a name gives where nothing has it: an empty list for a list the schema has somewhere, nothing for any
-// other name the schema has somewhere, and an error for a name it doesn't have at all.
-function missing(S, name) {
+// other name the schema has somewhere, and an error for a name it doesn't have at all. `at`, the record it was looked
+// for at, for what a row can't say for want of it (see cantSay).
+function missing(S, name, at) {
   const n = normal(name);
   if (S.P.known.lists.has(n)) return [];
-  if (S.P.known.values.has(n)) { S.blanks?.push(name); return null; }
+  if (S.P.known.values.has(n)) { S.blanks?.push({ name, at }); return null; }
   return err('#NAME?', `Nothing is called ${name}.`);
+}
+// A record pointed at by its name (dendra.md, Definitions: a record by its name): an object by any Name or Short Name it has had, on
+// any day, so a rule that points at it holds on every day it holds. Nothing where nothing has it; an error where two things have.
+function recordNamed(S, name, n = normal(name)) {
+  const ids = S.P.named?.get(n);
+  if (!ids) return null;
+  return ids.size > 1 ? err('#NAME?', `More than one thing is called ${name}.`) : recOf(ids.values().next().value);
 }
 
 // The relatives listed under `n` at a location: the other arguments' objects, each remembering the relation
@@ -567,15 +575,17 @@ function lookupOn(S, v, name, n = normal(name)) {
     const hit = ownLookup(S, id, n, name);
     if (hit) return hit.v;
   }
-  return missing(S, name);
+  return missing(S, name, v.id);
 }
 
 // A name on its own: a LET name; in a relation's formula, one of its arguments, as an object; in an entry's
 // formula, a name on its location, looked up the path.
 function lookupBare(c, name, n = normal(name)) {
   for (let l = c.lets; l; l = l.up) if (l.n === n) return l.v;
-  if (c.self.args) return c.self.args.has(n) ? recOf(c.self.args.get(n)) : err('#NAME?', `${name} isn’t one of this relation’s arguments.`);
-  return lookupOn(c.S, recOf(c.self.loc), name, n);
+  if (c.self.args) return c.self.args.has(n) ? recOf(c.self.args.get(n)) : recordNamed(c.S, name, n) ?? err('#NAME?', `${name} isn’t one of this relation’s arguments.`);
+  const v = lookupOn(c.S, recOf(c.self.loc), name, n);
+  // What it has of that name comes first; with none, what's called that.
+  return (isErr(v) && v.code === '#NAME?') || isNothing(v) ? recordNamed(c.S, name, n) ?? v : v;
 }
 
 // ---- Turning values into one value ----
@@ -994,7 +1004,8 @@ const FUNCTIONS = {
     c.S.without = true;
     return ev(a[1].x, { ...c, S: counterfactual(c.S, x.id, c.def) });
   },
-  TODAY(a) { return arity('TODAY', a, 0) ?? { t: 'date', iso: Tree.isoOf(new Date()) }; },
+  // The day shown, as what's given it says, whichever that is (dendra.md, Definitions: Today).
+  TODAY(a, c) { return arity('TODAY', a, 0) ?? { t: 'date', iso: c.S.P.day ?? Tree.isoOf(new Date()) }; },
   // A date of nothing is nothing, whatever month and day are written beside it; but one of something and
   // nothing, a year with no month, can't be made.
   DATE(a, c) {
@@ -2321,19 +2332,85 @@ function runGroup(S, i, re = null) {
   S.dep = S.watch = null;
 }
 
-// A row that can't be worked out for want of a value, where what it read was blank, says what it needs.
+// A row that can't be worked out for want of a value, where what it read was blank, says what it needs. A row of a yes-or-no
+// that can say no, and comes to a test of what's blank, can't say (see cantSay).
 function rowGives(S, t, ri) {
   const row = t.d.rows[ri], was = S.blanks, blanks = S.blanks = [];
   try {
     let out;
     if (row.implies) { const v = truth(S, safeEv(row.ast, t.ctx)); out = isErr(v) ? { error: v } : v ? TRUE_OUT : NONE; }
     else out = asOutput(S, t.d, safeEv(row.ast, t.ctx));
-    return out.error?.code === '#VALUE!' && blanks.length ? { error: needs(blanks) } : out;
+    if (out.error?.code === '#VALUE!' && blanks.length) return { error: needs(blanks, S) };
+    if (blanks.length && !out.error && t.d.type === 'tag' && !row.implies && (row.saysNo ??= saying(row.ast)[1])) {
+      const v = cantSay(row.ast, t.ctx);
+      if (v?.cant) return { error: needs(v.cant, S) };
+    }
+    return out;
   } finally { S.blanks = was; }
 }
-function needs(names) {
-  const xs = [...new Map(names.map(n => [normal(n), n])).values()];
-  return err('#N/A', `Needs ${xs.length < 2 ? xs[0] : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`}.`);
+// `#N/A`, with what it wants: each name read blank, and the record it was read at. `blanks` keeps those a hand could fill in.
+function needs(reads, S) {
+  const xs = [...new Map(reads.map(r => [normal(r.name), r.name])).values()], e = err('#N/A', `Needs ${xs.length < 2 ? xs[0] : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`}.`);
+  e.blanks = [...new Map(reads.filter(r => S && fillable(S, r)).map(r => [`${normal(r.name)}|${r.at}`, r])).values()];
+  return e;
+}
+// Whether a name read blank at a record is one a person could type there: no definition gives it, as what a rule gives is its own to say
+// nothing of, and the schema has it at a record of that kind.
+function fillable(S, { name, at }) {
+  const P = S.P, n = normal(name);
+  P.given ??= new Set(P.defs.flatMap(d => d.error ? [] : [...namesProvided(d, P.reg)]));
+  if (P.given.has(n)) return false;
+  if (!P.schema) return true;
+  const r = S.recs[at], o = r && isObject(r);
+  return specified(P.schema, name).some(l => !o || (!l.args && (l.kind === undefined || same(l.kind, r.kind))));
+}
+// Can't say (dendra.md, Definitions). A test read through to what it comes to, where what's blank decides: yes, no, nothing where its
+// conditions skip the record, or `{ cant: [{ name, at }] }`. A comparison of order with what's read blank can't be told, wherever it stands;
+// an equality can't be told where it's the test, and where it's a condition (`guard`) a blank is what it says it is, for a rule that asks only
+// of Main Funds doesn't apply to what isn't known to be one. No beats it under AND, yes under OR, as a blank can't undo what's decided. What's
+// read and comes to nothing isn't blank unless it's a value a hand could enter: a list with nothing in it has nothing to want.
+const cantOf = (a, b) => a?.cant && b?.cant ? { cant: [...a.cant, ...b.cant] } : a?.cant ? a : b?.cant ? b : null;
+function cantSay(n, c, guard = false) {
+  const S = c.S, test = x => cantSay(x, c, guard);
+  if (n.k === 'not') { const v = test(n.x); return isErr(v) || v?.cant ? v : !v; }
+  if (n.k === 'and' || n.k === 'or') {
+    const a = test(n.a), yes = n.k === 'or';
+    if (isErr(a) || (!a?.cant && !!a === yes)) return a;
+    const b = test(n.b);
+    if (isErr(b) || (!b?.cant && !!b === yes)) return b;
+    return cantOf(a, b) ?? yes === false;
+  }
+  if (n.k === 'cmp' || n.k === 'in') {
+    const read = x => { const was = S.blanks, mine = S.blanks = []; try { return { v: safeEv(x, c), blanks: mine }; } finally { S.blanks = was; } };
+    const A = read(n.a), B = read(n.b), v = n.k === 'in' ? among1(S, A.v, B.v) : compare(S, n.op, A.v, B.v);
+    if (isErr(v)) return v;
+    const order = n.k === 'cmp' && n.op !== '=' && n.op !== '<>';
+    if (order || !guard) {
+      const blank = X => X.blanks.length && isNothing(n.k === 'in' && X === B ? null : scalar(S, X.v)) ? X.blanks.filter(r => fillable(S, r)) : [];
+      const named = [...blank(A), ...(n.k === 'cmp' ? blank(B) : [])];
+      if (named.length) return { cant: named };
+    }
+    return v === true;
+  }
+  if (isCall(n, 'IF') && n.args.length >= 2 && n.args.length <= 3) {
+    const g = cantSay(n.args[0].x, c, true);
+    if (isErr(g) || g?.cant) return g;
+    return g ? test(n.args[1].x) : n.args[2] ? test(n.args[2].x) : null;
+  }
+  if (isCall(n, 'LET') && n.args.length % 2 === 1 && n.args.length >= 3) {
+    let lets = c.lets;
+    for (let i = 0; i < n.args.length - 1; i += 2) { const v = safeEv(n.args[i + 1].x, { ...c, lets }); if (isErr(v)) return v; lets = { n: normal(n.args[i].x.name ?? ''), v, up: lets }; }
+    return cantSay(n.args.at(-1).x, { ...c, lets }, guard);
+  }
+  if ((isCall(n, 'ANY') || isCall(n, 'ALL')) && n.args.length === 2) {
+    const yes = isCall(n, 'ANY'), list = toList(safeEv(n.args[0].x, c));
+    if (isErr(list)) return list;
+    let cant = null;
+    for (const item of list) { const v = cantSay(n.args[1].x, withAt(c, item), guard); if (isErr(v)) return v; if (v?.cant) cant = cantOf(cant, v); else if (!!v === yes) return yes; }
+    return cant ?? !yes;
+  }
+  const v = truth(S, safeEv(n, c));
+  return v;
 }
 
 // A candidate's output from its rows' results, and the rows that hold there (for a tag).
@@ -3186,9 +3263,17 @@ function namesOfChart(P, entered) {
     for (const e of rel.edges ?? []) { const k = normal(e); (roles.get(k) ?? roles.set(k, new Set()).get(k)).add(rel.name); }
     for (const l of rel.lists.values()) { listed.add(normal(l)); spell(l); }
   }
-  return { choices, spelled, kinds, roles, listed };
+  // What each entry holds, by its label, where it's one thing wherever it is; what a definition gives as well.
+  const held = new Map(), hold = (label, k) => { const x = normal(label); held.set(x, (held.get(x) ?? new Set()).add(k)); };
+  for (const t of Object.values(P.schema ?? {})) if (t.args?.length === 1 && t.out) hold(t.args[0].edge, heldAs(t.out));
+  for (const d of P.defs) if (!d.error && !d.isRelation) hold(d.name, heldAs(d.type === 'tag' ? { tag: true } : d.type === 'choice' ? { choice: '' } : { field: d.datatype }));
+  return { choices, spelled, kinds, roles, listed, held };
 }
 const typeOfSpec = t => 'choice' in t.out ? 'choice' : 'tag' in t.out ? 'tag' : 'field';
+const heldAs = out => 'tag' in out ? 'yes' : 'choice' in out ? 'text' : out.field === 'date' ? 'date' : out.field === 'yearly' ? 'yearly' : ['number', 'percent', 'money'].includes(out.field) ? 'number' : out.field ? 'text' : null;
+const KIND_WORDS = { date: 'a date', number: 'a number', text: 'text', yearly: 'a day of the year', yes: 'a yes-or-no' };
+const GIVES = { date: ['TODAY', 'DATE', 'EDATE', 'EOMONTH', 'WORKDAY'], number: ['COUNT', 'SUM', 'AVERAGE', 'YEAR', 'MONTH', 'DAY', 'YEARFRAC', 'LEN', 'ROUND', 'ABS'], text: ['TEXT', 'TEXTJOIN', 'UPPER', 'LOWER', 'TRIM', 'LEFT', 'RIGHT', 'KIND'], yes: ['ISBLANK', 'NOT', 'ANY', 'ALL', 'AND', 'OR', 'WITHOUT'] };
+const GIVEN = new Map(Object.entries(GIVES).flatMap(([k, fs]) => fs.map(f => [f, k])));
 // What `@` stands for in a definition's rows where no list has been opened: the entry it's located at, by its label.
 function locatedAt(d) {
   const s = d?.params?.[0]?.[0]?.spec;
@@ -3197,11 +3282,42 @@ function locatedAt(d) {
 }
 // A row's flaws. `d`, its definition, where it has one; `edges`, the sides of a relation being given one.
 function rowFlaws(P, d, ast, edges = null) {
-  const out = [], { known, reg, chart: { choices, spelled, kinds, roles, listed } } = P, rel = d ? d.isRelation : !!edges;
+  const out = [], { known, reg, chart: { choices, spelled, kinds, roles, listed, held } } = P, rel = d ? d.isRelation : !!edges;
   const own = new Set((d?.isRelation ? d.edges : edges ?? []).map(normal)), lets = new Set();
   const has = nm => known.values.has(nm) || known.lists.has(nm) || reg.byName.has(nm) || lets.has(nm);
   const mend = (name, among) => { const c = closeTo(name, among); return c ? { fix: nameText(c) } : {}; };
-  const unknown = (name, from, to) => out.push({ from, to, code: '#NAME?', message: `Nothing is called ${name}.`, ...mend(name, spelled.values()) });
+  // (A function's name, its parentheses yet to come, is what it is. And a name more than one thing has had says so.)
+  const unknown = (name, from, to) => out.push(isFunction(name) ? { from, to, code: '#NAME?', message: `${name.toUpperCase()} needs its brackets: ${name.toUpperCase()}(…).` } : { from, to, code: '#NAME?', message: `Nothing is called ${name}.`, ...mend(name, [...spelled.values(), ...(P.names?.values() ?? [])]) });
+  const twice = (n, from, to) => { if (P.named?.get(n.n)?.size > 1) out.push({ from, to, code: '#NAME?', message: `More than one thing is called ${n.name}.` }); };
+  const isRecord = nm => !!P.named?.has(nm);
+  // What a part of a row holds, where that's known: a date, a number, text, a day of the year, a yes-or-no.
+  const heldBy = (n, item) => {
+    if (n.k === 'lit') return typeof n.v === 'number' ? 'number' : typeof n.v === 'boolean' ? 'yes' : typeof n.v === 'string' ? 'text' : null;
+    if (n.k === 'neg') return 'number';
+    if (n.k === 'not' || n.k === 'and' || n.k === 'or' || n.k === 'cmp' || n.k === 'in') return 'yes';
+    if (n.k === 'at') { const l = !item && locatedAt(d), x = l && held.get(l); return x?.size === 1 ? [...x][0] : null; }
+    if (n.k === 'name' && (lets.has(n.n) || own.has(n.n))) return null;
+    if (n.k === 'name' || n.k === 'dot') { const x = held.get(n.n); return x?.size === 1 && !known.lists.has(n.n) ? [...x][0] : null; }
+    if (n.k === 'bin') {
+      if (n.op === '&') return 'text';
+      const a = heldBy(n.a, item), b = heldBy(n.b, item);
+      if (n.op === '-' && a === 'date' && b === 'date') return 'number';
+      return a === 'date' && b === 'number' ? 'date' : b === 'date' && n.op === '+' && a === 'number' ? 'date' : a === 'number' && b === 'number' ? 'number' : null;
+    }
+    if (n.k === 'call') {
+      const f = n.name.toUpperCase();
+      if (f === 'IF') { const a = n.args[1] && heldBy(n.args[1].x, item), b = n.args[2] && heldBy(n.args[2].x, item); return !n.args[2] || a === b ? a ?? null : null; }
+      return isFunction(n.name) ? GIVEN.get(f) ?? null : null;
+    }
+    return null;
+  };
+  const shown = n => n.k === 'lit' ? (typeof n.v === 'string' ? `“${n.v}”` : n.pct ? `${n.v * 100}%` : String(n.v)) : n.k === 'name' || n.k === 'dot' ? n.name : n.k === 'call' ? `${n.name.toUpperCase()}(…)` : n.k === 'at' ? '@' : 'this';
+  // A comparison of what can never be compared: a date and a number have no order, and are never equal. Said as it's typed, as what it gives would be no answer.
+  const compared = (n, item) => {
+    const a = heldBy(n.a, item), b = heldBy(n.b, item), order = n.op !== '=' && n.op !== '<>';
+    if (!a || !b || a === b || a === 'yes' || b === 'yes') return;
+    out.push({ from: n.from, to: n.to, code: '#VALUE!', message: `${shown(n.a)} is ${KIND_WORDS[a]} and ${shown(n.b)} is ${KIND_WORDS[b]}: ${order ? 'they can’t be put in order' : 'they’re never equal'}.` });
+  };
   const shared = (n, from, to) => { const of = roles.get(n.n); if (of?.size > 1 && !listed.has(n.n) && !lets.has(n.n) && !own.has(n.n)) out.push({ from, to, warn: true, code: '#NAME?', message: `${n.name} is a side of ${[...of].join(' and ')}, so this reads both. ${[...of].map(x => `[${x}]`).join(' or ')} reads one.` }); };
   // The list a side is compared with: a choice's options, or the kinds there are; where the schema is known, which says them all.
   const listFor = (s, item) => !P.schema ? null : isCall(s, 'KIND') ? { label: 'KIND', options: [...kinds], kind: true } : s.k === 'at' ? (!item ? choices.get(locatedAt(d)) : null) : (s.k === 'dot' || (s.k === 'name' && !lets.has(s.n) && !own.has(s.n))) ? choices.get(s.n) : null;
@@ -3214,12 +3330,14 @@ function rowFlaws(P, d, ast, edges = null) {
     if (!n) return;
     if (isCall(n, 'LET')) n.args.forEach((x, i) => { if (i % 2 === 0 && i < n.args.length - 1 && x.x.k === 'name') lets.add(x.x.n); });
     if (n.k === 'name') {
-      if (!rel && !own.has(n.n) && !has(n.n)) unknown(n.name, n.from, n.to);
+      if (isRecord(n.n) && !own.has(n.n) && !lets.has(n.n)) twice(n, n.from, n.to);
+      else if (!rel && !own.has(n.n) && !has(n.n)) unknown(n.name, n.from, n.to);
       else if (rel && !own.has(n.n) && !lets.has(n.n)) out.push({ from: n.from, to: n.to, code: '#NAME?', message: `${n.name} isn’t one of this relation’s arguments.`, ...mend(n.name, (d?.edges ?? edges)) });
       else if (!rel) shared(n, n.from, n.to);
     }
     if (n.k === 'dot') { if (!has(n.n)) unknown(n.name, n.at, n.to); else if (n.x.k !== 'at') shared(n, n.at, n.to); }
     if (n.k === 'call' && !isFunction(n.name) && !reg.byName.has(normal(n.name))) out.push({ from: n.from, to: n.nameTo, code: '#NAME?', message: `There’s no function or relation called ${n.name}.`, ...mend(n.name, [...Object.keys(FUNCTIONS), ...[...reg.byName.values()].map(r => r.name)]) });
+    if (n.k === 'cmp') compared(n, item);
     if (n.k === 'cmp' && (n.op === '=' || n.op === '<>')) { against(n.b, listFor(n.a, item)); against(n.a, listFor(n.b, item)); }
     if (n.k === 'in') { const l = listFor(n.a, item); for (const x of n.b.k === 'arr' ? n.b.items : [n.b]) against(x, l); }
     if (n.k === 'call' && ITEM_FUNCTIONS.has(n.name.toUpperCase())) n.args.forEach((x, i) => walk(x.x, item || i > 0));
@@ -3252,14 +3370,43 @@ function onlyThroughLoop(ast, group, reg, d) {
   };
   return needs(ast);
 }
+// The entries an object goes by, which a rule can point at it by.
+const NAMING = new Set(['name', 'short name']);
+// Each quoted word a row compares with an entry of free text, by the entry's label: read off the rows once, while the definitions stand.
+const textKept = new WeakMap();
+function textTests(P, definitions) {
+  const kept = textKept.get(definitions);
+  if (kept && kept.schema === P.schema) return kept.asks;
+  const asks = [], { held, choices } = P.chart;
+  for (const d of P.defs) if (!d.error) d.rows.forEach((row, i) => {
+    const own = new Set(d.isRelation ? d.edges.map(normal) : []);
+    const walk = n => {
+      if (n.k === 'cmp' && (n.op === '=' || n.op === '<>')) for (const [s, l] of [[n.a, n.b], [n.b, n.a]]) {
+        if (l.k !== 'lit' || typeof l.v !== 'string' || !l.v || (s.k !== 'dot' && s.k !== 'name') || (s.k === 'name' && own.has(s.n)) || choices.has(s.n)) continue;
+        const x = held.get(s.n);
+        if (x?.size === 1 && x.has('text')) asks.push({ def: d.id, row: i, lit: l, n: s.n, label: s.name });
+      }
+      childrenOf(n).forEach(walk);
+    };
+    walk(row.ast);
+  });
+  textKept.set(definitions, { schema: P.schema, asks });
+  return asks;
+}
 // Every definition's flaws, by its id, and each that's a loop nothing can work out.
 // What's wrong as it's written reads the definitions, the schema and what names and kinds there are, so an edit to a value
 // doesn't read it all again. (Not kept where a quoted value's at fault, known by its place in what was parsed: see badLits.)
 const writtenKept = new WeakMap();
 function flawsOf(P, definitions, entered) {
   const seen = new Set();
-  for (const r of Object.values(entered ?? {})) if (r.kind) seen.add(r.kind);
-  const stamp = `${[...seen].sort().join('|')}§${P.known.values.size}§${P.known.lists.size}`, kept = writtenKept.get(definitions), again = !!kept && kept.schema === P.schema && kept.stamp === stamp;
+  // (And what objects are called, today's and any they've had, by which a rule can point at one. The bare form too of "The BDC".)
+  const named = new Map(P.ever ?? []), names = new Map(), name = (v, id) => { for (const x of [normal(v), normal(String(v).replace(/^The\s+/i, ''))]) { const ids = named.get(x); if (ids?.has(id)) continue; named.set(x, new Set(ids ?? []).add(id)); } };
+  for (const r of Object.values(entered ?? {})) {
+    if (r.kind) seen.add(r.kind);
+    else if (r.field === 'text' && r.at && NAMING.has(normal(r.edge)) && r.value && entered[r.at]?.kind && !Tree.isView(entered[r.at])) { name(r.value, r.at); names.set(normal(r.value), r.value); }
+  }
+  P.named = named; P.names = names;
+  const stamp = `${[...seen].sort().join('|')}§${P.known.values.size}§${P.known.lists.size}§${named.size}`, kept = writtenKept.get(definitions), again = !!kept && kept.schema === P.schema && kept.stamp === stamp;
   // (And what has records typed, which a rule that reads only itself can go on from: asked of few, so worked out only then.)
   let typedSet = null;
   const typed = () => typedSet ??= new Set(Object.values(entered ?? {}).flatMap(r => r.args?.length > 1 ? [r.args.map(a => normal(a.edge)).sort().join('|')] : r.edge ? [normal(r.edge)] : []));
@@ -3273,6 +3420,22 @@ function flawsOf(P, definitions, entered) {
     if (!Object.values(rows).flat().some(f => f.lit)) writtenKept.set(definitions, { schema: P.schema, stamp, chart: P.chart, rows });
   }
   const out = { ...rows }, put = (id, f) => { out[id] = [...(out[id] ?? []), f]; };
+  // A quoted word compared with free text, which no list says the words of: read against what the chart has there, so a name misspelled, or
+  // one that's since changed, is no clean no. A name that matches nothing is a rule in error; other words may yet be typed, and are only said.
+  const asks = textTests(P, definitions);
+  if (asks.length) {
+    const have = new Map(), wanted = new Set(asks.map(x => x.n));
+    for (const r of Object.values(entered ?? {})) if (r.field === 'text' && r.edge && r.value && wanted.has(normal(r.edge))) { const k = normal(r.edge); (have.get(k) ?? have.set(k, new Map()).get(k)).set(normal(r.value), r.value); }
+    for (const x of asks) {
+      const here = have.get(x.n), w = normal(x.lit.v), naming = NAMING.has(x.n);
+      if (here?.has(w)) continue;
+      // (What's called that on another day, of what isn't in the chart this day, is no misspelling: this day's chart hasn't it to compare.)
+      const ids = naming ? P.ever?.get(w) : null;
+      if (ids && [...ids].some(id => !entered[id])) continue;
+      const c = closeTo(x.lit.v, [...(here?.values() ?? [])]);
+      put(x.def, { row: x.row, from: x.lit.from, to: x.lit.to, code: '#OPTION?', message: naming ? `Nothing is called “${x.lit.v}”.` : `No ${x.label} says “${x.lit.v}”.`, ...(c && { fix: `"${c}"` }), ...(naming ? { lit: x.lit } : { warn: true }) });
+    }
+  }
   for (const g of P.groups) if (g.loops && !g.monotone) for (const d of g.defs) {
     const x = g.reads.find(r => r.def === d.id && !r.monotone) ?? g.reads.find(r => r.def === d.id);
     const names = g.defs.map(e => e.name), said = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
@@ -3374,19 +3537,51 @@ function suggest(text, cursor, ctx = {}) {
       const start = chainStart(toks, toks.length - 1);
       const src = s.slice(toks[start]?.pos ?? f.offset, toks.at(-1).pos);
       let v = null;
-      try { v = safeEv(parseExpression(src), c); } catch { v = null; }
+      try { v = safeEv(parseExpression(src), itemsIn(s, toks, start, c, S)); } catch { v = null; }
       names = namesOnValue(S, v);
     } else {
       names = [
         ...(d?.isRelation ? d.edges.map(e => ({ name: e, kind: 'argument' })) : c.self.loc ? namesOnValue(S, recOf(c.self.loc)) : []),
         ...[...S.P.reg.byName.values()].map(r => ({ name: r.name, kind: 'relation' })),
         ...functions,
+        // What the chart calls things, once a letter asks: a rule can point at a record.
+        ...(partial ? [...(S.P.names?.values() ?? [])].map(name => ({ name, kind: 'record' })) : []),
       ];
     }
   }
-  const list = names.filter(x => normal(x.name).startsWith(partial))
+  const list = names.filter(x => normal(x.name).startsWith(partial) || (x.kind === 'record' && normal(x.name).includes(` ${partial}`)))
     .map(x => ({ ...x, text: x.kind === 'function' ? `${x.name}(` : bracket(x.name) }));
   return { from, to, list };
+}
+// The context a chain's `@` is read in where it's inside FILTER, ANY, ALL or EACH, past the list: `@` is the list's items, from the record being
+// worked out or, where it has none, the first of its kind that has. So what's offered after `@.` is what's on an item (a Position), not the person's.
+function itemsIn(s, toks, end, c, S) {
+  const around = (to, at = -1) => {
+    let depth = 0, comma = -1;
+    for (let i = to - 1; i >= 0; i--) {
+      const t = toks[i];
+      if (t.k !== 'op') continue;
+      if (t.v === ')' || t.v === '}') depth++;
+      else if (t.v === '(' || t.v === '{') {
+        if (depth) { depth--; continue; }
+        if (t.v === '(' && comma >= 0 && toks[i - 1]?.k === 'name' && ITEM_FUNCTIONS.has(toks[i - 1].v.toUpperCase())) return { list: s.slice(toks[i + 1].pos, toks[comma].pos), before: i - 1 };
+        comma = at;
+      } else if (!depth && t.v === ',') comma = i;
+    }
+    return null;
+  };
+  const inner = around(end);
+  if (!inner) return c;
+  const outer = itemsIn(s, toks, inner.before, c, S), read = x => { try { return toList(safeEv(parseExpression(inner.list), x)); } catch { return []; } };
+  const items = read(outer);
+  if (!isErr(items) && items.length) return withAt(outer, items);
+  // (None here: the first of its kind that has some shows what's on one.)
+  const kind = c.self.loc && S.recs[objectOf(S, c.self.loc)]?.kind;
+  for (const id in S.recs) if (kind && S.recs[id].kind === kind) {
+    const more = read({ ...outer, self: { loc: id }, at: outer.at === c.at ? recOf(id) : outer.at });
+    if (!isErr(more) && more.length) return withAt(outer, more);
+  }
+  return withAt(outer, []);
 }
 
 // Renames a name wherever a formula mentions it, keeping the rest as typed: for a relabeled edge or entry, as
@@ -3646,7 +3841,7 @@ function computeState(entered, definitions, names, from) {
   const defs = definitions.map(d => prepareDef(d, names));
   const reg = registry(names, defs);
   // The specifications definitions are located at, where a group looks for candidates (see blocksOf).
-  const P = { defs, reg, schema: names?.schema, byId: new Map(defs.map(d => [d.id, d])), coverOf: new Map(),
+  const P = { defs, reg, schema: names?.schema, day: names?.day ?? null, ever: names?.named ?? null, byId: new Map(defs.map(d => [d.id, d])), coverOf: new Map(),
     located: new Set(defs.flatMap(d => d.params.flat().map(p => p.spec))) };
   for (const d of defs) if (!d.error) for (const p of d.covers) P.coverOf.set(p, d);
   // A definition whose rows some row cites by label, after a dot.
@@ -3784,10 +3979,57 @@ function attention(R, N, day, within = 30) {
       items.push({ kind: 'blank', id, edge: a.edge });
     }
   }
-  for (const e of R.errors) items.push({ kind: 'error', id: e.id, error: e });
-  // A rule in error that nothing shows at a record (a quoted value nothing reached) is an error of its own: the rule's.
-  for (const b of broken(R).roots) if (!R.errors.some(e => e.def === b.def)) { const id = `rule:${b.def}`; items.push({ kind: 'error', id, error: { def: b.def, id, rule: true, error: err(b.code, b.problems[0]) } }); }
+  // What can't be said for want of a value is a blank, the one thing to fill in, counted once however many rules read it (dendra.md, Definitions:
+  // Can't say); what can't be worked out, a rule broken, apart from who fails what a rule says; and a value typed over what a rule says is kept
+  // in the open, a count of its own.
+  const said = new Set(items.filter(a => a.kind === 'blank').map(a => `${a.id}|${normal(a.edge)}`));
+  for (const e of R.errors) {
+    if (e.error.code !== '#N/A') { items.push({ kind: 'broken', id: e.id, error: e }); continue; }
+    const wants = e.error.blanks?.length ? e.error.blanks : [{ name: e.error.msg.replace(/^Needs |\.$/g, ''), at: e.at ?? e.args?.[0]?.at }];
+    for (const b of wants) { const k = `${b.at}|${normal(b.name)}`; if (said.has(k)) { items.find(a => a.kind === 'blank' && a.id === b.at && same(a.edge, b.name)).by ??= e; continue; } said.add(k); items.push({ kind: 'blank', id: b.at, edge: b.name, by: e }); }
+  }
+  // A rule in error that nothing shows at a record (a quoted value nothing reached) is one of its own: the rule's.
+  for (const b of broken(R).roots) if (!R.errors.some(e => e.def === b.def)) { const id = `rule:${b.def}`; items.push({ kind: 'broken', id, error: { def: b.def, id, rule: true, error: err(b.code, b.problems[0]) } }); }
+  for (const [id, c] of Object.entries(R.covered)) if (!c.agrees && recs[id]) items.push({ kind: 'overrides', id });
   return items;
+}
+
+// What a rule covers, by what it says of each: `holds`, `fails` and `cant`, what it can't say for want of a value; `typed`, what's typed over it;
+// `broken`, what it can't work out; and of those it says nothing of, `quiet`, the records it's at where it could, each by its record's id (or for a
+// relation, where what could be is every pair, null). `silent`, what its silence means: 'untested', n/a; 'no'; or 'fine'. And `says`, how many it
+// gives an answer at, of which none is a rule that applies to no one.
+function coverage(R, def) {
+  const S = R?.state, d = S?.P.byId.get(def);
+  if (!d || d.error) return null;
+  const out = { holds: [], fails: [], cant: [], typed: [], broken: [], quiet: d.isRelation ? null : [], silent: null, says: 0 }, at = new Set();
+  for (const row of R.rows[def] ?? []) {
+    if (!row.args) at.add(row.at);
+    if (row.entered) {
+      const typed = R.records[row.entered];
+      if (R.covered[row.entered] && !R.covered[row.entered].agrees) out.typed.push(row.entered);
+      else if (typed?.tag === false) out.fails.push(row.entered); else out.holds.push(row.entered);
+    } else if (row.error) (row.error.code === '#N/A' ? out.cant : out.broken).push(row.id);
+    else if (d.type === 'tag' && row.value === false) out.fails.push(row.id);
+    else out.holds.push(row.id);
+  }
+  if (out.quiet) for (const ps of d.params) for (const id of S.bySpec.get(ps[0]?.spec) ?? []) if (!at.has(id) && !out.quiet.includes(id) && !S.byAtName.get(`${id}|${normal(d.name)}`)) out.quiet.push(id);
+  if (d.type === 'tag') { const [yes, no] = rowsSay(d.rows.map(r => ({ formula: r.text }))); out.silent = yes && no ? 'untested' : yes ? 'no' : no ? 'fine' : null; }
+  out.says = out.holds.length + out.fails.length + out.cant.length + out.typed.length + out.broken.length;
+  return out;
+}
+// The names a rule reads of the record it's about, by their labels as written: an entry a blank of which is what it would want.
+function readsAt(R, def) {
+  const d = R?.state?.P.byId.get(def);
+  if (!d || d.error) return [];
+  const own = new Set(d.isRelation ? d.edges.map(normal) : []), out = new Map();
+  const walk = (n, lets) => {
+    if (isCall(n, 'LET')) { const more = new Set(lets); n.args.forEach((x, i) => { if (i % 2 === 0 && i < n.args.length - 1 && x.x.k === 'name') more.add(x.x.n); else walk(x.x, more); }); return; }
+    if (n.k === 'name' && !own.has(n.n) && !lets.has(n.n) && R.state.P.known.values.has(n.n) && !R.state.P.known.lists.has(n.n)) out.set(n.n, n.name);
+    if (n.k === 'dot') { walk(n.x, lets); return; }
+    childrenOf(n).forEach(x => walk(x, lets));
+  };
+  d.rows.forEach(row => walk(row.ast, new Set()));
+  return [...out.values()];
 }
 
 // A payment of a tax that falls due year by year (see dendra.md, Time): `due` is a date worked out at a
@@ -3863,7 +4105,7 @@ function silence(N, S, recs, at, edge) {
 
 return {
   computeState, ground, evaluateRow, diff, check, suggest, evaluateAt, text, attention, pay, renameName, computedId, splitFormula, tidyArrow,
-  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS), silence, broken, asDrawn, sideObjects,
+  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS), silence, broken, asDrawn, sideObjects, coverage, readsAt,
 };
 
 })();

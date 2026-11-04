@@ -567,7 +567,7 @@ const workedThen = new WeakMap();
 function stateThen(wb, chart, day, from) {
   const entered = wb.asOf(chart, day);
   let R = workedThen.get(entered);
-  if (!R) { const N = wb.notes(chart), S = wb.schema(chart); workedThen.set(entered, R = Formulas.computeState(entered, N.definitions(S), { relations: N.relations(S), schema: S }, from)); }
+  if (!R) { const N = wb.notes(chart), S = wb.schema(chart); workedThen.set(entered, R = Formulas.computeState(entered, N.definitions(S), { relations: N.relations(S), schema: S, day, named: wb.named?.(chart) }, from)); }
   return R.records;
 }
 // The comparison, of what the view draws as of `day` with what it draws as of the day it compares with, a mark at a time, its

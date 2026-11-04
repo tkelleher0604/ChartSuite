@@ -88,6 +88,8 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-row > .fx-cm { grid-column: 2; min-width: 0; margin-inline: -6px; }
 .fx-row > :is(.fx-x, .fx-pencil) { grid-column: 3; grid-row: 1; width: 24px; height: 24px; margin-left: 8px; opacity: 0; }
 .fx-row:hover > :is(.fx-x, .fx-pencil), .fx-row > :is(.fx-x, .fx-pencil):focus-visible { opacity: 1; }
+/* The way into writing a rule is always there, quiet till it's pointed at. */
+.fx-row > .fx-pencil { opacity: .6; }
 /* A row clicked while it's read: named as the one cited is, its names lit on the chart. */
 .fx-row.reading > .fx-label { color: var(--ink); }
 .fx-row.reading .CodeMirror { color: var(--ink); }
@@ -159,8 +161,17 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-typed { display: grid; gap: 2px; margin: 4px 0; padding: 6px 8px; border-left: 2px solid var(--due); max-height: 132px; overflow: auto; font: var(--t13); }
 .fx-typed > .fx-ask { margin: 0 0 2px; color: var(--ink); font-weight: 500; }
 .fx-typed > label { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
-.fx-reason { display: flex; align-items: center; gap: 8px; margin: 4px 0; font: var(--t13); color: var(--ink-2); }
-.fx-reason > .cell { flex: 1 1 auto; height: 24px; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); }
+.fx-flaws:focus { outline: 2px solid var(--focus, var(--accent)); outline-offset: 1px; }
+.fx-reason { display: flex; align-items: center; gap: 12px; margin: 4px 0; font: var(--t13); color: var(--ink-2); }
+.fx-reason > label:first-child { display: flex; flex: 1 1 auto; align-items: center; gap: 8px; min-width: 0; }
+.fx-reason .cell { flex: 1 1 auto; height: 24px; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); }
+.fx-reason.needed > label:first-child > span { color: var(--due); font-weight: 600; }
+.fx-reason.needed .cell { border-color: var(--due); }
+.fx-lasting { display: inline-flex; flex: none; align-items: center; gap: 6px; white-space: nowrap; }
+/* What a first Esc says a second would do. */
+.fx-esc { margin-right: 8px; color: var(--due); font-weight: 500; white-space: nowrap; }
+/* A yes-or-no a rule can't say, for want of a value: neither yes nor no nor n/a. */
+.fx-out.cant { color: var(--due); font-weight: 500; white-space: nowrap; }
 /* What a row said, apart from what's typed; whether its label still says it. */
 .fx-before { grid-column: 2; margin: 2px 2px 0; font: var(--t12); color: var(--ink-3); overflow-wrap: anywhere; }
 .fx-before > .ba { margin-right: 4px; color: var(--ink-2); }
