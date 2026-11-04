@@ -853,6 +853,7 @@ function pasteLook(look = copied?.look) {
   const give = (tx, pattern, ms) => {
     for (const l of new Set(ms.flatMap(m => markLabels(m).filter(k => markDiffers(m, k))))) tx.note(l, pattern, at(l, look[l]), { view });
     for (const l of textLabels) if (ms.some(m => textDiffers(m, l))) {
+      if (scope.own) ms.forEach(m => ownFields(tx, m, l));
       tx.note(l, pattern, at(l, look[l]), { view });
       if (!textStyle) for (const e of new Map(ms.flatMap(m => texts(m)).map(it => [Tree.norm(fieldEdge(it) ?? ''), it])).values()) if (fieldEdge(e)) tx.note(l, pattern, at(l, wanted(e, l)), { view, param: fieldEdge(e) });
     }
@@ -868,7 +869,7 @@ function pasteLook(look = copied?.look) {
     }
     for (const m of marks) {
       if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, ...Object.fromEntries([...markLabels(m), ...textLabels].map(l => [l, at(l, look[l])])) } });
-      else { give(tx, Tree.treeOf(st, m.record), [m]); for (const l of textLabels) ownFields(tx, m, l); }
+      else give(tx, Tree.treeOf(st, m.record), [m]);
     }
   }, { say: said });
   fade();
