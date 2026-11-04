@@ -658,7 +658,7 @@ async function run() {
       const due = `annual tax for ${year} ${overdue.includes(e.id) ? 'was' : 'is'} due `;
       return !!who && (e.description?.startsWith(`${who}${/s$/.test(who) ? '’' : '’s'} ${due}`) || e.description?.startsWith(`${who} is a corporation, so its ${due}`)); };
     check('… each tax saying whose, as its summary does: Fund III’s annual tax for 2026 is due June 1, 2027', taxes.length >= 8 && taxes.every(owed) && new Set(taxes.map(e => e.description)).size === taxes.length
-      && taxes.some(e => e.summary === 'Annual Tax Due · Fund III, tax year 2026' && e.description === 'Fund III’s annual tax for 2026 is due June 1, 2027.'),
+      && taxes.some(e => e.summary === 'Annual Tax Due · Fund III, tax year 2026' && e.description === 'Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid.'),
       taxes.filter(e => !owed(e)).slice(0, 2).map(e => `${e.summary}: ${e.description}`).join(' | ') || taxes.slice(0, 2).map(e => `${e.summary}: ${e.description}`).join(' | '));
     // It reads true: the day it ends on is the event's, and any other day it names is a weekend day the date
     // moved from, said with why and which way (January 31, a Sunday, so the Friday before), never a bare day.
@@ -667,8 +667,8 @@ async function run() {
       let bare = e.description;
       for (let s; (s = bare.replace(/\s*\([^()]*\)/g, '')) !== bare;) bare = s;
       const iso = `${e.day.slice(0, 4)}-${e.day.slice(4, 6)}-${e.day.slice(6)}`, weekday = WEEK[new Date(iso + 'T12:00:00').getDay()];
-      const moved = /\(([A-Z][a-z]+ \d{1,2}(?:, \d{4})?), a (\w+), so the (\w+) (?:before|after)\)\.$/.exec(e.description);
-      return Tree.parseDate(/([A-Z][a-z]+ \d{1,2}, \d{4})\.$/.exec(bare)?.[1] ?? '') !== iso || /\([A-Z][a-z]+ \d{1,2}\)/.test(e.description)
+      const moved = /\(([A-Z][a-z]+ \d{1,2}(?:, \d{4})?), a (\w+), so the (\w+) (?:before|after)\)(?:: .*)?\.$/.exec(e.description);
+      return Tree.parseDate(/([A-Z][a-z]+ \d{1,2}, \d{4})(?:: .*)?\.$/.exec(bare)?.[1] ?? '') !== iso || /\([A-Z][a-z]+ \d{1,2}\)/.test(e.description)
         || (moved && (!['Saturday', 'Sunday'].includes(moved[2]) || moved[3] !== weekday));
     });
     check('… and reads true: it ends on the event’s day, and names another only as the weekend day it moved from', !untrue.length
