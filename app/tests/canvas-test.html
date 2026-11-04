@@ -2433,6 +2433,31 @@ async function format() {
   check('… and Esc puts it down', !cv().root.classList.contains('dropping'));
   Shell.select([]); await tick(150);
 
+  // ---- A plan's pages: All text and a look go to them all, one change, said once ----
+  {
+    const wasOn = Shell.view.peek(), views = () => App.views.peek(), called = n => views().find(v => v.name === n), p1 = called('Structure'), p2 = called('Fund III'), other = called('Management and control');
+    const root = (id, l) => App.notes.peek().value(l, { id, kind: 'View' }), undoP = async () => { Shell.parts.peek().undo.undo(); await tick(400); };
+    App.change(tx => { tx.note('Plan', { id: p1.id, kind: 'View' }, 'plan-e'); tx.note('Plan', { id: p2.id, kind: 'View' }, 'plan-e'); }, { dated: false }); await tick(300);
+    await show(p1); Shell.select([]); await tick(200);
+    const fontWas = [root(p1.id, 'Font'), root(p2.id, 'Font')], before = App.wb.changes().length;
+    FormatBar.apply('Font', 'Courier New'); await tick(500);
+    check('All text set on a plan’s page is on its every page, by one change', root(p1.id, 'Font') === 'Courier New' && root(p2.id, 'Font') === 'Courier New' && App.wb.changes().length === before + 1, `${root(p1.id, 'Font')} ${root(p2.id, 'Font')} ${App.wb.changes().length - before}`);
+    await undoP();
+    check('… and one Undo takes it off them all', root(p1.id, 'Font') === fontWas[0] && root(p2.id, 'Font') === fontWas[1], `${root(p1.id, 'Font')} ${root(p2.id, 'Font')}`);
+    App.change(tx => { tx.note('Font', { id: other.id, kind: 'View' }, 'Courier New'); tx.note('Page', { id: other.id, kind: 'View' }, 'legal'); }, { dated: false }); await tick(300);
+    const n3 = App.wb.changes().length, pageWas = [root(p1.id, 'Page'), root(p2.id, 'Page')];
+    FormatBar.lookMenu(p2.id).find(i => i.label === 'Match look').items.find(i => i.label === other.name).run(); await tick(600);
+    const said = Time.describe(App.wb.changes().at(-1));
+    check('a look given to a plan’s page is given to its every page, by one change, said once', root(p1.id, 'Font') === 'Courier New' && root(p2.id, 'Font') === 'Courier New' && root(p1.id, 'Page') === 'legal' && root(p2.id, 'Page') === 'legal' && App.wb.changes().length === n3 + 1 && said === `Gave ${p2.name} and the rest of its plan the look of ${other.name}`, `${root(p1.id, 'Font')} ${root(p2.id, 'Font')} ${root(p1.id, 'Page')} ${root(p2.id, 'Page')} ${App.wb.changes().length - n3} ${said}`);
+    const placeOf = (v, id) => App.notes.peek().value('Position', { id }, v);
+    check('… their places one set still', ['fund', 'blocker', 'northpine'].every(id => JSON.stringify(placeOf(p1.id, id)) === JSON.stringify(placeOf(p2.id, id))), ['fund', 'blocker', 'northpine'].map(id => `${JSON.stringify(placeOf(p1.id, id))} ${JSON.stringify(placeOf(p2.id, id))}`).join('; '));
+    await undoP();
+    check('… and one Undo takes it off them all', JSON.stringify([root(p1.id, 'Page'), root(p2.id, 'Page')]) === JSON.stringify(pageWas) && root(p2.id, 'Font') === fontWas[1], `${root(p1.id, 'Page')} ${root(p2.id, 'Page')} ${root(p2.id, 'Font')}`);
+    await undoP(); await undoP();
+    check('(the plan undone)', !views().find(v => v.id === p1.id).plan && !views().find(v => v.id === p2.id).plan);
+    await show({ id: wasOn }); Shell.select([]); await tick(150);
+  }
+
   // ---- Corners: a yellow handle on a rounded shape selected; the Shape menu stays open, Rounding typed, in the panel's unit ----
   Shell.select(['northpine']); await tick(200);
   const handle = () => $('.dc-over > .dc-adjust');

@@ -215,12 +215,12 @@ const App = (() => {
     return c;
   }
   // The pages of a plan are one chart on several days, with one set of places (dendra.md, The layout): what a change puts on
-  // one of them, a place, a bend, a scale or a paper, and how what's changed is marked, it puts on them all.
-  const PLACES = new Set(['Position', 'Bend', 'Scale', 'Page']);
+  // one of them, a place, a bend, a scale, a paper or All text, and how what's changed is marked, it puts on them all.
+  const PLACES = new Set(['Position', 'Bend', 'Scale', 'Page']), allText = r => !r.view && Notes.ROOT.includes(r.label) && r.pattern.kind === 'View' && !!r.pattern.id;
   function planned(tx) {
     const pages = views.peek(), peers = id => { const p = pages.find(v => v.id === id)?.plan; return p ? pages.filter(v => v.plan === p && v.id !== id) : []; };
     if (!pages.some(v => v.plan)) return;
-    const { added, removed } = tx.noted(r => PLACES.has(r.label) || (!!r.view && Scene.isChange(r.pattern))), at = r => JSON.stringify([r.label, r.view ?? r.pattern.id, Tree.key(r.pattern)]), stays = new Set(added.map(at));
+    const { added, removed } = tx.noted(r => PLACES.has(r.label) || allText(r) || (!!r.view && Scene.isChange(r.pattern))), at = r => JSON.stringify([r.label, r.view ?? r.pattern.id, Tree.key(r.pattern)]), stays = new Set(added.map(at));
     const put = (r, value) => { for (const q of peers(r.view ?? r.pattern.id)) r.view ? tx.note(r.label, r.pattern, value, { view: q.id }) : tx.note(r.label, viewTree(q.id), value); };
     for (const r of removed) if (!stays.has(at(r))) put(r, undefined);
     for (const r of added) put(r, r.value);

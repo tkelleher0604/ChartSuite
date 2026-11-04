@@ -1099,13 +1099,17 @@ function leftOf(id, look) {
 }
 // Views take a look, as one change, one Undo, said as one act: its paper with what placing them on it does, as Page setup's
 // does, what a hand placed keeping its distance from the sheet's nearest corner. Said with what it leaves, and a Key it now puts over a box.
-function giveLook(ids, look, say) {
+// A plan's pages are one chart on several days (dendra.md, The layout), so a look given to one is given to them all.
+const planOf = id => { const p = App.views.peek().find(v => v.id === id)?.plan; return p ? App.views.peek().filter(v => v.plan === p).map(v => v.id) : [id]; };
+const lookTaker = id => planOf(id).length > 1 ? `${viewNamed(id)} and the rest of its plan` : viewNamed(id);
+function giveLook(to, look, say) {
   let left = 0;
-  const rows = chartRows(), paper = look.page, size = typeof paper === 'string' ? paper : paper?.size, portrait = !!paper?.portrait;
-  const moving = ids.filter(id => { const p = App.notes.peek().resolve('Page', { id, kind: 'View' })?.value ?? 'slide'; return paper && Scene.PAPERS[size] && JSON.stringify(p) !== JSON.stringify(paper); });
-  const placed = new Map(moving.map(id => [id, sceneOf(id, withLook(id, look), { paper: `${size} ${portrait ? 'portrait' : 'landscape'}` })]));
+  const ids = [...new Set(to.flatMap(planOf))], rows = chartRows(), paper = look.page, size = typeof paper === 'string' ? paper : paper?.size, portrait = !!paper?.portrait;
+  const moves = id => { const p = App.notes.peek().resolve('Page', { id, kind: 'View' })?.value ?? 'slide'; return paper && Scene.PAPERS[size] && JSON.stringify(p) !== JSON.stringify(paper); };
+  // (A plan's places are one set: laid on its first page, which the rest follow.)
+  const placed = new Map(ids.filter(id => moves(id) && planOf(id)[0] === id).map(id => [id, sceneOf(id, withLook(id, look), { paper: `${size} ${portrait ? 'portrait' : 'landscape'}` })]));
   const leaves = ids.map(id => [id, leftOf(id, look)]).filter(([, l]) => l.length);
-  const shown = ids.includes(Shell.view.peek()) && placed.has(Shell.view.peek());
+  const shown = ids.includes(Shell.view.peek()) && moves(Shell.view.peek());
   const c = App.change(tx => { for (const id of ids) { if (placed.has(id)) Export.placing(tx, placed.get(id), id); left = Math.max(left, Notes.takeLook(tx, rows, id, look, { has: hasHere }).left); } tx.says(say); },
     { dated: false, keep: !placed.size, say: () => {
       const named = id => ids.length > 1 ? `${viewNamed(id)}: ` : '', over = ids.flatMap(id => Scene.says(sceneOf(id), b => App.notes.peek().shortOf(App.state.peek(), b.record)).filter(t => t.startsWith('The Key overlaps')).slice(0, 1).map(t => named(id) + t));
@@ -1116,8 +1120,8 @@ function giveLook(ids, look, say) {
       empty: () => Shell.toast(`${ids.length > 1 ? 'They already have' : `${viewNamed(ids[0])} already has`} that look`) });
   if (c && shown) Canvas.active.peek()?.zoom('fit');
 }
-const matchLook = (id, from) => giveLook([id], lookOfView(from), `Gave ${viewNamed(id)} the look of ${viewNamed(from)}`);
-const applyHouse = (id, s) => giveLook([id], s.look, `Gave ${viewNamed(id)} the house style ${s.name}`);
+const matchLook = (id, from) => giveLook([id], lookOfView(from), `Gave ${lookTaker(id)} the look of ${viewNamed(from)}`);
+const applyHouse = (id, s) => giveLook([id], s.look, `Gave ${lookTaker(id)} the house style ${s.name}`);
 const applyHouseAll = s => giveLook(chartViews().map(v => v.id), s.look, `Gave every chart view the house style ${s.name}`);
 const keepHouse = (name, look, id) => {
   const was = id ? null : houses.peek().find(s => Tree.same(s.name, name));
