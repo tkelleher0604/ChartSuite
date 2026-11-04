@@ -230,6 +230,7 @@ function hoverOn(key, text, n = 0) {
 }
 // Typing into a row: the cursor after some text, then the text typed.
 function typeIn(key, after, text, replace = 0) {
+  document.querySelector(`.fxbar [data-key="${key}"] .fx-pencil`)?.click();   // a row is read till it's asked to be written
   const cm = cmOf(key), i = cm.getValue().indexOf(after) + after.length;
   cm.focus();
   cm.setCursor(cm.posFromIndex(i));
@@ -267,7 +268,7 @@ const cases = {
     await wait(30);
     FormulaBar.point('own_okfr_gp');
   },
-  async delete() { Shell.select([OKAFOR_GP]); await wait(80); await openRows(); document.querySelector('.fxbar [data-key="r3"] .fx-x').dispatchEvent(new PointerEvent('pointerenter')); },
+  async delete() { Shell.select([OKAFOR_GP]); await wait(80); await openRows(); document.querySelector('.fxbar [data-key="r3"] .fx-pencil').click(); await wait(30); document.querySelector('.fxbar [data-key="r3"] .fx-x').dispatchEvent(new PointerEvent('pointerenter')); },
 };
 
 // ---- Checks ----
@@ -293,7 +294,7 @@ async function checks() {
   check('the canvas is asked to highlight', StandIn.hl.peek()?.colors?.[AP_NP_CHEN] && StandIn.hl.peek().dim);
   // One reason, for every pane that gives one: the row the bar cites, its citation and the statute's words
   const why = FormulaBar.reason(CLOSE_NP);
-  check('reason(): the cited row, its citation, and its words from the Description', why?.label === cited.label && why.cite === '§57(b)(1)' && /^any person \(other than the business development company itself\)/.test(why.words ?? ''),
+  check('reason(): the cited row, every ground’s citation, nearest first, and their words from the Description', why?.label === cited.label && why.cite === '§57(b)(1), §57(b)(2)' && /^any person \(other than the business development company itself\)/.test(why.words ?? ''),
     JSON.stringify(why));
   check('citeOf(): a clause letter under its section, and for a label of words, the section alone', FormulaBar.citeOf('def_affiliated', '(C)') === '§2(a)(3)(C)' && FormulaBar.citeOf('def_remote', '(e)(1)(A)') === '§57(e)(1)(A)'
     && FormulaBar.citeOf('def_control', 'Presumed: more than 25% of voting securities') === '§2(a)(9)' && FormulaBar.citeOf('def_control', 'General partner') === '§2(a)(9)',
@@ -391,9 +392,10 @@ async function checks() {
   check('why, in words: Northstar’s 7% makes it an affiliated person, so a remote affiliate',
     await saidOf([REMOTE_NS]) === 'Northstar Teachers’ Retirement System is an owner of the BDC with a voting percentage of 7% (5% or more), so it is an affiliated person of the BDC (§2(a)(3)(A)), so it is a remote affiliate of the BDC (§57(e)(1)(A)).', said());
   check('… and the Blocker a close affiliate, through Chen, a director who controls it',
-    await saidOf([CLOSE_BLK]) === 'Margaret A. Chen is a director of the BDC and a controller of Fund III Blocker (§2(a)(9)), so Fund III Blocker is an affiliated person of Margaret A. Chen (§2(a)(3)(C)), so it is a close affiliate of the BDC (§57(b)(1)).', said());
+    (await saidOf([CLOSE_BLK]))?.startsWith('Margaret A. Chen is a director of the BDC and a controller of Fund III Blocker (§2(a)(9)), so Fund III Blocker is an affiliated person of Margaret A. Chen (§2(a)(3)(C)), so it is a close affiliate of the BDC (§57(b)(1)).'), said());
+  check('… and every other ground after “Also”: an affiliated person of the BDC’s adviser', said().endsWith('. Also §57(b)(2): the Manager is a close affiliate of the BDC (§57(b)(2)) and Fund III Blocker is an affiliated person of the Manager (§2(a)(3)(C)).'), said());
   const facts = [...document.querySelectorAll('.fx-said .fx-fact.go')];
-  check('each fact is a button; hovered, its records pulse on the chart', facts.length === 3 && (facts[1].dispatchEvent(new PointerEvent('pointerenter')), (StandIn.hl.peek()?.pulse ?? []).length > 0));
+  check('each fact is a button; hovered, its records pulse on the chart', facts.length >= 3 && (facts[1].dispatchEvent(new PointerEvent('pointerenter')), (StandIn.hl.peek()?.pulse ?? []).length > 0));
   facts[1].dispatchEvent(new PointerEvent('pointerleave'));
   facts[2].click(); await wait(40);
   check('a computed fact clicked steps down into it, by the clause cited', M().title === 'Affiliated Person' && M().clause === '(C)' && /^Close Affiliate/.test(document.querySelector('.fx-crumb')?.textContent ?? ''),
@@ -454,7 +456,8 @@ async function checks() {
     await saidOf(['fx:capacity held=sign_chen_mgmt']) === 'Margaret A. Chen signs for the Manager with a capacity of Managing Member and is a managing member of the Manager, so the capacity is held.', said());
   // Ruled out: why turns on the condition that failed, after "but", and never on a fact that didn't decide it
   check('a check ruled out says the condition that failed, turning on “but”: he is a member, not a managing member, of GP III',
-    await saidOf(['fx:capacity held=sign_okfr_fund']) === 'David R. Okafor signs for Fund III, via GP III, with a capacity of Managing Member, but is a member, not a managing member, of GP III, so the capacity is not held.', said());
+    (await saidOf(['fx:capacity held=sign_okfr_fund']))?.startsWith('David R. Okafor signs for Fund III, via GP III, with a capacity of Managing Member, but is a member, not a managing member, of GP III, so the capacity is not held.'), said());
+  check('… and what would clear it, read off its rows: what failed as it would have to be, and a row that asks only for something of its own', said().endsWith('. Clears if David R. Okafor is a managing member of GP III, or as Authorized Signatory, evidenced by a document.'), said());
   check('FormulaBar.sentence says it as plain text, word for word', FormulaBar.sentence('fx:capacity held=sign_okfr_fund') === said() && FormulaBar.sentence(REMOTE_NS)?.startsWith('Northstar Teachers’ Retirement System is an owner of the BDC')
     && FormulaBar.sentence('chen') === null && FormulaBar.sentence('pos_chen_bdc') === null, FormulaBar.sentence('fx:capacity held=sign_okfr_fund'));
   document.querySelector('.fx-open').click(); await wait(30);
@@ -476,11 +479,11 @@ async function checks() {
   const capOf = sa => Object.keys(ent()).find(k => ent()[k].at === sa && ent()[k].edge === 'Capacity');
   const as = async (sa, cap) => { set(capOf(sa), { choice: cap }); await wait(40); const s = await saidOf([`fx:capacity held=${sa}`]); await undo(); return s; };
   check('… one not among the list sought: not among GP III’s general partners', / with a capacity of General Partner, but is not among GP III’s general partners, so the capacity is not held/.test(await as('sign_okfr_fund', 'General Partner')), said());
-  check('… one in it, but not as wanted: an officer, not a director, of GP III', /^Rebecca A\. Moretti .*with a capacity of Director, but is an officer, not a director, of GP III, so the capacity is not held\.$/.test(await as('sign_mor_fund', 'Director')), said());
+  check('… one in it, but not as wanted: an officer, not a director, of GP III', /^Rebecca A\. Moretti .*with a capacity of Director, but is an officer, not a director, of GP III, so the capacity is not held\. Clears if Rebecca A\. Moretti is a director of GP III, or as Authorized Signatory, evidenced by a document\.$/.test(await as('sign_mor_fund', 'Director')), said());
   check('… a list with none: not evidenced by anything', /, but the signing authority is not evidenced by anything, so /.test(await as('sign_okfr_fund', 'Authorized Signatory')), said());
   const pct = (o, of) => Object.keys(ent()).find(k => ent()[k].edge === 'Percentage' && ['Owner', 'Owned'].every((e, i) => ent()[ent()[k].at]?.args?.some(a => a.edge === e && a.at === [o, of][i])));
   set(pct('inv_us', 'fund'), { value: 0.7 }); await wait(40);
-  check('… a sum that misses: what it read, what it came to, and what it wanted; and what only excludes (not a portfolio company) no reason before “but”', /^U\.S\. Investors is an owner of Fund III with a percentage of 70% and Offshore Feeder .* 28\.4% \(98\.4%, not 100%\), so Fund III’s ownership does not add up\.$/.test(await saidOf(['fx:ownership adds up=fund']) ?? ''), said());
+  check('… a sum that misses: what it read, what it came to, and what it wanted; and what only excludes (not a portfolio company) no reason before “but”', /^U\.S\. Investors is an owner of Fund III with a percentage of 70% and Offshore Feeder .* 28\.4% \(98\.4%, not 100%\), so Fund III’s ownership does not add up\. Clears at 100%\.$/.test(await saidOf(['fx:ownership adds up=fund']) ?? ''), said());
   await undo();
   set(pct('fund', 'northpine'), { value: 1.64 }); await wait(40);
   check('… and a row that rules out where its condition holds, said with “so”', await saidOf([Object.keys(R().computed).find(id => R().computed[id].def === 'def_in_range')])
@@ -488,11 +491,11 @@ async function checks() {
   await undo();
   set('fund_type', { choice: 'Limited Liability Company' }); await wait(40);
   check('… none of a list with what was sought, named by what its Document Type says: no Certificate of Formation', await saidOf(['fx:formation document on file=fund_type'])
-    === 'Fund III is a limited liability company, but has no Certificate of Formation, so its formation document is not on file.', said());
+    === 'Fund III is a limited liability company, but has no Certificate of Formation, so its formation document is not on file. Clears if Fund III has a Certificate of Formation with a status of Executed, Filed or Final.', said());
   await undo();
   set(Object.keys(ent()).find(k => ent()[k].at === 'doc_colp3' && ent()[k].edge === 'Status'), { choice: 'Draft' }); await wait(40);
   check('… and the nearest, by what it read, as the item found: a Certificate of Limited Partnership with a status of Draft, not Executed, Filed or Final', await saidOf(['fx:formation document on file=fund_type'])
-    === 'Fund III is a limited partnership, but has a Certificate of Limited Partnership with a status of Draft, not Executed, Filed or Final, so its formation document is not on file.', said());
+    === 'Fund III is a limited partnership, but has a Certificate of Limited Partnership with a status of Draft, not Executed, Filed or Final, so its formation document is not on file. Clears if Fund III has a Certificate of Limited Partnership with a status of Executed, Filed or Final.', said());
   await undo();
   // An item a list found is one fact, the other side's, named by its kind, with what else was read of it; what
   // only excludes (IF([Vehicle Type] <> "Portfolio Company", …)) is no reason
@@ -510,8 +513,8 @@ async function checks() {
   // A value at a relation says whose it is, its sides as the relation says them (Fund III is taxed for 2026), and
   // a fact that only names a side (the tax year is 2026) isn't said beside it: no side twice
   const TAX = 'fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris';
-  check('a value at a relation says whose: Fund III’s annual tax for 2026 is due June 1, 2027, never “the tax year is 2026, so the annual tax is due”',
-    await saidOf([`fx:annual tax due=${TAX}`]) === 'Fund III’s annual tax for 2026 is due June 1, 2027.' && FormulaBar.sentence(`fx:annual tax amount=${TAX}`) === 'Fund III’s annual tax amount for 2026 is $400.', said());
+  check('a value at a relation says whose, and a date its rule: Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid; never “the tax year is 2026, so the annual tax is due”',
+    await saidOf([`fx:annual tax due=${TAX}`]) === 'Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid.' && FormulaBar.sentence(`fx:annual tax amount=${TAX}`) === 'Fund III’s annual tax amount for 2026 is $400.', said());
   const taxes = [...Object.entries(R().computed), ...Object.entries(R().covered)].filter(([, c]) => /^def_annual_tax/.test(c.def)).map(([id]) => FormulaBar.sentence(id));
   const whose = s => /^\S.*’s? annual tax (amount )?for \d{4} (is|was) |^\S.* is a corporation, so its annual tax for \d{4} (is|was) due |, so it is taxed for \d{4}\.$/.test(s ?? '') && !/\btax year is\b/.test(s);
   check('… every Delaware tax sentence names whose, and its year once', taxes.length >= 50 && taxes.every(whose), taxes.find(s => !whose(s)));
@@ -530,9 +533,9 @@ async function checks() {
   // Tense, as of the day shown: what fell due before it, overdue, was due; and a date named for the last of what
   // was done was then.
   const dated = [...Object.keys(R().computed), ...Object.keys(R().covered)].filter(id => R().records[id].field === 'date').map(id => [R().records[id].value, FormulaBar.sentence(id)]).filter(([, s]) => s);
-  const tensed = ([v, s]) => / (was|were) due [A-Z]\w+ \d+, \d{4}( \([^)]*\))?\.$/.test(s) === (v < App.day.peek());
+  const tensed = ([v, s]) => / (was|were) due [A-Z]\w+ \d+, \d{4}( \([^)]*\))?(: .*)?\.$/.test(s) === (v < App.day.peek());
   check('what fell due before the day shown was due: AIV-1’s annual tax for 2025 was due June 1, 2026; what falls due after it is due',
-    dated.length > 20 && dated.filter(([v]) => v < App.day.peek()).length >= 2 && dated.every(tensed) && sentences.includes('AIV-1’s annual tax for 2025 was due June 1, 2026.'), dated.find(d => !tensed(d))?.[1]);
+    dated.length > 20 && dated.filter(([v]) => v < App.day.peek()).length >= 2 && dated.every(tensed) && sentences.includes('AIV-1’s annual tax for 2025 was due June 1, 2026: June 1 after the tax year, until paid.'), dated.find(d => !tensed(d))?.[1]);
   check('… and the last of what was done was then: the Manager’s last annual amendment was on March 28, 2026', sentences.some(s => s.startsWith('The Manager’s last annual amendment was on March 28, 2026 and '))
     && sentences.some(s => s.startsWith('The Manager’s last annual update was on April 24, 2026 and ')) && !sentences.some(s => /\blast [a-z ]+ is [A-Z]\w+ \d+, \d{4}/.test(s)), sentences.find(s => /Form ADV/.test(s)));
   check('… a date of what was done, as done then', /^Offshore Feeder last paid on January 12, 2026, so its annual fee is due /.test(await saidOf(['fx:annual fee due=feeder_cima']) ?? ''), said());
@@ -541,11 +544,11 @@ async function checks() {
   // A date moved off a weekend says so in words, where it was moved and which way; one not moved, nothing more
   check('a date moved off a weekend says the day it fell on: January 31, a Sunday, so the Friday before',
     / so its annual return is due January 29, 2027 \(January 31, a Sunday, so the Friday before\)\.$/.test(await saidOf(['fx:annual return due=feeder_juris']) ?? '')
-    && / so its Form D is due November 10, 2026\.$/.test(await saidOf(['fx:form d due=bdc_regd']) ?? ''), said());
+    && / so its Form D is due November 10, 2026: on or before the anniversary, while the offering is open\.$/.test(await saidOf(['fx:form d due=bdc_regd']) ?? ''), said());
   const affirmed = Object.keys(ent()).find(k => ent()[k].edge === 'Last Affirmed' && ent()[k].value === '2026-02-27');
   set(affirmed, { value: '2025-02-27' }); await wait(40);
   const onward = Object.keys(R().computed).filter(id => R().computed[id].def === 'def_cftc').map(FormulaBar.sentence).find(s => /February 27, 2025/.test(s ?? ''));
-  check('… and one moved on: March 1, a Sunday, so the Monday after', / so its affirmation was due March 2, 2026 \(March 1, a Sunday, so the Monday after\)\.$/.test(onward ?? ''), onward);
+  check('… and one moved on: March 1, a Sunday, so the Monday after', / so its affirmation was due March 2, 2026 \(March 1, a Sunday, so the Monday after\): 60 days after the year ends\.$/.test(onward ?? ''), onward);
   await undo();
   // No sentence says a row's label as though it cited one: only a section is cited
   const labelled = Object.keys(R().computed).map(id => [id, FormulaBar.sentence(id)])
@@ -568,6 +571,70 @@ async function checks() {
   check('a choice relation’s role still to choose is “…”, never its list’s name (no “a personnel of”)', FormulaBar.phrase(spec, 'Holder', 'Company').join('|') === 'Holder| is a … of |Company'
     && FormulaBar.phrase(spec, 'Holder', 'Company', { choice: 'Officer' })[1] === ' is an officer of ', FormulaBar.phrase(spec, 'Holder', 'Company').join('|'));
 
+  // Every ground, the direct first (dendra.md, Ground), in the tag and the sentence, and one that leans on another
+  // names the clause it leans on
+  const CLOSE_MGMT = 'fx:bdc=bdc_ics&close affiliate=mgmt', CLOSE_FERRARO = 'fx:bdc=bdc_ics&close affiliate=ferraro';
+  check('every ground, the direct first: the Manager, the BDC’s adviser; also through Chen', FormulaBar.because(CLOSE_MGMT).startsWith('The Manager is an adviser to the BDC, so it is a close affiliate of the BDC (§57(b)(2)). Also §57(b)(1): Margaret A. Chen is a director of the BDC'), FormulaBar.because(CLOSE_MGMT));
+  check('… the tag says them all, the direct first', FormulaBar.reason(CLOSE_MGMT).cite === '§57(b)(2), §57(b)(1)' && FormulaBar.reason(CLOSE_MGMT).label === '(b)(2)', JSON.stringify(FormulaBar.reason(CLOSE_MGMT)));
+  check('… and one who leans on it says the clause it leans on: Ferraro’s tag and sentence agree', FormulaBar.reason(CLOSE_FERRARO).cite === '§57(b)(2)' && FormulaBar.because(CLOSE_FERRARO).startsWith('The Manager is a close affiliate of the BDC (§57(b)(2)) and Jonathan S. Ferraro is an affiliated person of the Manager'), FormulaBar.because(CLOSE_FERRARO));
+  await saidOf([CLOSE_MGMT]);
+  const alsoFact = [...document.querySelectorAll('.fx-said .fx-fact.go')].find(x => /an affiliated person of Margaret/.test(x.textContent));
+  alsoFact?.click(); await wait(40);
+  check('a ground after “Also” steps down as any does, by the clause it cites', M().title === 'Affiliated Person' && M().clause === '(C)', `${M().title} ${M().clause}`);
+  check('because(): plain text, or empty for what no row gives', FormulaBar.because('chen') === '' && FormulaBar.because(REMOTE_NS) === FormulaBar.sentence(REMOTE_NS));
+  // A step down selects what it steps to: the panel follows the band
+  await saidOf([OKAFOR_GP]);
+  check('the panel follows the band: a step down selects what it steps to', Shell.selection.peek().join() === OKAFOR_GP);
+  await saidOf(['fx:controlled=fund&controller=okafor']);
+  const down = [...document.querySelectorAll('.fx-said .fx-fact.go')].find(x => /GP III is a controller|controller of GP III/.test(x.textContent));
+  down?.click(); await wait(40);
+  check('… the rows still open, and the breadcrumb steps back, selecting it again', Shell.selection.peek().join() === M().id && M().id !== 'fx:controlled=fund&controller=okafor' && !!document.querySelector('.fx-panel') && !!document.querySelector('.fx-crumb'), `${Shell.selection.peek().join()} ${M().id}`);
+  FormulaBar.back(); await wait(40);
+  check('… back where it was', Shell.selection.peek().join() === 'fx:controlled=fund&controller=okafor' && M().id === 'fx:controlled=fund&controller=okafor' && !document.querySelector('.fx-crumb') && !!document.querySelector('.fx-panel'), Shell.selection.peek().join());
+  // A figure down a chain multiplies the whole chain
+  const LT_AIV = 'fx:investment=tessellate&investor=inv_aiv';
+  check('a look-through says each link, then the whole sum', FormulaBar.because(LT_AIV) === 'AIV-1 Investors (Fund III and III-A Partners) is an owner of AIV-1 with a percentage of 100%, AIV-1 is an owner of AIV-1 Blocker with a percentage of 100% and AIV-1 Blocker is an owner of Tessellate Dental Partners Holdco, LLC with a percentage of 66%, so the look-through ownership of AIV-1 Investors (Fund III and III-A Partners) in Tessellate Dental Partners Holdco, LLC is 100% × 100% × 66% = 66%.', FormulaBar.because(LT_AIV));
+  check('… and a holding of one link, as it is', FormulaBar.because('fx:investment=tessellate&investor=aivblk') === 'AIV-1 Blocker is an owner of Tessellate Dental Partners Holdco, LLC with a percentage of 66%, so its look-through ownership of Tessellate Dental Partners Holdco, LLC is 66%.', FormulaBar.because('fx:investment=tessellate&investor=aivblk'));
+  // What's between two records: what holds, with its figure and chain; and what doesn't, why not
+  const btw = FormulaBar.between('fund', 'tessellate'), said1 = d => btw.not.find(x => x.def === d && x.from === 'fund')?.sentence;
+  check('between(): none of the ownership: Fund III has no look-through ownership of Tessellate, and what connects them', said1('def_look_through') === 'Fund III has no look-through ownership of Tessellate Dental Partners Holdco, LLC: none of its holdings reaches it. GP III is a controller of both.', said1('def_look_through'));
+  check('… which condition failed, row by row', said1('def_control') === 'Fund III is not a controller of Tessellate Dental Partners Holdco, LLC: not among Tessellate Dental Partners Holdco, LLC’s general partners, not among Tessellate Dental Partners Holdco, LLC’s members, no voting percentage counted (more than 25%), none of Fund III’s controlled companies is a controller of Tessellate Dental Partners Holdco, LLC (§2(a)(9)).', said1('def_control'));
+  check('… and what holds, each way: affiliated, by the same controller', btw.holds.length === 2 && btw.holds.every(x => x.def === 'def_affiliated' && x.computed && /GP III is a controller of/.test(x.sentence)) && btw.holds[0].from === 'fund', JSON.stringify(btw.holds.map(x => x.sentence)));
+  const btw2 = FormulaBar.between('inv_aiv', 'tessellate'), lt = btw2.holds.find(x => x.def === 'def_look_through');
+  check('… with its figure and its chain', lt?.figure === '66%' && lt.chain === '100% × 100% × 66% = 66%' && /= 66%\.$/.test(lt.sentence), JSON.stringify(lt));
+  const btw3 = FormulaBar.between('fund', 'blocker');
+  check('… what’s entered first, with its figure', btw3.holds[0].name === 'Ownership' && !btw3.holds[0].computed && btw3.holds[0].figure === '100%' && btw3.holds[0].sentence.startsWith('Fund III is an owner of Fund III Blocker with a percentage of 100%'), JSON.stringify(btw3.holds[0]));
+  check('… and a relation the rows rule out, as they say it', /so it is not a remote affiliate of the BDC \(§57\(b\)\)\.$/.test(FormulaBar.between('mgmt', 'bdc').not.find(x => x.def === 'def_remote')?.sentence ?? ''), FormulaBar.between('mgmt', 'bdc').not.find(x => x.def === 'def_remote')?.sentence);
+  const nowhere = id => FormulaBar.between('macallister', 'bdc').not.find(x => x.def === id)?.sentence ?? '';
+  check('why is MacAllister on neither list: only an affiliated person of a close affiliate not under the clauses asked', /not an affiliated person of any of the BDC’s close affiliates under \(b\)\(1\) or \(b\)\(2\), only of Cayman GP, which is not under \(b\)\(1\) or \(b\)\(2\) \(§57\(e\)\(2\)\)\.$/.test(nowhere('def_remote'))
+    && /^Fiona MacAllister is not a close affiliate of the BDC: not among the BDC’s personnel/.test(nowhere('def_close')), `${nowhere('def_remote')} | ${nowhere('def_close')}`);
+  check('… and of two that aren’t objects, nothing', !FormulaBar.between('own_fund_npine', 'bdc').holds.length && !FormulaBar.between('own_fund_npine', 'bdc').not.length);
+  // The bar and Find say the same
+  Shell.select(['fund', 'tessellate']); await wait(40);
+  check('the bar: the most derived that holds, with the rest to pick from', M().title === 'Affiliated Person' && M().options.some(o => o.d.name === 'Look-Through Ownership' && !o.id), M().title);
+  await openRows();
+  const lines = [...document.querySelectorAll('.fx-between li .fx-why')].map(x => x.textContent);
+  check('… and open, all that’s between them, each said', lines.length === btw.holds.length + btw.not.length - 1 && lines.some(x => x.startsWith('Fund III has no look-through ownership of Tessellate')), lines.join(' | '));
+  [...document.querySelectorAll('.fx-between li .fx-why')].find(x => x.textContent.startsWith('Fund III has no look-through'))?.click(); await wait(40);
+  check('… a click picks it: its sentence, its rows', M().absent && M().title === 'Look-Through Ownership' && document.querySelector('.fx-said')?.textContent.startsWith('Fund III has no look-through'), M().title);
+  Shell.select([]); await wait(20);
+  const findFor = q => Shell.parts.peek().find.flatMap(s => s.items(q));
+  const pairFound = findFor('Fund III Tessellate').find(x => x.pair);
+  check('Find takes two names', pairFound?.label === 'Fund III and Tessellate Dental Partners Holdco, LLC', pairFound?.label);
+  pairFound?.run(); await wait(30);
+  check('… and selects them both', Shell.selection.peek().join() === 'fund,tessellate', Shell.selection.peek().join());
+  check('… but not one name, or a name and nothing', !findFor('Fund III').some(x => x.pair) && !findFor('Fund III Zebra').some(x => x.pair));
+  // Why isn't X here: a search of who could be on the list; picked, that relation open on the two
+  Shell.select([]); await wait(20);
+  const anchor = document.body.appendChild(document.createElement('button'));
+  FormulaBar.whyIsnt(anchor, 'bdc', REMOTE_NS, 'Remote Affiliate'); await wait(30);
+  const whyItems = [...document.querySelectorAll('.menu .menu-item')];
+  check('Why isn’t X here: who could be on the list, but those on it', whyItems.some(x => /MacAllister/.test(x.textContent)) && !whyItems.some(x => /Northstar/.test(x.textContent)), whyItems.length);
+  whyItems.find(x => /MacAllister/.test(x.textContent))?.click(); await wait(40);
+  check('… picked, the same sentence, open', Shell.selection.peek().includes('macallister') && Shell.selection.peek().includes('bdc') && M().title === 'Remote Affiliate' && M().absent && !!document.querySelector('.fx-panel') && /only of Cayman GP/.test(said() ?? ''), `${M().title} ${said()}`);
+  anchor.remove();
+  Shell.select([]); await wait(20);
+
   // Two objects: what holds between them; picked, why not
   const heard = [];
   Shell.on('why-open', id => heard.push(id));
@@ -578,7 +645,10 @@ async function checks() {
   check('… which tells no one that a computed value was asked about', !heard.length, heard.join());
   check('with every relation they could be in to pick from', m.options.some(o => o.d.name === 'Close Affiliate' && !o.id) && m.options.some(o => o.d.name === 'Affiliated Person'), m.options.map(o => `${o.d.name}:${o.a}>${o.b}:${o.on}`).join(' '));
   Shell.select(['chen', 'okafor']); await wait(40);
-  check('… and where none holds, nothing: the view’s name', !M() && document.querySelector('.fx-view'), M()?.title);
+  check('… and where none holds, the first that could, saying why not', M()?.absent && /^Margaret A\. Chen is not an affiliated person of David R\. Okafor: /.test(document.querySelector('.fx-inline .fx-why')?.textContent ?? ''), document.querySelector('.fx-inline')?.textContent);
+  const docs = Object.keys(R().records).filter(k => R().records[k].kind === 'Document');
+  Shell.select(docs.slice(0, 2)); await wait(40);
+  check('… and two with nothing that could be between them, the view’s name', !M() && document.querySelector('.fx-view'), M()?.title);
   Shell.select(['pension', 'bdc']); await wait(40);
   document.querySelector('.fxbar .fx-name').click(); await wait(40);
   [...document.querySelectorAll('.menu .menu-item')].find(x => x.querySelector('.label')?.textContent === 'Close Affiliate' && /^Northstar/.test(x.querySelector('.detail')?.textContent ?? ''))?.click(); await wait(40);
@@ -704,11 +774,24 @@ async function checks() {
   // Deleting a row
   Shell.select([OKAFOR_GP]); await wait(40); await openRows();
   check('every row in order', document.querySelectorAll('.fxbar .fx-row').length === 4);
+  // Reading a rule isn't editing it: nothing on a row edits till it's asked to, by its pencil or a double-click
+  const v2 = App.version.peek();
+  document.querySelector('.fxbar [data-key="r0"]').click(); await wait(20);
+  check('a row clicked is read: no field to type over, no grip, no way to delete it, and it’s lit', !document.querySelector('.fxbar input.fx-label') && !document.querySelector('.fxbar .fx-x') && !document.querySelector('.fxbar .fx-grip')
+    && document.querySelector('.fxbar [data-key="r0"]').classList.contains('reading') && cmOf('r0').getOption('readOnly') === true && !document.querySelector('.fx-row.editing') && App.version.peek() === v2);
+  document.querySelector('.fxbar [data-key="r1"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await wait(40);
+  check('a double-click asks to write: its label a field, each row its delete, the cursor in it', !!document.querySelector('.fxbar input.fx-label') && !!document.querySelector('.fxbar .fx-x') && cmOf('r1').getOption('readOnly') === false && !document.querySelector('.fxbar .fx-pencil'));
+  FormulaBar.discard(); await wait(30);
+  check('… and Esc leaves it as it was, read', !document.querySelector('.fxbar input.fx-label') && !!document.querySelector('.fxbar .fx-pencil') && cmOf('r1').getOption('readOnly') === true && App.version.peek() === v2);
+  await openRows();
+  document.querySelector('.fxbar [data-key="r3"] .fx-pencil').click(); await wait(40);
+  check('… as does its pencil', !!document.querySelector('.fxbar input.fx-label') && !!document.querySelector('.fxbar [data-key="r3"] .fx-x'));
   document.querySelector('.fxbar [data-key="r3"] .fx-x')?.dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
   p = FormulaBar.pending.peek();
   check('hovering a row’s delete previews what goes', p?.deltas.find(d => d.name === 'Control')?.minus > 0, JSON.stringify(p?.deltas));
   document.querySelector('.fxbar [data-key="r3"] .fx-x')?.dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
   check('and leaving it, nothing', !FormulaBar.pending.peek());
+  FormulaBar.discard(); await wait(20);
 
   // Completion and squiggles
   check('completion comes from suggest()', Formulas.suggest('← Controlled.Ow', 15, { computed: R(), def: 'def_control', at: OKAFOR_GP }).list.some(x => x.name === 'Owners'));
@@ -748,8 +831,8 @@ async function checks() {
   document.querySelector('.fxbar .fx-name').click(); await wait(60); await openRows();
   const general = Shell.pattern(Shell.selection.peek()[0]);
   check('the name opens the definition in general', JSON.stringify(general) === JSON.stringify(App.notes.peek().notes('Formula').find(n => n.note === 'def_affiliated').pattern), Shell.selection.peek()[0]);
-  check('… where the bar shows every row, to edit', M()?.general && document.querySelectorAll('.fxbar .fx-row').length === App.notes.peek().notes('Formula').find(n => n.note === 'def_affiliated').value.length
-    && !!document.querySelector('.fxbar .fx-label[aria-label="Label"]'), document.querySelectorAll('.fxbar .fx-row').length);
+  check('… where the bar shows every row, to read, and a pencil on each to edit it', M()?.general && document.querySelectorAll('.fxbar .fx-row').length === App.notes.peek().notes('Formula').find(n => n.note === 'def_affiliated').value.length
+    && document.querySelectorAll('.fxbar .fx-pencil').length === document.querySelectorAll('.fxbar .fx-row').length && !document.querySelector('.fxbar input.fx-label'), document.querySelectorAll('.fxbar .fx-row').length);
   check('Used by, from the engine’s plan', /Close Affiliate/.test(document.querySelector('.fxbar .fx-used')?.textContent), document.querySelector('.fxbar .fx-used')?.textContent);
   FormulaBar.light(['bdc']); await wait(10);
   check('a clause pointed at lights what it gives', Object.keys(StandIn.hl.peek()?.colors ?? {}).join() === 'bdc');
