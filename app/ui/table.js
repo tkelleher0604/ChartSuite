@@ -1409,11 +1409,13 @@ const Table = (() => {
   const FORM = /(^|[\s,])(llc|l\.?l\.?c\.?|l\.?p\.?|inc\.?|corp\.?|ltd\.?|limited|plc|gmbh|trust|fund)$/i;
   const importable = m => m.cols.filter(c => c.key !== '$entry' && c.key !== '$of' && c.key !== '$why' && c.key !== '$resp' && c.key !== '$value');
   function firstRowIs(m, grid, file) {
-    if (headings(m, grid)) return 'head';
+    const heads = headings(m, grid);
+    if (heads?.some(Boolean)) return 'head';
     if (grid.length < 2) return 'data';
+    // (What reads as data is data, a value in it that doesn't read being no heading: a legal form, an option, a record's name.)
     const st = App.state.peek(), kinds = m.isKind ? [m.rows.kind] : [];
     const data = grid[0].some(h => { const s = clean(h); return !!s && (Tree.classify(s) !== 'text' || FORM.test(s) || m.cols.some(c => c.options?.some(o => same(o, s))) || !!find(st, s, kinds)); });
-    return !data && file ? 'head' : 'data';
+    return data ? 'data' : heads || file ? 'head' : 'data';
   }
   // Each column's key, as its heading names it, or as it holds, by what the first row is.
   function guessed(m, grid, first) {
@@ -1447,7 +1449,8 @@ const Table = (() => {
   // and a first line this exported saying its day taken off.
   const noDay = s => s.replace(/^As (of|it stood on) [^\t\n]*\t*\r?\n/, '');
   async function rowsOf(f) {
-    const X = await loadSheetJS(), wb = X.read(await f.arrayBuffer(), { cellNF: true }), ws = wb.Sheets[wb.SheetNames[0]], pad = n => String(n).padStart(2, '0');
+    // (A text file as it's written: what it says of a date is what's known, and SheetJS would make "Mar 2022" a day.)
+    const X = await loadSheetJS(), wb = X.read(await f.arrayBuffer(), { cellNF: true, raw: /\.(csv|tsv|txt)$/i.test(f.name) }), ws = wb.Sheets[wb.SheetNames[0]], pad = n => String(n).padStart(2, '0');
     for (const [k, c] of Object.entries(ws)) if (k[0] !== '!' && c.t === 'n' && c.z && X.SSF.is_date(c.z)) { const d = X.SSF.parse_date_code(c.v), month = /m/i.test(c.z), day = /d/i.test(c.z) || (!month && !/^y+$/i.test(c.z)); c.w = day ? `${d.y}-${pad(d.m)}-${pad(d.d)}` : month ? `${d.y}-${pad(d.m)}` : `${d.y}`; }
     return X.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false });
   }
@@ -1485,21 +1488,25 @@ const Table = (() => {
     const mend = (r, i) => { const j = cutAt(r); put(i, [...r.slice(0, j), `${clean(r[j])}, ${clean(r[j + 1])}`, ...r.slice(j + 2)]); };
     const colAt = j => chosen[j] && chosen[j] !== 'new' ? m.cols.find(c => c.key === chosen[j]) ?? null : null;
     const reading = (c, raw) => { const s = clean(raw);
-      if (!s || !c || c.type === 'edge' || c.type === 'list') return {};
+      // (n/a in a file brought back is what a rule hasn't tested, which says nothing to type: changeOf.)
+      if (!s || !c || c.type === 'edge' || c.type === 'list' || s === NA || c.key.startsWith('$')) return {};
       if (c.type === 'choice') return c.options?.some(o => same(o, s)) ? {} : { tone: 'new', why: `New option of ${called(c)}` };
       const v = value(c.type, s);
-      return !v ? { tone: 'bad', why: `“${s}”: ${Tree.notA(c.type)}` } : c.type === 'date' ? { as: Tree.formatDate(v.value, 'short') } : {}; };
-    const options = (c, raw, i, j, r, at) => { const s = clean(raw), l = loose(s), far = o => { const x = loose(o); return x === l ? 0 : x.includes(l) || l.includes(x) ? 1 : 2; };
-      Shell.menu(at, [...[...(c.options ?? [])].sort((a, b) => far(a) - far(b)).map(o => ({ label: o, run: () => put(i, r.map((x, k) => k === j ? o : x)) })), ...(s && !c.options?.some(o => same(o, s)) ? ['-', { label: `New option: ${s}`, checked: true, run: () => {} }] : [])], { search: (c.options?.length ?? 0) > 7 }); };
+      return !v ? { tone: 'bad', why: `“${s}” isn’t ${Tree.PHRASES[c.type] ?? 'a value'}` } : c.type === 'date' ? { as: Tree.formatDate(v.value, 'short') } : {}; };
+    // A choice's mend, in the dialog as its columns' are: its options, the closest first; or kept as a new one.
+    const optionsOf = (c, raw) => { const l = loose(raw); return [...(c.options ?? [])].sort((a, b) => apart(l, loose(a)) - apart(l, loose(b))); };
     const held = shown.filter(over), going = shown.filter(r => !over(r)), wrongs = going.flatMap(r => r.map((v, j) => reading(colAt(j), v)).filter(x => x.tone === 'bad')).length;
     const newOnes = [...new Set(going.flatMap(r => r.flatMap((v, j) => reading(colAt(j), v).tone === 'new' ? [`${clean(v)}`] : [])))];
     const LIMIT = 200, rows = all ? shown : shown.slice(0, LIMIT);
     const cellOf = (r, i, j) => { const raw = r[j] ?? '', c = colAt(j), said = reading(c, raw);
+      if (typing?.i === i && typing?.j === j && c?.type === 'choice') return html`<td class="typing"><select class="cell" aria-label=${called(c)} ref=${x => { if (x && !x.dataset.on) { x.dataset.on = 1; x.focus(); } }} onBlur=${() => setTyping(null)}
+        onKeyDown=${e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setTyping(null); } }} onChange=${e => put(i, r.map((x, k) => k === j ? e.target.value : x))}>
+        ${c.options?.some(o => same(o, raw)) ? null : html`<option value=${clean(raw)} selected>New option: ${clean(raw)}</option>`}${optionsOf(c, raw).map(o => html`<option value=${o} selected=${same(o, raw)}>${o}</option>`)}</select></td>`;
       if (typing?.i === i && typing?.j === j) return html`<td class="typing"><input class="cell" aria-label=${c ? called(c) : `Column ${j + 1}`} value=${raw} spellcheck=${false} ref=${x => { if (x && !x.dataset.on) { x.dataset.on = 1; x.focus(); x.select(); } }}
         onKeyDown=${e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); put(i, r.map((x, k) => k === j ? e.target.value : x)); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setTyping(null); } }}
         onBlur=${e => { if (typing) put(i, Array.from({ length: Math.max(r.length, j + 1) }, (_, k) => k === j ? e.target.value : r[k] ?? '')); }} /></td>`;
       return html`<td class=${(chosen[j] ? '' : 'out') + (said.tone ? ' ' + said.tone : '')} data-tip=${said.why ?? null} tabindex="0" role="button" aria-label=${`${clean(raw) || 'Blank'}${said.why ? `, ${said.why}` : ''}`}
-        onClick=${e => (c?.type === 'choice' ? options(c, raw, i, j, r, e.currentTarget) : setTyping({ i, j }))} onKeyDown=${e => { if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); e.stopPropagation(); e.currentTarget.click(); } }}>${said.as ?? clean(raw)}</td>`; };
+        onClick=${() => setTyping({ i, j })} onKeyDown=${e => { if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); e.stopPropagation(); e.currentTarget.click(); } }}>${said.as ?? clean(raw)}</td>`; };
     const pickBox = html`<button type="button" class="btn" onClick=${() => pickRows(load)}>${file ? 'Another file…' : 'Choose a file…'}</button>`;
     return html`<div class="imp" onKeyDown=${e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !go.current?.disabled) { e.preventDefault(); go.current?.click(); } }}>
       ${file ? null : html`<textarea class="imp-rows" rows="4" aria-label="Rows" placeholder="Rows" spellcheck=${false} ref=${x => x && !x.dataset.on && (x.dataset.on = 1, x.focus())} value=${text}

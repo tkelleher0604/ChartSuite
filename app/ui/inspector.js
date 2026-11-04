@@ -2251,7 +2251,10 @@ Shell.register('find', { items: q => {
   const words = T.norm(q ?? '').split(' ').filter(Boolean);
   if (words.length < 2) return [];
   const st = recs(), n = N(), said = (x, w) => { const s = T.norm(x).replace(/[(),.]/g, ' '); return (' ' + s + ' ').includes(' ' + w + ' ') || s.startsWith(w); }, out = new Map();
-  const objects = Object.keys(st).filter(id => st[id].kind && !T.isView(st[id])), rels = n.notes('Formula').filter(x => !x.view && x.pattern.args?.length === 2).map(x => x.pattern);
+  const objects = Object.keys(st).filter(id => st[id].kind && !T.isView(st[id]));
+  // (What's all in one name, or one a record had, is that name.)
+  if (objects.some(id => [n.nameOf(st, id), n.shortOf(st, id), ...App.formerNames(id, App.day.peek(), st).map(f => f.name)].some(x => said(x, words.join(' '))))) return [];
+  const rels = n.notes('Formula').filter(x => !x.view && x.pattern.args?.length === 2).map(x => x.pattern);
   for (let i = 1; i < words.length; i++) for (const [who, what] of [[words.slice(0, i), words.slice(i)], [words.slice(i), words.slice(0, i)]]) {
     const w = who.join(' '), t = what.join(' '), is = id => T.norm(n.shortOf(st, id)).replace(/^the /, '') === w, all = objects.filter(id => said(n.shortOf(st, id), w) || said(n.nameOf(st, id), w)), hits = all.some(is) ? all.filter(is) : all;
     if (!hits.length) continue;
