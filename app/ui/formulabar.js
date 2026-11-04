@@ -498,7 +498,8 @@ const FormulaBar = (() => {
   });
   // The rows close when the selection changes, unless a row is being edited; and what the inspector pointed at
   // goes with what it was in: a clause lights nothing, and a tag's preview is redlined no more.
-  on('select', () => { if (!editing.peek() && !holding) open.value = false; lit.value = null; if (pending.peek()?.from === 'outside') preview(null); });
+  // (Stepping back and forward along the trail, Alt+← and Alt+→, is reading on: with the keys in the reason, it stays open, and they stay in it.)
+  on('select', () => { if (!editing.peek() && !holding) { if (document.activeElement?.closest?.('.fx-said')) into(); else open.value = false; } lit.value = null; if (pending.peek()?.from === 'outside') preview(null); });
   // Back to a record on the breadcrumb, the last by default.
   function back(i = trail.peek().length - 1) {
     const to = trail.peek()[i];
@@ -1516,13 +1517,36 @@ const FormulaBar = (() => {
   let unlayer = null;
   effect(() => {
     const on = open.value || !!draft.value;
-    if (on && !unlayer) unlayer = Shell.layer(() => { if (draft.peek() || editing.peek() || writing.peek()) discard(); else open.value = false; });
+    if (on && !unlayer) unlayer = Shell.layer(() => { if (draft.peek() || editing.peek() || writing.peek()) discard(); else { open.value = false; outOf(); } });
     else if (!on && unlayer) { unlayer(); unlayer = null; }
   });
-  // The chevron, or Ctrl+Shift+U: the rows open, or closed, a draft still pending.
+  // The chevron, or Ctrl+Shift+U: the rows open, or closed, a draft still pending. By the key, the keys go in, and come back out where they were.
   function toggle() {
     if (open.peek()) endEditing();
     open.value = !open.peek();
+  }
+  const toggleKeys = () => { toggle(); if (open.peek()) into(); else outOf(); };
+  // The keys into the reason, on its first step, as it opens; and out again to what had them, with the same selection.
+  let cameFrom = null;
+  function into() {
+    const a = document.activeElement;
+    if (a && a !== document.body && !a.closest('.fxbar')) cameFrom = a;
+    setTimeout(() => { const p = document.querySelector('.fx-panel'); if (!p) return; const to = p.querySelector('.fx-said .fx-fact.go, .fx-show, button, [tabindex="0"]') ?? p; if (to === p) p.tabIndex = -1; to.focus({ preventScroll: true }); });
+  }
+  function outOf() {
+    const was = cameFrom;
+    cameFrom = null;
+    setTimeout(() => { const a = document.activeElement; if (a && a !== document.body && !a.closest('.fxbar')) return; if (was?.isConnected) was.focus({ preventScroll: true }); else Shell.land(); });
+  }
+  // F1: why, at what the keys are at where a formula gives it, or what a rule says of it: the row or the cell they're in, or else what's
+  // selected, asked in the bar with the keys in it. Anywhere there's no why to give, the list of keys, as F1 is help.
+  function whyHere() {
+    const el = document.activeElement, Rv = R.peek(), said = id => !!id && (!!Rv.computed[id] || !!Rv.covered?.[id]);
+    const at = el?.closest?.('[data-why]')?.dataset.why ?? el?.closest?.('[data-key]')?.dataset.key, id = said(at) ? at : Shell.parts.peek().table?.whyAt?.();
+    if (said(id)) { Shell.emit('why-open', id); open.value = true; return into(); }
+    const m = model.peek();
+    if (m && (m.def || m.options)) { open.value = true; return into(); }
+    Shell.find('?');
   }
   // The rows open on one, to read; with `write`, with the cursor in it, to type into. Reading a rule isn't editing it:
   // a row is written only by a double-click, its pencil, typing at it, or a new row.
@@ -2084,7 +2108,8 @@ const FormulaBar = (() => {
   Shell.register('formulabar', Bar);
   // What the chevron and its key will do, said as it will do it.
   const toggled = shut => shut ? 'Expand formula bar' : 'Collapse formula bar';
-  Shell.register('action', { id: 'formulas', get name() { return toggled(!open.peek()); }, keys: '$mod+Shift+KeyU', run: toggle });
+  Shell.register('action', { id: 'formulas', get name() { return toggled(!open.peek()); }, keys: '$mod+Shift+KeyU', run: toggleKeys });
+  Shell.register('action', { id: 'why', name: 'Why does this hold?', names: ['Why', 'Reason', 'Explain', 'How is this worked out', 'Help'], keys: 'F1', inputs: true, run: whyHere });
 
   // ---- What's between two records, asked ----
   // Two objects, in plain text, for the panel (see betweenIn): { a, b, holds: [{ key, id, def, name, from, to, computed,
@@ -2163,6 +2188,6 @@ const FormulaBar = (() => {
   // What `=` and `←` say, pointed at.
   const startSaid = kind => kind === 'implies' ? '← implied by: yes where what follows holds, and says nothing elsewhere' : '= gives what follows, yes or no or a value';
   Shell.register('broken', Broken);
-  return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, define, light: ids => { lit.value = ids; },
+  return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, define, into, light: ids => { lit.value = ids; },
     reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, because, between, pickLine, isntHere, whyIsnt, model, finder, pending, draft, hover, open, saying, brokenSaid, startSaid, limit, notOn };
 })();

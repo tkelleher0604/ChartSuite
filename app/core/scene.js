@@ -472,7 +472,8 @@ function size(b, squeeze, at = null, grow = 1) {
       h = shape === 'oval' || shape === 'diamond' ? Math.max(48, tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * PAD) : Math.max(44, tb + 2 * PAD + 8);
     }
     b.texts = b.texts.filter(it => it.lines.length);
-    Object.assign(b, { w, h: b.pos.h ?? h, shape, base });
+    // (A height kept as it was drawn when the box was moved, `soft`, is no less than its text needs: a longer name still grows it.)
+    Object.assign(b, { w, h: b.pos.soft ? Math.max(b.pos.h, h) : b.pos.h ?? h, shape, base });
     if (shape === 'triangle') b.column = columnOf(b);
     return;
   }

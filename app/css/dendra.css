@@ -32,6 +32,7 @@
 
   --paper: #f7f6f3; --surface: #ffffff; --side: #efeee9; --page: #ffffff;
   --ink: #1b1e1d; --ink-2: #4f5451; --ink-3: #616662;
+  --off: #838783;           /* what can't be pressed now: quieter than any text, and still 3:1 or more, so it can be told from nothing */
   --rule: #e4e2dc; --rule-2: #cdcac2; --edge: #808580;   /* edge: a field's or a box's border at rest */
   --hover: rgb(27 30 29 / .05); --press: rgb(27 30 29 / .09);
   --selected: #e3e9f2;
@@ -48,6 +49,7 @@
   color-scheme: dark;
   --paper: #131514; --surface: #171a19; --side: #1d211f;
   --ink: #e6e4df; --ink-2: #a3a6a1; --ink-3: #8f948f;
+  --off: #737874;
   --rule: #272b29; --rule-2: #373c39; --edge: #6b716d;
   --hover: rgb(230 228 223 / .06); --press: rgb(230 228 223 / .1);
   --selected: #1c2738;
@@ -99,10 +101,10 @@ kbd { font: var(--t12); color: var(--ink-3); }
   border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); color: var(--ink); cursor: default; user-select: none; }
 .btn:hover:not(:disabled, [aria-disabled="true"]) { background-image: linear-gradient(var(--hover), var(--hover)); }
 .btn:active:not(:disabled, [aria-disabled="true"]) { background-image: linear-gradient(var(--press), var(--press)); }
-.btn:disabled, .btn[aria-disabled="true"] { color: var(--ink-3); opacity: .55; }
+.btn:disabled, .btn[aria-disabled="true"] { color: var(--off); border-color: var(--rule); }
 .btn.primary { background-color: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 500; }
 .btn.primary:hover:not(:disabled) { background-image: linear-gradient(rgb(255 255 255 / .08), rgb(255 255 255 / .08)); }
-.btn.primary:disabled { color: var(--on-accent); }
+.btn.primary:disabled { color: var(--off); background-color: transparent; border-color: var(--off); }
 .btn.primary.dd::after { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23fff' stroke-opacity='.8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
 .btn.danger { background-color: var(--no); border-color: var(--no); color: #fff; font-weight: 500; }
 .btn.ghost { border-color: transparent; background: transparent; }
@@ -146,11 +148,13 @@ input.bare { border-color: transparent; background: transparent; }
 @keyframes rise { from { opacity: 0; transform: translateY(-2px); } }
 .menu, .pop { background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r-pop); box-shadow: var(--shadow-pop); }
 .menu { min-width: 200px; max-width: 360px; padding: 4px; max-height: calc(100vh - 24px); overflow: auto; outline: none; }
-.menu:has(> .menu-find) { max-height: min(480px, calc(100vh - 80px)); }
+/* A searched menu is as tall as a whole number of rows, so none is cut at its foot, and the arrows and the wheel go row by row under its field, which stays. */
+.menu:has(> .menu-find) { max-height: calc(42px + round(down, min(434px, 100vh - 122px), var(--row))); scroll-padding-top: 40px; scroll-snap-type: y proximity; }
+.menu:has(> .menu-find) > :is(.menu-item, .menu-head) { scroll-snap-align: start; }
 .menu-item b { font-weight: 600; }
 /* A menu's search field: the menu is its frame, so it takes no ring of its own. After "=", functions are in
    small capitals, as in the formula bar. */
-.menu-find { position: relative; display: block; width: calc(100% + 8px); margin: -4px -4px 4px; height: 36px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--rule); border-radius: var(--r-pop) var(--r-pop) 0 0; background: transparent; outline: none;
+.menu-find { position: sticky; top: -4px; z-index: 1; display: block; width: calc(100% + 8px); margin: -4px -4px 4px; height: 36px; padding: 0 12px; border: 0; border-bottom: 1px solid var(--rule); border-radius: var(--r-pop) var(--r-pop) 0 0; background: var(--surface); outline: none;
   line-height: 36px; white-space: pre; overflow: hidden; cursor: text; }
 .menu-find:empty::before { content: attr(data-placeholder); position: absolute; left: 12px; color: var(--ink-3); pointer-events: none; }
 .menu-find .fn { font-variant: all-small-caps; letter-spacing: .04em; }
@@ -160,9 +164,9 @@ input.bare { border-color: transparent; background: transparent; }
 .menu-item > .glyph { width: 16px; flex: none; display: inline-grid; place-items: center; color: var(--ink-2); }
 .menu-item > .detail, .menu-item > kbd { color: var(--ink-3); font: var(--t12); margin-left: 16px; }
 .menu-item.on { background: var(--hover); }
-.menu-item[aria-disabled="true"] { color: var(--ink-3); }
+.menu-item[aria-disabled="true"] { color: var(--off); }
 .menu-item.danger { color: var(--no); }
-.menu-item.danger[aria-disabled="true"] { color: var(--ink-3); }
+.menu-item.danger[aria-disabled="true"] { color: var(--off); }
 .menu-item.sub::after { content: ""; width: 6px; height: 10px; background: var(--chev) no-repeat center / 10px 6px; transform: rotate(-90deg); }
 .menu-sep { height: 1px; margin: 4px -4px; background: var(--rule); }
 .menu-head { padding: 8px 8px 4px; font: 500 var(--t12); color: var(--ink-3); }
@@ -170,6 +174,10 @@ input.bare { border-color: transparent; background: transparent; }
 .menu-seg { display: flex; gap: 2px; padding: 2px; margin: 4px; border-radius: var(--r); background: var(--hover); }
 .menu-seg > button { flex: 1; height: 24px; border: 0; border-radius: 3px; background: transparent; color: var(--ink-2); }
 .menu-seg > button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: 0 0 0 1px var(--edge); }
+/* The keys on a row of choices: its own arrows go across it. */
+.menu-seg.on { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* The item the keys are on is as plain as a ring, not only a tint. */
+:root[data-keyed] .menu-item.on { box-shadow: inset 0 0 0 2px var(--focus); }
 .pop { padding: 12px; }
 .tip { padding: 4px 8px; border-radius: var(--r); background: var(--toast); color: var(--toast-ink); font: var(--t12); width: max-content; max-width: 320px; text-wrap: pretty; pointer-events: none; }
 .tip kbd { color: inherit; opacity: .65; margin-left: 8px; }
@@ -369,7 +377,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .inspector > .host.aside { position: absolute; inset: 0; min-height: 0; max-width: none; margin: 0; padding: 0; background: var(--surface); }
 
 /* Find: a menu over the title bar's field, its answers ranked as you type. */
-.menu.findpal { width: min(600px, calc(100vw - 32px)); max-width: none; max-height: min(480px, calc(100vh - 80px)); }
+.menu.findpal { width: min(600px, calc(100vw - 32px)); max-width: none; max-height: calc(46px + round(down, min(434px, 100vh - 126px), var(--row))); scroll-padding-top: 44px; }
 .menu.findpal > .menu-find { height: 40px; line-height: 40px; }
 /* A count's list: each item in its words and where, its figure at its end. */
 .menu.needs { width: min(560px, calc(100vw - 32px)); max-width: none; }
@@ -453,8 +461,11 @@ html[data-splash][data-theme="dark"]::after { background: #111315; }
 .tabulator .tabulator-tableholder { background: var(--surface); }
 .tabulator .tabulator-tableholder .tabulator-table { background: var(--surface); color: var(--ink); }
 .tabulator .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents { color: var(--ink-3); font: var(--t13); }
-.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range { border: 1px solid var(--accent); }
-.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range-cell-active { border: 2px solid var(--accent); }
+/* The cell the keys are on is the focus's ring, in both themes; the keys elsewhere, it's where they were, dashed in grey, so what's drawn can't be taken for where typing would go. */
+.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range { border: 1px solid var(--focus); }
+.tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range-cell-active { border: 2px solid var(--focus); }
+.cells:not(:focus-within) .tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range { border-color: var(--edge); }
+.cells:not(:focus-within) .tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range-cell-active { border: 2px dashed var(--ink-3); }
 .tabulator-row { background: var(--surface); min-height: var(--row); border-bottom: 1px solid var(--rule); }
 .tabulator-row.tabulator-row-even { background: var(--surface); }
 @media (hover: hover) and (pointer: fine) { .tabulator-row.tabulator-selectable:hover, .tabulator-row:hover { background-image: linear-gradient(var(--hover), var(--hover)); cursor: default; } }
@@ -464,7 +475,7 @@ html[data-splash][data-theme="dark"]::after { background: #111315; }
 .tabulator-row.tabulator-range-highlight .tabulator-cell.tabulator-range-row-header { background: var(--hover); color: var(--ink); }
 .tabulator-row.tabulator-range-highlight.tabulator-range-selected .tabulator-cell.tabulator-range-row-header, .tabulator-row.tabulator-range-selected .tabulator-cell.tabulator-range-row-header { background: var(--selected); color: var(--accent-ink); }
 .tabulator-row .tabulator-cell.tabulator-range-selected:not(.tabulator-range-only-cell-selected):not(.tabulator-range-row-header) { background: var(--selected); }
-.tabulator-row .tabulator-cell.tabulator-editing { border: 0; padding: 0; box-shadow: inset 0 0 0 2px var(--accent); }
+.tabulator-row .tabulator-cell.tabulator-editing { border: 0; padding: 0; box-shadow: inset 0 0 0 2px var(--focus); }
 .tabulator-row .tabulator-cell.tabulator-editing :is(input, select, textarea) { height: 100%; padding: 0 8px !important; border: 0; border-radius: 0; background: transparent; outline: none; }
 .tabulator-row .tabulator-cell.tabulator-validation-fail { border: 0; box-shadow: inset 0 0 0 1px var(--no); }
 .tabulator-row.tabulator-group { background: var(--paper); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); border-right: 0; padding: 4px 8px; font-weight: 600; color: var(--ink); }
