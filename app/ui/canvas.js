@@ -323,8 +323,7 @@ function swatchMarkup(sw, box) {
     return heads.length ? { tagName: 'g', children: [line, ...heads] } : line;
   }
   if (sw.kind === 'frame') return { tagName: 'rect', attrs: { x, y, width: w, height: h, fill: 'none', stroke: '#595959', 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash('dashed', sw.Weight) } };
-  const shape = sw.Shape ?? 'rect', sh = shape === 'triangle' ? h + 2 : h, sy = shape === 'triangle' ? y - 1 : y;
-  const { selector, ...body } = bodyMarkup(shape, w, sh, sw, null, { transform: `translate(${x},${sy})` });
+  const { selector, ...body } = bodyMarkup(sw.Shape ?? 'rect', w, h, sw, null, { transform: `translate(${x},${y})` });
   return body;
 }
 function legendMarkup(m, s) {
@@ -2335,39 +2334,48 @@ function mount(el) {
   // after. `tidied` is the workbook as the layout finds it for Tidy, which a preview draws; `tidyName`, what it's called, by which.
   const placedHere = () => [...App.notes.peek().notes('Position'), ...App.notes.peek().notes('Bend')].filter(n => n.view === viewOf());
   const scaleHere = () => App.notes.peek().notes('Scale').filter(n => n.pattern.id === viewOf());
-  const tidyBoxes = () => { const base = App.scene.peek(); return !base || !scene ? [] : placeable().filter(m => m.type === 'box').map(m => base.byId.get(m.id)).filter(Boolean); };
+  // (Two or more: one box selected is only what was last worked on, and Tidy is of the page.)
+  const tidyBoxes = () => { const base = App.scene.peek(), ms = !base || !scene ? [] : placeable().filter(m => m.type === 'box').map(m => base.byId.get(m.id)).filter(Boolean); return ms.length > 1 ? ms : []; };
   const tidySaid = n => `${n} box${n === 1 ? '' : 'es'}`;
   const tidyName = () => { const n = tidyBoxes().length; return n > 1 ? `Tidy ${tidySaid(n)}` : 'Tidy'; };
-  // Whether there's anything to tidy: a selection; with none, a place other than Tidy gave, a box drawn beside Tidy's with none, or a Key in a corner over a box, which Tidy sets the chart clear of.
+  // Whether there's anything to tidy: a selection; with none, a place other than Tidy gave, a box drawn beside Tidy's with none, or a Key over a box: one in a corner Tidy sets the chart clear of, and one a hand put there it gives back to the page.
+  const saysKeyOver = sc => Scene.says(sc).some(t => t.startsWith('The Key overlaps'));
   const tidyable = () => { const ns = placedHere(), byTidy = n => Number.isFinite(n.value?.order), key = App.scene.peek()?.marks.find(m => m.geometry === 'legend');
     return !!tidyBoxes().length || ns.some(n => (Number.isFinite(n.value?.x) && !byTidy(n)) || Number.isFinite(n.value?.along) || n.label === 'Bend') || (ns.some(byTidy) && !!App.scene.peek()?.marks.some(m => m.type === 'box' && !m.entered && !m.revealed))
-      || (!!key && !!rowOf(key.id)?.corner && Scene.says(App.scene.peek()).some(t => t.startsWith('The Key overlaps'))); };
-  function tidying() {
-    const base = App.scene.peek(), some = tidyBoxes(), writes = new Map();
+      || (!!key && (!!rowOf(key.id)?.corner || Number.isFinite(rowOf(key.id)?.x)) && saysKeyOver(App.scene.peek())); };
+  // Whether the page has yet to be arranged, nobody having placed a box and Tidy not having been: what's across is then the order they were made in, of no one's choosing, and Tidy is free of it.
+  const firstTidy = () => !tidyBoxes().length && !placedHere().some(n => n.label === 'Position' && (Number.isFinite(n.value?.order) || (Number.isFinite(n.value?.x) && !n.value?.kept)));
+  // (`only`: one box of its own, as its Reset is.)
+  function tidying(only) {
+    const base = App.scene.peek(), some = only ? [base.byId.get(only)].filter(Boolean) : tidyBoxes(), writes = new Map();
     for (const m of some.length ? some : base.marks.filter(m => m.type === 'box' && !m.revealed)) writes.set(m.record, { order: round(m.x), ...(some.length && { around: true }) });
     if (some.length) for (const [id, p] of holdsOf(base)) if (!writes.has(id) && treeOf(id)) writes.set(id, p);
     const ws = [...writes].map(([id, value]) => ({ id, t: treeOf(id), value })).filter(w => w.t), keys = new Set(ws.map(w => Tree.key(w.t)));
     // (Tidy places the Key afresh, as it does the chart.)
-    const key = some.length ? null : base.marks.find(m => m.geometry === 'legend' && m.byPage && rowOf(m.id)?.kept);
+    const drawn = base.marks.find(m => m.geometry === 'legend'), freed = !some.length && !!drawn && !drawn.byPage && Number.isFinite(rowOf(drawn.id)?.x) && saysKeyOver(base);
+    const key = !some.length && (freed || (drawn?.byPage && rowOf(drawn.id)?.kept)) ? drawn : null;
     // (A line's bend goes with what it's bent among: all of them, or those of the boxes tidied. And all of them, the scale, set afresh.)
     const these = new Set(some.map(m => m.record)), bentHere = n => n.label === 'Bend' && [...Tree.idsIn(n.pattern)].some(id => these.has(id));
-    return { writes: ws, gone: some.length ? placedHere().filter(bentHere) : [...placedHere().filter(n => !keys.has(Tree.key(n.pattern))), ...scaleHere()], n: some.length, key: key?.id };
+    return { writes: ws, gone: some.length ? placedHere().filter(bentHere) : [...placedHere().filter(n => !keys.has(Tree.key(n.pattern))), ...scaleHere()], n: some.length, key: key?.id, freed };
   }
   let triedTidy = 0;
-  function tidied() {
-    const { writes, gone, key } = tidying(), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
+  function tidied(only) {
+    const { writes, gone, key, freed, n } = tidying(only), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
+    // (Boxes laid out around what stands go around the Key too, where it's drawn.)
+    const standing = n ? App.scene.peek().marks.find(m => m.geometry === 'legend') : null;
     // (Each note tried is new, as a look tried is, so nothing worked out from another is kept for it.)
-    const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))).map(r => key && r.shape === key ? { ...r, kept: null } : r),
-      ...writes.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; })];
+    const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))).map(r => key && r.shape === key ? { ...r, kept: null, ...(freed && { x: null, y: null }) } : standing && r.shape === standing.id && r.x == null ? { ...r, x: standing.x - 16, y: standing.y - 16, w: standing.w + 32, h: standing.h + 32 } : r),
+      ...(!only && firstTidy() ? [] : writes.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; }))];
     const notes = Notes.index(rows.filter(r => 'note' in r));
     return { ...wb, rows: () => rows, notes: () => notes, tidy: tidyName() };
   }
   function tidy(o) {
-    const { writes, gone, n } = tidying(), view = viewOf(), base = App.scene.peek();
+    const { writes, gone, n, freed } = tidying(o?.only), view = viewOf(), base = App.scene.peek();
     // (What its preview draws, entered: the place of each box it lays out, in a place's terms, and the Key where it set it.)
-    const laid = holdsOf(Scene.of(tidied(), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true })), keyId = !n && base.marks.find(m => m.geometry === 'legend' && m.byPage)?.id;
-    const entered = w => { if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value }; };
-    if (!App.change(tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); }, { say: o?.say ?? (n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'), keep: false, dated: false })) return;
+    const laid = holdsOf(Scene.of(tidied(o?.only), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true })), keyId = !n && base.marks.find(m => m.geometry === 'legend' && (m.byPage || freed))?.id;
+    const first = !o?.only && firstTidy();
+    const entered = w => { if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value, ...(first && { order: p.x }) }; };
+    if (!App.change(tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null, ...(freed && { x: null, y: null }) }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); }, { say: o?.say ?? (n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'), keep: false, dated: false })) return;
     if (n) return;
     framed = true; left = null;
     settle();
@@ -2593,6 +2601,15 @@ function mount(el) {
 
   // A restyle is of the chart as it was: one that changes ends it.
   const stopDraw = effect(() => { App.scene.value; App.later?.value; clearTimeout(resting); styled = styledDrawn = null; show(true); });
+  // A Key that has come to stand over a box, as a chart grew under one a hand put, or a corner holds, says so as it happens, with what mends it.
+  let keyOver = null, keyView = null;
+  const stopKeyOver = effect(() => {
+    const sc = App.scene.value;
+    if (!sc || sc.view !== viewShown) return;
+    const over = Scene.says(sc, b => App.notes.peek().shortOf(App.state.peek(), b.record)).filter(t => t.startsWith('The Key overlaps')), fresh = keyView === sc.view && keyOver ? over.filter(t => !keyOver.includes(t)) : [];
+    keyOver = over; keyView = sc.view;
+    if (fresh.length && active.peek() === canvas && !App.readOnly.peek()) Shell.toast(fresh[0], { go: ['Tidy, to make room', () => tidy()] });
+  });
   // A mark's fields, asked of by the inspector (see Fields): `shown`, whether the mark a record draws shows an entry of a
   // label; `show`, shows or hides one there, at the scope where the mark is what's selected; `light`, outlines the field
   // a row's key names, as its row is pointed at; `over`, the box under a point on screen as a row is dragged, outlined as
@@ -2659,7 +2676,7 @@ function mount(el) {
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },
     destroy() {
       nudged(); stopNudge(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
-      stopDraw(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
+      stopDraw(); stopKeyOver(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
