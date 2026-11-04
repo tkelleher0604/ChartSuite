@@ -635,7 +635,7 @@ function joinTo(id, b, w, lb, fresh = null) {
   let o = null, kept = [];
   const v = viewShown(), chart = v?.layout === 'chart' ? v : null, make = tx => { o = tx.add('record', { kind: fresh.kind }); tx.add('record', { at: o, edge: 'Name', field: 'text', value: fresh.name }); return o; };
   // (Or the chart shown leaves its like out by a filter.)
-  const offOf = () => (chart && o && !linkOf(o) && !App.scene.peek()?.byId.has(o) ? chart : kept[0] ?? null);
+  const offOf = () => (chart ? (o && !linkOf(o) && !App.scene.peek()?.byId.has(o) ? chart : null) : kept[0] ?? null);
   const told = { go: () => (offOf() ? ['Show', () => showHere([o], offOf())] : null) }, saying = () => `${fresh?.name} isn’t on ${offOf()?.name}`;
   const rec = (other, out = { tag: true }) => ({ args: [{ edge: w.sm.edge, at: w.at }, { edge: w.sl.edge, at: other }], ...out });
   const p = T.bare(w.s), first = T.same(N().edges(p)[0], w.sm.edge), here = rowName(id), there = fresh?.name ?? rowName(lb), standIn = { ...recs(), ...(fresh && { '§new': { kind: fresh.kind } }) }, at = lb ?? '§new';
@@ -1193,7 +1193,10 @@ function kindChoices(id) {
   return kinds.sort((a, b) => a.localeCompare(b)).map(kind => { const bad = T.same(kind, raw[id].kind) ? null : rels.find(x => !fits(x, kind)); return { kind, why: bad ? `${n.name(T.bare(bad.t))}: ${[...bad.r.args].map(a => n.shortOf(raw, T.objectOf(raw, a.at))).join(' → ')} doesn’t take one` : null }; });
 }
 function kindMenu(id) {
-  const r = recs()[id], choices = App.readOnly.peek() ? [] : kindChoices(id), choose = k => App.change(tx => tx.rekind(id, k), { dated: false, say: c => Time.describe(c) });
+  // Made a kind whose form it hasn't got, it draws as a box of no form does and Export names it, so the toast says the same, a click from that row.
+  const lacks = () => App.scene.peek()?.page?.formless?.find(f => f.record === id)?.what;
+  const r = recs()[id], choices = App.readOnly.peek() ? [] : kindChoices(id), choose = k => App.change(tx => tx.rekind(id, k), { dated: false, say: c => `${Time.describe(c)}${lacks() ? `; it has no ${lacks()}` : ''}`,
+    go: () => (lacks() ? [`${lacks()}…`, () => { aim.value = `${id}|${lacks()}`; select([id]); }] : null) });
   return [...choices.map(({ kind, why }) => ({ label: kind, checked: T.same(kind, r.kind), disabled: !!why, tip: why, detail: why ? 'Not with its relations' : null, run: () => !T.same(kind, r.kind) && choose(kind) })),
     ...(choices.length ? ['-'] : []), { label: `What ${article(r.kind)} ${lower(r.kind)} is`, run: () => select([general({ kind: r.kind })]) }, { label: `Open in ${T.plural(r.kind)}`, run: () => kindTable(id) }];
 }
@@ -1207,6 +1210,7 @@ const AddRow = ({ at, items = anchor => addItems(at, anchor), also = null }) => 
 
 function RecordView({ id }) {
   const r = recs()[id];
+  aim.value;   // (aimed at while it's shown too, as a toast's way to a row of it does)
   useLayoutEffect(() => {
     const a = aim.peek();
     if (!a) return;
