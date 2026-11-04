@@ -968,10 +968,9 @@ function mount(el) {
           const c = graph.getCellById(f.id);
           if (!c || c === node) continue;
           c.setPosition(f.x, f.y); c.setSize(f.w, f.h);
+          // (New objects: the cell draws a markup only where it differs from what it holds, so one changed in place never is.)
           const [body, hit, cap] = c.getMarkup();
-          body.attrs.d = f.kind === 'bracket' ? `M0.5,${f.h} V${f.h - 5} H${f.w - 0.5} V${f.h}` : `M0,0 H${f.w} V${f.h} H0 Z`;
-          hit.attrs.width = f.w;
-          c.setMarkup([body, hit, cap]);
+          c.setMarkup([{ ...body, attrs: { ...body.attrs, d: f.kind === 'bracket' ? `M0.5,${f.h} V${f.h - 5} H${f.w - 0.5} V${f.h}` : `M0,0 H${f.w} V${f.h} H0 Z` } }, { ...hit, attrs: { ...hit.attrs, width: f.w } }, cap]);
           astray(f.id, true);
         }
       });

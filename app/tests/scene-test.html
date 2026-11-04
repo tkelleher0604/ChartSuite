@@ -688,6 +688,14 @@ function run() {
       const over = heads.filter((a, i) => heads.slice(i + 1).some(b => Math.abs(a.y - b.y) < 8 && a.x0 < b.x1 && b.x0 < a.x1));
       check('no frame’s heading overprints another’s, whatever a hand has drawn across what', !over.length, j(heads));
     }
+    // A box a hand puts far out of a column of frames: the page stays as it was, whatever the column's width comes to.
+    {
+      const w = fresh(), s0 = scene(w, 'view_40act'), panels = s0.marks.filter(m => m.type === 'frame' && !m.lone), wide = panels.find(f => f.members.length > 5), out = s0.byId.get(wide.members.at(-1)), rec = computed(w).records;
+      edit(w, tx => { tx.note('Scale', { id: 'view_40act', kind: 'View' }, { scale: s0.page.scale, x: 0, y: 0 }); for (const b of s0.marks.filter(m => m.type === 'box')) tx.note('Position', Tree.treeOf(rec, b.record), b === out ? { x: out.x + 180, y: out.y, w: out.w, hand: true } : { x: b.x, y: b.y, w: b.w, kept: true }, { view: 'view_40act' }); });
+      const s1 = scene(w, 'view_40act'), after = s1.marks.filter(m => m.type === 'frame' && !m.lone);
+      check('a box a hand puts out of a column of frames rescales no page and moves nothing else', s1.page.scale === s0.page.scale && s0.marks.filter(m => m.type === 'box' && m.id !== out.id).every(b => Math.abs(s1.byId.get(b.id).x - b.x) < 0.5 && Math.abs(s1.byId.get(b.id).y - b.y) < 0.5), `${s0.page.scale} ${s1.page.scale}`);
+      check('… the column of frames going out with it, as one', new Set(after.map(f => Math.round(f.x + f.w))).size === 1, j(after.map(f => [f.caption?.lines?.[0]?.text, Math.round(f.x), Math.round(f.x + f.w)])));
+    }
     // A box placed in a frame goes among its frame's boxes, not beside its relatives elsewhere.
     {
       const rect = (id, x, y) => ({ id, w: 100, h: 40, shape: 'rect', x, y }), [a, c, d, e] = [rect('a', 40, 40), rect('c', 200, 40), rect('d', 40, 160), rect('e', 200, 160)], n = { id: 'n', w: 100, h: 40, shape: 'rect' };

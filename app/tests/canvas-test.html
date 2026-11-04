@@ -1871,6 +1871,20 @@ async function tidiedSome() {
   }
   Shell.parts.peek().undo.undo(); await tick(300);
   Shell.select([]); await tick(150);
+  // A box dragged far out of a column of frames: the page as it was, nothing else moved, the column going out with it.
+  {
+    const pageWas = Shell.view.peek();
+    Shell.show('view_40act'); await tick(600);
+    const out = sc().marks.find(m => m.type === 'frame' && !m.lone && m.members.length > 5), far = sc().byId.get(out.members.at(-1)), others = sc().marks.filter(m => m.type === 'box' && m.id !== far.id).map(b => [b.id, b.x, b.y]), scaled = sc().page.scale;
+    await drag(far, 142 * cv().graph.zoom(), 0); await tick(300);
+    const rights = sc().marks.filter(m => m.type === 'frame' && !m.lone).map(f => Math.round(f.x + f.w));
+    check('a box dragged out of a column of frames rescales no page and moves nothing else', sc().page.scale === scaled && others.every(([id, x, y]) => Math.abs(sc().byId.get(id).x - x) < 0.5 && Math.abs(sc().byId.get(id).y - y) < 0.5), `${scaled} ${sc().page.scale}`);
+    check('… the column of frames going out with it, as one', new Set(rights).size === 1, JSON.stringify(rights));
+    const drawnRights = sc().marks.filter(m => m.type === 'frame' && !m.lone).map(f => Math.round(f.x + +/H([\d.]+)/.exec($(`.dc [data-cell-id="${f.id}"] path`).getAttribute('d'))[1]));
+    check('… and drawn so, not only worked out', JSON.stringify(drawnRights) === JSON.stringify(rights), JSON.stringify([drawnRights, rights]));
+    Shell.parts.peek().undo.undo(); await tick(300);
+    Shell.select([]); Shell.show(pageWas); await tick(400);
+  }
 }
 
 // A box dragged by the mouse from a point of it, by (dx, dy) on screen.

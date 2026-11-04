@@ -1806,7 +1806,7 @@ function frameBounds(frames, boxes) {
     caption(f);
     return f;
   };
-  for (const f of frames.values()) fit(f);
+  for (const f of frames.values()) { f.own = null; fit(f); }
   const columns = [];
   for (const f of [...frames.values()].filter(f => f.kind !== 'bracket' && !f.lone).sort((a, b) => a.x - b.x)) {
     const c = columns.find(c => c[0].parent === f.parent && f.x - c[0].x <= 24);
@@ -1816,7 +1816,8 @@ function frameBounds(frames, boxes) {
     const left = Math.min(...column.map(f => f.x)), right = Math.max(...column.map(f => f.x + f.w));
     for (const f of column) {
       const mine = new Set(inFrame(frames, f));
-      if (!boxes.some(b => !mine.has(b.id) && !b.revealed && b.x < right && b.x + b.w > left && b.y < f.y + f.h && b.y + b.h > f.y)) Object.assign(f, { x: left, w: right - left });
+      // (`own`, what it wraps of itself: a box a hand put far out widens the column, and what it widens holds no page to it.)
+      if (!boxes.some(b => !mine.has(b.id) && !b.revealed && b.x < right && b.x + b.w > left && b.y < f.y + f.h && b.y + b.h > f.y)) Object.assign(f, { own: { x: f.x, w: f.w, column: column.map(c => c.id) }, x: left, w: right - left });
     }
   }
   // No heading overprints another's: a frame drawn across another (boxes put by hand can draw one so) says its heading along from the other's.
@@ -2036,8 +2037,13 @@ const obstaclesOf = rows => rows.filter(r => r.x != null && r.y != null && !['li
 function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placed = false, keptAt = null, ceil = 1, held = null, own: ownPage = null }) {
   const W = sheet.w, H = sheet.h, M = MARGIN, hands = new Set(boxes.filter(b => b.hand).map(b => b.id));
   // What the chart draws, each as a rect, those of what a hand put `hand`: a box, and a line bent or to one it put.
+  const handIn = f => inFrame(frames, f).some(id => hands.has(id));
   const rects = [...boxes.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h, hand: hands.has(b.id) })),
-    ...[...frames.values()].map(f => ({ x: f.x, y: f.y, w: f.lone ? Math.max(f.w, widest([f.caption])) : f.w, h: f.h, hand: inFrame(frames, f).some(id => hands.has(id)) }))];
+    ...[...frames.values()].flatMap(f => {
+      const all = { x: f.x, y: f.y, w: f.lone ? Math.max(f.w, widest([f.caption])) : f.w, h: f.h };
+      // (Of a column a hand's box is in, each holds the page by what it wraps; what the column's width adds is the hand's.)
+      return f.own?.column.some(id => handIn(frames.get(id))) ? [{ ...all, x: f.own.x, w: f.own.w, hand: handIn(f) }, { ...all, hand: true }] : [{ ...all, hand: handIn(f) }];
+    })];
   for (const l of lines) if (!l.merged && l.points) {
     const hand = hands.has(l.from) || hands.has(l.to) || !!l.bend;
     l.points.slice(1).forEach((p, i) => { const q = l.points[i]; rects.push({ x: Math.min(p[0], q[0]), y: Math.min(p[1], q[1]), w: Math.abs(p[0] - q[0]), h: Math.abs(p[1] - q[1]), hand }); });
