@@ -57,7 +57,7 @@ A **note** is an entry located at a pattern, and optionally also at a view, labe
 | Name, Description | what a kind, entry or relation is called and means; on a parameter, the name of its list of relatives (Owners, Holdings) |
 | Order | where an entry sits among its location's entries, or an option in its list; options with none follow in the order they were made |
 | Required | that a blank one needs attention; a narrower note can say it doesn't, as a Director's Title, the position saying it |
-| Fixed | that what's entered there is one fact for all time, not a value that holds over a period (an EIN, a file number, a fiscal year end, an LEI): typed over, it's corrected, and nothing asks from when (see Time). An entry's page says so: Changes over time, unticked |
+| Fixed | that what's entered there is one fact for all time, not a value that holds over a period (an EIN, a file number, a fiscal year end, an LEI): typed, whatever the day shown, it's corrected, and nothing asks from when (see Time). An entry's page says so: Changes over time, unticked |
 | Check | that one ruled out needs attention, an error, counted in the status bar: on a definition, that it checks something, one ruled out being a check failed; on an entry typed by hand (Good Standing), that a typed no is to be heeded, in amber where it's read |
 | Start, End | which entries are the start and end of what they're at |
 | Formula | how its records are worked out (see Definitions) |

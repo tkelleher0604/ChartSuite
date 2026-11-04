@@ -831,11 +831,13 @@ async function run() {
 
   // Time: with a day shown, an edit takes effect from it
   Shell.select(['fund']); Shell.at({ asOf: '2026-01-01' }); await tick();
-  await type(rowOf('EIN').querySelector('.cell'), '92-0000001');
+  await type(rowOf('Target Commitments').querySelector('.cell'), '$900,000,000');
   check('with a day shown, a value typed lately asks from when too, the day being another than it was typed for', pb('.from input')?.value === 'Jan 1, 2026', pb()?.textContent);
   await keep();
-  check('with a day shown, an edit takes effect from it', last().adds.some(r => r.record === 'fund_ein' && r.since === '2026-01-01'));
-  check('a record with other values counts them (“1 earlier”)', rowOf('EIN').querySelector('.ver')?.textContent === '1 earlier', App.wb.item(C, 'fund_ein').length + ' rows; ' + rowOf('EIN').querySelector('.v').innerHTML);
+  check('with a day shown, an edit takes effect from it', last().adds.some(r => r.record === 'fund_target' && r.since === '2026-01-01'));
+  check('a record with other values counts them (“1 earlier”)', rowOf('Target Commitments').querySelector('.ver')?.textContent === '1 earlier', App.wb.item(C, 'fund_target').length + ' rows; ' + rowOf('Target Commitments').querySelector('.v').innerHTML);
+  await type(rowOf('EIN').querySelector('.cell'), '92-0000001');
+  check('… but what doesn’t change over time is corrected for all time, whatever the day shown', !pb() && st().fund_ein.value === '92-0000001' && !App.wb.item(C, 'fund_ein').some(r => r.since || r.before), `${pb()?.textContent} ${App.wb.item(C, 'fund_ein').length}`);
   Shell.at(null); await tick();
 
   // Required, and attention

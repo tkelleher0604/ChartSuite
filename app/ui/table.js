@@ -1004,6 +1004,9 @@ const Table = (() => {
       if (came) resort();
       // A group's sums and checks say what its rows now hold.
       if (m.groups) for (const g of t.getGroups()) g._group.generateGroupHeaderContents();
+      // (A record selected from outside, a payment's in its row just come: the keys' cell goes with it, so the two never part.)
+      const inHand = Shell.selection.peek()[0];
+      if (!inside && !m.red && inGrid(inHand) && t.modules.selectRange?.getActiveCell()?.row.getData().id !== inHand) track(inHand);
       mark();
       if (first) reveal(first);
       flash(lit);
@@ -1209,7 +1212,8 @@ const Table = (() => {
     const lists = ws.filter(w => w.list), st = App.state.peek();
     ws = ws.filter(w => !w.list);
     if (lists.length) stage(real, () => ({ keys: [], plan: lists.map(({ list: [row, c, raw] }) => ({ row, key: [], cells: [[c, raw]] })) }), { verb: 'Add' });
-    const waits = w => !!w.back || (w.typed && (App.held(w.typed.id) !== undefined || App.asksFrom(w.typed.id, w.typed.out)));
+    // (What doesn't change over time goes the same way, so it's corrected for all time, whatever the day shown.)
+    const waits = w => !!w.back || (w.typed && (App.held(w.typed.id) !== undefined || App.asksFrom(w.typed.id, w.typed.out) || App.fixedAt(w.typed.id, w.typed.slot)));
     const asked = ws.filter(waits);
     ws = ws.filter(w => !waits(w));
     asked.forEach((w, i) => {
@@ -2819,9 +2823,10 @@ const Table = (() => {
     const R = App.computed.peek(), N = App.notes.peek(), S = App.schema.peek(), view = Shell.view.peek();
     if (found?.R === R && found.N === N && found.S === S && found.view === view) return found.out;
     const st = R.records, tables = App.views.peek().filter(v => v.layout === 'table' && v.rows && typeof v.rows !== 'string'), shown = tables.find(v => v.id === view), out = [];
-    for (const v of shown ? [shown] : tables) {
+    // (The table shown's by their names, and first; any other's under its own.)
+    for (const v of [...(shown ? [shown] : []), ...tables.filter(t => t !== shown)]) {
       const cols = columnsIn(v);
-      for (const c of cols) out.push({ of: '§columns', label: `${shown ? '' : `${v.name} › `}${c.parent ? `${c.parent} › ` : ''}${c.title}`, names: [c.title], detail: 'Column', run: () => goColumn(v.id, c.key) });
+      for (const c of cols) out.push({ of: '§columns', label: `${v === shown ? '' : `${v.name} › `}${c.parent ? `${c.parent} › ` : ''}${c.title}`, names: [c.title], detail: 'Column', run: () => goColumn(v.id, c.key) });
     }
     // Dates, each as the table says it: what, and whose.
     const dates = App.views.peek().find(v => v.layout === 'table' && v.rows === 'date');

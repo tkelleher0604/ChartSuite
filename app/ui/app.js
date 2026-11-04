@@ -334,11 +334,12 @@ const App = (() => {
     const r = id && state.peek()[id];
     if (!r || !out || r.kind !== undefined || r.field === 'date' || out.field === 'date') return false;
     if (result.peek().computed[id]) return true;
-    const t = Tree.treeOf(state.peek(), id);
-    if (t && notes.peek().fixed(t)) return false;
+    if (fixedAt(id)) return false;
     const row = book.peek().item(chart.peek(), id).find(v => Log.validOn(v, day.peek()));
     return !!row && !(lately(firstSaid(id, row)) && (!Shell.time.peek()?.asOf || row.since === day.peek()));
   }
+  // What a Fixed note says doesn't change over time, a record or a blank one (`slot`), which is one fact, whatever the day shown.
+  const fixedAt = (id, slot) => { const recs = state.peek(), t = id && recs[id] ? Tree.treeOf(recs, id) : slot?.at && recs[slot.at] ? Tree.treeOf({ ...recs, '': { at: slot.at, edge: slot.edge, tag: true } }, '') : null; return !!t && notes.peek().fixed(t); };
   // A value as a sentence says it: whose, by the short names of what it's at, and what it is, a relation's percentage
   // being its holder's stake in the other side; a tag, by what it is and where, which its button's verb says the rest of.
   const possess = s => `${s}${s.endsWith('s') ? '’' : '’s'}`, lowered = s => s.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
@@ -374,7 +375,7 @@ const App = (() => {
       if (left.length) amend(p, typedPending(left)); else discard({ quiet: true });
       return;
     }
-    if (!asksFrom(id, out) && !now?.some(t => t.id === id)) return change(tx => putting(tx, id, slot, out));
+    if (!asksFrom(id, out) && !now?.some(t => t.id === id)) return change(tx => putting(tx, id, slot, out), { dated: !fixedAt(id, slot) });
     const typed = [...(now ?? []).filter(t => t.id !== id), { id, slot, out }];
     if (now) { amend(p, typedPending(typed)); if (auto) setTimeout(() => { const i = document.querySelector('.pendbar .when input'); i?.focus(); i?.select(); }); return; }
     let told = null;
@@ -1299,6 +1300,6 @@ const App = (() => {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
     readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
-    enterAt, putting, put, asksFrom, held: typedOut, overriding, noTone,
+    enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone,
   };
 })();
