@@ -305,7 +305,9 @@ const Table = (() => {
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
         // A value of another datatype than its column's reads as its own.
         const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
+        // What's coming stands beside the value it'll replace (dendra.md, Time).
+        const next = c.type !== 'tag' && m.id && App.shown.value.item(App.chart.value, m.id).find(x => x.since > today);
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(next && { next: `${Tree.outputText(next)} from ${Tree.formatDate(next.since, 'short')}` }), ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
       }
       row._ruled = st[id].tag === false;
       row._fails = fails.get(id) ?? null;
@@ -430,6 +432,7 @@ const Table = (() => {
       el.classList.toggle('due', !!m?.due);
       el.classList.toggle('none', c.type !== 'edge' && !c.key.startsWith('$') && !m?.at);
       if (tip) el.dataset.tip = tip; else delete el.dataset.tip;
+      if (m?.next && !('was' in m)) return `${shown(v, m)} <span class="nx">${esc(m.next)}</span>`;
       if (!m || !('was' in m) || c.type === 'tag') return shown(v, m);
       return [m.was !== null && `<span class="del">${shown(m.was, null, m.type ?? c.type)}</span>`, v !== null && `<span class="add">${shown(v, m)}</span>`].filter(Boolean).join(' ');
     };
@@ -883,7 +886,7 @@ const Table = (() => {
     owed = !el.offsetParent;
     if (owed) return;
     // What it shows is worked out from these: shown again with them as they were, the grid is as it was.
-    const from = [view, p, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value, App.viewing.value, viewed.value];
+    const from = [view, p, App.version.value, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value, App.viewing.value, viewed.value];
     if (table && ready && !flight && drewFrom?.every((x, i) => x === from[i])) return settle();
     const now = model(view);
     real = now;
@@ -914,6 +917,8 @@ const Table = (() => {
     // comes (back, by Undo, or pasted) goes where its records put it, after the row before it, not at the end.
     const had = new Map(t.getRows().map(row => [row.getData().id, row.getData()])), changed = m.data.filter(r => !sameRow(r, had.get(r.id)));
     const updated = changed.filter(r => had.has(r.id)), there = new Set(had.keys());
+    // (A cell whose value stands isn't drawn again by that; one saying something else is coming is.)
+    const ahead = updated.filter(r => Object.keys(r._m).some(f => r._m[f].next !== had.get(r.id)._m[f]?.next)).map(r => r.id);
     // Rows come: new to the grid, or made from the redline's (an import's, a paste's), which the sort then places.
     const came = m.data.some(r => !r._red && (!had.has(r.id) || had.get(r.id)._red === 'add'));
     const come = () => m.data.filter(r => !had.has(r.id)).reduce((p, r) => p.then(() => {
@@ -932,7 +937,7 @@ const Table = (() => {
       // A row come after one the filters leave out is placed only among all the rows: the filters are run again, so it's
       // shown as they say (and the row being typed, as it is).
       if (t.getFilters().length && m.data.some(r => !had.has(r.id))) t.refreshFilter();
-      for (const id of new Set([...reds, ...red])) rows.get(id)?.reformat();
+      for (const id of new Set([...reds, ...red, ...ahead])) rows.get(id)?.reformat();
       reds = red;
       t.restoreRedraw();
       ok = true;

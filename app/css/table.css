@@ -87,6 +87,7 @@
 .grid .tabulator-row .tabulator-cell:not(.pin, .tabulator-row-header) { scroll-snap-align: start; scroll-margin-left: var(--pinned, 48px); }
 .grid .tabulator-row .tabulator-cell.fx { font-style: italic; }
 .grid .tabulator-row .tabulator-cell.due { color: var(--no); }
+.grid .tabulator-row .tabulator-cell .nx { margin-left: 6px; color: var(--ink-3); font-size: 11px; font-style: normal; }
 .grid .tabulator-row .tabulator-cell.none { background-image: repeating-linear-gradient(135deg, transparent 0 4px, var(--hover) 4px 5px); }
 .grid .tabulator-row .tabulator-cell.over::after { top: 0; right: 0; }
 .grid .tabulator-row .tabulator-cell.c-number, .grid .tabulator-row .tabulator-cell.c-percent, .grid .tabulator-row .tabulator-cell.c-money { font-variant-numeric: tabular-nums; }

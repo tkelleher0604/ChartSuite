@@ -417,6 +417,16 @@ async function run() {
   input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(100);
   const sn = (Tree.index(st()).entries.get(halvard) ?? []).find(e => st()[e].edge === 'Short Name');
   check('Typing in a cell enters the value, as one change', N() === n0 + 1 && st()[sn]?.value === 'Halvard');
+  // What's coming stands in its cell, beside the value it'll replace, though that value stands; and it goes as it came.
+  const fdCell = () => rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Formation Date').getElement().textContent;
+  const fd38 = (Tree.index(st()).entries.get(halvard) ?? []).find(e => st()[e].edge === 'Formation Date'), fd0 = fdCell();
+  const later38 = App.wb.edit({ chart: C(), who: last().who, day: '2038-03-01' });
+  later38.update(fd38, { value: '2039-05-05' });
+  later38.commit(); await tick(150);
+  check('What’s coming shows in its cell, beside the value it’ll replace', fdCell() === `${fd0} May 5, 2039 from Mar 1, 2038`, fdCell());
+  App.wb.reverse(last().id, last().who); await tick(150);
+  check('… and goes when what said it is undone', fdCell() === fd0, fdCell());
+  n0 += 2;
   check('The cell shows it', rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Short Name').getValue() === 'Halvard');
   const bad = rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Formation Date');
   bad.edit(true); await tick();

@@ -157,7 +157,7 @@ const Tour = (() => {
           onSubmit=${e => { e.preventDefault(); finish(false); }} onKeyDown=${e => { if (e.key === 'Escape') finish(false); }}>
           <p><b>${Shell.keyLabel('$mod+KeyZ')}</b> undoes anything, and History keeps every change, signed with your name.</p>
           <label>Your name<input value=${name} onInput=${e => setName(e.target.value)} ref=${el => { if (!el || el.dataset.on) return; el.dataset.on = 1; const take = () => { if (el.isConnected && !el.closest('form').contains(document.activeElement)) el.focus({ preventScroll: true }); }; setTimeout(take); /* (A click that brought it up lands after that: the keys are still its.) */ addEventListener('pointerup', () => setTimeout(take), { once: true }); addEventListener('click', () => setTimeout(take), { once: true }); }} /></label>
-          <div class="acts"><button type="button" class="btn" onClick=${() => finish(true)}>Start blank</button><button class="btn primary">Keep this chart</button></div>
+          <div class="acts"><button type="button" class="btn" data-tip="This chart stays, in the chart menu under Workbooks" onClick=${() => finish(true)}>Start blank</button><button class="btn primary">Keep this chart</button></div>
         </form>`}`;
   }
   const host = document.createElement('div');

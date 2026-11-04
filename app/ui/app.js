@@ -435,8 +435,14 @@ const App = (() => {
     const which = side === 'from' ? 'since' : 'before', row = wb.item(c, id).find(r => r[which] === s.day);
     if (!row) return null;
     const by = firstSaid(id, row);
-    return ofAct(by) ?? { run: () => amendingDay(by, id, which, s.day) };
+    return ofAct(by) ?? { run: () => { if (readOnly.peek()) return refuse(); amendingDay(by, id, which, s.day); keysOnBar('day'); } };
   }
+  // The keys on a bar just opened, where it's asked in the panel or else under the view: its day, or its amount first.
+  const keysOnBar = focus => setTimeout(() => {
+    const box = [...document.querySelectorAll('.asking, .pendbar')].find(x => x.getClientRects().length);
+    const el = (focus === 'day' ? null : box?.querySelector('.amount input, input.amount')) ?? box?.querySelector('.when input') ?? box?.querySelector('.transfer .sel');
+    el?.focus(); el?.select?.();
+  }, 60);
   // The first day after the day shown it no longer holds, for what isn't in the chart then but was: the day it ended on,
   // and how, from what it was the day before. null where it never held before then.
   function heldUntil(id, d = day.peek()) {
@@ -917,6 +923,8 @@ const App = (() => {
     stage({ verb: 'Change', what: `the transfer of ${N.segmentOf(on, act.rid)}`, source: 'amend ' + c.id, needs: [act.rid], amending: [act.rid, act.made].filter(Boolean), amends: c,
       transfer: { rid: act.rid, to: toWas, part: o.part === undefined ? wasPart : o.part, base, day: act.day },
       asks: 'on', day: act.day, Fill: Transferring, ready: p => !!p.transfer.to && p.transfer.part !== undefined,
+      // (It can be made again only on a day what it's of holds.)
+      fits: p => !p.day || !!transferable(act.rid, base(p.day)), bad: p => (p.day && !transferable(act.rid, base(p.day)) ? 'What it’s of doesn’t hold on that day' : null),
       make: (tx, d, p) => {
         const { to, part } = p.transfer;
         if (!d || (d === act.day && (part ?? null) === (wasPart ?? null) && sameTo(to))) return;
@@ -934,6 +942,7 @@ const App = (() => {
     stage({ verb: 'Change', what: `the insertion in ${N.segmentOf(on, act.rid)}`, source: 'amend ' + c.id, needs: [act.rid], amending: [act.rid, act.up, act.made], amends: c,
       transfer: { rid: act.rid, to: toWas, part: null, base, day: act.day }, between: true,
       asks: 'on', day: act.day, Fill: Transferring, ready: p => !!p.transfer.to,
+      fits: p => !p.day || !!transferable(act.rid, base(p.day)), bad: p => (p.day && !transferable(act.rid, base(p.day)) ? 'What it’s of doesn’t hold on that day' : null),
       make: (tx, d, p) => {
         const { to } = p.transfer;
         if (!d || (d === act.day && label(to) === label(toWas))) return;
@@ -1019,11 +1028,7 @@ const App = (() => {
     // Its panel, where it's asked too, on what it made where that holds on the day shown.
     const here = pending.peek()?.amending?.find(x => state.peek()[x]);
     if (here && !Shell.selection.peek().some(k => pending.peek().amending.includes(k))) Shell.select([here]);
-    setTimeout(() => {
-      const box = document.querySelector('.asking') ?? document.querySelector('.pendbar');
-      const el = (o.focus === 'day' ? null : box?.querySelector('.amount input, input.amount')) ?? box?.querySelector('.when input') ?? box?.querySelector('.transfer .sel');
-      el?.focus(); el?.select?.();
-    }, 60);
+    keysOnBar(o.focus);
     return true;
   }
   // A value's row, its own From: Change this day… on it. `row`, the version; the change that first said it, read back as an act
@@ -1034,7 +1039,7 @@ const App = (() => {
     const c = chart.peek(), by = book.peek().changes().find(x => x.chart === c && x.adds.some(r => r.record === id && r.since === row.since)) ?? null, act = by && Time.act(by);
     if (act?.type === 'value' && act.day === row.since && act.parts.length > 1) return amending(by, { focus: 'day' });
     if (!amendingValues(by, [{ id, day: row.since }])) return false;
-    setTimeout(() => { const el = document.querySelector('.pendbar .when input'); el?.focus(); el?.select(); }, 60);
+    keysOnBar('day');
     return true;
   }
   // A value as a sentence says whose, as of `recs`: "Fund III's stake in Corvane".
