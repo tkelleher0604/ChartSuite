@@ -37,20 +37,36 @@ const Table = (() => {
   // names, unless said), widths: { key: px } }.
   const lookKey = view => `table.${App.chart.peek()}.${view}`;
   function lookOf(view) { try { return JSON.parse(Shell.store.get(lookKey(view)) || '{}') || {}; } catch { return {}; } }
+  // (What's asked of how it looks, a sort, a filter, a group or what's kept in view, is a step Undo can take where it takes looks.)
+  const LOOKS = { sort: 'Sorted', filters: 'Filtered', group: 'Grouped', frozen: 'Froze columns of' };
   function setLook(view, patch) {
-    const l = { ...lookOf(view), ...patch };
+    const was = Shell.store.get(lookKey(view)), l = { ...lookOf(view), ...patch };
     for (const k of Object.keys(l)) if (l[k] === undefined || l[k] === null || (typeof l[k] === 'object' && !Object.keys(l[k]).length)) delete l[k];
-    Shell.store.set(lookKey(view), Object.keys(l).length ? JSON.stringify(l) : null);
+    const now = Object.keys(l).length ? JSON.stringify(l) : null, asked = !('widths' in patch) && Object.keys(LOOKS).find(k => k in patch);
+    Shell.store.set(lookKey(view), now);
     looked.value++;
+    if (asked && (was ?? null) !== now) { const back = to => () => { Shell.store.set(lookKey(view), to); looked.value++; viewed.value++; rebuild(); }; App.lookStep?.(`${LOOKS[asked]} ${viewOf(view)?.name ?? 'the table'}`, back(was), back(now)); }
     return l;
   }
   const looked = Shell.signal(0);
   const frozenOf = l => l.frozen ?? 1;
-  // Viewing, the columns shown and hidden, for this tab: by view, a column's key and whether it shows. A column shown in
-  // Editing is the view's, and logged.
-  const viewed = Shell.signal(new Map());
-  const seeColumns = (view, cs, on) => { const m = new Map(viewed.peek()), v = new Map(m.get(view) ?? []); for (const c of cs) v.set(c.key, on); m.set(view, v); viewed.value = m; return true; };
-  const seenAs = (view, c) => c.pattern && App.viewing.peek() ? viewed.peek().get(view)?.get(c.key) : undefined;
+  // The columns shown and hidden are a look too (dendra.md, Workbook): a column's key and whether it shows, per view, over what
+  // the view's own Shown notes say, till Keep makes them the view's. In Editing and Viewing alike, in no log.
+  const viewed = Shell.signal(0);
+  const shownAs = new Map();
+  const shownIn = view => { if (shownAs.get(view)?.n !== viewed.peek()) shownAs.set(view, { n: viewed.peek(), l: lookOf(view).shown ?? null }); return shownAs.get(view).l; };
+  function putColumns(view, shown) { setLook(view, { shown }); viewed.value++; }
+  function seeColumns(view, cs, on, say) {
+    const was = lookOf(view).shown, now = { ...was };
+    for (const c of cs) now[c.key] = on;
+    if (JSON.stringify(was ?? {}) === JSON.stringify(now)) return true;
+    putColumns(view, now);
+    const words = say ?? `${on ? 'Showed' : 'Hid'} ${cs.length === 1 ? (cs[0].title ?? 'Why') : `${cs.length} columns`} in ${viewOf(view)?.name}`;
+    App.lookStep(words, () => putColumns(view, was), () => putColumns(view, now));
+    Shell.toast(words, { undo: App.undoLook, ms: 2500 });
+    return true;
+  }
+  const seenAs = (view, c) => c.pattern ? shownIn(view)?.[c.key] : undefined;
 
   // A tag's cell where its rule hasn't tested the record (Formulas.notTested): its own value, apart from Yes, No and blank.
   const NA = 'n/a';
@@ -1691,15 +1707,25 @@ const Table = (() => {
   const note = (tx, label, c, view, value) => tx.note(label, c.pattern, value, { view, param: c.param });
   const called = c => c.parent ? `${c.parent} › ${c.title}` : c.title;
   const canWrite = () => !App.readOnly.peek() && !current?.red;
-  // Columns shown or hidden, every way there is of asking: in Editing, the view's, as one change; Viewing, the session's.
-  const showing = (cs, on, say = ch => Time.describe(ch)) => App.viewing.peek() ? seeColumns(current.view, cs, on) : edit(tx => cs.forEach(c => note(tx, 'Shown', c, current.view, on)), say);
+  // Columns shown or hidden, every way there is of asking: a look, in no log (seeColumns).
+  const showing = (cs, on, say) => seeColumns(current.view, cs, on, typeof say === 'string' ? say : undefined);
   const show = (c, on) => showing([c], on);
-  // Whether columns can be shown and hidden: in Editing, as a change; Viewing, for the session.
-  const canShow = () => canWrite() || (App.viewing.peek() && !Shell.time.peek()?.stood && !current?.red);
+  // Whether columns can be shown and hidden: anywhere but the past and a redline.
+  const canShow = () => !Shell.time.peek()?.stood && !current?.red;
+  // Those shown here, made the view's, as one change: who opens the table then has them.
+  function keepColumns(m = current) {
+    const l = lookOf(m.view).shown;
+    if (!l) return;
+    keepHere();
+    if (edit(tx => { for (const c of m.cols) if (c.key in l && c.pattern) note(tx, 'Shown', c, m.view, l[c.key]); }, `Kept the columns of ${viewOf(m.view)?.name}`)) putColumns(m.view, null);
+  }
+  // What's written at a table only in this window is written once it's the chart's.
+  const keepHere = () => { if (viewOf(current?.view)?.look) App.keepTable(current.view); };
   // The columns in this order, as Order notes in the view, as one change: those given, then the rest as they were;
   // `also`, what else the change does (a column inserted shows); `moved`, the column a gesture moved, which the grid
   // then shows where it went (arrive). It says what it did as History says it.
   function place(order, say = ch => Time.describe(ch), also, moved = null) {
+    keepHere();
     const m = current, rest = m.cols.filter(c => c.pattern && !order.includes(c));
     moving = moved && field(moved);
     const ok = edit(tx => { [...order, ...rest].filter(c => c.pattern).forEach((c, i) => note(tx, 'Order', c, m.view, i + 1)); also?.(tx); }, say);
@@ -2238,7 +2264,9 @@ const Table = (() => {
     { id: 'table.group', name: 'Group by…', names: ['Group', 'Subtotal', 'Pivot'], run: () => groupMenu(tool('group')) },
     { id: 'table.freeze', name: 'Freeze…', names: ['Freeze columns', 'Freeze panes', 'Unfreeze', 'Lock columns'], run: () => freezeMenu(tool('columns')) },
     { id: 'table.fit', name: 'Fit columns', names: ['Autofit', 'Fit width', 'Column width', 'Resize columns'], run: fitColumns },
-  ].forEach(a => Shell.register('action', { ...a, enabled: () => viewOf(Shell.view.peek())?.layout === 'table' && !!current && ready, why: () => 'Show a table first' }));
+  ].forEach(a => Shell.register('action', { ...a, enabled: () => viewOf(Shell.view.peek())?.layout === 'table' && !!current && ready, why: () => 'Show a table first',
+    // (A chart filters by what it knows of each box, as a table does by what it holds, by the one word.)
+    ...(a.id === 'table.filter' && { enabled: () => (viewOf(Shell.view.peek())?.layout === 'table' && !!current && ready) || (typeof Canvas !== 'undefined' && viewOf(Shell.view.peek())?.layout === 'chart' && App.canAsk()), run: () => (viewOf(Shell.view.peek())?.layout === 'chart' ? Canvas.active.peek()?.filter() : filterMenu(tool('filter'))) }) }));
   // Every column, each a checkbox that shows or hides it, dragged by its row to reorder; and a new one, named as it's typed.
   // Opened, those ticked come first; a row then stays where it is as it's ticked or unticked, so nothing moves under the
   // pointer, and the search finds among them all. Show all and Hide all are at its top, what names the rows always kept.
@@ -2269,7 +2297,8 @@ const Table = (() => {
     return html`<div class="cols" ref=${ref} onKeyDown=${listKeys}>
       <input type="search" class="col-find" placeholder="Find" aria-label="Find" value=${q} spellcheck=${false} onInput=${e => setQ([e.target.value, view])} />
       ${mv.length ? html`<div class="col-all"><button type="button" class="btn ghost" disabled=${!shows || vis.every(c => c.shown)} onClick=${() => showEvery(m, true, vis)}>Show all</button>
-        <button type="button" class="btn ghost" disabled=${!shows || vis.every(c => !c.shown || kept.includes(c))} onClick=${() => showEvery(m, false, vis)}>Hide all</button></div>` : null}
+        <button type="button" class="btn ghost" disabled=${!shows || vis.every(c => !c.shown || kept.includes(c))} onClick=${() => showEvery(m, false, vis)}>Hide all</button>
+        ${lookOf(view).shown ? html`<button type="button" class="btn ghost col-keep" aria-disabled=${writes ? null : 'true'} data-tip=${writes ? null : App.whyNot()} onClick=${() => (writes ? keepColumns(m) : Shell.toast(App.whyNot()))}>Keep these</button>` : null}</div>` : null}
       <div class="cols-list">
       ${rows.filter(found).map(c => c.pattern
         ? html`<div class="colrow mv" key=${c.key} onPointerDown=${e => down(e, c)}><span class="colgrip" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: GRIP }} />
@@ -2288,13 +2317,12 @@ const Table = (() => {
   function openList(name, rid, at) {
     const st = App.state.peek(), N = App.notes.peek(), rows = App.layouts.peek().relations.find(l => Tree.fits(st, rid, l.rows))?.rows;
     if (!rows) return;
-    // Viewing, a table the chart has shows Why for the session; a new one can't be made, which is said.
-    const why = (tx, id) => tx.note('Shown', { id, kind: 'View' }, true, { view: id, param: 'Why' });
+    // Opening it is looking (dendra.md, Workbook): a table the chart has shows Why for this window; or else one's opened for this
+    // window, which a tab of its own says, and Keep makes the chart's.
+    if (Shell.time.peek()?.stood) return Shell.toast(App.whyNot());
     let v = App.views.peek().find(x => x.layout === 'table' && JSON.stringify(x.rows) === JSON.stringify(rows))?.id;
-    if (!v && App.readOnly.peek()) return Shell.toast(App.whyNot());
-    if (!v) v = App.addView(name, rows, undefined, why);
-    else if (App.viewing.peek()) seeColumns(v, [{ key: '$why' }], true);
-    else if (!App.readOnly.peek() && N.value('Shown', { id: v, kind: 'View' }, v, 'Why') !== true) App.change(tx => why(tx, v), { dated: false, say: ch => Time.describe(ch) });
+    if (!v) v = App.lookTable(name, rows, true);
+    else if (N.value('Shown', { id: v, kind: 'View' }, v, 'Why') !== true) seeColumns(v, [{ key: '$why', title: 'Why' }], true);
     if (!v) return;
     const side = st[rid].args.find(a => Tree.objectOf(st, a.at) === at), held = new Set(Object.keys(st).filter(id => st[id].args?.length > 1 && Tree.fits(st, id, rows)).map(id => Tree.objectOf(st, st[id].args.find(a => same(a.edge, side?.edge))?.at)));
     if (side && held.size > 1) setLook(v, { filters: { ...lookOf(v).filters, ['@' + norm(side.edge)]: [N.nameOf(st, at)] } });
@@ -2660,7 +2688,7 @@ const Table = (() => {
       shown.observe(el, { attributes: true, attributeFilter: ['hidden'] });
       const offs = [
         effect(() => { if (!Shell.gliding.value) preactSignals.untracked(settle); }),
-        effect(() => { App.state.value; App.notes.value; App.schema.value; Shell.time.value; refresh(); }),
+        effect(() => { App.state.value; App.notes.value; App.schema.value; Shell.time.value; viewed.value; refresh(); }),
         // What the grid began on the bar done with, the keys come back to it (App.after puts them in the view).
         effect(() => { if (App.pending.value?.typed || !ran) return; ran = false; setTimeout(() => setTimeout(() => { const a = document.activeElement; if (el?.offsetParent && (!a || a === document.body || a.id === 'view')) focus(); })); }),
         // The rows of the records selected are marked; selected elsewhere, the first is brought into view, its row the keys'.

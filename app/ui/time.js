@@ -103,7 +103,7 @@ const Time = (() => {
   }
 
   // ---- What a page marks as changed (dendra.md, Changes), a note at the view, and the look it begins in ----
-  const changeNotes = view => App.shown.peek().rows(App.chart.peek()).filter(r => 'note' in r && r.view === view && Scene.isChange(r.pattern));
+  const changeNotes = view => App.wb.rows(App.chart.peek()).filter(r => 'note' in r && r.view === view && Scene.isChange(r.pattern));
   // (After the styles the view has, so what it says of a mark decides, as a look given a group goes after those in Styles; but
   // before a tag's, so what's failed stays red. `like`, the view a copy's styles are from, which the change has copied.)
   function styleChanges(tx, view, like = view) {
@@ -113,23 +113,32 @@ const Time = (() => {
       for (const [label, v] of Object.entries(look)) tx.note(label, p, v, { view });
       tx.note('Caption', p, Scene.CHANGE_CAPTIONS[what], { view });
     }
-    const styles = App.notes.peek().styles(like), tagged = s => s.outputs.some(o => o.pattern.out && 'tag' in o.pattern.out);
+    const styles = App.wb.notes(App.chart.peek()).styles(like), tagged = s => s.outputs.some(o => o.pattern.out && 'tag' in o.pattern.out);
     [...styles.filter(s => !tagged(s)), { pattern: Tree.bare(Scene.changeOutput('New')) }, ...styles.filter(tagged)]
       .forEach((s, k) => { if (s.order !== k + 1) tx.note('Order', s.pattern, k + 1, { view }); });
   }
   const changesSaid = (v, value) => !value ? `Took the changes off ${v.name}` : value.since ? `Showed the changes since ${short(value.since)} in ${v.name}` : `Showed the changes since the page before in ${v.name}`;
   // Set on a view, its look begun; taken off, its look goes with it where nobody has changed it.
+  function writeChanges(tx, id, value) {
+    tx.note('Changes', viewTree(id), value ?? undefined);
+    if (value) return styleChanges(tx, id);
+    const ns = changeNotes(id), asBegun = n => n.label === 'Order' || (n.label === 'Caption' ? Object.values(Scene.CHANGE_CAPTIONS).includes(n.value) : Object.values(Scene.CHANGE_LOOKS).some(l => l[n.label] === n.value));
+    if (ns.every(asBegun)) ns.forEach(n => tx.remove(n.note));
+  }
+  // Comparing is looking (dendra.md, Workbook): what a page's compared with here is this window's, in no log, and goes with it
+  // into an export; Keep makes it the page's, as one change, as Next step does.
+  const changesKept = id => App.wb.notes(App.chart.peek()).value('Changes', viewTree(id)) ?? null;
   function showChanges(id, value) {
     const v = App.views.peek().find(x => x.id === id);
     if (!v) return;
-    App.change(tx => {
-      tx.note('Changes', viewTree(id), value ?? undefined);
-      if (value) styleChanges(tx, id);
-      else {
-        const ns = changeNotes(id), asBegun = n => n.label === 'Order' || (n.label === 'Caption' ? Object.values(Scene.CHANGE_CAPTIONS).includes(n.value) : Object.values(Scene.CHANGE_LOOKS).some(l => l[n.label] === n.value));
-        if (ns.every(asBegun)) ns.forEach(n => tx.remove(n.note));
-      }
-    }, { dated: false, say: changesSaid(v, value) });
+    const same = JSON.stringify(value ?? null) === JSON.stringify(changesKept(id));
+    App.looking(id, { compare: same ? undefined : { value: value ?? null, change: App.lookChange(tx => writeChanges(tx, id, value)) } }, changesSaid(v, value));
+  }
+  function keepChanges(id) {
+    const v = App.views.peek().find(x => x.id === id), l = App.lookOf(id)?.compare;
+    if (!l) return;
+    if (App.readOnly.peek()) return Shell.toast(App.whyNot());
+    if (App.change(tx => { writeChanges(tx, id, l.value); tx.says(changesSaid(v, l.value)); }, { dated: false, say: changesSaid(v, l.value) })) App.letGo(id, 'compare');
   }
   // The latest of the chart's days before a day: what a comparison with a date begins on.
   const dayBefore = d => events.peek().map(e => e.day).filter(x => x < d).at(-1) ?? d;
@@ -169,10 +178,12 @@ const Time = (() => {
   }
   const chartShown = () => App.views.peek().find(x => x.id === Shell.view.peek())?.layout === 'chart', free = () => chartShown() && !App.readOnly.peek(), whyNotChart = () => App.readOnly.peek() ? App.whyNot() : 'Show a chart first';
   Shell.register('action', { id: 'view.step', name: 'Next step…', names: ['Step', 'Step plan', 'New step', 'Add step', 'Compare'], enabled: free, why: whyNotChart, run: () => nextStep() });
-  const COMPARE = ['Changes', 'Compare', 'Highlight', 'What changed', 'Mark changes', 'Redline'];
-  Shell.register('action', { id: 'view.changes', name: 'Show changes since the page before', names: COMPARE, enabled: free, why: whyNotChart, run: () => showChanges(Shell.view.peek(), { page: true }) });
-  Shell.register('action', { id: 'view.changes.since', name: 'Show changes since a date', names: COMPARE, enabled: free, why: whyNotChart, run: () => { Shell.select([]); Shell.showPanel(); showChanges(Shell.view.peek(), { since: dayBefore(App.day.peek()) }); } });
-  Shell.register('action', { id: 'view.changes.off', name: 'Hide changes', names: COMPARE, enabled: () => free() && !!App.views.peek().find(x => x.id === Shell.view.peek())?.changes, why: () => 'This page isn’t showing changes', run: () => showChanges(Shell.view.peek(), null) });
+  const COMPARE = ['Changes', 'Compare', 'Highlight', 'What changed', 'Mark changes', 'Redline', 'Compare dates', 'Difference', 'What’s different'];
+  // (They only look, so Viewing asks them too.)
+  const lookFree = () => chartShown() && App.canAsk(), whyNotLook = () => App.canAsk() ? 'Show a chart first' : App.whyNot();
+  Shell.register('action', { id: 'view.changes', name: 'Show changes since the page before', names: COMPARE, enabled: lookFree, why: whyNotLook, run: () => showChanges(Shell.view.peek(), { page: true }) });
+  Shell.register('action', { id: 'view.changes.since', name: 'Show changes since a date', names: COMPARE, enabled: lookFree, why: whyNotLook, run: () => { Shell.select([]); Shell.showPanel(); showChanges(Shell.view.peek(), { since: dayBefore(App.day.peek()) }); } });
+  Shell.register('action', { id: 'view.changes.off', name: 'Hide changes', names: COMPARE, enabled: () => lookFree() && !!App.views.peek().find(x => x.id === Shell.view.peek())?.changes, why: () => 'This page isn’t showing changes', run: () => showChanges(Shell.view.peek(), null) });
 
   // ---- The date control: today, or a day from a calendar beside the chart's own days ----
   const opened = signal(false);
@@ -1133,8 +1144,9 @@ const Time = (() => {
   // ---- The past looks past: a band across the view, saying the moment shown, and the way back ----
   function Band() {
     const t = Shell.time.value;
-    // A look at another day on a page that keeps one, said where the eye is, as the date control says it.
-    if (looking()) {
+    // A look at another day on a page that keeps one, said where the eye is, as the date control says it. (A what-if's own day
+    // its bar says.)
+    if (looking() && !App.ownDay.value) {
       const v = App.views.value.find(x => x.id === Shell.view.value), can = !App.readOnly.value;
       return html`<div class="pastband" role="status"><span>${v.name} keeps ${short(v.keeps)}</span><button class="btn" disabled=${!can} title=${can ? null : App.whyNot()} onClick=${() => keep(v.id, App.day.peek())}>Keep this instead</button><button class="btn" onClick=${() => Shell.at({ asOf: v.keeps })}>Back</button></div>`;
     }
@@ -1164,5 +1176,5 @@ const Time = (() => {
     return it => !had.has(`${it.id}|${it.edge ?? ''}`);
   }
 
-  return { events, whose, describe, looked, keep, pageDay, nextStep, showChanges, dayBefore, ruleSince, newSinceToday, open: openHistory, of: ofRecords, ofRule, ruleLog, ask: c => ask([c, ...asked.filter(x => x !== c)]), close, act: actOf, barred, takenBy, go: c => { openHistory('all'); stand(c); } };
+  return { events, whose, describe, looked, keep, pageDay, nextStep, showChanges, keepChanges, dayBefore, ruleSince, newSinceToday, open: openHistory, of: ofRecords, ofRule, ruleLog, ask: c => ask([c, ...asked.filter(x => x !== c)]), close, act: actOf, barred, takenBy, go: c => { openHistory('all'); stand(c); } };
 })();

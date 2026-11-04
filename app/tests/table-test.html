@@ -262,7 +262,10 @@ async function historyChecks(ours, fund) {
   check('Viewing: said in the title bar, filled', switchBtn()?.textContent === 'Viewing' && !!$('.titlebar .mode.viewing') && App.readOnly.peek());
   const refused = App.change(tx => tx.update('fund_ein', { value: '92-5555555' })); await tick(60);
   check('… and nothing writes: a change, saying why', refused === null && N() === v0 && /^Viewing/.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
-  check('… one pending', (App.stage({ verb: 'Add', what: 'x', make: () => {} }), !App.pending.peek()));
+  App.stage({ verb: 'Add', what: 'x', make: () => {} });
+  const whatIf = App.commit(); await tick(80);
+  check('… one pending is a what-if: it’s redlined, and its commit makes nothing, saying what would', !!App.pending.peek() && whatIf === null && N() === v0 && $$('.toast span').some(t => /switch to Editing to make this/i.test(t.textContent)), $$('.toast span').map(t => t.textContent).join(' / '));
+  App.discard({ quiet: true });
   check('… Undo', (undo(), N() === v0));
   check('… and the rest of History', (App.reverse(ours[3].id), App.restore('gp_agent'), N() === v0));
   $('.titlebar .chartmenu').click(); await tick(60);
@@ -285,8 +288,10 @@ async function historyChecks(ours, fund) {
   item('Editing').click(); await tick(150);
   await listing();
   hiddenRow()?.querySelector('input').click(); await tick(250);
-  check('In Editing a column shown is the view’s, and logged', N() === v0 + 1 && !!col() && /^Showed Percentages In Range/.test(Time.describe(last())), Time.describe(last()));
-  undo(); await tick(150);
+  check('In Editing too a column shown is a look, in no log', N() === v0 && !!col() && /^Showed Percentages In Range/.test($$('.toast span').at(-1)?.textContent ?? ''), $$('.toast span').at(-1)?.textContent);
+  await listing();
+  hiddenRow()?.querySelector('input').click(); await tick(250);
+  Shell.closeAll(); await tick(40);
   Shell.show(wasView); await tick(150);
   switchBtn().click(); await tick(60);
   item('Open this chart in Viewing').click(); await tick(120);
@@ -397,18 +402,27 @@ async function run() {
     && vt.values.filter(x => x !== 'Blank').join() === offered('Vehicle Type').filter(o => vt.values.includes(o)).join() && vt.values.at(-1) === (vt.values.includes('Blank') ? 'Blank' : 'Third Party'), `${offered('Vehicle Type').join()} / ${offered('Entity Type').join()} / ${vt.values.join()}`);
   check('A heading’s filter is Excel’s: Find, Select all and a checkbox for each value; no field in the heading', vt.find && vt.all && !$$('.grid .tabulator-header-filter').length);
 
-  // Show/Hide on a column writes a Shown note in the view.
+  // Show/Hide on a column is a look, in no log, per view; Keep these makes it the view's.
   n0 = N();
   const jur = Table.model(ent).cols.find(c => c.title === 'Jurisdiction');
   Table.grid.getColumns().find(c => c.getDefinition().title === 'Jurisdiction').getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 600, clientY: 60 }));
   await tick();
   check('A heading’s menu sorts, hides, and lists the columns with ticks', !!item('Sort A to Z') && !!item('Hide column') && !!item('Columns'));
   item('Hide column').click(); await tick(100);
-  const shown = App.notes.peek().resolve('Shown', jur.pattern, ent);
-  check('Hide writes a Shown note in the view, as one change', N() === n0 + 1 && shown?.note.view === ent && shown.value === false);
+  check('Hide is a look: nothing logged, no step of Undo’s', N() === n0 && !App.notes.peek().resolve('Shown', jur.pattern, ent) && Table.look(ent).shown?.[jur.key] === false, JSON.stringify(Table.look(ent).shown));
   check('The column goes', !column('Jurisdiction'));
-  undo(); await tick(100);
-  check('Undo brings it back', !!column('Jurisdiction'));
+  $$('.toast button').find(b => b.textContent === 'Undo')?.click(); await tick(100);
+  check('Its toast’s Undo brings it back', !!column('Jurisdiction') && N() === n0);
+  // Kept, it's the view's, as one change, which Undo takes back.
+  { Table.grid.getColumns().find(c => c.getDefinition().title === 'Jurisdiction').getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 600, clientY: 60 })); await tick(); item('Hide column').click(); await tick(100);
+    $$('.tbar .btn').find(x => x.textContent === 'Columns').click(); await tick(60);
+    const keep = $('.cols .col-keep');
+    check('The Columns list offers to keep what’s shown here', !!keep && keep.textContent === 'Keep these', $('.cols .col-all')?.textContent);
+    keep?.click(); await tick(150); Shell.closeAll(); await tick(40);
+    const kept = App.notes.peek().resolve('Shown', jur.pattern, ent);
+    check('Keep these writes the Shown note in the view, as one change', N() === n0 + 1 && kept?.note.view === ent && kept.value === false && !Table.look(ent).shown && !column('Jurisdiction'), `${N() - n0} ${JSON.stringify(Table.look(ent).shown)}`);
+    undo(); await tick(150);
+    check('… which Undo takes back', !!column('Jurisdiction') && !App.notes.peek().resolve('Shown', jur.pattern, ent)); }
 
   // Editing in place, each edit one change.
   const halvard = named('Halvard Logistics Holdings, Inc.');
@@ -787,7 +801,7 @@ async function run() {
     Shell.closeAll(); await tick();
     const agents = () => (Tree.index(st()).entries.get(fund) ?? []).flatMap(e => (Tree.index(st()).relations.get(e) ?? []).filter(r => st()[r].args?.some(a => a.edge === 'Agent')));
     check('… shown, its cells are the names of the other side, as the record’s panel lists them', !!column('Registered Agents') && cellOf(fund, 'Registered Agents').getValue() === 'Wilmington Harbor Agent Services, LLC'
-      && agents().length === 1, cellOf(fund, 'Registered Agents')?.getValue());
+      && agents().length === 1, `${cellOf(fund, 'Registered Agents')?.getValue()} ${JSON.stringify(Table.look(ent).shown)} ${Table.grid.getColumns().map(c => c.getDefinition().title).slice(-3).join()} model:${ra()?.shown} ${Shell.view.peek() === ent} ${App.pending.peek()?.verb}`);
     // Typed into: a name the chart has, as people write it, or a new one; a change pending, as a paste is.
     const halvard = named('Halvard Logistics Holdings, Inc.');
     let n1 = N(), c = cellOf(halvard, 'Registered Agents');
@@ -822,8 +836,9 @@ async function run() {
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Registered Agents');
     check('… and exports as text', ws[XLSX.utils.encode_cell({ r: 1, c: j })]?.v === 'Registered Agents' && ws[XLSX.utils.encode_cell({ r: 2, c: j })]?.v === 'Seven Mile Corporate Services Ltd.', JSON.stringify(ws[XLSX.utils.encode_cell({ r: 2, c: j })]));
     tool('Clear filters').click(); await tick(100);
-    undo(); await tick(150); undo(); await tick(150);
-    check('Undone, Halvard has no agent and the column is hidden again', !cellOf(halvard, 'Name') || !column('Registered Agents'), !!column('Registered Agents'));
+    undo(); await tick(150);
+    tool('Columns').click(); await tick(60); $$('.cols .colrow').find(r => r.textContent.trim() === 'Registered Agents').querySelector('input').click(); await tick(250); Shell.closeAll(); await tick();
+    check('Undone, Halvard has no agent, and the column unticked is hidden again', !cellOf(halvard, 'Name') || !column('Registered Agents'), !!column('Registered Agents'));
   }
 
   // ---- A heading moved beside, into, out of and across the columns kept in view: it shows where it's dropped, and
@@ -940,8 +955,9 @@ async function run() {
     const sortsBy = $$('.float .menu-item').map(x => x.textContent.trim());
     Shell.closeAll(); await tick();
     check('… and so in the menus that list the columns shown', sortsBy.includes('Registered Office') && sortsBy.includes('Jurisdiction › File Number') && !sortsBy.includes('Jurisdiction › Registered Office'), sortsBy.slice(-4).join());
-    for (let i = 0; i < 4; i++) { undo(); await tick(200); }
-    check('… and hidden again, gone, the columns as they were', !column('Registered Office') && !column('File Number') && N() === nA + 20
+    for (let i = 0; i < 3; i++) { App.undoLook(); await tick(200); }
+    undo(); await tick(200);
+    check('… and hidden again, gone, the columns as they were', !column('Registered Office') && !column('File Number') && N() === nA + 14
       && titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date', `${titlesOf().slice(0, 6).join()} … ${titlesOf().slice(-3).join()}; ${N() - nA}`);
 
     // Imported, a name finds its row as people write it, but for case, spaces and punctuation.
@@ -1271,7 +1287,7 @@ async function run() {
   inRangeRow?.querySelector('input').click(); await tick(250); Shell.closeAll(); await tick();
   check('… unticked in Columns; ticked, it shows its heading and its boxes', unticked && !!column('Percentages In Range') && column('Percentages In Range').getElement().querySelector('.t')?.textContent === 'Percentages In Range'
     && checkCells().length > 0 && checkCells().every(e => e.querySelector('.tag')) && !checkCells().some(e => e.querySelector('.tag.no')), `${unticked} ${checkCells().length} ${checkCells().filter(e => e.querySelector('.tag.yes')).length}`);
-  undo(); await tick(200);
+  App.undoLook(); await tick(200);
   const errorsNow = () => Shell.parts.peek().attention.flatMap(a => a.items()).filter(i => i.kind === 'error').length, e0 = errorsNow();
   const usRow = Table.grid.getRows().find(r => r.getData()['f:@owner'] === 'U.S. Investors').getData().id;
   const usPct = (Tree.index(st()).entries.get(usRow) ?? []).find(e => st()[e].edge === 'Percentage');
@@ -1300,8 +1316,10 @@ async function run() {
   for (const it of Shell.parts.peek().attention.flatMap(a => a.items()).filter(i => i.kind === 'error')) { it.go(); await tick(40); if (Shell.selection.peek().join() === usRow) break; }
   offAsk();
   check('… and going to it selects what it’s at, asking why it fails', Shell.selection.peek().join() === usRow && st()[asked]?.edge === 'Percentages In Range' && st()[asked].tag === false, `${Shell.selection.peek().join()} ${asked}`);
-  Shell.select([]); undo(); await tick(150); undo(); await tick(150);
-  check('Undone, nothing fails, nothing is counted, and the check’s column goes', errorsNow() === e0 && !column('Percentages In Range'));
+  Shell.select([]); undo(); await tick(150);
+  $$('.tbar .btn').find(b => b.textContent === 'Columns').click(); await tick(60);
+  $$('.cols .colrow').find(r => r.textContent.trim() === 'Percentages In Range')?.querySelector('input').click(); await tick(250); Shell.closeAll(); await tick();
+  check('Undone, nothing fails, nothing is counted, and the check’s column, unticked, goes', errorsNow() === e0 && !column('Percentages In Range'));
 
   // A relation ruled out: a red ✗ in the margin, its words intact.
   await addTable('Relations', 'Signing Authority');
@@ -2096,7 +2114,7 @@ async function tablesG3() {
   let n = N();
   await listed(async () => { allBtn('Show all').click(); await tick(400); });
   const allCols = Table.model(v).cols.filter(c => c.pattern);
-  check('Show all shows every column, as one change', allCols.every(c => c.shown) && N() === n + 1 && /^Showed \d+ columns in /.test($('.toast span')?.textContent ?? ''), `${allCols.filter(c => !c.shown).map(c => c.title).join()} ${N() - n} ${$('.toast span')?.textContent}`);
+  check('Show all shows every column, a look, in no log', allCols.every(c => c.shown) && N() === n && /^Showed \d+ columns in /.test($('.toast span')?.textContent ?? ''), `${allCols.filter(c => !c.shown).map(c => c.title).join()} ${N() - n} ${$('.toast span')?.textContent}`);
   // Scrolled across, a column hidden before the edge moves nothing there; one hidden at the edge gives way to the next, clear of the frozen columns.
   const el = () => Table.grid.rowManager.element;   // the grid's as it's built again
   const h = { get scrollLeft() { return el().scrollLeft; }, set scrollLeft(x) { el().scrollLeft = x; }, get scrollTop() { return el().scrollTop; }, set scrollTop(x) { el().scrollTop = x; }, get clientWidth() { return el().clientWidth; } };
@@ -2111,21 +2129,21 @@ async function tablesG3() {
   await listed(async () => { allBtn('Hide all').click(); await tick(400); });
   check('Hide all hides every column but what names the rows', heads().join() === 'Name' && h.scrollLeft === 0, heads().join());
   check('… said in one toast, a count', /^Hid \d+ columns in /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
-  undo(); await tick(300); undo(); await tick(300); undo(); await tick(300);
-  check('… and each is one Undo', heads().includes('Tax Classification') && !heads().includes('Entity Type') && N() >= n, heads().join());
+  App.undoLook(); await tick(300); App.undoLook(); await tick(300); App.undoLook(); await tick(300);
+  check('… and each is one step back, in no log', heads().includes('Tax Classification') && !heads().includes('Entity Type') && N() === n, heads().join());
 
   // With something typed in its search, Show all and Hide all are of those it finds.
   await listed(async () => {
     const f = $('.cols .col-find'), find = async q => { f.value = q; f.dispatchEvent(new Event('input', { bubbles: true })); await tick(80); }, n1 = N();
     await find('Registration Number');
     allBtn('Show all').click(); await tick(400);
-    check('With a search typed, Show all shows what it finds, and no more', N() === n1 + 1 && heads().includes('Registration Number') && heads().length < 12, heads().join());
+    check('With a search typed, Show all shows what it finds, and no more', N() === n1 && heads().includes('Registration Number') && heads().length < 12, heads().join());
     allBtn('Hide all').click(); await tick(400);
-    check('… and Hide all hides it', N() === n1 + 2 && !heads().includes('Registration Number'), heads().join());
+    check('… and Hide all hides it', N() === n1 && !heads().includes('Registration Number'), heads().join());
     await find('annual tax');
     check('A list is found by what it holds as well as what it’s called', $$('.cols .colrow.mv').some(r => r.textContent.trim() === 'Taxed For'), $$('.cols .colrow.mv').map(r => r.textContent.trim()).join());
     await find('');
-    undo(); await tick(300); undo(); await tick(300);
+    App.undoLook(); await tick(300); App.undoLook(); await tick(300);
   });
   // A row of the list doesn't move as it's ticked; opened again, what's ticked is first.
   await listed(async () => {
@@ -2239,17 +2257,19 @@ async function tablesG3() {
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Why');
     const i = Table.grid.getRows('active').findIndex(r => r.getData().id === row.id);
     check('… and it exports, whole', ws[XLSX.utils.encode_cell({ r: 1, c: j })]?.v === 'Why' && ws[XLSX.utils.encode_cell({ r: i + 2, c: j })]?.v === reason, ws[XLSX.utils.encode_cell({ r: i + 2, c: j })]?.v);
-    check('… and History says it as a column', Time.describe(last()) === `Showed Why in ${views().find(x => x.id === Shell.view.peek()).name}`, Time.describe(last()));
     const bdc = named('Calder Ridge Capital BDC, Inc.'), s = st(), close = Object.keys(s).find(id => s[id].args?.some(a => a.edge === 'BDC') && s[id].args.some(a => a.edge === 'Close Affiliate'));
     n = N();
     Table.openList('Close Affiliates', close, bdc); await tick(400);
     const nClose = Object.keys(s).filter(id => s[id].args?.some(a => a.edge === 'Close Affiliate') && s[id].tag !== false).length;
-    check('A computed list opens as a table of its rows, each with why, as one change', N() === n + 1 && views().find(x => x.id === Shell.view.peek()).name === 'Close Affiliates' && heads().includes('Why') && Table.grid.getRows('active').length === nClose && !!Table.grid.getRows('active')[0].getData()[f], `${N() - n} ${heads().join()} ${Table.grid.getRows('active').length}/${nClose}`);
+    check('A computed list opens as a table of its rows, each with why, a look: a tab of this window, nothing logged', N() === n && views().find(x => x.id === Shell.view.peek()).name === 'Close Affiliates' && views().find(x => x.id === Shell.view.peek()).look && heads().includes('Why') && Table.grid.getRows('active').length === nClose && !!Table.grid.getRows('active')[0].getData()[f], `${N() - n} ${heads().join()} ${Table.grid.getRows('active').length}/${nClose}`);
     const again = Shell.view.peek();
+    check('… said by a band, with Keep and Close, its tab’s menu the same', /Close Affiliates is only in this window/.test($('.lookband')?.textContent ?? '') && $$('.lookband .btn').map(b => b.textContent).join() === 'Keep,Close', $('.lookband')?.textContent);
     Shell.show(views()[0].id); await tick(150);
     Table.openList('Close Affiliates', close, bdc); await tick(300);
-    check('… and again, the table the chart has', Shell.view.peek() === again && N() === n + 1);
-    undo(); await tick(200);
+    check('… and again, the one it opened', Shell.view.peek() === again && N() === n);
+    $$('.lookband .btn').find(b => b.textContent === 'Keep').click(); await tick(300);
+    check('Keep makes it the chart’s, as one change, the same table', N() === n + 1 && Shell.view.peek() === again && !views().find(x => x.id === again).look && !$('.lookband') && heads().includes('Why'), `${N() - n} ${views().find(x => x.id === again)?.look}`);
+    undo(); await tick(300);
     Shell.show(v); await tick(200);
   }
 
@@ -2272,7 +2292,7 @@ async function tablesG3() {
     Shell.closeAll(); await tick();
     check('… and no editor', !col.getDefinition().editor);
     check('… and nothing but the column is logged', N() === n1);
-    undo(); await tick(200); undo(); await tick(300);
+    undo(); await tick(300);
     Shell.show(v); await tick(200);
   }
   // No traps: a side takes only some kinds, and a name of another kind says so, never offering a new record of the wrong sort.
@@ -2314,12 +2334,21 @@ async function tablesG3() {
     await listed(async () => { allBtn('Show all').click(); await tick(400); });
     check('… and Show all', N() === n1 && Table.model(v).cols.filter(c => c.pattern).every(c => c.shown), Table.model(v).cols.filter(c => c.pattern && !c.shown).map(c => c.title).join());
     const s = st(), bdc = named('Calder Ridge Capital BDC, Inc.'), close = Object.keys(s).find(id => s[id].args?.some(a => a.edge === 'BDC') && s[id].args.some(a => a.edge === 'Close Affiliate'));
-    Table.openList('Close Affiliates', close, bdc); await tick(200);
-    check('… and a computed list with no table yet says why it can’t open, making none', N() === n1 && Shell.view.peek() === v && /^Viewing/.test($$('.toast span').at(-1)?.textContent ?? ''), $$('.toast span').at(-1)?.textContent);
+    Table.openList('Close Affiliates', close, bdc); await tick(300);
+    check('… and a computed list with no table yet opens, for this window, nothing made', N() === n1 && views().find(x => x.id === Shell.view.peek())?.look && Shell.view.peek() !== v, Shell.view.peek());
+    const opened = Shell.view.peek();
+    check('… its Keep grey, saying what to do', $$('.lookband .btn').find(b => b.textContent === 'Keep')?.getAttribute('aria-disabled') === 'true');
+    $$('.lookband .btn').find(b => b.textContent === 'Close').click(); await tick(200);
+    check('… and Close takes it away, leaving nothing', !views().some(x => x.id === opened) && N() === n1);
+    Shell.show(v); await tick(150);
     $('.foot > .btn.icon[aria-label="New view"]').click(); await tick(80);
-    check('… and so does a new view: no list to pick from, and nothing made', N() === n1 && !$('.float .menu') && /^Viewing/.test($$('.toast span').at(-1)?.textContent ?? '') && /^Viewing/.test($('.foot > .btn.icon[aria-label="New view"]').dataset.tip), $('.foot > .btn.icon[aria-label="New view"]').dataset.tip);
+    check('… and a new view is a table to read, a chart not offered', N() === n1 && !!$('.float .menu') && item('Chart')?.getAttribute('aria-disabled') === 'true', $('.float .menu')?.textContent.slice(0, 60));
+    Shell.closeAll(); await tick(40);
+    // (A look goes where the window goes: back in Editing it's as it was left.)
     mode().click(); await tick(60); item('Editing').click(); await tick(250);
-    check('Back to Editing, the view’s columns are as they were', heads().join() === before, heads().join());
+    await listed(async () => { allBtn('Hide all').click(); await tick(200); });
+    for (const k of before.split(',').filter(x => x !== 'Name')) { const c = Table.model(v).cols.find(y => y.title === k); if (c) { await listed(async () => { $$('.cols .colrow').find(r => r.textContent.trim().endsWith(k))?.querySelector('input').click(); await tick(120); }); } }
+    check('Back to Editing, the columns are as the window left them, in no log', N() === n1, `${N() - n1}`);
   }
 }
 
@@ -2404,8 +2433,8 @@ async function tablesAsk() {
   Shell.find('file number'); await tick(200);
   check('Find reaches a column by its name', /Jurisdiction › File Number/.test($('.findpal .menu-item .label')?.textContent) && $('.findpal .menu-head')?.textContent === 'Columns', $('.findpal')?.textContent.slice(0, 120));
   $('.findpal .menu-item').click(); await tick(500);
-  check('… Enter shows it, and goes to its cell at the record selected', !!column('File Number') && active()?.column.getDefinition().title === 'File Number' && active()?.row.getData().id === fundId && N() === n4 + 1, `${active()?.column.getDefinition().title} ${active()?.row.getData().id} ${N() - n4}`);
-  undo(); await tick(200);
+  check('… Enter shows it, and goes to its cell at the record selected', !!column('File Number') && active()?.column.getDefinition().title === 'File Number' && active()?.row.getData().id === fundId && N() === n4, `${active()?.column.getDefinition().title} ${active()?.row.getData().id} ${N() - n4}`);
+  App.undoLook(); await tick(200);
   Shell.find('annual tax fund iii blocker'); await tick(200);
   const dated = $('.findpal .menu-item .label')?.textContent;
   check('Find reaches a date by what it is and whose', /^Annual Tax .* · Fund III Blocker, tax year/.test(dated) && $('.findpal .menu-head')?.textContent === 'Dates', dated);

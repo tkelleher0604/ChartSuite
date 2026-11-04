@@ -1268,6 +1268,7 @@ async function run() {
   await onlyThese();
   await aidsAndTurns();
   await inViewing();
+  await readingOnly();
   await insertHolds();
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
@@ -1675,7 +1676,13 @@ async function onlyThese() {
   const find = Shell.parts.peek().action.find(a => a.id === 'chart.only');
   check('Show only these is in Find, by Hide the rest too', !!find?.enabled() && find.names.includes('Hide the rest'), JSON.stringify(find?.names));
   find.run(); await tick(450);
-  check('Show only these hides the rest of that view, in one change, saying so with Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 + 1 && /^Showing only these 3 boxes in Only/.test(txt($$('.toast').at(-1))) && /Undo/.test(txt($$('.toast').at(-1))), `${boxes()} | ${txt($$('.toast').at(-1))}`);
+  const band = () => $('.lookband'), bandBtn = w => $$('.lookband .btn').find(b => txt(b) === w);
+  check('Show only these is a look: the rest off the page, nothing logged, a band saying how many, with Show all and Keep', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 && new RegExp(`^Showing 3 of ${all.length}`).test(txt(band())) && !!bandBtn('Show all') && !!bandBtn('Keep'), `${boxes()} | ${txt(band())}`);
+  bandBtn('Show all').click(); await tick(450);
+  check('Show all returns to what the page had, nothing logged, the band gone', JSON.stringify(boxes()) === JSON.stringify(all) && App.wb.changes().length === n0 && !band(), `${boxes()}`);
+  Shell.select(keep); await tick(200); find.run(); await tick(450);
+  bandBtn('Keep').click(); await tick(450);
+  check('Keep makes it the page’s, in one change, said so, with Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 + 1 && !band() && /^Hid \d+ boxes in Only/.test(txt($$('.toast').at(-1))) && /Undo/.test(txt($$('.toast').at(-1))), `${boxes()} | ${txt($$('.toast').at(-1))}`);
   Shell.select([]); await tick(250);
   const row = id => $$('.insp .hiddenrow').find(r => txt(r).startsWith(App.notes.peek().nameOf(App.state.peek(), id)));
   const hid = all.find(id => !keep.includes(id)), r0 = row(hid), y0 = r0?.getBoundingClientRect().top;
@@ -1770,22 +1777,104 @@ async function inViewing() {
   const only = Shell.parts.peek().action.find(x => x.id === 'chart.only');
   check('Viewing, Show only these can be asked', !!only.enabled(), only.why());
   only.run(); await tick(400);
-  check('… hides the rest for the session, in no log, saying so without an Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 && /^Showing only these 3 boxes/.test(last()) && !/Undo/.test(last()), `${boxes()} | ${last()}`);
+  const band = () => $('.lookband'), bandBtn = w => $$('.lookband .btn').find(b => txt(b) === w), undoNow = () => Shell.parts.peek().undo;
+  check('… hides the rest as a look, in no log, a band saying so with its way back, Keep grey in Viewing', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 && new RegExp(`^Showing 3 of ${all.length}`).test(txt(band())) && bandBtn('Keep')?.getAttribute('aria-disabled') === 'true', `${boxes()} | ${txt(band())}`);
   check('… what\'s left standing where it stood, the page as it was', at() === stood && JSON.stringify([sc().page.w, sc().page.h, sc().page.scale]) === page0, `${at()} vs ${stood}`);
+  check('… and Undo can be asked, of looks', undoNow().canUndo(), '');
+  undoNow().undo(); await tick(400);
+  check('Viewing, Undo takes a look back, in no log', JSON.stringify(boxes()) === JSON.stringify(all) && App.wb.changes().length === n0 && /^Undid: /.test(last()), `${boxes()} | ${last()}`);
+  undoNow().redo(); await tick(400);
+  check('… and Redo puts it back', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0, boxes().join());
+  bandBtn('Show all').click(); await tick(400);
+  check('… Show all, what the page had', JSON.stringify(boxes()) === JSON.stringify(all) && !band() && App.wb.changes().length === n0, boxes().join());
   Shell.select([]); await tick(250);
   const row = id => $$('.insp .hiddenrow').find(r => txt(r).startsWith(App.notes.peek().nameOf(App.state.peek(), id)));
-  const off = all.find(id => !keep.includes(id));
-  check('… and the Hidden list has the rest, its ticks live', !!row(off) && !row(off).querySelector('input').disabled && !row(off).querySelector('input').checked, `${!!row(off)}`);
-  row(off)?.querySelector('input').click(); await tick(350);
-  check('a box ticked on comes back, in no log', boxes().includes(off) && App.wb.changes().length === n0 && !!row(off)?.querySelector('input').checked, boxes().join());
   const hideAll = $$('.insp .hidden-acts button').find(b => txt(b) === 'Hide all');
   hideAll?.click(); await tick(400);
   check('Viewing, Hide all hides every box, in no log', !!hideAll && !boxes().length && App.wb.changes().length === n0, boxes().join());
-  $$('.insp .hidden-acts button').find(b => txt(b) === 'Show all')?.click(); await tick(450);
-  check('… and Show all brings every one back', all.every(id => boxes().includes(id)) && App.wb.changes().length === n0, boxes().join());
+  const off = all[0];
+  check('… and the Hidden list has them, its ticks live', !!row(off) && !row(off).querySelector('input').disabled && !row(off).querySelector('input').checked, `${!!row(off)}`);
+  row(off)?.querySelector('input').click(); await tick(350);
+  check('a box ticked on comes back, in no log', boxes().includes(off) && App.wb.changes().length === n0 && !!row(off)?.querySelector('input').checked, boxes().join());
+  $$('.insp .hidden-acts button').find(b => txt(b) === 'Show these')?.click(); await tick(450);
+  check('… and Show these brings every one back', all.every(id => boxes().includes(id)) && App.wb.changes().length === n0, boxes().join());
+  App.showAll('view_main'); await tick(350);
+  // A look isn't the mode's: back in Editing it's as it was, its band saying so, and nothing's written.
   Shell.select(keep); await tick(200); only.run(); await tick(350);
   App.setViewing(false); await tick(350);
-  check('back in Editing the chart is as it was, nothing having been written', JSON.stringify(boxes()) === JSON.stringify(all) && App.wb.changes().length === n0, boxes().join());
+  check('back in Editing the look stands, said by its band, nothing having been written', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && !!band() && App.wb.changes().length === n0, boxes().join());
+  App.showAll('view_main'); await tick(350);
+  check('… and it goes as it came', JSON.stringify(boxes()) === JSON.stringify(all) && App.wb.changes().length === n0, boxes().join());
+  Shell.select([]); await tick(150);
+}
+// ---- Reading (dendra.md, Workbook): a chart filtered by what it knows; what's lit is what's meant; comparing is looking; a what-if in Viewing, at its own day ----
+async function readingOnly() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(200);
+  const view = 'view_main', boxes = () => sc().marks.filter(m => m.type === 'box' && !m.revealed).map(m => m.id).sort(), all = boxes(), n0 = App.wb.changes().length, st = () => App.state.peek();
+  const band = () => $('.lookband');
+  App.setViewing(true); await tick(250);
+  // Filter…: its fields, the kind first; its values, ticked, with how many.
+  cv().filter(); await tick(150);
+  const fields = menuItems();
+  check('Filter… on a chart lists what a box knows, its kind first, then its choices', fields[0] === 'Kind' && fields.includes('Jurisdiction') && fields.indexOf('Jurisdiction') < fields.indexOf('Name'), fields.slice(0, 6).join());
+  [...document.querySelectorAll('.float .menu-item')].find(x => txt(x) === 'Jurisdiction').click(); await tick(150);
+  const vals = $$('.tfilter .tf-row:not(.all) .v').map(txt), delaware = all.filter(id => App.valueAt(st(), sc().byId.get(id).record, 'Jurisdiction') === 'Delaware');
+  check('… by the same control as a table’s: a search, Select all, a tick for each value with how many', !!$('.tfilter .tf-find') && !!$('.tfilter .tf-row.all') && vals.includes('Delaware') && +$$('.tfilter .tf-row').find(r => txt(r.querySelector('.v')) === 'Delaware').querySelector('.n').textContent === delaware.length, vals.join());
+  const flipped = $$('.tfilter .tf-row.all input')[0]; flipped.click(); await tick(100);
+  $$('.tfilter .tf-row').find(r => txt(r.querySelector('.v')) === 'Delaware').querySelector('input').click(); await tick(300);
+  $$('.tfilter .btn.primary')[0].click(); await tick(300);
+  check('Filtered, it shows those alone, in no log, the band saying how many and by what', JSON.stringify(boxes()) === JSON.stringify([...delaware].sort()) && App.wb.changes().length === n0 && new RegExp(`^Showing ${delaware.length} of ${all.length} · Jurisdiction: Delaware`).test(txt(band())), `${boxes().length} ${txt(band())}`);
+  const said = App.lookWordsOf(view).join();
+  check('… and Show all, nothing that was never on it added', (App.showAll(view), true) && said === 'Jurisdiction: Delaware', said);
+  await tick(350);
+  check('… back as it was', JSON.stringify(boxes()) === JSON.stringify(all) && !band(), boxes().length);
+  // What's lit: a group chosen for a box selected, and a Styles row aimed at.
+  const rows = () => Scene.groupsOf(App.notes.peek(), view), funds = rows().find(g => g.caption === 'Funds');
+  Shell.select([]); await tick(150);
+  FormatBar.aim(funds); await tick(200);
+  const lit = FormatBar.lit();
+  check('A Styles row aimed at is lit, and what comes next takes it', !!lit && lit.marks.size > 1 && cv().canShowOnly(), `${lit?.marks.size}`);
+  cv().selectLike(); await tick(250);
+  check('Select all like this takes what’s lit', JSON.stringify(Shell.selection.peek().slice().sort()) === JSON.stringify([...lit.marks].sort()), Shell.selection.peek().join());
+  { const said = txt($('[data-fb="scope"]') ?? document.body), [, a] = /These (\d+) boxes/.exec(said) ?? [], [, b] = /All (\d+)/.exec(said) ?? [];
+    check('… and the scope’s two counts agree', !!a && a === b && +a === lit.marks.size, said); }
+  Shell.select([]); await tick(150);
+  FormatBar.aim(funds); await tick(200);
+  const n1 = lit.marks.size;
+  cv().showOnly(); await tick(400);
+  check('Show only these takes it too: the two counts one', boxes().length === n1 && new RegExp(`^Showing ${n1} of ${all.length}`).test(txt(band())) && App.wb.changes().length === n0, `${boxes().length} ${n1} ${txt(band())}`);
+  App.showAll(view); await tick(350);
+  // Comparing is looking: in Viewing, in no log; said by name in the panel.
+  Time.showChanges(view, { since: '2025-01-01' }); await tick(500);
+  check('Comparing with a date, in Viewing: marks drawn, in no log', sc().marks.some(m => m.change) && App.wb.changes().length === n0 && !!App.views.peek().find(v => v.id === view).changes?.since, `${sc().marks.filter(m => m.change).length}`);
+  Shell.select([]); await tick(200);
+  check('… what it marks listed by name in the panel, and Keep there, grey', $$('.insp .row.marked').length > 0 && $('.insp .keeps')?.getAttribute('aria-disabled') === 'true', txt($('.insp .rows') ?? document.body).slice(0, 120));
+  App.setViewing(false); await tick(300);
+  check('… nothing to History, no step from an edit', App.wb.changes().length === n0 && !Shell.parts.peek().undo.steps().some(s => /Changes|Reordered/.test(s) && /Changed|Reordered/.test(s)), Shell.parts.peek().undo.steps().slice(0, 2).join(' / '));
+  $('.insp .keeps').click(); await tick(500);
+  const kept = App.wb.changes().at(-1);
+  check('Keep makes it the page’s, one change, in words', App.wb.changes().length === n0 + 1 && !App.lookOf(view)?.compare && Time.describe(kept) === 'Showed the changes since Jan 1, 2025 in Structure' && !!App.views.peek().find(v => v.id === view).changes?.since, Time.describe(kept));
+  Shell.parts.peek().undo.undo(); await tick(500);
+  Time.showChanges(view, null); await tick(400);
+  check('… Undo takes it back', !App.views.peek().find(v => v.id === view).changes, '');
+  App.setViewing(true); await tick(250);
+  // A what-if: in Viewing, redlined in full, its verb what makes it; at its own day; back on Discard.
+  const n2 = App.wb.changes().length, line = sc().marks.find(m => m.type === 'line' && App.transferable(m.record) && App.transferable(m.record).amount);
+  Shell.select([line.id]); await tick(250);
+  const end = Shell.parts.peek().action.find(a => a.id === 'record.delete');
+  check('Viewing, End… can be asked, by What if too', end.enabled() && end.names.includes('What if'), end.why());
+  end.run(); await tick(450);
+  check('… a change pending, redlined in full, its verb saying what makes it, and no Why', !!$('.pendbar') && /Switch to Editing to make this/.test(txt($('.pendbar'))) && !$('.pendbar .btn.primary') && !$('.pendbar .why-add') && FormulaBar.pending.peek()?.from === 'pending', txt($('.pendbar')));
+  const before = FormulaBar.pending.peek()?.deltas?.length;
+  App.commit(); await tick(150);
+  check('… Enter makes nothing, and says what would', App.wb.changes().length === n2 && !!App.pending.peek() && /switch to Editing to make this/i.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  const d = '2038-03-05', p = App.pending.peek();
+  App.amendPending(p, { day: d }); await tick(700);
+  check('A day past the day shown: the chart goes there, for as long as it’s pending, and its bar says so', App.day.peek() === d && App.ownDay.peek()?.at === d && /Shown as of Mar 5, 2038/.test(txt($('.pendbar'))), `${App.day.peek()} ${txt($('.pendbar'))}`);
+  check('… the statement still there', !!FormulaBar.pending.peek()?.R2 && (FormulaBar.pending.peek()?.diff.go.length ?? 0) > 0, `${FormulaBar.pending.peek()?.diff.go.length}`);
+  App.discard(); await tick(500);
+  check('… and on Discard the chart goes back, nothing made', App.day.peek() === Log.today() && !Shell.time.peek() && !App.ownDay.peek() && App.wb.changes().length === n2, `${App.day.peek()}`);
+  App.setViewing(false); await tick(300);
   Shell.select([]); await tick(150);
 }
 

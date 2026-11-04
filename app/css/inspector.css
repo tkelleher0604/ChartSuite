@@ -25,10 +25,19 @@
 /* A long panel's strip, sticky at its top: its sections, a click from each, Look and Position always in view at its end. */
 .strip { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 12px; padding: 0 20px; height: 28px; border-bottom: 1px solid var(--rule); background: var(--surface); font: var(--t12); color: var(--ink-2); }
 .strip.none { display: none; }
-.strip > .names { flex: 1; min-width: 0; display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); }
+.strip > .names { flex: 1; min-width: 0; display: flex; gap: 12px; padding-block: 6px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); }
+.row.rel[style*="--nest"] > .k { padding-left: calc(var(--nest) * 14px); }
 .strip > .pinned { flex: none; display: flex; gap: 12px; padding-left: 12px; border-left: 1px solid var(--rule); }
 .strip .lk { color: inherit; white-space: nowrap; cursor: pointer; }
 .strip .lk:hover { color: var(--ink); }
+.strip .lk.on { color: var(--ink); text-decoration: underline 2px var(--accent); text-underline-offset: 4px; }
+/* A list a formula could give and gives none of, saying so, with who could be on it. */
+.insp section.none-list { display: flex; align-items: baseline; gap: 8px; min-height: 36px; padding: 8px 20px; border-top: 1px solid var(--rule); color: var(--ink-2); }
+.insp section.none-list > * { min-width: auto; }
+.none-list > .nm { font: var(--t12); font-weight: 600; color: var(--ink-2); }
+.none-list > .val { color: var(--ink-3); }
+.none-list > .why-isnt { margin-left: auto; color: var(--ink-2); cursor: pointer; }
+.strip > .strip-more { flex: none; width: 20px; height: 20px; margin-left: -8px; }
 .insp > section { scroll-margin-top: 28px; }
 .ih-title { display: block; font: var(--t15); overflow-wrap: anywhere; text-wrap: balance; }
 .ih-title > .and { font-weight: 400; color: var(--ink-3); }
@@ -208,6 +217,7 @@ section.open > :last-child { margin-bottom: 8px; }
 /* A relative: its name in ink, taking the room, and its role or figure set at the right; beneath, its facts;
    the document evidencing it, to open. */
 .row.rel { grid-template-columns: minmax(0, 1fr) fit-content(50%); }
+.row.rel { cursor: pointer; }
 .row.rel > .k { color: var(--ink); }
 /* Each says it's a link: a pointer and an underline; a tooltip says where. */
 .row.rel .lk, .doc .lk { cursor: pointer; }
@@ -325,13 +335,8 @@ svg.sw.off { opacity: .35; }
 .rr.adding > .form > :is(.cell, .side) { color: var(--accent-ink); }
 .rr.going > .nm, .rr.going > .val { color: var(--no); text-decoration: line-through; }
 .rr > .when { grid-column: 2 / -1; padding-bottom: 4px; }
-/* A relation ticked or unticked here, pending: confirmed under its row, its day, Discard and its verb (App.Asking). */
-.rr > .ask { grid-column: 2 / -1; padding: 2px 0 10px; }
-.rr:has(> .ask):hover { background-image: none; }
 /* A record that starts after the day shown: when, and the way to the chart then. */
 .insp > .later { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 12px 20px; color: var(--ink-2); }
-/* A record being deleted or transferred: asked atop its panel, as in the bar. */
-.insp > .asking { padding: 12px 20px; border-bottom: 1px solid var(--rule); background: var(--paper); }
 .addrow .k.wide:has(> .add-entry + .add-entry) { display: flex; gap: 12px; }
 
 
@@ -399,3 +404,6 @@ button.st-n:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* A new relation's roles, each a field that looks one, under what it's said of. */
 .rr.new > .form > .cell.role { border-color: var(--rule-2); background: var(--surface); }
 .rr.new > .form > .role-shared { grid-column: 1 / -1; font: var(--t12); color: var(--due); }
+/* What a chart's compared with, kept or not, and what that marks, by name. */
+.row .v.ctl > .keeps { flex: none; margin: 0 auto 0 8px; height: 24px; padding: 0 8px; }
+.row.marked > .v { display: block; line-height: var(--row); white-space: normal; }
