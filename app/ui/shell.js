@@ -80,7 +80,7 @@
 // shown, not chosen, and one with point(on) shows what it would do while it's pointed at or reached by the keys; `tip`, its
 // tooltip, says why one is disabled.
 //
-// THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the inspector and the tabs
+// THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the bar a change pending has, the inspector and the tabs
 // (data-region). Tab stays inside a dialog, a popover and the tour's last card, and Tab leaves a menu.
 
 const Shell = (() => {
@@ -228,13 +228,16 @@ const Shell = (() => {
   const TABBABLE = ['a[href]', 'button:not(:disabled)', 'input:not(:disabled)', 'select:not(:disabled)', 'textarea:not(:disabled)', '[tabindex]', '[contenteditable="true"]'].map(s => s + ':not([tabindex="-1"])').join(', ');
   const shown = el => el.getClientRects().length > 0;
   const tabbables = box => [...box.querySelectorAll(TABBABLE)].filter(shown);
-  const REGIONS = ['bars', 'view', 'inspector', 'tabs'], lastIn = {};
+  const REGIONS = ['bars', 'view', 'bar', 'inspector', 'tabs'], lastIn = {};
   document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) lastIn[r.dataset.region] = e.target; });
   const els = n => [...document.querySelectorAll(`[data-region="${n}"]`)].filter(shown);
   // A region given the keys: the view's part, where it takes them itself (a table, at its active cell, as a sheet
   // shown in Excel does); else where it last had them, or else its first control, or itself.
   function enter(n) {
     if (n === 'view' && part(current.peek()?.layout ?? 'chart')?.focus?.()) return;
+    // The window's bar, under the view while a change is pending: at the day it asks, selected, to type over.
+    const day = n === 'bar' && els(n)[0]?.querySelector('.when input');
+    if (day) { day.focus(); day.select(); return; }
     const last = lastIn[n];
     (last?.isConnected && shown(last) && !last.disabled ? last : els(n).map(el => tabbables(el)[0]).find(Boolean) ?? els(n)[0])?.focus();
   }
