@@ -931,11 +931,19 @@ async function ruleChecks() {
   // What History says of a rule's change: the same words
   const sayingA = R(), s = FormulaBar.saying(sayingA, sayingA, App.notes.peek(), App.notes.peek());
   check('what a change did is said in the preview’s words', s.said === 'No conclusions change' && !s.which.length, JSON.stringify(s));
-  // A check that no longer fails, or newly does, is an error gone or come, as the status bar counts it: no "No conclusions change" beside "errors 10 → 5".
+  // A check that no longer fails, or newly does, is an error gone or come, as the status bar counts it: History's status line says so, and no "No conclusions change" beside it.
   const Nn = App.notes.peek(), failingId = Object.keys(sayingA.records).find(id => sayingA.records[id].tag === false && Nn.check(Tree.treeOf(sayingA.records, id))), { [failingId]: _r, ...fewer } = sayingA.records, { [failingId]: _c, ...fewerC } = sayingA.computed, passed = { ...sayingA, records: fewer, computed: fewerC };
   const clearedS = FormulaBar.saying(sayingA, passed, Nn, Nn), failedS = FormulaBar.saying(passed, sayingA, Nn, Nn);
-  check('a check no longer failing is an error taken away, by name', /^Takes away 1 error/.test(clearedS.said) && clearedS.which[0]?.names[0]?.endsWith(' fails'), JSON.stringify(clearedS));
-  check('… and one newly failing, an error added', /^Adds 1 error/.test(failedS.said), failedS.said);
+  check('of a check that no longer fails, or newly does, History never says no conclusions change', clearedS.said === '' && !clearedS.which.length && failedS.said === '', JSON.stringify([clearedS, failedS]));
+  // … and the preview, with no status line beside it, counts it as an error.
+  Shell.select([failingId]); await wait(40); await openRows();
+  if (document.querySelector('.fx-show')?.textContent === 'Show the formula') { document.querySelector('.fx-show').click(); await wait(60); }
+  document.querySelector('.fxbar .fx-pencil')?.click(); await wait(40);
+  const firstRow = document.querySelector('.fxbar .fx-row')?.dataset.key, firstCm = cmOf(firstRow);
+  firstCm.replaceRange('← 1 = 1', { line: 0, ch: 0 }, { line: firstCm.lineCount(), ch: 0 }, '+input'); await wait(80);
+  check('a rule’s edit that clears a failing check says how many errors go', /takes away \d+ errors?/i.test(delta()), delta());
+  FormulaBar.discard(); await wait(30);
+  if (FormulaBar.open.peek()) { document.querySelector('.fx-open').click(); await wait(20); }
 }
 
 (async () => {

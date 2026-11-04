@@ -1368,8 +1368,9 @@ const FormulaBar = (() => {
     const was = Formulas.broken(A).roots, now = Formulas.broken(B).roots, broke = now.filter(r => !was.some(x => x.def === r.def)), mended = was.filter(r => !now.some(x => x.def === r.def));
     if (broke.length) return { said: `It doesn’t work: ${broke[0].problems[0]}`, which: [] };
     if (mended.length) return { said: `${mended[0].name} works again`, which: [] };
-    const ds = deltasOf(Formulas.diff(A, B), A, B, NA, NB);
-    return { said: deltaWords(ds), which: ds.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => ({ said: `${verb} ${countedOf(x[k], x.def, x.of[k])}`, names: x.of[k].map(o => o.say) }))) };
+    // (Errors, its status line says, and what they were it opens to: so here only what else it concluded, or nothing, where errors are all it moved.)
+    const all = deltasOf(Formulas.diff(A, B), A, B, NA, NB), ds = all.filter(x => x.name !== 'error');
+    return { said: ds.length || !all.length ? deltaWords(ds) : '', which: ds.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => ({ said: `${verb} ${countedOf(x[k], x.def, x.of[k])}`, names: x.of[k].map(o => o.say) }))) };
   }
   // What a change pending leaves as it was, said in black where it takes something away: of the first definition of a
   // relation it takes from that reads as a holding (Control, not an Affiliated Person, a role), who holds what it's about
