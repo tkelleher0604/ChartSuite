@@ -17,6 +17,8 @@ Graph.registerConnector('runs', (s, t, route, { runs }) => runs.map(r => r.map((
 
 const active = signal(null);
 const zoomLevel = signal(1);
+// What helps a hand place things, the session's, in no log: gridlines, snapping to them, and rulers.
+const aids = signal({ grid: false, snap: false, rulers: false });
 // The field pointed at or selected on the chart, by its row's key in the inspector, which lights that row.
 const fieldLit = signal(null);
 // The field selected, as its box and record ("fund|fund_juris"), for what formats it (the format bar); null for none.
@@ -212,7 +214,7 @@ const BLANK = '#a3a8ad';
 // A cell in two parts, as JSON: where it is, which moving it changes, each of its keys apart; and what it is. A
 // line's `form` is what it is less its attributes' values: which it sets, and how, which setting its attributes again
 // can't take away (an arrowhead, a dash), but can give other values (a weight at another scale, a colour).
-const WHERE = new Set(['x', 'y', 'width', 'height', 'zIndex', 'source', 'target', 'vertices', 'connector']);
+const WHERE = new Set(['x', 'y', 'width', 'height', 'angle', 'zIndex', 'source', 'target', 'vertices', 'connector']);
 function partsOf(c) {
   const where = {}, what = [];
   for (const k in c) if (WHERE.has(k)) where[k] = JSON.stringify(c[k]); else what.push(k, c[k]);
@@ -228,6 +230,7 @@ function moveCell(cell, c, was) {
   else {
     if (moved('x', 'y')) props.position = { x: c.x, y: c.y };
     if (moved('width', 'height')) props.size = { width: c.width, height: c.height };
+    if (moved('angle')) props.angle = c.angle ?? 0;
   }
   if (moved('zIndex')) props.zIndex = c.zIndex;
   if (Object.keys(props).length) cell.store.set(props);
@@ -241,7 +244,7 @@ function cellsOf(scene, ink = null) {
   drawnAt = scene.page?.scale ?? 1;
   const cells = [], z = new Map(scene.marks.map((m, i) => [m.id, i * 2]));
   const node = (m, kind, markup, extra = {}) => cells.push({ id: m.id, shape: 'dendra', x: m.x, y: m.y, width: Math.max(1, m.w), height: Math.max(1, m.h),
-    zIndex: z.get(m.id), markup, data: { kind, mark: m.id }, ...extra });
+    zIndex: z.get(m.id), markup, data: { kind, mark: m.id }, ...(m.rotate && { angle: m.rotate }), ...extra });
   const red = m => ink?.go.has(m.record) ? 'go' : ink?.appear.has(m.record) ? 'appear' : null;
   // A text as the ink has it: a changed one's new lines under its old, struck; one appearing, blue.
   const inkOn = it => {
@@ -368,7 +371,9 @@ function mount(el) {
   graph.use(sel);
   const resizable = n => n.isNode() && ['box', 'shape'].includes(n.getData()?.kind) && !still();
   const lockedCell = n => { const m = scene?.byId.get(n.id); return !!m && (m.type === 'box' || m.type === 'shape') && lockedOf(m); };
-  const transform = new Transform({ resizing: { enabled: resizable, minWidth: 24, minHeight: 12, orthogonal: true, preserveAspectRatio: lockedCell }, rotating: false });
+  // (A free shape turns, by the handle over it, in steps of a degree; a box or the Key doesn't.)
+  const turnable = n => { const m = n.isNode() && n.getData()?.kind === 'shape' && !still() ? scene?.byId.get(n.id) : null; return !!m && !['legend', 'group', 'line'].includes(m.geometry) && !m.role; };
+  const transform = new Transform({ resizing: { enabled: resizable, minWidth: 24, minHeight: 12, orthogonal: true, preserveAspectRatio: lockedCell }, rotating: { enabled: turnable, grid: 1 } });
   graph.use(transform);
   transform.stopListening(); // it would put handles on whatever is clicked; grips() decides
 
@@ -391,7 +396,7 @@ function mount(el) {
     // (The relate handles keep clear of them, from the click that selects it.)
     if (near) showHandles(near);
   };
-  graph.use(new Snapline({ enabled: true, sharp: true, tolerance: 5, filter: c => c.isVisible() }));
+  graph.use(new Snapline({ enabled: true, sharp: true, tolerance: 5, resizing: true, filter: c => c.isVisible() }));
 
   // The page: a sheet under everything, and a node no one sees, so guides find its edges and middle.
   const NS = 'http://www.w3.org/2000/svg';
@@ -402,6 +407,41 @@ function mount(el) {
   const marks = document.createElementNS(NS, 'g');
   marks.setAttribute('class', 'dc-marks');
   viewport.appendChild(marks);
+  // Gridlines, Snap to grid and Rulers (Arrange, Find): the session's, in no log, and never printed. A grid of a quarter inch on
+  // the sheet; a ruler along the top and the left of the view, in inches from the page's corner.
+  const gridLines = document.createElementNS(NS, 'path');
+  gridLines.setAttribute('class', 'dc-grid');
+  viewport.insertBefore(gridLines, sheet.nextSibling);
+  const rulers = ['across', 'down'].map(c => over.appendChild(Object.assign(document.createElement('canvas'), { className: `dc-ruler ${c}` })));
+  const gridStep = () => 24 / (scene?.page.scale ?? 1);
+  function paintAids() {
+    const a = aids.value, p = scene?.page;
+    if (!p) return;
+    const step = gridStep();
+    let d = '';
+    if (a.grid) { for (let x = step; x < p.w; x += step) d += `M${x},0V${p.h}`; for (let y = step; y < p.h; y += step) d += `M0,${y}H${p.w}`; }
+    gridLines.setAttribute('d', d);
+    rulers.forEach(r => { r.hidden = !a.rulers; });
+    if (!a.rulers || !root.clientWidth) return;
+    const inch = 96 / p.scale, z = graph.zoom(), o = graph.localToGraph(0, 0), css = getComputedStyle(root), ink = css.getPropertyValue('--ink-3') || '#777', fill = css.getPropertyValue('--surface') || '#fff';
+    rulers.forEach((r, k) => {
+      const long = k ? root.clientHeight : root.clientWidth, thick = 18, dpr = devicePixelRatio || 1;
+      Object.assign(r, { width: (k ? thick : long) * dpr, height: (k ? long : thick) * dpr });
+      r.style.width = `${k ? thick : long}px`; r.style.height = `${k ? long : thick}px`;
+      const c = r.getContext('2d');
+      c.scale(dpr, dpr); c.fillStyle = fill; c.fillRect(0, 0, k ? thick : long, k ? long : thick);
+      c.strokeStyle = c.fillStyle = ink; c.font = '10px sans-serif'; c.textBaseline = 'top'; c.lineWidth = 1;
+      const from = k ? o.y : o.x, each = inch * z, parts = each >= 48 ? 4 : 1;
+      for (let i = Math.ceil(-from / (each / parts)); from + i * each / parts < long; i++) {
+        const at = Math.round(from + i * each / parts) + 0.5, whole = i % parts === 0, len = whole ? 8 : 4;
+        c.beginPath();
+        if (k) { c.moveTo(thick - len, at); c.lineTo(thick, at); } else { c.moveTo(at, thick - len); c.lineTo(at, thick); }
+        c.stroke();
+        if (whole && each >= 24) { const n = String(i / parts); if (k) c.fillText(n, 2, at + 1); else c.fillText(n, at + 2, 1); }
+      }
+    });
+  }
+  const stopAids = effect(() => { aids.value; if (scene) paintAids(); });
 
   // ---- Drawing the scene: App's, or a variant of it showing what's highlighted, redlined or restyled ----
   // A highlight keeps the view as it was drawn, so its boxes stay where they are. A restyle is laid out as the change,
@@ -445,6 +485,7 @@ function mount(el) {
     }
     syncSelection();
     paintStates();
+    paintAids();
     seek();
     // A field's name said on hover goes as the chart is drawn again, which may have moved it.
     tipFor(null);
@@ -752,6 +793,8 @@ function mount(el) {
     const k = lockedOf(m) ? ('w' in at ? { h: at.w * m.h / m.w } : 'h' in at ? { w: at.h * m.w / m.h } : {}) : {};
     moveTo(new Map([[id, { x: m.x, y: m.y, ...k, ...at, typed: true }]]));
   }
+  // A free shape turned, by its handle or its Rotation typed, by degrees clockwise, its row's own.
+  const turn = (id, angle) => { const a = ((Math.round(angle * 10) / 10) % 360 + 360) % 360, m = scene.byId.get(id); if (m && a !== (m.rotate ?? 0)) App.change(tx => tx.update(id, { rotate: a || undefined }), { dated: false, say: `Rotated ${called(m)} to ${a}°` }); };
   // Its proportions locked, as PowerPoint's Lock aspect ratio: as either is typed or a corner dragged, the other follows.
   function lockSize(id, on) {
     const m = scene.byId.get(id);
@@ -788,6 +831,11 @@ function mount(el) {
       const near = row.sort((a, b) => Math.abs(a.x + a.w / 2 - p.x - m.w / 2) - Math.abs(b.x + b.w / 2 - p.x - m.w / 2))[0];
       if (near && !row.some(b => p.x < b.x + b.w && b.x < p.x + m.w)) p.y = near.y;
     }
+    // With Snap to grid, what's dropped lands on the grid; a group by its first, so it stays as it is.
+    if (aids.peek().snap && places.size) {
+      const step = gridStep(), first = places.values().next().value, dx = Math.round(first.x / step) * step - first.x, dy = Math.round(first.y / step) * step - first.y;
+      for (const p of places.values()) if (p.w === undefined && p.h === undefined) { p.x += dx; p.y += dy; if (p.dx !== undefined) { p.dx += dx; p.dy += dy; } }
+    }
     moveTo(places);
   }
   const membersOf = f => [...f.members.map(id => scene.byId.get(id)), ...f.frames.flatMap(id => membersOf(scene.byId.get(id)))].filter(Boolean);
@@ -802,6 +850,8 @@ function mount(el) {
   }
   graph.on('node:moved', ({ node }) => { dragging = null; if (node.getData()?.kind === 'label') return movedLabel(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
   graph.on('node:resized', ({ node }) => { dragging = null; moved([node.id]); });
+  graph.on('node:rotating', ({ node }) => { dragging = node.id; showHandles(null); astray(node.id); });
+  graph.on('node:rotated', ({ node }) => { dragging = null; turn(node.id, node.getAngle()); });
   graph.on('edge:mouseup', ({ edge }) => { if (scene.byId.get(edge.id)?.geometry === 'line') moved([edge.id]); });
 
   // While a box moves, its lines follow and its frames grow round it; a frame carries its members.
@@ -1171,9 +1221,10 @@ function mount(el) {
     tip.hidden = true;
     if (!f?.it) return;
     tipTimer = setTimeout(() => {
-      const r = fieldRect(f.m, f.it), a = graph.localToGraph(r.x + r.w / 2, r.y + r.h);
+      // (Over the box it's in, so it covers no name and no box beside or under it.)
+      const r = fieldRect(f.m, f.it), a = graph.localToGraph(r.x + r.w / 2, f.m.type === 'box' ? f.m.y : r.y);
       tip.textContent = f.it.blank ? `${fieldName(f.it)}, blank` : fieldName(f.it);
-      Object.assign(tip.style, { left: `${a.x}px`, top: `${a.y + 6}px` });
+      Object.assign(tip.style, { left: `${a.x}px`, top: `${a.y - 26}px` });
       tip.hidden = false;
     }, 450);
   }
@@ -1424,7 +1475,7 @@ function mount(el) {
     hover(f);
   });
   root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); } });
-  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); zoomLevel.value = graph.zoom(); });
+  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); if (aids.peek().rulers) paintAids(); zoomLevel.value = graph.zoom(); });
 
   // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
   // or from the middle of the box, for Relate…, until the next click. On another box, the two's relations are
@@ -2089,13 +2140,13 @@ function mount(el) {
   // which stays where it is, those the layout placed kept where they're drawn. What it lays out is entered, by the same
   // change, each place still saying `order` (so History says Tidy): every box stands where Tidy drew it, on every day shown
   // after. `tidied` is the workbook as the layout finds it for Tidy, which a preview draws; `tidyName`, what it's called, by which.
-  const placedHere = () => App.notes.peek().notes('Position').filter(n => n.view === viewOf());
+  const placedHere = () => [...App.notes.peek().notes('Position'), ...App.notes.peek().notes('Bend')].filter(n => n.view === viewOf());
   const tidyBoxes = () => { const base = App.scene.peek(); return !base || !scene ? [] : placeable().filter(m => m.type === 'box').map(m => base.byId.get(m.id)).filter(Boolean); };
   const tidySaid = n => `${n} box${n === 1 ? '' : 'es'}`;
   const tidyName = () => { const n = tidyBoxes().length; return n > 1 ? `Tidy ${tidySaid(n)}` : 'Tidy'; };
   // Whether there's anything to tidy: a selection; with none, a place other than Tidy gave, or a box drawn beside Tidy's with none.
   const tidyable = () => { const ns = placedHere(), byTidy = n => Number.isFinite(n.value?.order);
-    return !!tidyBoxes().length || ns.some(n => (Number.isFinite(n.value?.x) && !byTidy(n)) || Number.isFinite(n.value?.along)) || (ns.some(byTidy) && !!App.scene.peek()?.marks.some(m => m.type === 'box' && !m.entered && !m.revealed)); };
+    return !!tidyBoxes().length || ns.some(n => (Number.isFinite(n.value?.x) && !byTidy(n)) || Number.isFinite(n.value?.along) || n.label === 'Bend') || (ns.some(byTidy) && !!App.scene.peek()?.marks.some(m => m.type === 'box' && !m.entered && !m.revealed)); };
   function tidying() {
     const base = App.scene.peek(), some = tidyBoxes(), writes = new Map();
     for (const m of some.length ? some : base.marks.filter(m => m.type === 'box' && !m.revealed)) writes.set(m.record, { order: round(m.x), ...(some.length && { around: true }) });
@@ -2103,7 +2154,9 @@ function mount(el) {
     const ws = [...writes].map(([id, value]) => ({ id, t: treeOf(id), value })).filter(w => w.t), keys = new Set(ws.map(w => Tree.key(w.t)));
     // (Tidy places the Key afresh, as it does the chart.)
     const key = some.length ? null : base.marks.find(m => m.geometry === 'legend' && m.byPage && rowOf(m.id)?.kept);
-    return { writes: ws, gone: some.length ? [] : placedHere().filter(n => !keys.has(Tree.key(n.pattern))), n: some.length, key: key?.id };
+    // (A line's bend goes with what it's bent among: all of them, or those of the boxes tidied.)
+    const these = new Set(some.map(m => m.record)), bentHere = n => n.label === 'Bend' && [...Tree.idsIn(n.pattern)].some(id => these.has(id));
+    return { writes: ws, gone: placedHere().filter(n => some.length ? bentHere(n) : !keys.has(Tree.key(n.pattern))), n: some.length, key: key?.id };
   }
   let triedTidy = 0;
   function tidied() {
@@ -2121,6 +2174,59 @@ function mount(el) {
     const entered = w => { if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value }; };
     if (!App.change(tx => { gone.forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null }); }, { say: o?.say ?? (n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'), keep: false, dated: false })) return;
     if (n) return;
+    framed = true; left = null;
+    settle();
+  }
+
+  // Tidy for every date: every box the view draws on any day laid out as one chart, those places entered, so each day shows
+  // its boxes in one set of places, and only what changed moves. What it reads: the chart's records of every day there's a
+  // different set of them, each as of the last of them; less a line that skips what's between its ends on no day it holds with
+  // it (Fund III's to the Blocker, before Holdco came between them), which runs straight through its empty place on those days,
+  // and ranks nothing here. `every` is the scene that is, kept while the workbook stands.
+  let everyKept = null;
+  function everyDay() {
+    const wb = App.shown.peek(), c = App.chart.peek(), view = viewOf(), k = `${App.version.peek()}|${view}`;
+    if (everyKept?.k === k) return everyKept.sc;
+    const days = new Set([App.day.peek()]);
+    for (const r of wb.rows(c)) if ('record' in r) { if (r.since) days.add(r.since); if (r.before) days.add(r.before); if (r.field === 'date' && typeof r.value === 'string') days.add(r.value); }
+    const seen = new Set(), states = [];
+    for (const d of [...days].sort()) {
+      const key = Object.keys(wb.asOf(c, d)).sort().join();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      states.push(d === App.day.peek() ? App.state.peek() : App.workOn(d).records);
+    }
+    const union = Object.assign({}, ...states), computed = App.computed.peek();
+    // (Without the notes that place anything, as Tidy lays it out.)
+    const placed = new Set(placedHere().map(n => n.note)), rows = wb.rows(c).filter(r => !placed.has(r.note)).map(r => r.geometry === 'legend' && r.kept ? { ...r, kept: null } : r), notes = Notes.index(rows.filter(r => 'note' in r)), bare = { ...wb, rows: () => rows, notes: () => notes };
+    const lay = st => Scene.of(bare, c, view, App.day.peek(), { state: st, computed, ahead: true });
+    let sc = lay(union);
+    // A line skips what's between its ends where another way runs from one to the other, by boxes none of which holds with it on any day.
+    const lines = sc.marks.filter(m => m.type === 'line').flatMap(l => l.merged ? [] : [l]), downs = new Map();
+    for (const l of lines) (downs.get(l.from) ?? downs.set(l.from, []).get(l.from)).push(l);
+    const skips = lines.filter(l => {
+      const on = states.filter(st => st[l.record]), withIt = id => on.some(st => st[id]);
+      const walk = (at, seenBy) => (downs.get(at) ?? []).some(n => n !== l && n.to !== l.from && !seenBy.has(n.to) && (n.to === l.to ? at !== l.from : !withIt(n.to) && walk(n.to, new Set([...seenBy, n.to]))));
+      return walk(l.from, new Set([l.from]));
+    });
+    if (skips.length) { const drop = new Set(skips.map(l => l.record)), st = { ...union }; for (const id of Object.keys(st)) if (drop.has(id) || drop.has(st[id].at)) delete st[id]; sc = lay(st); }
+    return (everyKept = { k, sc, union }).sc;
+  }
+  function everyWrites() {
+    const sc = everyDay(), laid = holdsOf(sc), union = everyKept.union, ws = [];
+    for (const [id, p] of laid) { const t = Tree.treeOf(union, id); if (t) { const { kept, ...at } = p; ws.push({ t, value: { ...at, order: at.x, every: true } }); } }
+    return { ws, key: sc.marks.find(m => m.geometry === 'legend' && m.byPage)?.id, keyAt: laid };
+  }
+  function tidiedEvery() {
+    const { ws, key, keyAt } = everyWrites(), wb = App.shown.peek(), view = viewOf(), out = new Set(placedHere().map(n => n.note));
+    const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note)).map(r => key && r.shape === key ? { ...r, kept: keyAt.get(key) } : r),
+      ...ws.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; })];
+    const notes = Notes.index(rows.filter(r => 'note' in r));
+    return { ...wb, rows: () => rows, notes: () => notes, tidy: 'Tidy for every date' };
+  }
+  function tidyEvery() {
+    const { ws, key, keyAt } = everyWrites(), view = viewOf(), out = placedHere();
+    if (!App.change(tx => { out.forEach(n => tx.remove(n.note)); ws.forEach(w => tx.note('Position', w.t, w.value, { view })); if (key) tx.update(key, { kept: keyAt.get(key) ?? null }); }, { say: 'Tidied the layout for every date', keep: false, dated: false })) return;
     framed = true; left = null;
     settle();
   }
@@ -2302,14 +2408,14 @@ function mount(el) {
   };
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
-    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, zoom, put, lockSize, showOnly, canShowOnly,
+    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly,
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },
     destroy() {
       nudged(); stopNudge(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
-      stopDraw(); stopSel(); stopKeep(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
+      stopDraw(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
@@ -2326,6 +2432,13 @@ Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destr
 const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
+const aidToggle = k => () => { aids.value = { ...aids.peek(), [k]: !aids.peek()[k] }; };
+for (const [id, name, k, names] of [['chart.grid', 'Gridlines', 'grid', ['Grid', 'Show grid']], ['chart.snap', 'Snap to grid', 'snap', ['Grid', 'Snap', 'Align to grid']], ['chart.rulers', 'Rulers', 'rulers', ['Ruler', 'Show rulers', 'Guides']]])
+  Shell.register('action', { id, name, names, enabled: here, run: aidToggle(k) });
+Shell.register('action', { id: 'chart.rotate', name: 'Rotate…', names: ['Rotation', 'Turn', 'Angle'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && active.peek().selected()[0].type === 'shape',
+  run: () => { Shell.showPanel?.(); setTimeout(() => { const f = document.querySelector('.insp [data-place="r"] input'); f?.scrollIntoView({ block: 'center' }); f?.focus(); f?.select(); }, 60); },
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? 'Can’t change the past' : 'Select one free shape first' });
+Shell.register('action', { id: 'chart.tidyEvery', name: 'Tidy for every date', names: ['Tidy all dates', 'Tidy across dates', 'Line up the dates', 'Same places on every date'], enabled: () => here() && !App.readOnly.peek(), run: call('tidyEvery') });
 Shell.register('action', { id: 'chart.only', name: 'Show only these', names: ['Hide the rest', 'Only these', 'Keep only these', 'Hide others'], enabled: () => here() && !!active.peek().canShowOnly(), run: call('showOnly'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? 'Can’t change the past' : 'Select some boxes first' });
 // A box's size, typed in its panel; so with a shape's.
@@ -2335,5 +2448,5 @@ Shell.register('action', { id: 'chart.size', name: 'Size…', names: ['Height', 
 Shell.register('action', { id: 'chart.relate', name: 'Relate…', names: ['Connect', 'Link', 'Add a relation', 'Draw a line'], enabled: () => here() && !App.readOnly.peek() && !!active.peek().relatable(), run: call('relate'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? 'Can’t change the past' : 'Select one box first' });
 
-return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt };
+return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt, aids, aidToggle };
 })();

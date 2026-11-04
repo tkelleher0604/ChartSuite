@@ -1642,7 +1642,7 @@ function freeShape(row, text, u = 1, k = 1) {
   const t = { ...base, Size: base.Size * u, ...format, Weight: (format.Weight ?? base.Weight) * u };
   t.Size = half(t.Size, 1 / u);
   const m = { id: shape, type: 'shape', row: id, geometry: row.geometry ?? 'rect', x: row.x ?? 0, y: row.y ?? 0, w: row.w ?? 200 * u, h: row.h ?? 52 * u,
-    look: t, settings: Object.fromEntries(Object.entries(t).map(([k, v]) => [k, { value: v, note: null }])), texts: [], ...(row.role && { role: row.role }) };
+    look: t, settings: Object.fromEntries(Object.entries(t).map(([k, v]) => [k, { value: v, note: null }])), texts: [], ...(row.role && { role: row.role }), ...(row.rotate && { rotate: row.rotate }) };
   if (m.geometry === 'line') {
     m.points = (row.points ?? [[m.x, m.y], [m.x + m.w, m.y]]).map(p => [...p]);
     if (row.ends?.some(Boolean)) m.ends = row.ends;

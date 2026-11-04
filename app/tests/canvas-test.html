@@ -1247,6 +1247,7 @@ async function run() {
   await layered();
   await pickings();
   await onlyThese();
+  await aidsAndTurns();
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
 }
@@ -1390,6 +1391,28 @@ async function reloaded() {
   App.change(tx => tx.add('record', { at: 'halvard', edge: 'EIN', field: 'text', value: '11-1111111' }), { dated: D[2] }); await tick(300);
   const off1 = await sameAsFresh();
   check('after edits on each day, each day still draws what a page opened on the same log draws', !off1.length, off1.join());
+  // Tidy for every date (gui3 N-6.3): one set of places, Holdco between Fund III and the Blocker, its place empty before it comes.
+  const find = Shell.parts.peek().action.find(a => a.id === 'chart.tidyEvery');
+  check('Tidy for every date is in Find', !!find?.enabled() && find.names.includes('Tidy all dates'), JSON.stringify(find?.names));
+  const holdco = App.scene.peek().marks.find(m => m.type === 'box' && m.texts[0]?.text.includes('Holdco'))?.id ?? (await on(D[1]), App.scene.peek().marks.find(m => m.type === 'box' && m.texts[0]?.text.includes('Holdco'))?.id);
+  const n1 = App.wb.changes().length;
+  await on(D[1]);
+  cv().restyle(cv().tidiedEvery()); await tick(800);
+  check('… its preview says so, and changes nothing', txt($('.dc-previewing')) === 'Tidy for every date preview' && App.wb.changes().length === n1, txt($('.dc-previewing')));
+  cv().restyle(null); await tick(120);
+  cv().tidyEvery(); await tick(500);
+  check('… one change, said so', App.wb.changes().length === n1 + 1 && /^Tidied the layout for every date/.test(txt($$('.toast').at(-1))) && Time.describe(App.wb.changes().at(-1)) === 'Tidied the layout for every date', `${App.wb.changes().length - n1} ${Time.describe(App.wb.changes().at(-1))}`);
+  const of = async d => { await on(d); const s = App.scene.peek(); return new Map(s.marks.filter(m => m.type === 'box').map(m => [m.id, [m.x, m.y]])); }, [d0, d1, d2] = [await of(D[0]), await of(D[1]), await of(D[2])];
+  const offBy = (a, b) => [...a].filter(([id, p]) => b.has(id) && (Math.abs(p[0] - b.get(id)[0]) > 0.75 || Math.abs(p[1] - b.get(id)[1]) > 0.75)).map(([id]) => id);
+  check('each day shows its boxes in one set of places', !offBy(d0, d1).length && !offBy(d1, d2).length && d1.has(holdco) && !d0.has(holdco), JSON.stringify([offBy(d0, d1), offBy(d1, d2)]));
+  await on(D[1]);
+  const h = App.scene.peek().byId.get(holdco), b = App.scene.peek().byId.get('blocker'), f = App.scene.peek().byId.get('fund');
+  check('Holdco stands between Fund III and the Blocker', f.y + f.h <= h.y && h.y + h.h <= b.y && Math.abs(h.x + h.w / 2 - (b.x + b.w / 2)) < 2, JSON.stringify([f.y, h.y, b.y, h.x, b.x]));
+  await on(D[0]);
+  const skip = App.scene.peek().marks.find(m => m.type === 'line' && m.from === 'fund' && m.to === 'blocker');
+  check('… and before it comes, the line that skips it runs straight through its empty place', !!skip && (skip.points.length === 2 || new Set(skip.points.slice(-2).map(p => Math.round(p[0]))).size === 1) && skip.points.at(-1)[1] - skip.points.at(-2)[1] > h.h, JSON.stringify(skip?.points));
+  const off2 = await sameAsFresh();
+  check('… and each day draws what a page opened on the log draws', !off2.length, off2.join());
   frame.remove();
   Shell.at(null); await show(charts()[0]); Shell.select([]); await tick(150);
 }
@@ -1565,6 +1588,42 @@ async function onlyThese() {
   Shell.show(blank); await until(() => sc()?.view === blank); await tick(300);
   check('a blank chart begins with no box drawn, and every box on its Hidden list, today still shown', !boxes().length && $$('.insp .hiddenrow').length >= all.length && !Shell.time.peek(), `${boxes().length} ${$$('.insp .hiddenrow').length} ${JSON.stringify(Shell.time.peek())}`);
   await show(charts().find(v => v.id === 'view_main')); Shell.select([]); await tick(150);
+}
+
+// ---- Gridlines, Snap to grid and Rulers, the session's, in no log; a free shape's Rotation, typed or by its handle, carried to the
+// PDF and the deck (gui3 P-26) ----
+async function aidsAndTurns() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const action = id => Shell.parts.peek().action.find(a => a.id === id), n0 = App.wb.changes().length;
+  check('Gridlines, Snap to grid, Rulers and Rotate are in Find', ['chart.grid', 'chart.snap', 'chart.rulers', 'chart.rotate'].every(id => !!action(id)) && action('chart.grid').names.includes('Grid'), '');
+  action('chart.grid').run(); action('chart.rulers').run(); await tick(150);
+  check('Gridlines draw, under the marks, and Rulers along the view', ($('.dc-grid')?.getAttribute('d') ?? '').length > 20 && !$('.dc-ruler.across').hidden && !$('.dc-ruler.down').hidden && $('.dc-ruler.across').width > 100, $('.dc-grid')?.getAttribute('d')?.length);
+  check('… and they’re the session’s, in no log, and not in what’s printed', App.wb.changes().length === n0 && !Export.svg(sc(), {}).includes('dc-grid'), App.wb.changes().length - n0);
+  action('chart.snap').run(); await tick(150);
+  const step = 24 / sc().page.scale, m0 = sc().byId.get('corvane'); Shell.select(['corvane']); await tick(150);
+  await drag(m0, 37, 23);
+  const m1 = sc().byId.get('corvane'), o = sc().page.placed ? sc().page.offset : { x: 0, y: 0 }, onGrid = v => Math.abs(v / step - Math.round(v / step)) < 0.06;
+  check('… with Snap to grid, a box dragged lands on the grid', onGrid(m1.x) && onGrid(m1.y), JSON.stringify([m1.x, m1.y, step]));
+  Shell.parts.peek().undo.undo(); await tick(300);
+  action('chart.grid').run(); action('chart.rulers').run(); action('chart.snap').run(); await tick(150);
+  check('… and off, they’re gone', ($('.dc-grid')?.getAttribute('d') ?? '') === '' && $('.dc-ruler.across').hidden, '');
+  // Rotation.
+  const box = sc().byId.get('corvane'), id = cv().insert('rect', { x: box.x - 90, y: box.y + box.h + 12, w: 120, h: 40 }); await tick(350);
+  Shell.select([id]); await tick(250);
+  const handle = $('.x6-widget-transform-rotate');
+  check('a free shape selected has a handle to turn it by', !!handle && getComputedStyle(handle).display !== 'none' && handle.getBoundingClientRect().width > 4 && !$('.x6-widget-transform.no-rotate'), `${!!handle} ${handle && getComputedStyle(handle).display} ${handle?.getBoundingClientRect().width} ${!!$('.x6-widget-transform.no-rotate')} ${$('.x6-widget-transform')?.className}`);
+  const f = $('.insp [data-place="r"] input'); f.focus(); f.value = '20'; f.dispatchEvent(new Event('input', { bubbles: true })); f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(350);
+  check('a Rotation typed turns it, said so', sc().byId.get(id).rotate === 20 && Math.abs(cv().graph.getCellById(id).getAngle() - 20) < 0.01 && /Rotated .* to 20/.test(txt($$('.toast').at(-1))), `${sc().byId.get(id).rotate} ${txt($$('.toast').at(-1))}`);
+  check('… and the PDF’s page turns it about its middle', /rotate\(20 /.test(Export.svg(sc(), {})), '');
+  if (handle) {
+    const hr = $('.x6-widget-transform-rotate').getBoundingClientRect(), [x, y] = [hr.left + hr.width / 2, hr.top + hr.height / 2], el = $('.x6-widget-transform-rotate'), mouse = (t, xx, yy, on = document.body) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: xx, clientY: yy, button: 0, buttons: t === 'mouseup' ? 0 : 1, view: window }));
+    mouse('mousedown', x, y, el);
+    for (let i = 1; i <= 6; i++) { mouse('mousemove', x + i * 6, y + i * 2); await tick(16); }
+    mouse('mouseup', x + 36, y + 12); await tick(350);
+    check('the handle turns it too, one change', sc().byId.get(id).rotate !== 20 && sc().byId.get(id).rotate > 0, sc().byId.get(id).rotate);
+  }
+  for (let i = App.wb.changes().length; i > n0; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
+  Shell.select([]); await tick(150);
 }
 
 // ---- What a change keeps where it's drawn is drawn there again (gui2 L-2.6): two owners of Fund III imported, then

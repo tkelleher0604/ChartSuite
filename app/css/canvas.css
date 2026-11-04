@@ -46,7 +46,6 @@
 .dc .x6-widget-transform.short .x6-widget-transform-resize:is([data-position="left"], [data-position="right"]),
 .dc .x6-widget-transform.triangular .x6-widget-transform-resize:is([data-position="top"], [data-position="left"], [data-position="right"]) { display: none !important; }
 .dc .x6-widget-snapline line { stroke: #e8432a !important; stroke-width: 1px !important; shape-rendering: crispEdges; }
-.dc .x6-widget-transform-rotate { display: none !important; }
 
 /* Marks drawn on the chart: Range Finder's outlines, a legend row's, a group's, a selected line's, and a
    relation being drawn. The page stays white in both themes, so the outlines on it take the light theme's
@@ -251,3 +250,10 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .ex-well.full .ex-page > button { cursor: zoom-out; }
 .ex-well.full .ex-page img { width: auto; max-width: none; }
 .ex-page > figcaption { font: var(--t12); color: var(--ink-2); }
+/* Gridlines and rulers, the session's: never printed. */
+.dc-grid { fill: none; stroke: var(--rule-2); stroke-opacity: .55; stroke-width: 1px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.dc-over > .dc-ruler { position: absolute; left: 0; top: 0; pointer-events: none; }
+.dc-over > .dc-ruler[hidden] { display: none; }
+.dc-over > .dc-ruler.down { border-right: 1px solid var(--rule-2); }
+.dc-over > .dc-ruler.across { border-bottom: 1px solid var(--rule-2); }
+.dc .x6-widget-transform-rotate { width: 10px !important; height: 10px !important; top: -22px !important; left: calc(50% - 5px) !important; right: auto !important; bottom: auto !important; margin: 0 !important; border-radius: 50% !important; background: #fff !important; border: 1px solid var(--accent) !important; cursor: grab !important; }

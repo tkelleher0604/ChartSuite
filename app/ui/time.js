@@ -245,9 +245,10 @@ const Time = (() => {
     const touched = new Set(all.filter(i => i.type === 'record' && !bearers.has(i.id)).map(i => i.id));
     // Tidy takes a view's positions away, but for where each box stood across, and undoing it puts them back; of boxes
     // selected, theirs alone, around what stands.
-    if (all.length && all.every(i => i.type === 'note' && rec(i).label === 'Position')) {
+    if (all.length && all.every(i => i.type === 'note' && (rec(i).label === 'Position' || rec(i).label === 'Bend')) && all.some(i => rec(i).label === 'Position')) {
       const ordered = r => Number.isFinite(r?.value?.order), made = all.filter(i => i.now.length && ordered(Log.latest(i.now)));
       if (made.length && made.every(i => Log.latest(i.now).value.around)) return `Tidied ${made.length === 1 ? N.nameOf(recs, rec(made[0]).pattern.id) : `${made.length} boxes`} in ${N.nameOf(recs, rec(made[0]).view)}`;
+      if (made.length && made.every(i => Log.latest(i.now).value.every)) return 'Tidied the layout for every date';
       if (made.length || (all.length > 1 && !c.adds.length)) return 'Tidied the layout';
       if (back && (all.some(i => i.was.length && ordered(Log.latest(i.was))) || (all.length > 1 && !c.removes.length))) return 'Restored the layout';
     }
@@ -412,7 +413,7 @@ const Time = (() => {
     if (!i.was.length) return `${back ? 'Restored' : 'Added'} ${what}${view ? ` to ${view}` : ''}`;
     if (!i.now.length) return `Deleted ${what}${view ? ` from ${view}` : ''}`;
     const a = Log.latest(i.was), b = Log.latest(i.now), only = ks => Object.keys({ ...a, ...b }).filter(k => k !== 'id' && JSON.stringify(a[k]) !== JSON.stringify(b[k])).every(k => ks.includes(k));
-    const verb = resized(a, b) && only(['x', 'y', 'w', 'h', 'points']) ? 'Resized' : only(['x', 'y', 'points']) ? 'Moved' : 'Edited';
+    const verb = only(['rotate']) ? 'Rotated' : resized(a, b) && only(['x', 'y', 'w', 'h', 'points']) ? 'Resized' : only(['x', 'y', 'points']) ? 'Moved' : 'Edited';
     return `${verb} ${what}${view ? ` in ${view}` : ''}`;
   }
   // A style's output in a view, by its group, as the Key and the format bar's scope say it; its caption, by its

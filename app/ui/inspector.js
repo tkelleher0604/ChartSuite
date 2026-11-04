@@ -853,11 +853,12 @@ function LookSection({ look, reset, named }) {
 // numbers are the ones PowerPoint shows: typed over to move or size it, and read back as typed, to a tenth. `lock`, keeping
 // its proportions as either is typed: { on, set }.
 const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
-const Place = ({ at, put, reset, keys = 'xywh', lock }) => { const page = App.scene.value?.page;
+const Place = ({ at, put, reset, keys = 'xywh', lock, turn }) => { const page = App.scene.value?.page;
   return html`<${Section} title="Position" act=${reset}>
   ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl" data-place=${k}>
     <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, at[k] / Scene.PT) * 10) / 10 }} datatype="number" label=${label}
       put=${out => out && put(k, Math.round(Scene.fromSlide(page, out.value) * Scene.PT * 100) / 100)}><span class="unit">pt</span></${Field}></div></div>`)}
+  ${turn ? html`<div class="row" key="r"><div class="k">Rotation</div><div class="v ctl" data-place="r"><${Field} r=${{ field: 'number', value: turn.at ?? 0 }} datatype="number" label="Rotation" put=${out => out && turn.set(out.value)}><span class="unit">°</span></${Field}></div></div>` : null}
   ${lock ? html`<label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${!!lock.on} disabled=${App.readOnly.value} onChange=${e => lock.set(e.target.checked)} />Lock proportions</span></label>` : null}</${Section}>`; };
 // Reset takes away what's entered for this mark alone, and says what, as History says it.
 const resetting = (own, labels) => App.readOnly.value || !own.some(x => labels(x.label)) ? null
@@ -1153,7 +1154,7 @@ function ShapeView({ id, part }) {
       <span class="k"><input type="checkbox" checked=${!(row.hide ?? []).includes(r.key)} disabled=${still} onChange=${e => show(r.key, e.target.checked)} /><${Swatch} sw=${r.swatch} /></span>
       <span class="v">${r.caption}</span></label>`)}</${Section}>` : null}
     <${LookSection} look=${look} reset=${reset} />
-    ${m && g !== 'line' ? html`<${Place} at=${m} keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => Shell.parts.peek().canvas?.active?.()?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' ? null : { on: row.lock, set: on => set({ lock: on || undefined }) }} />` : null}
+    ${m && g !== 'line' ? html`<${Place} at=${m} keys=${g === 'text' || key ? 'xyw' : 'xywh'} put=${(k, x) => Shell.parts.peek().canvas?.active?.()?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' ? null : { on: row.lock, set: on => set({ lock: on || undefined }) }} turn=${key || g === 'group' || row.role ? null : { at: row.rotate, set: a => Shell.parts.peek().canvas?.active?.()?.turn(m.id, a) }} />` : null}
   </div>`;
 }
 

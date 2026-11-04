@@ -1014,9 +1014,19 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
     // (Its last leg, coming down or up into a box, as long as its label needs beside it where it can be, as a lane leaves it;
     // into a triangle's apex, where lines share their last leg, as long as the step out.)
     const reach = p => last(p).dir % 2 || G(l.to).shape === 'triangle' ? [last(p)] : [last(Math.max(p, room(l))), last(p)];
-    for (const strict of loose ? [true, false] : [true]) for (const [pad, mine] of [[12, true], [2.7, true], [8, false], [2.7, false]].filter(([, m]) => m || !sides)) {
-      const w = (mine ? reach(pad) : [null]).reduce((w, to) => w || around(geo, l.from, l.to, { avoid: shun, drawn: others, pad, strict, mates: mates(l), ports: to && { from: [first(pad)], to: [to] } }), null);
-      if (!w || blockedRoute(w, own, solid, shun, by)) continue;
+    // (The first way found, at the widest berth, unless that sends it the long way round, past what a narrower one slips between,
+    // as round a whole row of boxes: then the shortest of them.)
+    const length = q => q.slice(1).reduce((s, p, k) => s + Math.hypot(p[0] - q[k][0], p[1] - q[k][1]), 0), far = Math.abs(l.points[0][0] - l.points.at(-1)[0]) + Math.abs(l.points[0][1] - l.points.at(-1)[1]);
+    for (const strict of loose ? [true, false] : [true]) {
+      let best = null;
+      for (const [pad, mine] of [[12, true], [2.7, true], [8, false], [2.7, false]].filter(([, m]) => m || !sides)) {
+        const w = (mine ? reach(pad) : [null]).reduce((w, to) => w || around(geo, l.from, l.to, { avoid: shun, drawn: others, pad, strict, mates: mates(l), ports: to && { from: [first(pad)], to: [to] } }), null);
+        if (!w || blockedRoute(w, own, solid, shun, by)) continue;
+        if (!best || length(w) < length(best.w)) best = { w, mine };
+        if (!strict || length(w) <= far * 1.5 + 48) break;
+      }
+      if (!best) continue;
+      const { w, mine } = best;
       Object.assign(l, { points: w, around: true, astray: !mine, strained: !strict, apex: false, down: w.at(-1)[1] > w[0][1] + 1 });
       drawn.moved(i);
       return true;
@@ -1031,12 +1041,9 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
     const port = (p, q, at, g) => { const dx = Math.sign(Math.round(p[0] - q[0])), dy = Math.sign(Math.round(p[1] - q[1])), dir = dy < 0 ? 0 : dx > 0 ? 1 : dy > 0 ? 2 : 3, [ux, uy] = [[0, -1], [1, 0], [0, 1], [-1, 0]][dir];
       const m = g && Math.min(12, g.w / 4), slide = g && g.shape !== 'frame' && (dir === 2 || (dir === 0 && g.shape !== 'triangle')) ? [g.x + m, g.x + g.w - m] : null;
       return pad => ({ at, out: [at[0] + ux * (pad + 0.25), at[1] + uy * (pad + 0.25)], dir, ...slide && { slide } }); };
-    const ps = l.points, n = ps.length, length = q => q.slice(1).reduce((s, p, k) => s + Math.hypot(p[0] - q[k][0], p[1] - q[k][1]), 0), was = { points: ps, apex: l.apex, down: l.down };
+    const ps = l.points, n = ps.length;
     ends.set(l, [port(ps[1], ps[0], ps[0], G(l.from)), port(ps[n - 2], ps[n - 1], ps[n - 1])]);
-    if (!detour(i, l)) { l.blocked = true; continue; }
-    // (A way round a box it could have run straight past, only to keep its distance from another line, wraps it for no one's
-    // good: half as long again and more, it keeps its lane, as near that line as the gap leaves it.)
-    if (pass && !aside.has(l) && length(l.points) > length(ps) * 1.5 + 24) { Object.assign(l, was, { around: false, astray: false, strained: true }); drawn.moved(i); }
+    if (!detour(i, l)) l.blocked = true;
   }
   if (!labels) return;
   // A trunk whose lines all say the same thing, like a GP's to each of its funds, says it once, on its lane: the
