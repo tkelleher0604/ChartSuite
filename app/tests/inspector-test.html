@@ -1336,6 +1336,7 @@ async function saysWhen(C, keep) {
   const posId = Shell.selection.peek()[0];
   $('.ih .more').click(); await tick(); await pick('End…'); await tick(60);
   key($('.asking .from input') ?? pb('.from input'), 'Enter'); await tick(120);
+  await new Promise(requestAnimationFrame);   // (The panel sets its place again on the next frame, once its strip has its room.)
   check('ending a row gone to from a person’s panel comes back to the person, scrolled where it was', Shell.selection.peek().join() === 'chen' && pane.scrollTop === topWas && !st()[posId], `${Shell.selection.peek()} ${pane.scrollTop} ${topWas}`);
   Shell.parts.value.undo.undo(); await tick(60);
   // Several rows of a list end together, the panel staying on the record; what they break is said in words, with End that too
