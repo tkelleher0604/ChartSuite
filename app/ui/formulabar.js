@@ -823,7 +823,7 @@ const FormulaBar = (() => {
   // "is" (is evidenced by), a verb as it is (signs for). Without a preposition, only a verb of one word is one
   // (Concerns), and only where a relation's own name says it.
   function predicate(words, bare) {
-    const w = Tree.clean(words), m = /^(.+?)\s+(of|in|for|to|by|with|from|on|at)$/i.exec(w) ?? (bare && /^[a-z]+[^s\W]s$/i.test(w) ? [w, w, ''] : null);
+    const w = Tree.clean(words), m = /^(.+?)\s+(of|in|into|for|to|by|with|from|on|at)$/i.exec(w) ?? (bare && /^[a-z]+[^s\W]s$/i.test(w) ? [w, w, ''] : null);
     if (!m) return null;
     const head = lower(m[1]), last = head.split(' ').at(-1);
     return { head, prep: m[2] ? ` ${m[2].toLowerCase()} ` : ' ', form: /ed$/.test(last) ? 'participle' : /[^s]s$/.test(last) ? 'verb' : 'noun' };
