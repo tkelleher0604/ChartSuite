@@ -303,6 +303,8 @@ async function checks() {
 
   // One row, whatever it shows: the chart under it never moves
   const tall = () => document.querySelector('.fxbar').offsetHeight;
+  // (With a chart shown, what the bar opens to lies over the view, and it keeps its height; over a table it pushes the rows down.)
+  const tallOverChart = () => { const v = document.querySelector('.shell > .main > .view'); v.insertAdjacentHTML('beforeend', '<div class="host" style="display: none"><div class="dc"></div></div>'); const h = tall(); v.lastElementChild.remove(); return h; };
   check('the bar is one row of 36 px, why said inline, never the formula', tall() === 36 && !document.querySelector('.fx-panel') && document.querySelector('.fx-inline .fx-why')
     && !document.querySelector('.fx-inline .CodeMirror') && !document.querySelector('.fx-row'), tall());
 
@@ -673,7 +675,7 @@ async function checks() {
   m = M();
   check('picked, a relation they aren’t in shows its rows, all grey (why not)', m.absent && m.title === 'Close Affiliate' && m.rows.length && m.rows.every(r => !r.ink) && m.rows.every(r => r.ev), `${m.title} ${m.absent}`);
   await openRows();
-  check('the chevron drops the rows over the view, and the bar keeps its height', document.querySelectorAll('.fx-panel .fx-row').length === m.rows.length && tall() === 36, tall());
+  check('the chevron drops the rows over the view, and the bar keeps its height', document.querySelectorAll('.fx-panel .fx-row').length === m.rows.length && tallOverChart() === 36, tallOverChart());
   hoverOn('r0', 'Personnel'); await wait(30);
   check('a grey row shows its values on hover too', /Chen/.test(document.querySelector('.fx-val')?.textContent ?? ''), document.querySelector('.fx-val')?.textContent);
   FormulaBar.hover.value = null;
@@ -883,7 +885,7 @@ async function checks() {
   expand(); await wait(20);
   const shut = !document.querySelector('.fx-panel');
   expand(); await wait(20);
-  check('Ctrl+Shift+U collapses the rows and expands them again', shut && !!document.querySelector('.fx-panel') && tall() === 36);
+  check('Ctrl+Shift+U collapses the rows and expands them again', shut && !!document.querySelector('.fx-panel') && tallOverChart() === 36);
 
   // Find's =
   const ev = Shell.parts.peek().evaluate;

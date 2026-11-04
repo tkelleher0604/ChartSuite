@@ -11,7 +11,8 @@
 
 .dc-sheet { fill: var(--page); stroke: var(--rule-2); stroke-width: 1px; vector-effect: non-scaling-stroke; }
 :root[data-theme="dark"] .dc-sheet { stroke: transparent; }
-.dc .x6-graph-svg-stage text { user-select: none; }
+/* Small type on an ordinary screen: the browser's own fitting to the pixels, as the chrome's type has (the body's optimizeLegibility would give it up). */
+.dc .x6-graph-svg-stage text { user-select: none; text-rendering: auto; }
 .dc .x6-node, .dc .x6-edge { cursor: default; }
 .dc .x6-edge path:first-child { cursor: default; }
 /* What a highlight leaves out fades: a line whole; a box or shape its outline and text but never its fill,
@@ -32,13 +33,24 @@
    it prints. */
 .dc .x6-cell:not(:hover, .dc-on) text.dc-blank { visibility: hidden; }
 
+/* While the chart travels, what's drawn over it, which stands where things end, waits till they're there. */
+.dc.flying :is(.x6-widget-selection, .x6-widget-transform, .dc-marks) { visibility: hidden; }
+.dc-ghosts { pointer-events: none; }
+
 /* The selection: a thin frame and 6 px square handles at its corners and sides, as in Office; a box too
    small on screen for its side handles shows only its corners. */
 .dc .x6-widget-selection-box { border: 1px solid var(--accent) !important; box-shadow: none !important; margin: -3px 0 0 -3px !important; padding: 2px !important; border-radius: 0 !important; }
 .dc .x6-widget-selection-inner { display: none !important; }
 .dc .x6-widget-selection-rubberband { background: rgb(44 76 124 / .06) !important; border: 1px solid var(--accent) !important; opacity: 1 !important; }
 .dc .x6-widget-transform { border: 0 !important; margin: -3px 0 0 -3px !important; padding: 3px !important; box-shadow: none !important; }
-.dc .x6-widget-transform-resize { width: 6px !important; height: 6px !important; margin: 0 !important; border-radius: 0 !important; background: #fff !important; border: 1px solid var(--accent) !important; box-shadow: none !important; }
+/* At rest, one quiet outline, by the mark's own shape: what can be taken hold of stands up as the pointer nears it. Dragged, a frame goes with it. */
+.dc .x6-widget-selection-box-node { visibility: hidden; }
+.dc.dragging .x6-widget-selection-box-node { visibility: visible; }
+.dc-group.dc-shaped { stroke-dasharray: none; }
+.dc.dragging .dc-shaped { visibility: hidden; }
+.dc .x6-widget-transform-resize { width: 6px !important; height: 6px !important; margin: 0 !important; border-radius: 0 !important; background: #fff !important; border: 1px solid var(--accent) !important; box-shadow: none !important; opacity: 0; transition: opacity var(--quick) var(--ease); }
+.dc.near-grips .x6-widget-transform-resize:not(.on-label), .dc .x6-widget-transform-resize:hover { opacity: 1; }
+.dc .x6-widget-transform-resize.on-label { pointer-events: none; }
 .dc .x6-widget-transform-resize[data-position^="top"] { top: -3px !important; }
 .dc .x6-widget-transform-resize[data-position^="bottom"] { bottom: -3px !important; }
 .dc .x6-widget-transform-resize[data-position$="left"] { left: -3px !important; }
@@ -48,15 +60,16 @@
 .dc .x6-widget-transform.narrow .x6-widget-transform-resize:is([data-position="top"], [data-position="bottom"]),
 .dc .x6-widget-transform.short .x6-widget-transform-resize:is([data-position="left"], [data-position="right"]),
 .dc .x6-widget-transform.triangular .x6-widget-transform-resize:is([data-position="top"], [data-position="left"], [data-position="right"]) { display: none !important; }
-.dc .x6-widget-snapline line { stroke: #e8432a !important; stroke-width: 1px !important; shape-rendering: crispEdges; }
+.dc .x6-widget-snapline line { stroke: var(--guide) !important; stroke-width: 1px !important; shape-rendering: crispEdges; }
 
 /* Marks drawn on the chart: Range Finder's outlines, a legend row's, a group's, a selected line's, and a
    relation being drawn. The page stays white in both themes, so the outlines on it take the light theme's
    hues: 2 px, a witness 3 px, a deeper reason 1 px and lighter; no halos. A box or a text is outlined over
    the chart; a line is traced where it lies, under the boxes, so a line lit never crosses a name. */
-:root { --rf-page-1: #1f6fa8; --rf-page-2: #187a74; --rf-page-3: #a3570f; --rf-page-4: #a63a68; --rf-page-5: #5c6a17; --rf-page-6: #6e5a43; --no-page: #c2372b; }
+:root { --rf-page-1: #1f6fa8; --rf-page-2: #187a74; --rf-page-3: #a3570f; --rf-page-4: #a63a68; --rf-page-5: #5c6a17; --rf-page-6: #6e5a43; --no-page: #c2372b; --guide: #0e93c9; }
 .dc-marks { pointer-events: none; }
-.dc-bend { fill: #ffc000; stroke: #7f6000; pointer-events: auto; }
+/* What takes a hand to reshape a line or a corner: round, white and in the accent, as a grip is; yellow would say it needs attention. */
+.dc-bend { fill: #fff; stroke: var(--accent); pointer-events: auto; }
 .dc-bend.across { cursor: ew-resize; }
 .dc-bend.updown { cursor: ns-resize; }
 .dc-hl { --hue: var(--rf-page-1); --w: 2px; --o: 1; }
@@ -69,7 +82,7 @@
 .dc-cue { --hue: var(--accent); --w: 1.5px; --o: 1; }
 .dc-sel { --hue: var(--accent); --w: 2px; --o: 1; }
 path:is(.dc-hl, .dc-row, .dc-group, .dc-cue), .x6-edge:is(.dc-hl, .dc-row, .dc-sel, .dc-cue) > path + path {
-  fill: none; stroke: var(--hue); stroke-width: var(--w); stroke-opacity: var(--o); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  fill: none; stroke: var(--hue); stroke-width: var(--w) !important; stroke-opacity: var(--o); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .dc-group { stroke-dasharray: 4 3; }
 path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms var(--ease) 2; }
 @keyframes dc-pulse { 50% { stroke-opacity: .3; } }
@@ -78,14 +91,16 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-relating { fill: none; stroke: var(--accent); stroke-width: 1.5px; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
 
 /* The handles a relation is drawn from, on the outline of the box whose edge the pointer nears. */
-.dc-handle { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--accent); border: 1.5px solid #fff; box-shadow: 0 0 0 0.5px var(--accent); cursor: crosshair; opacity: 0; transition: opacity var(--quick) var(--ease); }
-.dc-handle::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; }
+.dc-handle { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #fff; border: 1px solid var(--accent); cursor: crosshair; opacity: 0; transform: scale(.75); transition: opacity var(--quick) var(--ease), transform var(--quick) var(--ease), background-color var(--quick) var(--ease); }
+.dc-handle.close { background: var(--accent); transform: scale(1.25); }
+.dc-handle::before { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 .dc.relating-on .dc-handle { opacity: 1; }
 .dc:not(.relating-on) .dc-handle { pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } }
 
-/* A rounded shape's corner handle, PowerPoint's yellow; and where a Key's row dragged would go. */
-.dc-over > .dc-adjust { position: absolute; box-sizing: border-box; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #ffc000; border: 1px solid #7f6000; cursor: ew-resize; touch-action: none; }
+/* A rounded shape's corner handle, as a line's grip is, there as the pointer nears; and where a Key's row dragged would go. */
+.dc-over > .dc-adjust { position: absolute; box-sizing: border-box; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #fff; border: 1px solid var(--accent); cursor: ew-resize; touch-action: none; transition: opacity var(--quick) var(--ease); }
+.dc:not(.near-grips) > .dc-over > .dc-adjust:not(:hover), .dc.dragging > .dc-over > .dc-adjust { opacity: 0; }
 .dc-over > .dc-keydrop { position: absolute; height: 2px; margin-top: -1px; background: var(--accent); pointer-events: none; }
 
 /* A box's fields: the text pointer over one, and move over a selected box's own room; one pointed at outlined
@@ -98,7 +113,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-field.on { stroke: var(--accent); stroke-width: 1.5px; fill: rgb(44 76 124 / .08); }
 .dc-field.lit { stroke: var(--accent); stroke-width: 1px; fill: rgb(44 76 124 / .05); }
 .dc-field.drop { stroke: var(--accent); stroke-width: 2px; fill: rgb(44 76 124 / .06); }
-.dc-tip { position: absolute; z-index: 4; transform: translateX(-50%); padding: 3px 7px; border-radius: var(--r); background: var(--ink); color: var(--surface); font: var(--t12); white-space: nowrap; pointer-events: none; }
+.dc-tip { position: absolute; z-index: 4; transform: translateX(-50%); padding: 3px 7px; border-radius: var(--r); background: var(--toast); color: var(--toast-ink); font: var(--t12); white-space: nowrap; pointer-events: none; }
 .dc-over > .dc-tip { pointer-events: none; }
 .dc-tip.dc-next { transform: none; }
 /* What says the chart drawn is a preview of Tidy, over it at the top, in the middle: a quiet pill, as the
@@ -131,22 +146,24 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
    ▾ that chooses the group joined to its part. It keeps one width, selected or not, so nothing after it in the bar moves
    as what it names changes; a name too long for it is cut short, and shown whole on hover. */
 /* The scope takes what the bar has left, up to its most: every other control is of one width, whatever's selected, so nothing moves and nothing goes off the bar. */
-.fb .scope { display: inline-flex; flex: 1 1 0; min-width: 96px; max-width: 300px; height: 28px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.fb .scope { display: inline-flex; flex: 1 1 0; min-width: 96px; max-width: 360px; height: 28px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); overflow: hidden; }
 .fb .scope.off { opacity: .4; }
 .fb .scope > button { height: 26px; padding: 0 10px; border: 0; background: transparent; color: var(--ink-2); display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; cursor: default; }
 .fb .scope > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fb .scope > [data-fb="own"] { flex: none; }
 .fb .scope > :only-child { flex: 1 1 auto; }
 .fb .scope > [data-fb="like"] { flex: 1 1 auto; min-width: 0; }
-.fb .scope > * + * { border-left: 1px solid var(--rule-2); }
+.fb .scope > * + * { border-left: 1px solid var(--edge); }
 .fb .scope > button:hover { background-image: linear-gradient(var(--hover), var(--hover)); color: var(--ink); }
 .fb .scope > button[aria-pressed="true"] { background-color: var(--selected); color: var(--accent-ink); font-weight: 500; }
+/* With nothing selected, it's a dropdown like any: All text, or a Styles row aimed at from its list. */
+.fb .scope > button.root { justify-content: space-between; gap: 8px; color: var(--ink); }
 .fb .scope > .more { flex: none; width: 22px; padding: 0; justify-content: center; }
 .fb .scope > .more::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; }
 .fb .scope > [aria-pressed="true"] + .more { background-color: var(--selected); border-left-color: transparent; }
 /* The font and its size are fields, as Office's are: the font's name, which its menu finds as it's typed; the size,
    typed into, with its list. A toggle pressed (Bold) is filled in the selection's tint. */
-.fb .font, .fb .combo { height: 28px; border: 1px solid var(--rule-2); background: var(--surface); }
+.fb .font, .fb .combo { height: 28px; border: 1px solid var(--edge); background: var(--surface); }
 .fb .font { width: 148px; justify-content: space-between; padding: 0 6px 0 8px; }
 .fb .font > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fb .font:hover:not(:disabled, [aria-disabled="true"]) { border-color: var(--edge); }
@@ -163,7 +180,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* Where the bar is narrower than its full width, Align, Order, Group and Tidy are one Arrange menu. */
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
-@container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } }
+@container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb .font { width: 120px; } }
 /* (Where the scope has no room to say what's alike but a letter or two, it says All, and what on hover.) */
 @container (max-width: 1310px) { .fb > .sep { margin: 0 5px; } .fb .font { width: 92px; } .fb .scope > [data-fb="own"] + [data-fb="like"] > span { display: none; } .fb .scope > [data-fb="own"] + [data-fb="like"]::before { content: "All"; } }
 @container (max-width: 1230px) { .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb .arrange > span { display: none; } }
@@ -176,7 +193,8 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .well.a { grid-template-rows: 20px; }
 .fb .well.a > svg { width: 20px; height: 20px; }
 .fb .well.a .edge { stroke: var(--rule-2); stroke-width: 5; stroke-linecap: butt; }
-:root[data-theme="dark"] .fb .well > i { box-shadow: inset 0 0 0 1px var(--rule-2); }
+:root[data-theme="dark"] .fb .well > i { box-shadow: inset 0 0 0 1px var(--ink-3); }
+:root[data-theme="dark"] .fb .well.a .edge { stroke: var(--ink-3); }
 .fb .glyph { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
 /* Tidy says what it tidies in room kept for that, so nothing beside it moves (where the bar is short, by the count alone, the rest on hover); the zoom is of one width, at the bar's end, and stays there however little room the bar has. */
 .fb [data-fb="tidy"] { display: inline-block; width: 110px; line-height: 26px; text-align: left; overflow: hidden; white-space: nowrap; }
@@ -211,7 +229,11 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .amount > input { width: 44px; height: 22px; padding: 0 4px; font: var(--t12); font-variant-numeric: tabular-nums; text-align: right; }
 .amount > .unit { min-width: 12px; font: var(--t12); }
 .menu-item.withfield { display: flex; align-items: center; gap: 8px; padding: 0; }
+.menu-item.withfield { position: relative; }
 .menu-item.withfield > .sub { flex: 1; min-width: 0; }
+/* (Its chevron at the row's end, as every submenu's is, and what's typed just before it.) */
+.menu-item.withfield > .sub.menu-item::after { position: absolute; right: 8px; top: calc(50% - 5px); }
+.menu-item.withfield > .amount { margin-right: 24px; }
 /* The shadow: which way it's thrown, then what it is, each typed. */
 .shadow { display: grid; gap: 2px; }
 .shadow > .k { color: var(--ink-3); font: var(--t12); margin-bottom: 4px; }
@@ -236,7 +258,8 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .palette { display: grid; grid-template-columns: repeat(10, 20px); gap: 4px; }
 .palette > :nth-child(-n + 10) { margin-bottom: 4px; }
 .palette > i { grid-column: 1 / -1; height: 4px; }
-.palette > .room { width: 20px; height: 20px; }
+/* (Room kept for the colors used of late, so nothing moves as they come: said as slots, not left as a gap.) */
+.palette > .room { width: 20px; height: 20px; border: 1px dashed var(--rule-2); border-radius: 3px; }
 .palette > button { width: 20px; height: 20px; padding: 0; border: 1px solid var(--rule-2); border-radius: 3px; background-clip: padding-box; cursor: default; }
 .palette > button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .palette > .more { grid-column: 1 / -1; display: grid; margin: 4px -8px -8px; padding-top: 4px; border-top: 1px solid var(--rule); }
@@ -250,9 +273,11 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .picker { display: grid; gap: 8px; min-width: 200px; }
 .picker > .row { display: flex; align-items: center; gap: 8px; }
 .picker > .row > .k { width: 56px; color: var(--ink-3); font: var(--t12); }
-.picker .seg { display: flex; gap: 2px; padding: 2px; border-radius: var(--r); background: var(--hover); }
-.picker .seg > button { height: 24px; min-width: 32px; padding: 0 6px; border: 0; border-radius: 3px; background: transparent; color: var(--ink-2); display: grid; place-items: center; }
-.picker .seg > button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--rule-2); }
+.picker .seg { display: flex; border: 1px solid var(--edge); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.picker .seg > button { height: 26px; min-width: 32px; padding: 0 6px; border: 0; border-radius: 0; background: transparent; color: var(--ink-2); display: grid; place-items: center; }
+.picker .seg > button + button { border-left: 1px solid var(--edge); }
+.picker .seg > button:hover { background-image: linear-gradient(var(--hover), var(--hover)); color: var(--ink); }
+.picker .seg > button[aria-pressed="true"] { background: var(--selected); color: var(--accent-ink); }
 .picker .seg svg { width: 28px; height: 10px; stroke: currentColor; fill: none; }
 .picker .seg svg.i { width: 16px; height: 16px; }
 .picker.shape { min-width: 0; }
@@ -272,7 +297,9 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 /* The Export dialog: what's exported, and the file's pages in a well, each fitted, or one at full size. More
    than one go two across, two rows of them in view, each page as large as that allows (--a its width over its
    height). */
-.ex { display: flex; flex-direction: column; gap: 12px; height: min(calc(56vh + 144px), 664px); overflow: hidden; }
+.ex { display: flex; flex-direction: column; gap: 12px; height: min(calc(100vh - 32px - 118px), calc(56vh + 144px), 664px); min-height: 280px; overflow: hidden; }
+/* (With no pages to show, a table's file, it's as tall as what it says.) */
+.ex:not(:has(> .ex-well)) { height: auto; min-height: 0; }
 .ex > * { flex-shrink: 0; }
 .ex > .ex-warns { flex: 0 1 auto; min-height: 20px; overflow: auto; }
 .ex > .ex-well { flex: 1 1 0; }
@@ -284,7 +311,7 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .ex-says { margin: 0; color: var(--ink-2); }
 .ex-warns > .ex-says { color: var(--ink); }
 .ex-says.ex-off { display: flex; align-items: center; gap: 8px; min-height: var(--row); }
-.ex-foot > input[type="text"] { flex: 1; min-width: 200px; height: var(--row); padding: 0 8px; border: 1px solid var(--rule-2); border-radius: 3px; background: var(--surface); color: var(--ink); font: inherit; }
+.ex-foot > input[type="text"] { flex: 1; min-width: 200px; }
 .ex-foot > label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
 /* The dialog with the page in it stands at once: nothing of the chart under it shows through as it comes. */
 dialog.dlg:has(.ex)[open] { animation: none; }
@@ -296,9 +323,12 @@ dialog.dlg:has(.ex)[open] { animation: none; }
 .ex-well.many .ex-page { width: min(100%, max(280px, (50cqh - 44px) * var(--a))); justify-self: center; }
 .ex-page { margin: 0; display: grid; gap: 4px; }
 .ex-page > button { display: block; padding: 0; border: 0; border-radius: 0; background: #fff; box-shadow: 0 0 0 1px var(--rule-2); cursor: zoom-in; }
-.ex-page img { display: block; width: 100%; height: auto; }
+/* The file's own vectors, on the page, not a picture of them: its text set by the same type engine as the chart's, its strokes of the screen's width however small the page is shown. */
+.ex-drawn { display: block; }
+.ex-drawn > svg { display: block; width: 100%; height: auto; }
+.ex-well:not(.full) .ex-drawn :is(path, rect, line, polyline, polygon, ellipse):not([stroke="none"]) { vector-effect: non-scaling-stroke; stroke-width: .75px; }
 .ex-well.full .ex-page > button { cursor: zoom-out; }
-.ex-well.full .ex-page img { width: auto; max-width: none; }
+.ex-well.full .ex-drawn > svg { width: auto; max-width: none; }
 .ex-page > figcaption { font-weight: 500; color: var(--ink); }
 .ex-page > figcaption > span { font-weight: 400; color: var(--ink-2); white-space: nowrap; }
 .ex-well.many .ex-page { align-self: start; }

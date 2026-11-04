@@ -873,7 +873,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   let readable = false;
   const sheets = (format, scenes) => {
     const frame = { w: Math.max(...scenes.map(s => s.page.sheet.w)), h: Math.max(...scenes.map(s => s.page.sheet.h)) };
-    return numbered(scenes).map(s => { const f = format === 'pdf' ? s.page.sheet : frame; return { name: s.name, when: whenOf(s), src: uri(svg(s, { pdf: format === 'pdf' && (readable ? ASKED : PLAIN), frame: f })), aspect: f.w / f.h }; });
+    return numbered(scenes).map(s => { const f = format === 'pdf' ? s.page.sheet : frame, drawn = svg(s, { pdf: format === 'pdf' && (readable ? ASKED : PLAIN), frame: f }); return { name: s.name, when: whenOf(s), drawn, src: uri(drawn), aspect: f.w / f.h }; });
   };
   // What to call a box on a page's warnings: its short name, as of that page's day.
   const called = s => b => App.notes.peek().shortOf(s.state ?? App.state.peek(), b.record);
@@ -925,9 +925,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const page = sheets('pdf', [{ ...sc, name: '' }])[0], says = Scene.says(sc, called(sc), PAPERS[paper] ?? null);
     return html`<div class="ex">
       <div class="ex-pick">
-        <select aria-label="Paper" value=${paper ?? ''} onChange=${e => setPaper(e.target.value)}>
-          ${paper ? null : html`<option value="">Its own size</option>`}
-          ${Object.entries(PAPERS).map(([p, name]) => html`<option value=${p}>${name}</option>`)}</select>
+        <${Shell.Pick} label="Paper" value=${paper ?? ''} onPick=${setPaper} options=${[...paper ? [] : [['', 'Its own size']], ...Object.entries(PAPERS)]} />
         <div class="menu-seg ex-rows" role="group" aria-label="Orientation">${[[false, 'Landscape'], [true, 'Portrait']].map(([v, label]) => html`
           <button type="button" aria-pressed=${portrait === v} onClick=${() => setPortrait(v)}>${label}</button>`)}</div>
       </div>
@@ -936,7 +934,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         <label><input type="checkbox" checked=${number} onChange=${e => setNumber(e.target.checked)} />Page numbers</label>
       </div>
       ${says.length ? html`<div class="ex-warns">${says.slice(0, 4).map(t => html`<p class="ex-says">${t}</p>`)}</div>` : null}
-      <div class="ex-well"><figure class="ex-page" style=${`--a: ${page.aspect}`}><img src=${page.src} alt="" /></figure></div>
+      <div class="ex-well"><figure class="ex-page" style=${`--a: ${page.aspect}`}><span class="ex-drawn" dangerouslySetInnerHTML=${{ __html: page.drawn }} /></figure></div>
     </div>`;
   }
   async function setup(view = Shell.view.peek()) {
@@ -944,7 +942,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     if (App.readOnly.peek()) return Shell.toast(App.whyNot());
     const was = pageNow(view), f = footer(), choice = { paper: was.paper, portrait: was.portrait, text: f.text ?? '', number: !!f.number };
     const go = await Shell.dialog({ title: 'Page setup', width: 720, body: () => html`<${Setup} choice=${choice} view=${view} />`,
-      actions: [{ label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }] });
+      actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }] });
     if (!go) return;
     const repaged = choice.paper !== was.paper || choice.portrait !== was.portrait, value = asFooter(choice.text, choice.number), refooted = JSON.stringify(value ?? {}) !== JSON.stringify(f.text == null && f.number == null ? {} : f);
     if (!repaged && !refooted) return;
@@ -999,12 +997,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const open = Shell.problems().filter(c => c.kind !== 'soon'), broke = FormulaBar.brokenSaid();
     return html`<div class="ex">
       <div class="ex-pick">
-        <select aria-label="Format" value=${format} onChange=${e => { setFull(null); setFormat(e.target.value); }}>
-          ${FORMATS.filter(([f]) => here || f === 'ics').map(([f, name]) => html`<option value=${f}>${name}</option>`)}
-          ${others.map((x, i) => html`<option value=${`x${i}`}>${x.name}</option>`)}</select>
-        ${drawn ? html`<select aria-label="Page size" value=${paper} onChange=${e => { setFull(null); setPaper(e.target.value); }}>
-          ${differ ? html`<option value=${OWN}>Each view’s page</option>` : null}
-          ${Object.entries(PAPERS).map(([p, name]) => html`<option value=${p}>${name}</option>`)}</select>` : null}
+        <${Shell.Pick} label="Format" value=${format} onPick=${v => { setFull(null); setFormat(v); }} options=${[...FORMATS.filter(([f]) => here || f === 'ics').map(([f, name]) => [f, name]), ...others.map((x, i) => [`x${i}`, x.name])]} />
+        ${drawn ? html`<${Shell.Pick} label="Page size" value=${paper} onPick=${v => { setFull(null); setPaper(v); }} options=${[...differ ? [[OWN, 'Each view’s page']] : [], ...Object.entries(PAPERS)]} />` : null}
         ${table?.says ? html`<div class="menu-seg ex-rows" role="group" aria-label="Rows">${[[false, 'As shown'], [true, 'Every row']].map(([v, label]) => html`
           <button type="button" aria-pressed=${all === v} onClick=${() => setAll(v)}>${label}</button>`)}</div>` : null}
       </div>
@@ -1022,7 +1016,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')}>
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name} style=${`--a: ${pg.aspect}`}>
           <figcaption>${pg.name} <span>${pg.when}</span></figcaption>
-          <button type="button" aria-label=${`${pg.name}, ${pg.when}`} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><img src=${pg.src} alt="" /></button></figure>`)}
+          <button type="button" aria-label=${`${pg.name}, ${pg.when}`} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><span class="ex-drawn" dangerouslySetInnerHTML=${{ __html: pg.drawn }} /></button></figure>`)}
       </div>` : format === 'ics' ? html`<div class="ex-well"><${Dates} /></div>` : null}
     </div>`;
   }
@@ -1054,7 +1048,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), [chartName(), App.asOfWords().name].filter(Boolean).join(' - '), App.day.peek());
     if (x) return x.run({ all: choice.all });
     const pages = choice.scenes, names = pages.map(s => s.name), days = [...new Set(pages.map(s => s.day))], chart = chartName();
-    const inIt = names.length === 1 ? (Tree.norm(chart).includes(Tree.norm(names[0])) ? '' : names[0])
+    // (Of every view there is, it's the chart's: nothing it leaves out is left to say.)
+    const inIt = names.length > 1 && names.length === list.length ? '' : names.length === 1 ? (Tree.norm(chart).includes(Tree.norm(names[0])) ? '' : names[0])
       : names.length === 2 ? names.join(' and ') : names.length === 3 ? `${names[0]}, ${names[1]} and ${names[2]}` : `${names[0]} to ${names.at(-1)}`;
     return write(choice.format, pages, fileName(chart, inIt, days.length === 1 || App.shown.peek().moment ? App.asOfWords(days[0]).name : ''),
       { title: chart, author: Store.who() ?? '', R: App.computed.peek(), N: App.notes.peek() }).catch(e => Shell.toast(e?.message || 'Couldn’t export'));
