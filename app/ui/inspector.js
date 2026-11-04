@@ -2250,7 +2250,7 @@ Shell.register('find', { items: () => {
 Shell.register('find', { items: q => {
   const words = T.norm(q ?? '').split(' ').filter(Boolean);
   if (words.length < 2) return [];
-  const st = recs(), n = N(), said = (x, w) => (' ' + T.norm(x) + ' ').includes(' ' + w + ' ') || T.norm(x).startsWith(w), out = new Map();
+  const st = recs(), n = N(), said = (x, w) => { const s = T.norm(x).replace(/[(),.]/g, ' '); return (' ' + s + ' ').includes(' ' + w + ' ') || s.startsWith(w); }, out = new Map();
   const objects = Object.keys(st).filter(id => st[id].kind && !T.isView(st[id])), rels = n.notes('Formula').filter(x => !x.view && x.pattern.args?.length === 2).map(x => x.pattern);
   for (let i = 1; i < words.length; i++) for (const [who, what] of [[words.slice(0, i), words.slice(i)], [words.slice(i), words.slice(0, i)]]) {
     const w = who.join(' '), t = what.join(' '), is = id => T.norm(n.shortOf(st, id)).replace(/^the /, '') === w, all = objects.filter(id => said(n.shortOf(st, id), w) || said(n.nameOf(st, id), w)), hits = all.some(is) ? all.filter(is) : all;
@@ -2260,6 +2260,16 @@ Shell.register('find', { items: q => {
       if (!T.norm(list).startsWith(t) && !T.norm(n.name(p)).startsWith(t)) continue;
       for (const id of hits) if (!out.has(id + list) && T.narrower(tree(id), from.loc) && !relatives(id).lists.some(([l]) => T.same(l, list)))
         out.set(id + list, { of: '§lists', label: `${n.shortOf(st, id)} › ${list}`, names: [q], detail: 'List', why: 'None', run: () => { aim.value = 'list:' + list; select([id]); } });
+    }
+  }
+  // And of an entered relation, by a word of its list's name ("Corvane agent"): its list, or that it has none, a click from adding one.
+  for (let i = 1; i < words.length; i++) for (const [who, what] of [[words.slice(0, i), words.slice(i)], [words.slice(i), words.slice(0, i)]]) {
+    const w = who.join(' '), t = what.join(' '), all = objects.filter(id => said(n.shortOf(st, id), w) || said(n.nameOf(st, id), w));
+    if (!all.length || all.length > 12) continue;
+    for (const id of all) for (const l of listsOf(id)) {
+      if (out.has(id + l.name) || !(' ' + T.norm(l.name)).includes(' ' + t)) continue;
+      const have = relatives(id).lists.find(([x]) => T.same(x, l.name))?.[1].length ?? 0;
+      out.set(id + l.name, { of: '§lists', label: `${n.shortOf(st, id)} › ${l.name}`, names: [q], detail: 'List', why: have ? String(have) : 'None', run: () => { aim.value = 'list:' + l.name; select([id]); } });
     }
   }
   return [...out.values()];

@@ -1371,6 +1371,7 @@ async function saysWhen(C, keep) {
   }
   const jurisdictionOf = st()[Tree.entryAt(st(), 'fund', 'Jurisdiction')]?.choice;
   if (jurisdictionOf) { const hits = await finds(jurisdictionOf); check('… every entity at a value', hits.some(x => x === `${shortOf} › Jurisdiction|${jurisdictionOf}`), hits.slice(0, 4).join(' / ')); }
+  { const bdcHits = await finds('BDC control'); check('… and a list it could have, by the words for each, saying it has none', bdcHits.includes('The BDC › Controllers|None'), bdcHits.slice(0, 4).join(' / ')); }
   // What nothing requires stands apart under Blank, and the list stays open.
   { const blankNow = document.querySelector('.status .counts > .blank');
     if (blankNow) { blankNow.click(); await tick(120);
