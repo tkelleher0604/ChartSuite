@@ -692,8 +692,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
     // An entry the view's free text may read, or a field shown beside another record, is never inert.
-    const N0 = wb.notes(chart), fielded = [...N0.notes('Text'), ...['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param))].some(n => n.view === view);
-    const formatsOf = (recs, id) => { const t = treeOf(recs, id); return fielded && recs[id]?.at ? { Text: true } : t ? N0.formats(t, view) : {}; };
+    const N0 = wb.notes(chart), reads = N0.notes('Text').some(n => n.view === view), fielded = new Set(['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param && n.view === view).map(n => Tree.norm(n.param))));
+    const formatsOf = (recs, id) => { const r = recs[id], t = treeOf(recs, id); return r?.at && (reads || fielded.has(Tree.norm(r.edge ?? ''))) ? { Text: true } : t ? N0.formats(t, view) : {}; };
     const d = alike.find(d => d.from[0] === opts.state) ?? (alike[0] && unmoved(alike[0].scene, alike[0].from[0], opts.state, formatsOf) ? alike[0] : null);
     if (d) {
       if (d.laid && !opts.ahead) laidOut.set(drawnAs, d.laid);
@@ -1400,8 +1400,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     fit = best;
   }
   // A chart the layout alone places uses the width its scale leaves it, every gap in it alike (see Layout's columns), and a
-  // little of the height, where that draws it no smaller and with no more faults, the height first to go.
-  if (!last && !positions.size && boxes.length > 1 && !frames.size) {
+  // little of the height, where that draws it no smaller and with no more faults, the height first to go. (One too large for
+  // columns is as it's placed.)
+  if (!last && !positions.size && boxes.length > 1 && !frames.size && boxes.length + lines.length <= Layout.BIG) {
     const wide = Math.max(...boxes.map(b => b.x + b.w)) - Math.min(...boxes.map(b => b.x)), want = (room.w - 2) / at.s;
     const tall = Math.max(...boxes.map(b => b.y + b.h)) - Math.min(...boxes.map(b => b.y)), rows = new Set(boxes.map(b => Math.round(b.y))).size;
     const spread = rows < 2 ? 0 : Math.min(SPREAD, Math.max(0, ((room.h - (room.key?.under ? room.key.h + 32 : 0) - 2) / at.s - tall) / (rows - 1)));
@@ -2225,15 +2226,21 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         }
         const kw = key.w * s, kh = key.h * s, by = Math.max(0, c.x + c.w + 32 + kw - (W - M)), beside = { x: c.x - by + c.w + 32, y: c.y + c.h - kh, w: kw, h: kh };
         // Or any room the sheet has clear of the chart, its corners first, lowest and rightmost before the rest: so a Key moves clear of what grows, before the chart falls.
-        const xs = [W - M - kw, M, ...withFree.flatMap(q => [q.x + q.w + 21, q.x - 21 - kw])].filter(x => x >= M - 0.5 && x + kw <= W - M + 0.5);
-        const ys = [H - M - kh, ...withFree.map(q => q.y + q.h + 21)].filter(v => v >= y + 8 && v + kh <= H - M + 0.5).sort((a, b) => b - a);
-        const room = ys.flatMap(v => xs.map(x => ({ x, y: v, w: kw, h: kh }))).find(q => !withFree.some(o => meets(o, q, 21)));
+        const clearOf = () => {
+          const xs = [...new Set([W - M - kw, M, ...withFree.flatMap(q => [q.x + q.w + 21, q.x - 21 - kw])])].filter(x => x >= M - 0.5 && x + kw <= W - M + 0.5);
+          const ys = [...new Set([H - M - kh, ...withFree.map(q => q.y + q.h + 21)])].filter(v => v >= y + 8 && v + kh <= H - M + 0.5).sort((a, b) => b - a);
+          for (const v of ys) for (const x of xs) { const q = { x, y: v, w: kw, h: kh }; if (!withFree.some(o => meets(o, q, 21))) return q; }
+          return null;
+        };
         if (fits(under) || force) places.set(key.row, under);
         else if (kh <= c.h && c.x - by >= M - 0.5 && (!placed || !by) && fits(beside)) { dx -= by / s; places.set(key.row, beside); }
-        else if (room) places.set(key.row, room);
-        // (A Key goes over what a hand put, rather than the scale fall for that; never over what the layout places.)
-        else if (over && !own.some(q => meets(q, keptAt ? { ...keptAt, w: kw, h: kh } : r, 8))) places.set(key.row, keptAt ? { ...keptAt, w: kw, h: kh } : r);
-        else return null;
+        else {
+          const clear = clearOf();
+          if (clear) places.set(key.row, clear);
+          // (A Key goes over what a hand put, rather than the scale fall for that; never over what the layout places.)
+          else if (over && !own.some(q => meets(q, keptAt ? { ...keptAt, w: kw, h: kh } : r, 8))) places.set(key.row, keptAt ? { ...keptAt, w: kw, h: kh } : r);
+          else return null;
+        }
         alongside = places.get(key.row);
       }
     }

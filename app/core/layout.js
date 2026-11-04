@@ -1707,5 +1707,5 @@ function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, ma
   return way.filter((p, i) => i === 0 || i === way.length - 1 || !((p[0] === way[i - 1][0] && p[0] === way[i + 1][0]) || (p[1] === way[i - 1][1] && p[1] === way[i + 1][1])));
 }
 
-return { place, arrange, route, around, labels: placeLabels, pin, pinned, sideY, sideX, keepIn, mainOf, OPTIONS, fit: ({ boxes, links, clusters, room }) => tiers(boxes, links, room, clusters).fit };
+return { place, arrange, route, around, labels: placeLabels, pin, pinned, sideY, sideX, keepIn, mainOf, BIG, OPTIONS, fit: ({ boxes, links, clusters, room }) => tiers(boxes, links, room, clusters).fit };
 })();
