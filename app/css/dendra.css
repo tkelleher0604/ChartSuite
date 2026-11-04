@@ -312,7 +312,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .chartmenu > svg { width: 16px; height: 16px; flex: none; color: var(--ink); }
 .chartmenu > .name { overflow: hidden; text-overflow: ellipsis; }
 /* How the workbook is kept, beside its name, as a document's is: quiet until there's something to do about it. */
-.keeping { flex: none; padding: 0 4px; color: var(--ink-3); white-space: nowrap; }
+.keeping { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; color: var(--ink-3); white-space: nowrap; }
 /* All's well needn't be said where there's no room to say it. */
 @media (max-width: 1180px) { .keeping:not(.fix, .is-error) { display: none; } }
 .keeping.is-error { color: var(--no); }

@@ -579,7 +579,7 @@ function pointed(e) {
   it?.tries ? preview(...it.tries) : preview();
 }
 // A name cut short is shown whole on hover, or else what the control does.
-const whole = e => { const b = e.currentTarget, t = b.firstElementChild; b.dataset.tip = t && t.scrollWidth > t.clientWidth ? t.textContent : 'All like it'; };
+const whole = e => { const b = e.currentTarget, t = b.firstElementChild; b.dataset.tip = t && (t.scrollWidth > t.clientWidth || !t.offsetWidth) ? t.textContent : 'All like it'; };
 
 // ---- The scope, on the chart ----
 
