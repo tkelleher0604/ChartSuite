@@ -369,7 +369,7 @@ const App = (() => {
   function asksFrom(id, out) {
     const r = id && state.peek()[id];
     if (!r || !out || r.kind !== undefined) return false;
-    if (result.peek().computed[id]) return true;
+    if (result.peek().computed[id] || overRule(id, out)) return true;
     if (r.field === 'date' || out.field === 'date') return recurs(id, r, out);
     if (fixedAt(id)) return false;
     const row = book.peek().item(chart.peek(), id).find(v => Log.validOn(v, day.peek()));
@@ -472,7 +472,7 @@ const App = (() => {
     const r = state.peek()[id], N = notes.peek();
     if (!r) return;
     const what = r.args ? `${N.nameOf(state.peek(), id)}: ${N.segmentOf(state.peek(), id)}` : `${r.edge} of ${N.whereOf(state.peek(), r)}`;
-    stage({ verb: 'Change', act: 'Back to the rule', source: `back ${id}`, what: `${what}: back to the rule, which ${ruleSaid(id)}`, asks: 'until', day: day.peek(), reason: true, needs: [id], auto: true,
+    stage({ verb: 'Back to the rule', source: `back ${id}`, what, parts: [html`<span class="add">${what}: back to the rule, which ${ruleSaid(id)}</span>`], asks: 'until', day: day.peek(), reason: true, needs: [id], auto: true,
       make: (tx, d) => tx.remove(id, d ?? null), say: c => Time.describe(c) });
   }
   // Who typed a record over a rule, when, why and until when, as it stands on the day shown; null where nothing did.
@@ -611,7 +611,7 @@ const App = (() => {
   const lacksWhy = p => !!p.reason && !Tree.clean(why.value ?? '');
   // What its button says: its verb, or what it's called (Dissolve); a deletion as never held is Delete.
   const actOn = p => p.asks === 'until' && p.day === null ? p.verb : p.act ?? p.verb;
-  const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring', Change: 'changing', 'Rule out': 'ruling out', Insert: 'inserting', Undo: 'undoing', Redo: 'redoing' };
+  const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring', Change: 'changing', 'Rule out': 'ruling out', Insert: 'inserting', Undo: 'undoing', Redo: 'redoing', Override: 'overriding', 'Back to the rule': 'going back to the rule on' };
   const discarded = p => {
     // (One value typed is said as a sentence, which is what's discarded; a tag's, or several, by what doing it was.)
     if (p.typed?.length === 1 && !('tag' in p.typed[0].out)) return `Discarded “${p.what}”`;
@@ -1248,14 +1248,14 @@ const App = (() => {
   function failsOf(R2) {
     if (!R2) return [];
     if (failing.has(R2)) return failing.get(R2);
-    const key = a => a.error ? `${a.id} ${a.error.message}` : a.id, now = new Set(needs.peek().filter(a => a.kind === 'error').map(key)), N = notes.peek(), recs = R2.records, st = state.peek();
+    const key = a => a.error ? `${a.id} ${a.error.message}` : a.id, now = new Set(needs.peek().filter(a => a.kind === 'error' || a.kind === 'broken').map(key)), N = notes.peek(), recs = R2.records, st = state.peek();
     const about = a => Tree.objectOf(recs, a.error ? a.error.args?.[0]?.at ?? a.error.at : a.id);
     const figure = a => { const s = !a.error && typeof FormulaBar !== 'undefined' && FormulaBar.sentenceIn?.(R2, a.id); return s && [...s.matchAll(/\(([^()]*, not [^()]*)\)/g)].at(-1)?.[1]; };
     // A relation in words, as the two-box panel and the formula bar say it, each side by its short name.
     const words = x => { const t = Tree.treeOf(recs, x), sides = N.placed(recs, x), of = e => bind(N.shortOf(recs, Tree.objectOf(recs, recs[x].args.find(a => Tree.same(a.edge, e)).at))), [e0, e1, ...rest] = sides.map(s => s.edge);
       const [a, says, b] = typeof FormulaBar !== 'undefined' && e1 ? FormulaBar.phrase(t, e0, e1, { choice: recs[x].choice }) : [e0, ' and ', e1];
       return `${of(a)}${says}${b ? of(b).replace(/^The /, 'the ') : ''}${rest.map(e => `, ${lowered(e)} ${of(e).replace(/^The /, 'the ')}`).join('')}`; };
-    const out = Formulas.attention(R2, asking.peek(), day.peek()).filter(a => a.kind === 'error' && !now.has(key(a)) && about(a) in st)
+    const out = Formulas.attention(R2, asking.peek(), day.peek()).filter(a => (a.kind === 'error' || a.kind === 'broken') && !now.has(key(a)) && about(a) in st)
       .map(a => { const at = about(a), f = figure(a), whose = bind(N.shortOf(recs, at)), rel = !a.error && recs[at]?.args?.length > 1 && !R2.computed[at];
         return { id: a.id, at, ends: rel && endOf(at) !== false ? at : null, text: a.error ? `an error at ${whose}` : rel ? `${recs[a.id].edge}: ${words(at)}` : `${recs[a.id].edge} at ${whose}${f ? ` (${f})` : ''}` }; });
     failing.set(R2, out);

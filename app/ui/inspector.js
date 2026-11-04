@@ -598,7 +598,7 @@ function entryMenu(anchor, id) {
     ...(!f && over(id) && !App.readOnly.peek() ? [{ label: 'Back to the rule…', run: () => App.backToRule(id) }] : []),
     ...(f || App.readOnly.peek() ? [] : [{ label: 'Rename', run: () => { renaming.value = id; } }, ...(recs()[r.at]?.at ? [{ label: 'Move up a level', run: () => moveUp(id) }] : [])]),
     ...('field' in r || App.readOnly.peek() ? [] : [{ label: 'Add', items: addItems(id, anchor) }]),
-    ...(f || App.readOnly.peek() ? [] : ['-', { label: 'Delete', danger: true, run: () => remove(id) }]),
+    ...(f || overrides(id) || App.readOnly.peek() ? [] : ['-', { label: 'Delete', danger: true, run: () => remove(id) }]),
   ]);
 }
 function addItems(at, anchor) {

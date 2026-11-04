@@ -1403,7 +1403,7 @@ const FormulaBar = (() => {
     // What it can't work out where it could, as a list where it wants one value: no conclusion, however few the places, and whatever was there before: an edit that leaves
     // errors is flawed. Not what it can't say for want of a value (a blank's to fill in), nor what its flaws already say.
     const mine = d.fresh?.id ?? d.def, said = new Set(own.map(f => f.message)), errs = (R2.errors ?? []).filter(e => e.def === mine && !['#N/A', '#NAME?', '#CIRCULAR!', '#OPTION?'].includes(e.error.code) && !said.has(e.error.msg));
-    if (errs.length) {
+    if (errs.length && !own.some(f => !f.warn)) {
       const recs = R2.records, n = N(), where = e => (e.at ? [e.at] : (e.args ?? []).map(a => a.at)).filter(at => recs[at]).map(at => n.shortOf(recs, Tree.objectOf(recs, at))).join(' → '), at = errs.slice(0, 3).map(where).filter(Boolean);
       put({ message: `It can’t be worked out at ${sayList(errs.length > 3 ? [...at, `${errs.length - 3} more`] : at) || `${errs.length} ${errs.length === 1 ? 'place' : 'places'}`}: ${errs[0].error.msg ?? errs[0].error.code}`, def: d.def, key: null });
     }

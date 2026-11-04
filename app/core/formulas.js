@@ -445,7 +445,7 @@ function missing(S, name, at) {
   const n = normal(name);
   if (S.P.known.lists.has(n)) return [];
   if (S.P.known.values.has(n)) { S.blanks?.push({ name, at }); return null; }
-  return err('#NAME?', `Nothing is called ${name}.`);
+  return err('#NAME?', `Nothing is called ${name}${name.endsWith(".") ? "" : "."}`);
 }
 // A record pointed at by its name (dendra.md, Definitions: a record by its name): an object by any Name or Short Name it has had, on
 // any day, so a rule that points at it holds on every day it holds. Nothing where nothing has it; an error where two things have.
@@ -3233,8 +3233,10 @@ function closeTo(word, among) {
   const w = normal(word);
   let best = null, least = Math.max(1, Math.floor(String(word).length / 3)) + 1;
   for (const o of among) { const d = editDistance(w, normal(o)); if (d < least) { least = d; best = o; } }
-  // Or what it's the start of, as a name part typed is: the shortest.
-  return best ?? (w.length > 1 ? [...among].filter(o => normal(o).startsWith(w)).sort((a, b) => a.length - b.length)[0] ?? null : null);
+  // Or what it's the start of, as a name part typed is: the shortest. Or what has every word of it: "Calder Ridge BDC, Inc." of "Calder Ridge Capital BDC, Inc.".
+  const words = w.split(/[\s,]+/).filter(Boolean);
+  return best ?? (w.length > 1 ? [...among].filter(o => normal(o).startsWith(w)).sort((a, b) => a.length - b.length)[0] ?? null : null)
+    ?? (words.length > 1 ? [...among].find(o => { const has = normal(o).split(/[\s,]+/); return words.every(y => has.includes(y)); }) ?? null : null);
 }
 // The options each choice goes by, by its name: an entry's by its label, a relation's by its name, one a rule gives with
 // what its rows give. What goes by the same name but isn't a choice somewhere says nothing, so isn't asked. And `spelled`,
@@ -3287,7 +3289,7 @@ function rowFlaws(P, d, ast, edges = null) {
   const has = nm => known.values.has(nm) || known.lists.has(nm) || reg.byName.has(nm) || lets.has(nm);
   const mend = (name, among) => { const c = closeTo(name, among); return c ? { fix: nameText(c) } : {}; };
   // (A function's name, its parentheses yet to come, is what it is. And a name more than one thing has had says so.)
-  const unknown = (name, from, to) => out.push(isFunction(name) ? { from, to, code: '#NAME?', message: `${name.toUpperCase()} needs its brackets: ${name.toUpperCase()}(…).` } : { from, to, code: '#NAME?', message: `Nothing is called ${name}.`, ...mend(name, [...spelled.values(), ...(P.names?.values() ?? [])]) });
+  const unknown = (name, from, to) => out.push(isFunction(name) ? { from, to, code: '#NAME?', message: `${name.toUpperCase()} needs its brackets: ${name.toUpperCase()}(…).` } : { from, to, code: '#NAME?', message: `Nothing is called ${name}${name.endsWith(".") ? "" : "."}`, ...mend(name, [...spelled.values(), ...(P.names?.values() ?? [])]) });
   const twice = (n, from, to) => { if (P.named?.get(n.n)?.size > 1) out.push({ from, to, code: '#NAME?', message: `More than one thing is called ${n.name}.` }); };
   const isRecord = nm => !!P.named?.has(nm);
   // What a part of a row holds, where that's known: a date, a number, text, a day of the year, a yes-or-no.
@@ -3450,10 +3452,10 @@ function flawsOf(P, definitions, entered) {
   }
   return out;
 }
-// The rules in error in a working-out: those flawed; those a name or a loop failed at as worked out; and what they reach,
-// every definition that reads one, as an error passes on to what reads it. A value a record lacks isn't one (a #VALUE!, a
-// #N/A: a rule that's fine, waiting on a fact). → { roots: [{ def, name, code, problems }], reach: Set(def) }
-const RULE_ERRORS = new Set(['#NAME?', '#CIRCULAR!', '#OPTION?']), brokens = new WeakMap();
+// The rules in error in a working-out: those flawed; those that couldn't be worked out, by a name, a loop or a value of the wrong kind; and what they
+// reach, every definition that reads one, as an error passes on to what reads it. A value a record lacks isn't one (a #N/A: a rule that's fine,
+// waiting on a fact). → { roots: [{ def, name, code, problems }], reach: Set(def) }
+const RULE_ERRORS = new Set(['#NAME?', '#CIRCULAR!', '#OPTION?', '#VALUE!', '#DIV/0!']), brokens = new WeakMap();
 function broken(R) {
   if (brokens.has(R)) return brokens.get(R);
   const P = R.state.P, roots = new Map(), readers = new Map(), reach = new Set();

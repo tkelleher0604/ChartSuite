@@ -361,7 +361,9 @@ async function checks() {
   // Esc steps back a layer at a time: the edit, then the rows
   Shell.select([OKAFOR_GP]); await wait(20);
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(20);
-  check('Esc discards the edit and keeps the rows', !FormulaBar.draft.peek() && !!document.querySelector('.fx-panel'));
+  check('A first Esc throws nothing away, saying what a second would do', !!FormulaBar.draft.peek() && /Esc again discards your edit/.test(document.querySelector('.fx-esc')?.textContent ?? ''), document.querySelector('.fx-acts')?.textContent);
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(20);
+  check('… a second discards the edit and keeps the rows', !FormulaBar.draft.peek() && !!document.querySelector('.fx-panel'));
   document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(20);
   check('… and Esc again closes them', !document.querySelector('.fx-panel'));
   // The rows never cover what they're about: dropped, the boxes of the record worked out are brought into the

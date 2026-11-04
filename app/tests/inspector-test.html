@@ -195,18 +195,22 @@ async function run() {
     && !FormulaBar.pending.peek() && !onFile.classList.contains('peek'), document.activeElement?.outerHTML.slice(0, 120));
   onFile.click(); await tick(60);
   const overrideBtn = () => document.querySelector('.fxbar .fx-override');
-  check('clicking a computed tick opens its reason, overriding nothing, the reason’s command labelled', App.wb.changes().length === n1 && st()[onFileId].tag === true && !pb() && overrideBtn()?.textContent === 'Rule out…'
+  check('clicking a computed tick opens its reason, overriding nothing, the reason’s command labelled', App.wb.changes().length === n1 && st()[onFileId].tag === true && !pb() && overrideBtn()?.textContent === 'Override…'
     && /Formation Document on File/.test(document.querySelector('.fxbar .fx-name')?.textContent ?? ''), document.querySelector('.fxbar')?.textContent.slice(0, 200));
   overrideBtn().click(); await tick(60);
-  check('… which goes through the bar, saying what it fails', App.wb.changes().length === n1 && pb('.btn.primary')?.textContent === 'Rule out' && /^Fails Formation Document on File at Fund III/.test(spoken(pb('.fails') ?? document.body))
+  check('… which goes through the bar, saying what it fails', App.wb.changes().length === n1 && pb('.btn.primary')?.textContent === 'Override' && /^Fails Formation Document on File at Fund III/.test(spoken(pb('.fails') ?? document.body))
     && document.activeElement === pb('.from input'), pb()?.textContent);
+  // A decision: it asks why, and until when, and isn't made till it's told why (dendra.md, Definitions: Typed over).
+  check('… asking why, its button waiting on it, and until when', pb('.btn.primary')?.getAttribute('aria-disabled') === 'true' && !!pb('.why-in.needed input') && !!pb('.until input'), pb()?.textContent);
+  pb('.btn.primary').click(); await tick(40);
+  check('… pressed with no reason, it makes nothing and the keys go to Why', App.wb.changes().length === n1 && document.activeElement === pb('.why-in input'), document.activeElement?.outerHTML.slice(0, 100));
   check('… and its row shows it, a red X', rowOf('Formation Document on File').querySelector('.tag').classList.contains('fails') && !overrideBtn(), rowOf('Formation Document on File').innerHTML.slice(0, 200));
   key(pb(), 'Escape'); await tick(60);
   check('… Esc leaves it as it was', App.wb.changes().length === n1 && st()[onFileId].tag === true && App.computed.value.computed[onFileId] && !pb(), pb()?.textContent);
   // … and Find reaches it, for what a formula gives that's selected
   Shell.select([onFileId]); await tick(60);
-  const ruling = await (async () => { Shell.find('rule out'); await tick(150); const out = [...document.querySelectorAll('.findpal .label')].map(x => x.textContent); Shell.closeAll(); await tick(30); return out; })();
-  check('… Find reaches Rule out…, of the computed tag selected', ruling.includes('Rule out…'), ruling.join(' | '));
+  const ruling = await (async () => { Shell.find('waiver'); await tick(150); const out = [...document.querySelectorAll('.findpal .label')].map(x => x.textContent); Shell.closeAll(); await tick(30); return out; })();
+  check('… Find reaches Override…, by the words for it, of the computed tag selected', ruling.includes('Override…'), ruling.join(' | '));
   Shell.select(['fund']); await tick(60);
 
   // A choice from its dropdown
