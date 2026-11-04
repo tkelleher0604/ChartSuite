@@ -189,6 +189,8 @@ const Time = (() => {
   Shell.register('action', { id: 'view.changes.off', name: 'Hide changes', names: COMPARE, enabled: () => lookFree() && !!App.views.peek().find(x => x.id === Shell.view.peek())?.changes, why: () => 'This page isn’t showing changes', run: () => showChanges(Shell.view.peek(), null) });
 
   // ---- The date control: today, or a day from a calendar beside the chart's own days ----
+  // (Back to today, from Find, as the control's Today button.)
+  Shell.register('action', { id: 'time.today', name: 'Show today', names: ['Today', 'Back to today', 'As of today', 'Now', 'Back to now'], enabled: () => !!Shell.time.peek(), why: () => 'Today is what’s shown', run: () => Shell.at(null) });
   const opened = signal(false);
   function Month({ month, setMonth, value, marked }) {
     const [y, m] = month.split('-').map(Number), first = new Date(y, m - 1, 1), today = Log.today();
@@ -201,10 +203,10 @@ const Time = (() => {
         <span>${Tree.formatDate(month + '-01', 'month')}</span>
         <button class="btn icon next" aria-label="Next month" onClick=${() => step(1)}>${Shell.icon('chevron')}</button>
       </div>
-      <div class="cal-grid">
+      <div class="cal-grid" data-grid=":scope > button" role="group" aria-label=${Tree.formatDate(month + '-01', 'month')}>
         ${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(d => html`<span class="wd">${d}</span>`)}
         ${cells.slice(0, weeks * 7).map(d => { const iso = Tree.isoOf(d); return html`<button
-          class=${['d', d.getMonth() !== m - 1 && 'out', marked.has(iso) && 'mark', iso === today && 'today'].filter(Boolean).join(' ')}
+          class=${['d', d.getMonth() !== m - 1 && 'out', marked.has(iso) && 'mark', iso === today && 'today'].filter(Boolean).join(' ')} aria-label=${Tree.formatDate(iso)} data-tip=${Tree.formatDate(iso)}
           aria-pressed=${iso === (value ?? today)} onClick=${() => show(iso)}>${d.getDate()}</button>`; })}
       </div>
     </div>`;
@@ -212,10 +214,10 @@ const Time = (() => {
   function When({ close }) {
     const t = Shell.time.value, today = Log.today(), day = t?.asOf ?? today, evs = events.value;
     const [month, setMonth] = useState(day.slice(0, 7));
-    const [text, setText] = useState(null);
+    const [text, setText] = useState(null), [bad, setBad] = useState(null);
     const listRef = useRef();
     useEffect(() => { opened.value = true; return () => { opened.value = false; }; }, []);
-    useEffect(() => { setMonth(day.slice(0, 7)); setText(null); }, [day]);
+    useEffect(() => { setMonth(day.slice(0, 7)); setText(null); setBad(null); }, [day, !t]);
     // Once the popover shows, the list, which runs back from the latest, opens at the day shown or the last of
     // the chart's days before it, under its year.
     useEffect(() => {
@@ -233,8 +235,10 @@ const Time = (() => {
     const typed = e => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
+      // (“Today” is a day as much as any typed; what isn't one says so, in words, till it's typed over.)
+      if (/^(today|now)$/i.test(e.target.value.trim())) { show(null); close(); return; }
       const d = Tree.firstDay(Tree.parseKnown(e.target.value));
-      if (d) { show(d); close(); } else { e.target.classList.add('bad'); e.target.dataset.why = Tree.notA('date'); e.target.setAttribute('aria-invalid', 'true'); }
+      if (d) { show(d); close(); } else setBad(e.target.value.trim());
     };
     // At every day, today too, the page can keep it; on a page that keeps one, another day is a look.
     const can = !App.readOnly.value, tip = can ? null : App.whyNot(), name = view?.name, keeps = view?.keeps ?? null;
@@ -249,13 +253,14 @@ const Time = (() => {
     return html`<div class="date-pop">
       <div class="date-top">
         <button class="btn" aria-pressed=${!t} onClick=${() => show(null)}>Today</button>
-        <input aria-label="Date" autofocus value=${text ?? Tree.formatDate(day)} spellcheck="false" onFocus=${e => e.target.select()}
-          onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); e.target.removeAttribute('aria-invalid'); toward(Tree.firstDay(Tree.parseKnown(e.target.value))); }} onKeyDown=${typed} />
+        <input aria-label="Date" class=${bad === null ? null : 'bad'} aria-invalid=${bad === null ? null : 'true'} autofocus value=${text ?? Tree.formatDate(day)} spellcheck="false" onFocus=${e => e.target.select()}
+          onInput=${e => { setText(e.target.value); setBad(null); toward(Tree.firstDay(Tree.parseKnown(e.target.value))); }} onKeyDown=${typed} />
       </div>
+      ${bad === null ? null : html`<div class="date-reads" role="alert">“${bad}” isn’t a day</div>`}
       ${keeping}
       <div class="date-body">
         <${Month} month=${month} setMonth=${setMonth} value=${t?.asOf} marked=${marked} />
-        <div class="date-days" ref=${listRef}>
+        <div class="date-days" ref=${listRef} data-list=".dayrow">
           ${years.map(y => html`<div class="yr">${y}</div>
             ${y < today.slice(0, 4) && !marked.has(`${y}-12-31`) ? html`<button class="dayrow end" data-day=${`${y}-12-31`} aria-pressed=${day === `${y}-12-31`} onClick=${() => show(`${y}-12-31`)}><span class="d">Dec 31</span><span class="w muted">Year-end</span></button>` : null}
             ${evs.filter(e => e.day.startsWith(y)).reverse().map(e => html`<button class="dayrow" data-day=${e.day} aria-pressed=${e.day === day} onClick=${() => show(e.day)}>
@@ -791,7 +796,8 @@ const Time = (() => {
   // size did.
   const SHAPES = { legend: 'the Key', text: 'a text box', line: 'a line', picture: 'a picture', group: 'a group', frame: 'a frame' };
   // (A width first given where only a place was, a box placed loosely and then laid out, is no resizing; a height first given is.)
-  const resized = (a, b) => !!a && !!b && ((a.w != null && b.w != null && a.w !== b.w) || (b.h != null && a.h !== b.h));
+  // (A height kept as it was drawn, as a box is moved (`soft`), is no size given.)
+  const resized = (a, b) => !!a && !!b && ((a.w != null && b.w != null && a.w !== b.w) || (b.h != null && !b.soft && a.h !== b.h));
   function shapePhrase(i, s, recs, N, back) {
     const what = SHAPES[s.geometry] ?? 'a shape', view = s.view && N.nameOf(recs, s.view);
     if (!i.was.length) return `${back ? 'Restored' : 'Added'} ${what}${view ? ` to ${view}` : ''}`;
@@ -1157,6 +1163,9 @@ const Time = (() => {
     useEffect(() => { if (!moving) return; ask(entries.value.filter(e => standing(e) && !undone(e) && !e.change.about && kindsOf(e.change).has('records') && !known(e.change)).map(e => e.change).reverse()); }, [moving, E]);
     const gone = m === 'deleted' ? deleted().filter(d => !near || near.has(d.item)) : [];
     useLayoutEffect(() => { ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' }); }, [t?.stood]);
+    // One stop for Tab, whichever entry the keys were last on; opened, the keys are on the first, or the one the moment shown is.
+    useLayoutEffect(() => { Shell.roved(ref.current); });
+    useLayoutEffect(() => { (ref.current?.querySelector('[aria-selected="true"]') ?? ref.current?.querySelector('.hist-row, .hist-fold'))?.focus({ preventScroll: true }); }, []);
     // What the status did, worked out after the panel is drawn: what's opened or picked first, then rules, then the rest.
     useEffect(() => {
       const shown = changes.filter(e => !undone(e) && !e.change.about && movesStatus(e.change) && !known(e.change)).map(e => e.change), first = c => opened.has(c.id) || t?.stood === c.id ? 0 : isRule(c) ? 1 : 2;
@@ -1181,13 +1190,28 @@ const Time = (() => {
       const undoneBy = e.by && !struck(e.by) ? e.by.change.who : !e.by && off && e.chain.at(-1).who !== c.who ? e.chain.at(-1).who : null;
       // What's recorded at what's gone since went with it, though nothing undid it.
       const dark = !off && c.adds.length > 0 && c.adds.every(r => 'record' in r && Tree.argsOf(r).some(a => !E.live.has(a.at)));
-      return html`${head}<div class=${'hist-row' + (off || dark ? ' undone' : '') + (asking === last.id ? ' asked' : '')} role="button" aria-selected=${on} onClick=${() => on ? now() : stand(c)}>
+      // By the keys, as by the pointer: Enter stands the chart as it was, the arrows open and close it, and its right-click, Shift+F10 or the
+      // menu key gives what's done with it, Undo among them, without first going to the moment.
+      const canUndo = App.wb.canReverse(last.id), rowKey = ev => {
+        if (ev.target !== ev.currentTarget) return;
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); on ? now() : stand(c); }
+        else if ((ev.key === 'ArrowRight' && has && !shows) || (ev.key === 'ArrowLeft' && shows)) { ev.preventDefault(); open_(ev); }
+      };
+      const rowMenu = ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        Shell.menu(ev.keyed ? ev.currentTarget : { x: ev.clientX, y: ev.clientY }, [{ label: on ? 'Back to now' : 'Show the chart as it stood', keys: 'Enter', run: () => (on ? now() : stand(c)) },
+          ...(has ? [{ label: shows ? 'Less' : 'What it holds', keys: shows ? 'ArrowLeft' : 'ArrowRight', run: () => toggle(opens, c.id) }] : []),
+          ...(viewing ? [] : [{ label: off ? 'Redo this change' : 'Undo this change', disabled: !canUndo, tip: canUndo ? null : blocker(last) ? `A later change touches it: ${describe(blocker(last))}` : 'It has changed since', run: () => undoing(e) }]),
+          ...(act ? [{ label: 'Change…', disabled: !!bar, tip: bar ? `A later change rests on it: ${describe(bar)}` : null, run: () => { now(); App.amending(c); } }] : []),
+          ...(!viewing && !off && !c.about && !u ? [{ label: 'Say why…', run: () => { giving.value = c.id; } }] : [])]);
+      };
+      return html`${head}<div class=${'hist-row' + (off || dark ? ' undone' : '') + (asking === last.id ? ' asked' : '')} role="button" aria-selected=${on} onClick=${() => on ? now() : stand(c)} onKeyDown=${rowKey} onContextMenu=${rowMenu}>
         ${has ? html`<button class="hist-chev" aria-expanded=${shows} aria-label=${shows ? 'Less' : 'What it holds'} data-tip=${shows ? 'Less' : 'What it holds'} onClick=${open_}>${Shell.icon(shows ? 'chevron-up' : 'chevron')}</button>` : null}
         <div class="what">${u ? html`${u.word}: <button class="lk" onClick=${ev => { ev.stopPropagation(); stand(u.root); }}>${describe(u.root)}</button>`
           : every.length > 1 ? html`${lines[0]?.text ?? every[0].text}, <button class="lk more" onClick=${open_}>and ${every.length - 1} more</button>` : lines[0]?.text ?? 'Changed the chart'}</div>
         ${App.wb.reasons(c.id).map(r => html`<div class="note">${r.text}${r.own ? null : html`<span class="by"> · ${r.who}, ${short(Tree.isoOf(new Date(r.when)))}</span>`}</div>`)}
         ${takenBack(c).map(r => html`<div class="note taken"><s>${r.note}</s><span class="by"> · taken back${r.who ? ` by ${r.who}` : ''}</span></div>`)}
-        <div class="meta">${near ? `typed ${short(Tree.isoOf(new Date(c.when)))}, ${clock(c.when)}, ${c.who}` : `${c.who} · ${clock(c.when)}`}${off ? ' · undone' : dark ? ' · gone with what it’s at' : ''}${undoneBy ? html` by ${e.by ? html`<button class="lk" onClick=${ev => { ev.stopPropagation(); stand(e.by.change); }}>${undoneBy}</button>` : undoneBy}` : null}${act ? html` · <button class="lk change" aria-disabled=${bar ? 'true' : null} data-tip=${bar ? `A later change rests on it: ${describe(bar)}` : null} onClick=${ev => { ev.stopPropagation(); if (bar) stand(bar); else { now(); App.amending(c); } }}>Change…</button>` : null}${!viewing && !off && !c.about && !u ? html` · <button class="lk why-add" onClick=${ev => { ev.stopPropagation(); giving.value = c.id; }}>Why…</button>` : null}</div>
+        <div class="meta">${near ? `typed ${short(Tree.isoOf(new Date(c.when)))}, ${clock(c.when)}, ${c.who}` : `${c.who} · ${clock(c.when)}`}${off ? ' · undone' : dark ? ' · gone with what it’s at' : ''}${undoneBy ? html` by ${e.by ? html`<button class="lk" onClick=${ev => { ev.stopPropagation(); stand(e.by.change); }}>${undoneBy}</button>` : undoneBy}` : null}${act ? html` · <button class="lk change" aria-disabled=${bar ? 'true' : null} data-tip=${bar ? `A later change rests on it: ${describe(bar)}` : null} onClick=${ev => { ev.stopPropagation(); if (bar) stand(bar); else { now(); App.amending(c); } }}>Change…</button>` : null}${!viewing && !off && !c.about && !u ? html` · <button class="lk why-add" onClick=${ev => { ev.stopPropagation(); giving.value = c.id; }}>Say why…</button>` : null}</div>
         ${giving.value === c.id ? html`<${Reason} id=${c.id} done=${() => { giving.value = null; }} />` : null}
         ${fx?.moved.length ? html`<div class="effect">${fx.moved.map(x => `${SAID[x.k]} ${x.was} → ${x.now}`).join(' · ')}</div>` : null}
         ${fx?.said ? html`<div class="effect said">${fx.said}</div>` : null}
@@ -1224,7 +1248,7 @@ const Time = (() => {
           ${of.length || rule || ((k !== 'all' || byWho.value || byDays.value || byWords.value) && m === 'all') ? html`<button class="btn every" onClick=${everything}>All changes</button>` : null}</div>
         ${m === 'all' ? html`<div class="hist-find"><input type="search" class="cell" placeholder="Find" aria-label="Find in History" spellcheck=${false} value=${byWords.value} onInput=${ev => { byWords.value = ev.target.value; }} /><button class="btn ghost" onClick=${() => exportLog(changes)} data-tip="What’s listed here, as a sheet">Export…</button></div>` : null}
       </div>` : null}
-      <div class="hist-list" ref=${ref}>
+      <div class="hist-list" ref=${ref} data-list=".hist-row, .hist-fold">
         ${m === 'all' ? runs.map(({ undone: cancels, es }) => {
           if (!cancels) return es.map(row);
           const key = es[0].change.id, shows = unfold.has(key) || es.some(e => e.change.id === t?.stood), day = dayLabel(es[0].change.when), head = !near && day !== lastDay ? html`<div class="hist-day">${day}</div>` : null;
@@ -1244,10 +1268,15 @@ const Time = (() => {
   function Reason({ id, done }) {
     const box = useRef();
     useLayoutEffect(() => { box.current?.focus(); }, []);
+    // (Done with, the keys go back to its entry.)
     const key = e => {
       e.stopPropagation();
-      if (e.key === 'Escape') done();
-      else if (e.key === 'Enter') { e.preventDefault(); const text = e.target.value; done(); App.annotate(id, text); }
+      if (e.key !== 'Escape' && e.key !== 'Enter') return;
+      e.preventDefault();
+      const text = e.target.value;
+      e.target.closest('.hist-row')?.focus();
+      done();
+      if (e.key === 'Enter') App.annotate(id, text);
     };
     return html`<label class="why-in" onClick=${e => e.stopPropagation()}><span>Why</span><input class="cell" ref=${box} spellcheck=${false} autocomplete="off" aria-label="Why" onKeyDown=${key} onBlur=${done} /></label>`;
   }
@@ -1263,9 +1292,12 @@ const Time = (() => {
   const everything = () => { focus.value = null; kind.value = 'all'; byWho.value = null; byDays.value = null; byWords.value = ''; };
   // History takes the inspector's place while it's open: the chart's, everything, from the chart menu, or a record's own.
   // Esc takes back an undo being asked, comes back from a change picked to now, and then closes it.
+  let cameFrom = null;
   function openHistory(list) {
     if (list) mode.value = list;
     if (open.peek()) return;
+    // (It closes back to where the keys were.)
+    cameFrom = document.activeElement;
     open.value = true;
     Shell.aside(History);
     unlayer = Shell.layer(() => App.pending.peek()?.reverse ? App.discard() : Shell.time.peek()?.stood ? now() : close());
@@ -1288,6 +1320,8 @@ const Time = (() => {
     unlayer();
     everything();
     now();
+    if (cameFrom?.isConnected && cameFrom !== document.body && !cameFrom.closest('.float')) cameFrom.focus({ preventScroll: true }); else Shell.enter('view');
+    cameFrom = null;
   }
   Shell.register('action', { id: 'history', name: 'History', names: ['Changes', 'Audit trail', 'Log', 'Who changed'], menu: 'chart', order: 10, run: () => { if (open.peek() && !focus.peek() && kind.peek() === 'all' && mode.peek() === 'all') close(); else { everything(); openHistory('all'); } } });
   // Its list of what's deleted, which Find reaches by what's done there too.

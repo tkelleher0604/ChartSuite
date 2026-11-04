@@ -484,10 +484,12 @@ function TagBox({ r, flip, fx, over, change, label, to, fixed, still, reason, to
   // A box that previews nothing (a relation not yet ticked, which its tick begins) leaves the redline to others.
   const hover = p => { if (reason || (p && (clicked || hush))) return; setPeek(p); if (change) FormulaBar.preview(p ? change() : null); };
   const leave = () => { clicked = false; setHush(false); if (peek) hover(false); };
-  const key = e => { if (e.key !== 'Enter') return; e.preventDefault(); onward(e.currentTarget, e.shiftKey ? -1 : 1)?.focus(); };
+  // (A box a rule covers has nothing to switch: Space asks why, with the keys in the reason.)
+  const key = e => { if (reason && e.key === ' ') { e.preventDefault(); flip(); FormulaBar.open.value = true; FormulaBar.into(); return; } if (e.key !== 'Enter') return; e.preventDefault(); onward(e.currentTarget, e.shiftKey ? -1 : 1)?.focus(); };
+  // (Reached by the keys, only what would be added previews: a box that's ticked is what stands, and passing it strikes nothing.)
   return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'tag' + (show === true ? ' yes' : show === false ? ` no${tone ? ' ' + tone : ''}` : '') + (fx && !peek ? ' fx' : '') + (peek || held ? ' peek' : '')}
     role="checkbox" aria-checked=${on ? 'true' : 'false'} aria-label=${label && (on === false ? `${label}, ruled out` : label)} disabled=${(App.readOnly.value && !reason) || !!fixed}
-    onPointerEnter=${() => hover(true)} onPointerLeave=${leave} onFocus=${e => e.currentTarget.matches(':focus-visible') && hover(true)} onBlur=${leave} onKeyDown=${key}
+    onPointerEnter=${() => hover(true)} onPointerLeave=${leave} onFocus=${e => e.currentTarget.matches(':focus-visible') && !on && hover(true)} onBlur=${leave} onKeyDown=${key}
     onClick=${() => { hover(false); clicked = true; flip(); }} /></span>${children}</span>`;
 }
 
@@ -608,11 +610,14 @@ function Output({ id, slot, label }) {
         held=${held ? T.format(held.field, held.value) : null}>${more}</${Field}>`;
 }
 
+// What the keys do in the panel, for the list of them.
+Shell.register('keys', { head: 'In the panel', rows: [['Tab', 'Next field, or the next list'], ['ArrowUp ArrowDown', 'Through a list’s rows'], ['Enter', 'On a row: open it. On a value: keep it and go on'], ['Space', 'Tick a box; on one a rule covers, say why'], ['F1', 'Why this holds'], ['F2', 'Rename'], ['Shift+F10', 'The row’s menu'], ['Esc', 'Back to the view; with nothing selected, put the panel away']] });
 // ---- The record's entries, as a tree ----
 function entryMenu(anchor, id) {
   const r = recs()[id], f = fx(id);
   menu(anchor, [
-    { label: 'Rule', keys: 'Alt+Click', run: () => select([general(patternOf(id))]) },
+    ...(f ? [{ label: 'Why', keys: 'F1', run: () => { emit('why-open', id); FormulaBar.open.value = true; FormulaBar.into(); } }] : []),
+    { label: 'Rule', run: () => select([general(patternOf(id))]) },
     // What a formula gives is overridden only by saying so (App.overriding), as its reason in the formula bar offers it; and what's typed over one goes back the same way.
     ...(f && 'tag' in r && !App.readOnly.peek() ? [{ label: 'Override…', run: () => App.overriding(id) }] : []),
     ...(!f && over(id) && !App.readOnly.peek() ? [{ label: 'Back to the rule…', run: () => App.backToRule(id) }] : []),
@@ -918,11 +923,12 @@ function Entries({ at, depth, offer }) {
 }
 
 // ---- Relatives, documents and look: sections, each folding under its heading ----
-function Section({ title, n, shut = false, act, id, cls = '', children }) {
+function Section({ title, n, shut = false, act, id, cls = '', list, children }) {
   const [open, setOpen] = useState(!shut);
   // Aimed at, as Find aims at a list, it opens.
   if (!open && aim.value === id) setOpen(true);
-  return html`<section class=${(open ? 'open' : '') + cls} data-key=${id} data-title=${title}><h3 class="sect"><button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
+  // (`list`, its rows: one stop for Tab, the arrows going through them, as every list a click opens.)
+  return html`<section class=${(open ? 'open' : '') + cls} data-key=${id} data-title=${title} data-list=${list ?? null}><h3 class="sect"><button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
     ${n ? html`<span class="n">${n}</span>` : null}${act}</h3>${open ? children : null}</section>`;
 }
 // A long panel's strip, sticky at its top: the record, then each section by its name, a click from each, folded or not;
@@ -1102,10 +1108,12 @@ function Relatives({ id }) {
   // entered one has a box to tick, for ending several at once (see Section's End these…).
   const item = (it, nest = 0) => { const f = fx(it.rid), d = detail(it), out = left.get(it.rid), going = goes(it.rid) || App.pending.value?.too?.includes(it.rid);
     // Its right-click has what its line's menu has: its panel's ⋯, End… among it, the panel staying on this record.
-    const rowMenu = e => { if (e.target.closest('input, textarea') || f) return; e.preventDefault(); menu({ x: e.clientX, y: e.clientY }, moreOf(it.rid, { stay: true })); };
-    // A row that lights opens on a click, anywhere on it: what's said of it, as its figure or role does.
+    const whyOf = () => { emit('why-open', it.rid); FormulaBar.open.value = true; FormulaBar.into(); };
+    const rowMenu = e => { if (e.target.closest('input, textarea') || (f && !e.keyed)) return; e.preventDefault(); menu({ x: e.clientX, y: e.clientY }, f ? [{ label: 'Open', keys: 'Enter', run: () => goTo(it.rid) }, { label: 'Why', keys: 'F1', run: whyOf }] : moreOf(it.rid, { stay: true })); };
+    // A row that lights opens on a click, anywhere on it: what's said of it, as its figure or role does; and on Enter, the row having the keys.
     const rowClick = e => { if (!e.target.closest('button, a, input, textarea, label') && !getSelection()?.toString()) goTo(it.rid); };
-    return html`<div class=${'row rel' + (going ? ' going' : '')} key=${it.rid} style=${nest ? `--nest:${nest}` : null} onClick=${rowClick} onContextMenu=${rowMenu}>
+    const rowKey = e => { if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation(); goTo(it.rid); } };
+    return html`<div class=${'row rel' + (going ? ' going' : '')} key=${it.rid} data-why=${it.rid} style=${nest ? `--nest:${nest}` : null} onClick=${rowClick} onContextMenu=${rowMenu} onKeyDown=${rowKey}>
       ${d.held && !still ? html`<input type="checkbox" class="tick" aria-label=${`Tick ${nameOf(it.obj)}`} checked=${picked.has(it.rid)} onChange=${() => pick(it.rid)} />` : null}
       <div class=${'k' + (d.role || d.facts.length || d.doc ? '' : ' wide')}><${Go} to=${it.obj} cls=${f ? 'fx' : ''} tip=${`Open ${placeName(it.obj)}`}>${bound(rowName(it.obj))}</${Go}></div>
       <div class="v">${d.role || d.facts.length ? html`<${Go} to=${it.rid} cls=${(f ? 'fx' : '') + (d.fails ? ' fails' : '')} tip=${d.tip || `Open this ${lower(nameOf(it.rid))}`}>${d.role ?? facts(d.facts, true)}</${Go}>` : null}
@@ -1162,7 +1170,7 @@ function Relatives({ id }) {
   // Those a check fails at after those that hold, so a list never leads with the one that doesn't (Okafor's signing).
   const holdingFirst = items => { const bad = it => entriesAt(it.rid).some(e => recs()[e].tag === false && failed(e)); return [...items.filter(it => !bad(it)), ...items.filter(bad)]; };
   // A list a formula gives is folded where it's long; a short answer (a fund's Controllers) shows.
-  return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${items.length ? counted(items) : null}
+  return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${items.length ? counted(items) : null} list=":scope > .row.rel"
       cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} act=${html`${endRows(items)}${adds(name, items)}`}>${(c => (c ? c.rows.map(it => item(it, c.depth.get(it.rid))) : holdingFirst(items).map(it => item(it))))(chained(items))}${laterIn(name).map(laterRow)}
       ${worked(items) && asTable() ? html`<button class="lk as-table" onClick=${() => Table.openList(name, items[0].rid, id)}>Open ${name} as a table</button>` : null}
       ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t… on this list?</button></div>` : null}</${Section}>`)}
@@ -1363,6 +1371,9 @@ function RecordView({ id }) {
     // A due date is aimed at to be filed, so its Filed… takes the focus; anything else, its value.
     const el = document.querySelector(`.insp [data-key="${CSS.escape(a)}"]`);
     el?.scrollIntoView({ block: 'center' });
+    // (A list, its first row, where the arrows go on from.)
+    const first = el?.matches('section') && el.querySelector(':scope > .row.rel');
+    if (first) { first.tabIndex = -1; return first.focus({ preventScroll: true }); }
     (el?.querySelector('.filed') ?? el?.querySelector('input, textarea, button.sel, button.tag, .errv'))?.focus();
   });
   // Not there on the day shown, it says so, and where it starts later, when, by its start entry's act ("Formed Jan 15,
@@ -1984,13 +1995,15 @@ function RuleLog({ keys, name }) {
   const log = Time.ruleLog(keys), last = log.at(-1), [typing, setTyping] = useState(false), still = App.readOnly.value;
   useLayoutEffect(() => { if (last && !last.fx) Time.ask(last.change); }, [last?.change.id]);
   if (!last) return null;
-  const say = e => { if (e.key === 'Escape') { e.stopPropagation(); setTyping(false); } else if (e.key === 'Enter') { e.preventDefault(); const text = e.target.value; setTyping(false); App.annotate(last.change.id, text); } };
+  // (Done with, the keys go back to what asked it.)
+  const backToSay = () => setTimeout(() => document.querySelector('.insp .acts .why-add')?.focus({ preventScroll: true }));
+  const say = e => { if (e.key === 'Escape') { e.stopPropagation(); setTyping(false); backToSay(); } else if (e.key === 'Enter') { e.preventDefault(); const text = e.target.value; setTyping(false); App.annotate(last.change.id, text); backToSay(); } };
   return html`<div class="rule-log">
     <p class="who"><span class="what">${last.head}</span> · ${last.who} · ${whenTyped(last.when)}</p>
     ${last.reasons.map(r => html`<p class="why">${r.text}${r.own ? null : html`<span class="by"> · ${r.who}, ${short(T.isoOf(new Date(r.when)))}</span>`}</p>`)}
     ${last.fx?.said ? html`<p class="did" title=${last.fx.said}>${last.fx.said}</p>` : null}
     ${typing ? html`<label class="why-in"><span>Why</span><input class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onKeyDown=${say} onBlur=${() => setTyping(false)} /></label>`
-      : html`<p class="acts">${still ? null : html`<button class="lk why-add" onClick=${() => setTyping(true)}>Why…</button>`}<button class="lk" onClick=${() => Time.ofRule(keys, name)}>History</button></p>`}
+      : html`<p class="acts">${still ? null : html`<button class="lk why-add" onClick=${() => setTyping(true)}>Say why…</button>`}<button class="lk" onClick=${() => Time.ofRule(keys, name)}>History</button></p>`}
   </div>`;
 }
 // What a rule won't stand behind: what's wrong with it, or the rule it reads that's in error.
@@ -2107,8 +2120,11 @@ function GeneralView({ p, style }) {
 function Many({ ids }) {
   // (Counted as the format bar counts them: by what's drawn, a group by its members.)
   const sc = App.scene.value, n = !sc ? ids.length : new Set(ids.flatMap(k => { const m = sc.byId.get(k.split('#')[0]); return m?.geometry === 'group' ? m.members : [m?.merged ?? m?.id ?? k]; })).size;
-  return html`<div class="insp"><${Head} title=${`${n} selected`} /><div class="rows">
-    ${ids.filter(x => recs()[x]).map(x => html`<div class="row" key=${x}><div class="k wide"><${Go} to=${x}>${recs()[x].args ? html`${nameOf(x)} · ${segment(x)}` : bound(nameOf(objectOf(x)))}</${Go}></div></div>`)}</div></div>`;
+  // As every list a click opens: the arrows through it, Enter opening a row, F1 its reason. Reached from the keys (a rule's "24 hold"), they go into it.
+  const box = useRef();
+  useLayoutEffect(() => { const a = document.activeElement; if (Shell.keyed() && (!a || a === document.body || !a.isConnected || a.closest('.insp'))) box.current?.querySelector('.row')?.focus({ preventScroll: true }); }, []);
+  return html`<div class="insp"><${Head} title=${`${n} selected`} /><div class="rows" ref=${box} data-list=":scope > .row">
+    ${ids.filter(x => recs()[x]).map(x => html`<div class="row" key=${x} tabindex="-1" data-why=${x} onKeyDown=${e => { if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation(); goTo(x); } }}><div class="k wide"><${Go} to=${x}>${recs()[x].args ? html`${nameOf(x)} · ${segment(x)}` : bound(nameOf(objectOf(x)))}</${Go}></div></div>`)}</div></div>`;
 }
 
 // Each new selection is shown from the panel's top, as a new page is, but where a row is aimed at (RecordView), which
@@ -2118,14 +2134,16 @@ let host = null, aimed = null;
 // drawn (dendra.md, inspector).
 function holdsStill(pane) {
   let at = null, top = 0;
-  const mark = e => { at = e.target.closest?.('.row, .rr, .sect, .doc, .ih') ?? null; top = at?.getBoundingClientRect().top ?? 0; };
+  // (Where it is in the panel: the panel itself moving, a format bar coming back over it, is nothing to scroll for.)
+  const here = el => el.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+  const mark = e => { at = e.target.closest?.('.row, .rr, .sect, .doc, .ih') ?? null; top = at ? here(at) : 0; };
   // (Left by the pointer, what has the keys is what's held.)
-  const leave = () => { at = pane.contains(document.activeElement) ? document.activeElement.closest('.row, .rr, .sect, .doc, .ih') : null; top = at?.getBoundingClientRect().top ?? 0; }, scrolled = () => { if (at?.isConnected) top = at.getBoundingClientRect().top; };
+  const leave = () => { at = pane.contains(document.activeElement) ? document.activeElement.closest('.row, .rr, .sect, .doc, .ih') : null; top = at ? here(at) : 0; }, scrolled = () => { if (at?.isConnected) top = here(at); };
   const seen = new MutationObserver(() => {
     if (!at?.isConnected) return;
-    const d = at.getBoundingClientRect().top - top;
+    const d = here(at) - top;
     if (Math.abs(d) >= 1) pane.scrollTop += d;
-    top = at.getBoundingClientRect().top;
+    top = here(at);
   });
   pane.addEventListener('pointermove', mark, { passive: true });
   pane.addEventListener('pointerleave', leave);
@@ -2140,7 +2158,16 @@ function Inspector() {
     const pane = host?.closest('.inspector');
     if (!pane) return;
     // Esc from a row of the panel, with what's typed in its own hands, drops a value waiting, before the selection goes.
-    const esc = e => { if (e.key !== 'Escape' || e.defaultPrevented || !App.pending.peek()?.typed || e.target.closest('input, textarea, .float')) return; e.preventDefault(); e.stopPropagation(); App.discard(); };
+    // Else, the keys here, Esc backs out a step, as from anywhere: to the view, at what's selected, which stays so; and with nothing selected, it puts the
+    // panel away, as its button and Ctrl+\ do, the view having the keys.
+    const esc = e => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.target.closest('input, textarea, select, [contenteditable], .CodeMirror, .float, dialog')) return;
+      e.preventDefault(); e.stopPropagation();
+      if (App.pending.peek()?.typed) return App.discard();
+      if (Shell.wide.peek()) { Shell.narrow(); return Shell.enter('view'); }
+      if (!Shell.selection.peek().length) Shell.parts.peek().action?.find(a => a.id === 'panel')?.run();
+      Shell.enter('view');
+    };
     pane.addEventListener('keydown', esc);
     const off = holdsStill(pane);
     return () => { off(); pane.removeEventListener('keydown', esc); };
@@ -2281,14 +2308,16 @@ Shell.register('find', { items: q => {
   if (!q || !id || viewShown()?.layout !== 'chart') return [];
   const o = objectOf(id), name = shortOf(o), inside = within(o), r = recs(), label = edge => ({ of: '§fields', label: `${name} › ${edge}`, names: [edge], detail: 'Field' });
   return [...inside.filter(x => x !== o && r[x].edge && !T.same(r[x].edge, 'Name')).map(x => ({ ...label(r[x].edge), run: () => { aim.value = x; select([o]); } })),
-    ...(App.readOnly.peek() ? [] : inside.flatMap(at => unentered(at).filter(s => !('tag' in s.out)).map(s => ({ ...label(s.args[0].edge), run: () => { select([o]); draft.value = { at, type: 'field' in s.out ? 'field' : 'choice', edge: s.args[0].edge, ...kindAt(tree(at), s.args[0].edge) }; } }))))];
+    // (Where it has its row already, blank, the keys go there, rather than to a second one begun.)
+    ...(App.readOnly.peek() ? [] : inside.flatMap(at => unentered(at).filter(s => !('tag' in s.out)).map(s => ({ ...label(s.args[0].edge), run: () => { if (slots(at).some(x => !x.id && T.same(x.edge, s.args[0].edge))) { aim.value = `${at}|${s.args[0].edge}`; select([o]); return; } select([o]); draft.value = { at, type: 'field' in s.out ? 'field' : 'choice', edge: s.args[0].edge, ...kindAt(tree(at), s.args[0].edge) }; } }))))];
 } });
 // Add to each of the selected record's lists, by the word for one of it ("Add owner"), as its + does: Find opens its search.
 const one = w => w.replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
 Shell.register('find', { items: () => {
   const id = theOne();
   if (!id || App.readOnly.peek() || !(recs()[id].kind || recs()[id].args)) return [];
-  return relatives(id).lists.filter(([, items]) => !items[0].rest.length && !items.every(it => fx(it.rid))).map(([list]) => ({ label: `Add to ${list}…`, detail: 'Action',
+  const has = relatives(id).lists;
+  return [...has.filter(([, items]) => !items[0].rest.length && !items.every(it => fx(it.rid))).map(([list]) => ({ label: `Add to ${list}…`, detail: 'Action',
     names: [`Add ${one(list).toLowerCase()}`, `New ${one(list).toLowerCase()}`], run: () => {
       aim.value = 'list:' + list;
       // Once Find has closed and the list is open, brought into view, its + pressed.
@@ -2297,7 +2326,10 @@ Shell.register('find', { items: () => {
         s?.scrollIntoView({ block: 'start' });
         s?.querySelector('.sect .btn.icon')?.click();
       }, 150);
-    } }));
+    } })),
+    // A list it has nothing on yet is as much to add to: its Add's search, on that list's who.
+    ...(recs()[id].kind ? listsOf(id).filter(l => !has.some(([n]) => T.same(n, l.name))).map(l => ({ label: `Add ${one(l.name).toLowerCase()}…`, detail: 'Action',
+      names: [`Add to ${l.name}`, `New ${one(l.name).toLowerCase()}`], run: () => setTimeout(() => addToList(id, l.name)) })) : [])];
 } });
 // A blank of the record selected said not to be ours, or to be ours after all, by the words for it.
 Shell.register('find', { items: () => {
@@ -2413,7 +2445,8 @@ preactSignals.effect(() => {
 });
 // The two-box panel asked for (a handle dropped on a box, a box made from one, Relate…) is seen, the panel brought back if
 // it was put away.
-on('relate-open', d => { Shell.showPanel?.(); select(d); });
+// (By the keys, they go with it, to the first tick or the first thing to fill: the two are chosen so as to say how. The tour teaches the way there itself.)
+on('relate-open', d => { Shell.showPanel?.(); select(d); if (Shell.usingKeys.peek() && !document.querySelector('.tour-card')) setTimeout(() => document.querySelector('.insp[data-tour="pair"] .relate .rr :is(button.tag, button.sel, input)')?.focus()); });
 // A relation just added offers its entries while its two boxes stay selected.
 on('select', () => { fresh.value = null; if (ticked.peek().size) ticked.value = new Set(); if (offered.peek().length) offered.value = []; });
 // A definition opened from the formula bar widens the inspector, since its statute set out wide is what the

@@ -441,6 +441,14 @@ const App = (() => {
     const c = chart.peek();
     return lately(book.peek().changes().find(x => x.chart === c && x.adds.some(r => r.record === id)));
   }
+  // Whether a record is a slip, what taking it back as never held rewrites no past of: made since its chart was opened in this tab, one by itself. So
+  // not what was made earlier today, which may be a day's work, or an import's or a paste's rows, each a record someone meant.
+  function aSlip(id) {
+    const c = chart.peek(), x = book.peek().changes().find(y => y.chart === c && y.adds.some(r => r.record === id));
+    if (!x || x.when < (openedAt.get(c) ?? '9')) return false;
+    const made = x.adds.filter(r => 'record' in r && !r.at && !r.field), objects = made.filter(r => r.kind !== undefined).length;
+    return objects <= 1 && made.length - objects <= 1;
+  }
   // The change that first said what a row of a record says, its value and its period: an undo's fresh copy of a row is
   // that row, so it's the one who said it, and when.
   const firstSaid = (rec, row) => { const c = chart.peek(), { id: _, ...own } = row, k = JSON.stringify(own); return book.peek().changes().find(x => x.chart === c && x.adds.some(r => r.record === rec && (({ id: __, ...o }) => JSON.stringify(o))(r) === k)) ?? null; };
@@ -862,8 +870,8 @@ const App = (() => {
   // asked, recorded from the day shown as one typed in the inspector is, so the record says, before that day, when it
   // ends; any other object or relation ends on the day asked, with all that's at it; and never held, each is deleted as
   // if never made. An entry is cleared from the day shown. It's named for what it records (deleteVerb), but Delete where
-  // it's never held; and it begins on the day shown, or on Never held where every record was made lately (madeLately), as
-  // a slip is undone. `what` says what goes; `also`, what else the change does (a free shape deleted with them). End that
+  // it's never held; and it begins on the day shown, or on Never held where every record is a slip (aSlip), and nowhere
+  // else, as that rewrites the past. `what` says what goes; `also`, what else the change does (a free shape deleted with them). End that
   // too, on its bar, adds to it what a check says it breaks (`too`, ending on the one day).
   function deleting(ids, what, o = {}) {
     const recs = state.peek();
@@ -879,7 +887,7 @@ const App = (() => {
     // Merged, its toast asks what those holders received, and the survivor's panel goes on asking.
     let into = null;
     stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : Time.describe(c), ...o, alts, ready: p => !p.merge || p.day === null || !!p.merge.to,
-      ...(asks && { asks: 'until', day: ids.every(madeLately) ? null : day.peek(), word: words.length === 1 && ends.every(e => e === words[0] || e === false) ? words[0] : true }),
+      ...(asks && { asks: 'until', day: ids.every(aSlip) ? null : day.peek(), word: words.length === 1 && ends.every(e => e === words[0] || e === false) ? words[0] : true }),
       go: () => (into && stakesAt(ids[0], recs).some(s => s.held) ? ['What did its holders receive?', () => Shell.parts.peek().inspector?.ask?.(into)] : null),
       make: (tx, d, p) => {
         ids.forEach((id, i) => end(tx, d, id, typeof p?.word === 'string' && others.length > 1 ? p.word : ends[i]));
@@ -1478,13 +1486,13 @@ const App = (() => {
   // saying; a word away on anything else. Kept apart from the change pending, so what's typed here redlines nothing.
   const why = signal('');
   function Why({ p, enter }) {
-    const [on, setOn] = preactHooks.useState(p.act === 'Rule out' || p.act === 'Attest' || !!p.reason || !!why.peek()), asked = preactHooks.useRef(false), field = preactHooks.useRef();
-    // (Asked for, it takes the keys.)
-    preactHooks.useLayoutEffect(() => { if (on && asked.current) { asked.current = false; field.current?.focus(); } }, [on]);
-    if (!on && !p.reason) return html`<button type="button" class="lk why-add" onClick=${() => { asked.current = true; setOn(true); }}>Why…</button>`;
-    // (Esc leaves what's typed here, then the field; only from the bar's other controls, or where the field can't go as it's asked for, does it drop the change.)
-    const esc = e => { if (e.key !== 'Escape') return enter(e); e.preventDefault(); e.stopPropagation(); if (why.peek()) why.value = ''; else if (p.reason) discard(); else setOn(false); };
-    return html`<label class=${'why-in' + (lacksWhy(p) ? ' needed' : '')} onKeyDown=${esc}><span>Why</span><input ref=${field} class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" aria-required=${p.reason ? 'true' : null} value=${why.value} onInput=${e => { why.value = e.target.value; }} /></label>`;
+    const [on, setOn] = preactHooks.useState(p.act === 'Rule out' || p.act === 'Attest' || !!p.reason || !!why.peek()), asked = preactHooks.useRef(false), field = preactHooks.useRef(), offer = preactHooks.useRef(), left = preactHooks.useRef(false);
+    // (Asked for, it takes the keys; left, they go back to what asked it.)
+    preactHooks.useLayoutEffect(() => { if (on && asked.current) { asked.current = false; field.current?.focus(); } if (!on && left.current) { left.current = false; offer.current?.focus(); } }, [on]);
+    if (!on && !p.reason) return html`<button type="button" ref=${offer} class="lk why-add" onClick=${() => { asked.current = true; setOn(true); }}>Say why…</button>`;
+    // Esc here leaves this and no more: what's typed first, then the field; never the change, which has its own Discard, but where the field can't go, as it's asked for.
+    const esc = e => { if (e.key !== 'Escape') return; e.preventDefault(); e.stopPropagation(); if (why.peek()) { why.value = ''; return; } if (p.reason) return discard(); left.current = true; setOn(false); };
+    return html`<label class=${'why-in' + (lacksWhy(p) ? ' needed' : '')} onKeyDown=${enter}><span>Why</span><input ref=${field} class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" aria-required=${p.reason ? 'true' : null} value=${why.value} onInput=${e => { why.value = e.target.value; }} onKeyDown=${esc} /></label>`;
   }
   // Until when what's typed over a rule stands: blank, for as long as it isn't taken back. Past it, the rule says again (dendra.md, Definitions: Typed over).
   function Until({ p, enter }) {
@@ -1520,6 +1528,18 @@ const App = (() => {
   // it does, in the redline's ink, and its controls, which take the keys as it's begun; what else it asks (Fill) first.
   function Pending() {
     const p = pending.value;
+    // A deletion or an undo begun by the keys, from the view or History, takes them, where they can be seen: its day, or what its day is, or else its verb, which
+    // Enter is, so what Enter would do is never done with nothing lit. What's typed or pasted leaves them in the grid, to go on, and what's asked where it began keeps them there.
+    preactHooks.useLayoutEffect(() => {
+      if (!p || p.typed || !(p.verb === 'Delete' || p.reverse) || !Shell.keyed()) return;
+      const t = setTimeout(() => {
+        const a = document.activeElement, bar = document.querySelector('.pendbar');
+        if (!bar || (a && a !== document.body && !a.closest('.dc, .cells, .hist') )) return;
+        if (a?.closest?.('.pendbar, .float, dialog') || a?.matches?.('input, textarea, [contenteditable]')) return;
+        (bar.querySelector('.when input') ?? bar.querySelector('.when .sel') ?? bar.querySelector('.btn.primary:not(:disabled)'))?.focus();
+      });
+      return () => clearTimeout(t);
+    }, [p?.n]);
     if (!p || p.chart !== chart.value) return null;
     return html`<div class="pendbar" role="region" aria-label=${p.verb} data-region="bar" onKeyDown=${escaped}>
       <span class="what">${p.Fill ? html`<${p.Fill} p=${p} auto=${p.auto} />` : (p.parts ?? [html`<span class=${p.verb === 'Delete' ? 'del' : 'add'}>${p.what}</span>`]).map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>

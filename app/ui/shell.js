@@ -31,6 +31,7 @@
 // Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order?, names? } (the chart
 // menu by order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40), its keys bound in the
 // window (in fields too, with inputs) and listed by ?, and Find reaching it by any other names it goes by;
+// 'keys' { head, rows: [[keys, words]] }, what a part's own keys do, for the list of keys;
 // 'find' { items() → menu items }, Find's records, lists and definitions, an item with its kind (detail:
 // 'Entity', which heads it), any other names it goes by (names: […]) and a key, and what's within it (a list,
 // "AIV-1 › Signatories") with of: that key; 'export' { name, run }; 'status' { render() }; 'attention'
@@ -81,8 +82,9 @@
 // shown, not chosen, and one with point(on) shows what it would do while it's pointed at or reached by the keys; `tip`, its
 // tooltip, says why one is disabled.
 //
-// THE REGIONS, which F6 and Shift+F6 step through: the bars, the view, the bar a change pending has, the inspector and the tabs
-// (data-region). Tab stays inside a dialog, a popover and the tour's last card, and Tab leaves a menu.
+// THE REGIONS, which F6 and Shift+F6 step through: the title bar, the format bar, the formula bar, a table's toolbar, the view, the
+// bar a change pending has, the inspector and the tabs (data-region). Tab stays inside a dialog, a popover and the tour's last card,
+// and Tab leaves a menu.
 
 const Shell = (() => {
   const { h, render } = preact;
@@ -101,9 +103,11 @@ const Shell = (() => {
   const emit = (name, detail) => bus.dispatchEvent(new CustomEvent(name, { detail }));
   let isReady, isLaunched;
   const ready = new Promise(r => { isReady = r; }), launched = new Promise(r => { isLaunched = r; });
+  let isLive = false;
+  launched.then(() => { isLive = true; });
 
   // ---- The registry ----
-  const MANY = new Set(['action', 'find', 'export', 'status', 'attention']);
+  const MANY = new Set(['action', 'find', 'export', 'status', 'attention', 'keys']);
   const reg = signal({});
   const part = kind => reg.value[kind];
   const many = kind => reg.value[kind] || [];
@@ -196,7 +200,7 @@ const Shell = (() => {
 
   // ---- Keys, and the Esc stack ----
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-  const KEY = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Equal: '=', Minus: '−', PageUp: 'PgUp', PageDown: 'PgDn', Escape: 'Esc' };
+  const KEY = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Slash: '/', Equal: '=', Minus: '−', PageUp: 'PgUp', PageDown: 'PgDn', Escape: 'Esc', ContextMenu: 'Menu key' };
   // A shifted mark is said by what it types, as PowerPoint says Ctrl+Shift+>.
   const keyLabel = k => !k ? '' : k.replace(/Shift\+Period/, 'Shift+>').replace(/Shift\+Comma/, 'Shift+<').replace(/\[Shift\]\+/g, '').replace(/\$mod/g, isMac ? 'Cmd' : 'Ctrl').replace(/Key([A-Z])|Digit(\d)/g, '$1$2').replace(/\w+/g, w => KEY[w] ?? w);
   // A key a part has already taken (typing over a box, say) isn't the window's too.
@@ -220,17 +224,40 @@ const Shell = (() => {
   addEventListener('keydown', e => {
     const top = layers.at(-1);
     if (e.key !== 'Escape' || !top || e.defaultPrevented) return;
-    if (!top.always && e.target.closest?.('input, textarea, [contenteditable], .CodeMirror')) return;
+    // (A checkbox isn't text: Esc on one in a dialog closes the dialog.)
+    if (!top.always && e.target.closest?.(TYPED + ', .CodeMirror')) return;
     e.preventDefault(); e.stopPropagation();
     top.close();
+    land();
   }, true);
 
   // ---- Focus: the regions F6 steps through, each remembering where it was; Tab kept inside a dialog ----
+  // The hand last used, by which the window goes (data-hand; dendra.md, Part 3, States): a ring is for the keys, whatever gave what's focused
+  // its focus; a menu the keys opened lights its first item, and a tooltip shows on focus, as what the keys are on has to be seen; the pointer
+  // shows both itself. The keys are the hand by what takes them somewhere: not Enter or Esc, which end what's being done, or what's typed, or an
+  // arrow that nudges what's on the chart, or a chord that acts where it stands (Ctrl+Z after a click is no ring on what was clicked).
+  const usingKeys = signal(false);
+  let keyed = false;
+  const hand = on => { if (keyed === on) return; keyed = on; usingKeys.value = on; document.documentElement.dataset.hand = on ? 'keys' : 'mouse'; };
+  document.documentElement.dataset.hand = 'mouse';
+  const takesThem = e => /^(Tab|Home$|End$|Page|F(1|6|8|10)$|Delete$|ContextMenu$|\?$)/.test(e.key) || (e.key.startsWith('Arrow') && (((e.ctrlKey || e.metaKey) && e.altKey) || !e.target.closest?.('.dc'))) || ((e.ctrlKey || e.metaKey) && /^[kK/-]$/.test(e.key));
+  addEventListener('keydown', e => {
+    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+    if (takesThem(e)) hand(true);
+    // (A key pressed puts away a tooltip: what it named may be changing. Where the keys land next says its own.)
+    if (tip.peek()) { tip.value = null; tipEl = null; }
+  }, true);
+  addEventListener('pointerdown', () => hand(false), true);
   const TABBABLE = ['a[href]', 'button:not(:disabled)', 'input:not(:disabled)', 'select:not(:disabled)', 'textarea:not(:disabled)', '[tabindex]', '[contenteditable="true"]'].map(s => s + ':not([tabindex="-1"])').join(', ');
-  const shown = el => el.getClientRects().length > 0;
+  // (The panel put away keeps its boxes, hidden: nothing there can take the keys.)
+  const shown = el => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
   const tabbables = box => [...box.querySelectorAll(TABBABLE)].filter(shown);
-  const REGIONS = ['bars', 'view', 'bar', 'inspector', 'tabs'], lastIn = {};
-  document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) lastIn[r.dataset.region] = e.target; });
+  // Top down as they're drawn: the title bar, the format bar (a table's toolbar is its own, beside its grid), the formula bar, the
+  // view, the bar a change pending has, a message with something to do, the inspector, the tabs.
+  const REGIONS = ['title', 'format', 'formula', 'tools', 'view', 'bar', 'toast', 'inspector', 'tabs'], lastIn = {};
+  let lastHeld = null;
+  // (A message comes and goes over the rest: from it, the keys go back to the pane they came from.)
+  document.addEventListener('focusin', e => { const r = e.target.closest?.('[data-region]'); if (r) { lastIn[r.dataset.region] = e.target; if (r.dataset.region !== 'toast') lastHeld = r.dataset.region; } });
   const els = n => [...document.querySelectorAll(`[data-region="${n}"]`)].filter(shown);
   // A region given the keys: the view's part, where it takes them itself (a table, at its active cell, as a sheet
   // shown in Excel does); else where it last had them, or else its first control, or itself.
@@ -240,11 +267,15 @@ const Shell = (() => {
     const day = n === 'bar' && els(n)[0]?.querySelector('.when input');
     if (day) { day.focus(); day.select(); return; }
     const last = lastIn[n];
-    (last?.isConnected && shown(last) && !last.disabled ? last : els(n).map(el => tabbables(el)[0]).find(Boolean) ?? els(n)[0])?.focus();
+    (last?.isConnected && shown(last) && !last.disabled && last.closest('[data-region]')?.dataset.region === n ? last : els(n).map(el => tabbables(el)[0]).find(Boolean) ?? els(n)[0])?.focus();
   }
   function region(d) {
-    const live = REGIONS.filter(n => els(n).length), here = live.indexOf(document.activeElement?.closest?.('[data-region]')?.dataset.region);
-    if (live.length) enter(live[here < 0 ? (d > 0 ? 0 : live.length - 1) : (here + d + live.length) % live.length]);
+    // (From a menu or Find, it's left first, as a step out: nothing stays open behind the keys.)
+    if (floats.peek().length) return closeAll();
+    const here = document.activeElement?.closest?.('[data-region]')?.dataset.region ?? (orphan() ? lastHeld : null);
+    // (A bar with nothing to take the keys isn't a stop, unless they're there already.)
+    const live = REGIONS.filter(n => n === here || els(n).some(el => tabbables(el).length || el.tabIndex >= 0)), at = live.indexOf(here);
+    if (live.length) enter(live[at < 0 ? (d > 0 ? 0 : live.length - 1) : (at + d + live.length) % live.length]);
   }
   addEventListener('keydown', e => {
     const box = e.key === 'Tab' && !e.defaultPrevented && document.activeElement?.closest?.('dialog[open], .float .pop, [data-trap]');
@@ -253,6 +284,74 @@ const Shell = (() => {
     if (!t.length) e.preventDefault();
     else if (e.shiftKey ? i <= 0 : i === t.length - 1) { e.preventDefault(); t.at(e.shiftKey ? -1 : 0).focus(); }
   }, true);
+  // The keys are always somewhere. What held them can go (a button a filter's Clear took away, a layer closed, the panel gone
+  // on to another thing): where nothing has them, they go back to the part of the window they were last in, or else the view,
+  // a moment after, or at the latest with the next key pressed. A grid takes that key, as what's typed into a sheet;
+  // anywhere else it's spent finding them, so that a key meant for something gone never rewrites what's here (a box's name).
+  const orphan = () => { const a = document.activeElement; return (!a || a === document.body) && !document.querySelector('dialog[open], .tour-card') && !floats.peek().length; };
+  // (Not the formula bar: its first control may be a row, and a row given the keys begins to be written.)
+  const home = () => lastHeld && lastHeld !== 'formula' && els(lastHeld).some(el => tabbables(el).length) ? lastHeld : 'view';
+  const land = () => setTimeout(() => { if (orphan()) enter(home()); });
+  addEventListener('keydown', e => {
+    if (!started || !isLive || e.target !== document.body || e.ctrlKey || e.metaKey || e.altKey || !orphan() || (e.key.length !== 1 && !/^(Arrow|Enter$|Tab$|Home$|End$|Page|Delete$|Backspace$)/.test(e.key))) return;
+    // (What's the window's own goes on to it: ? is the list of keys, and Enter makes a change pending. Enter lands them only after, so it presses nothing it lands on.)
+    if (e.key === '?') return;
+    if (e.key === 'Enter') return land();
+    enter(home());
+    const a = document.activeElement;
+    if (!a || a === document.body) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (e.key !== 'Tab' && a.closest('.cells')) a.dispatchEvent(new KeyboardEvent('keydown', { key: e.key, code: e.code, shiftKey: e.shiftKey, bubbles: true, cancelable: true }));
+  }, true);
+  // (What's selected changing can take away what had them, a panel's link, and what had them can let go: they don't wait for a key to come back.)
+  on('select', () => { if (keyed && isLive) land(); });
+  document.addEventListener('focusout', e => { if (keyed && isLive && !e.relatedTarget) land(); });
+  // A picker (data-grid, the selector of its choices: swatches, shapes, days): one stop for Tab, whichever choice was last on, and the
+  // arrows go to the nearest choice that way, as it's drawn, gaps and all; Enter takes it. A list a click opens (data-list, the selector
+  // of its rows) goes likewise, up and down alone; what's in a row is a stop only while the row is the list's.
+  const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  const stops = box => [...box.querySelectorAll(box.dataset.grid ?? box.dataset.list)];
+  // The one choice Tab stops at (`on`, or the last it was on, or what's current, or the first); in a list, what's in any other row is no stop.
+  function roved(box, on) {
+    if (!box) return;
+    const all = stops(box), here = on ?? all.find(x => x.getAttribute('tabindex') === '0') ?? all.find(x => x.matches('[aria-selected="true"], [aria-pressed="true"]')) ?? all[0];
+    for (const x of all) x.tabIndex = x === here ? 0 : -1;
+    if (box.dataset.list) for (const row of all) row.querySelectorAll('button, input, a[href], [tabindex]').forEach(x => { x.tabIndex = row === here ? 0 : -1; });
+  }
+  document.addEventListener('focusin', e => {
+    const box = e.target.closest?.('[data-grid], [data-list]'), on = box && stops(box).find(x => x.contains(e.target));
+    if (on) roved(box, on);
+  });
+  addEventListener('keydown', e => {
+    const box = !e.defaultPrevented && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.target.closest?.('[data-grid], [data-list]');
+    if (!box || e.target.matches?.('input, textarea, [contenteditable]')) return;
+    const list = !!box.dataset.list, all = stops(box).filter(x => shown(x) && !x.disabled), on = all.find(x => x.contains(e.target));
+    if (!on) return;
+    let to = null;
+    if (e.key === 'Home' || e.key === 'End') to = e.key === 'Home' ? all[0] : all.at(-1);
+    else if (list) { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') to = all[all.indexOf(on) + (e.key === 'ArrowDown' ? 1 : -1)] ?? on; }
+    else if (ARROWS[e.key]) {
+      const [dx, dy] = ARROWS[e.key], r = on.getBoundingClientRect(), mid = x => { const q = x.getBoundingClientRect(); return [q.left + q.width / 2, q.top + q.height / 2]; }, [cx, cy] = mid(on);
+      let best = Infinity;
+      for (const x of all) { if (x === on) continue; const [ax, ay] = mid(x), along = (ax - cx) * dx + (ay - cy) * dy, side = Math.abs((ax - cx) * dy) + Math.abs((ay - cy) * dx); if (along > 1 && along + side * 3 < best) { best = along + side * 3; to = x; } }
+      to ??= on;
+    }
+    if (!to) return;
+    e.preventDefault(); e.stopPropagation();
+    to.focus();
+    to.scrollIntoView({ block: 'nearest' });
+  }, true);
+  // The context-menu key and Shift+F10 open the menu of what has the keys, as a right-click does there: a contextmenu at it, no
+  // pointer in it (`keyed`, for a part whose menu goes by the pointer's place). A part that has its own says so by preventing them.
+  addEventListener('keydown', e => {
+    if (e.defaultPrevented || !(e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) return;
+    const at = document.activeElement;
+    if (!at || at === document.body) return;
+    e.preventDefault();
+    const r = at.getBoundingClientRect(), ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: Math.round(r.left + Math.min(r.width, 24)), clientY: Math.round(r.top + Math.min(r.height, 24)), button: 2 });
+    ev.keyed = true;
+    at.dispatchEvent(ev);
+  });
 
   // ---- Dragging to reorder: an item among its siblings, a drop line where it would go ----
   function drag(e, { item, items, axis = 'y', onDrop, onClick }) {
@@ -316,7 +415,8 @@ const Shell = (() => {
       floats.peek().filter(x => x.parent === id).forEach(x => x.close());
       floats.value = floats.peek().filter(x => x.id !== id);
       f.onClose?.();
-      if (!f.parent && back?.isConnected && document.activeElement?.closest?.('.float')) back.focus();
+      // The keys go back to what opened it: a submenu's, to the menu it opened from, which goes on where it was.
+      if (back?.isConnected && document.activeElement?.closest?.('.float') && (!f.parent || floats.peek().some(x => x.id === f.parent))) back.focus();
     };
     unlayer = layer(close, { always: true });
     if (f.parent) floats.peek().filter(x => x.parent === f.parent).forEach(x => x.close());
@@ -438,10 +538,12 @@ const Shell = (() => {
   // of itself where nothing else is found.
   function Menu({ f }) {
     const [q, setQ] = useState(f.query ?? '');
-    const [act, setAct] = useState(-1);
     const items = typeof f.items === 'function' ? f.items(q.trim()) : f.search && q.trim() ? [...rank(f.items.filter(it => selectable(it) && !it.asked), q), ...(f.more?.(q.trim()) ?? [])] : f.items;
-    const live = items.map((it, i) => selectable(it) ? i : -1).filter(i => i >= 0);
-    const active = f.search && q.trim() && act < 0 ? live.find(i => !items[i].asked) ?? live[0] ?? -1 : act;
+    // The arrows stop at what can be chosen and at a row of choices (Light and Dark), whose own arrows go across it.
+    const live = items.map((it, i) => selectable(it) || it?.seg ? i : -1).filter(i => i >= 0);
+    // Opened by the keys, it's on its ticked item, or its first, so Enter does something and what's on is seen; by the pointer, on nothing.
+    const [act, setAct] = useState(() => { if (!keyed || f.search) return -1; const k = items.findIndex(it => it && it.checked && selectable(it)); return k >= 0 ? k : live.find(i => selectable(items[i])) ?? -1; });
+    const active = f.search && q.trim() && act < 0 ? live.find(i => selectable(items[i]) && !items[i].asked) ?? live.find(i => selectable(items[i])) ?? -1 : act;
     const checks = items.some(it => it && it.checked !== undefined);
     const mi = i => `mi${f.id}-${i}`, el = i => document.getElementById(mi(i));
     const run = it => {
@@ -461,13 +563,15 @@ const Shell = (() => {
       else if (e.key === 'ArrowUp') move(-1);
       else if (e.key === 'Home' && !f.search) setAct(live[0]);
       else if (e.key === 'End' && !f.search) setAct(live[live.length - 1]);
+      else if (it?.seg && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { const n = it.seg[it.seg.findIndex(s => s.pressed) + (e.key === 'ArrowRight' ? 1 : -1)]; if (n && !n.pressed) n.run(); }
+      else if (it?.seg && e.key === 'Enter') closeAll();
       else if (e.key === 'Enter' && it) run(it);
       else if (e.key === 'ArrowRight' && it?.items) run(it);
       else if (e.key === 'ArrowLeft' && f.parent) f.close();
       else if (e.key === 'Tab') return closeAll();   // and focus goes on from what opened it
       else if (!f.search && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const k = e.key.toLowerCase(), from = live.indexOf(active);
-        const next = [...live.slice(from + 1), ...live.slice(0, from + 1)].find(i => items[i].label.toLowerCase().startsWith(k));
+        const next = [...live.slice(from + 1), ...live.slice(0, from + 1)].find(i => items[i].label?.toLowerCase().startsWith(k));
         if (next === undefined) return;
         setAct(next);
       } else return;
@@ -483,7 +587,7 @@ const Shell = (() => {
       ${f.search ? html`<${Field} q=${q} at=${at} onQuery=${t => { setQ(t); setAct(-1); }} />` : null}
       ${items.map((it, i) => it === '-' ? html`<div class="menu-sep" role="separator" />`
         : it.head ? html`<div class="menu-head" role="presentation">${it.head}</div>`
-        : it.seg ? html`<div class="menu-seg" role="group">${it.seg.map(s => html`<button aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
+        : it.seg ? html`<div class=${'menu-seg' + (i === active ? ' on' : '')} id=${mi(i)} role="radiogroup">${it.seg.map(s => html`<button tabindex="-1" role="radio" aria-checked=${!!s.pressed} aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
         : html`<div role=${it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked=${it.checked === undefined ? null : !!it.checked} id=${mi(i)}
             aria-disabled=${it.disabled ? 'true' : null} aria-haspopup=${it.items ? 'menu' : null} data-tip=${it.tip ?? null} aria-description=${it.tip ?? null}
             class=${'menu-item' + (i === active || it.lit ? ' on' : '') + (it.items ? ' sub' : '') + (it.danger ? ' danger' : '') + (selectable(it) || it.disabled ? '' : ' said')}
@@ -500,29 +604,33 @@ const Shell = (() => {
   }
 
   // ---- The tooltip: names an icon-only control, and its key ----
+  // Pointed at, after a moment; and at once where the keys land on it, so a keyboard reads an icon's name, or a swatch's, as it
+  // arrives. An icon with a name and no tip of its own shows its name.
+  const tipOf = t => { const el = t.closest?.('[data-tip], button[aria-label]'); return el && (el.dataset.tip !== undefined || !el.textContent.trim()) ? el : null; };
   const tip = signal(null);
   let tipEl = null, tipTimer = 0;
   // A yes-or-no's box says in words, pointed at, which of its states it's in, so they need no legend (dendra.md, Part 3, States).
   const tagSaid = t => { const c = t.classList; return c.contains('pend') ? null : c.contains('yes') ? (c.contains('fx') ? 'Yes, worked out' : 'Yes, typed') : c.contains('no') ? (c.contains('fx') ? 'No, worked out' : 'No, typed') : 'Nobody has said'; };
   document.addEventListener('pointerover', e => {
     if (e.target.classList?.contains('tag') && !e.target.dataset.tip && !e.target.closest('[data-tip]')) { const s = tagSaid(e.target); if (s) e.target.dataset.tip = s; }
-    const el = e.target.closest?.('[data-tip]');
+    const el = tipOf(e.target);
     if (el === tipEl) return;
     clearTimeout(tipTimer); tip.value = null; tipEl = el;
     if (el) tipTimer = setTimeout(() => { if (el.isConnected) tip.value = el; }, 600);
   });
   document.addEventListener('pointerdown', () => { clearTimeout(tipTimer); tip.value = null; }, true);
-  // The hand last used: a ring is for the keys, whatever gave what's focused its focus (dendra.md, Part 3, States; the stylesheet).
-  const hands = document.documentElement;
-  hands.dataset.hand = 'mouse';
-  addEventListener('pointerdown', () => { hands.dataset.hand = 'mouse'; }, true);
-  // (By what goes from one thing to another: not Enter or Esc, which end what's being done, nor an arrow that nudges what's on the chart.)
-  addEventListener('keydown', e => { if (/^(Tab|Home$|End$|Page|F6$|F8$)/.test(e.key) || (e.key.startsWith('Arrow') && !e.target.closest?.('.dc'))) hands.dataset.hand = 'keys'; }, true);
+  document.addEventListener('focusin', e => {
+    const el = keyed && e.target.matches?.(':focus-visible') ? tipOf(e.target) : null;
+    clearTimeout(tipTimer);
+    if (el === tipEl && (!el || tip.peek() === el)) return;
+    tipEl = el; tip.value = el;
+  });
+  document.addEventListener('focusout', e => { if (tipEl && tip.peek() === tipEl && !(e.relatedTarget && tipOf(e.relatedTarget))) { tip.value = null; tipEl = null; } });
   function Tip() {
     const el = tip.value, ref = useRef();
     // (In the panel, over the view beside it: under a row it would cover the next, which is what's read next.)
     useLayoutEffect(() => { if (!el) return; ref.current.showPopover?.(); return place(el, ref.current, el.closest('.inspector') ? 'left' : 'bottom', 6); }, [el]);
-    return el ? html`<div class="float tip" popover="manual" role="tooltip" ref=${ref}>${el.dataset.tip}${el.dataset.keys ? html`<kbd>${el.dataset.keys}</kbd>` : null}</div>` : null;
+    return el ? html`<div class="float tip" popover="manual" role="tooltip" ref=${ref}>${el.dataset.tip ?? el.getAttribute('aria-label')}${el.dataset.keys ? html`<kbd>${el.dataset.keys}</kbd>` : null}</div>` : null;
   }
 
   // ---- A red ring always says why in words: whatever's marked invalid says it beside it while it's marked, its own words
@@ -582,7 +690,7 @@ const Shell = (() => {
       if (title) el.setAttribute('aria-labelledby', head);
       if (width) el.style.width = `min(${width}px, calc(100vw - 32px))`;
       let done = false, unlayer = null;
-      const settle = v => { if (done) return; done = true; unlayer(); if (el.open) el.close(); render(null, el); el.remove(); resolve(v); };
+      const settle = v => { if (done) return; done = true; unlayer(); if (el.open) el.close(); render(null, el); el.remove(); resolve(v); land(); };
       unlayer = layer(() => settle(undefined));
       el.addEventListener('cancel', () => settle(undefined));
       el.addEventListener('close', () => settle(undefined));
@@ -658,14 +766,16 @@ const Shell = (() => {
     const list = toasts.value;
     // Placed as it comes, and again once the view has drawn what the change did (a table's cells laid out anew).
     useLayoutEffect(() => { if (!list.length) return; placeToasts(true); const t = setTimeout(() => placeToasts(), 120); return () => clearTimeout(t); }, [list]);
-    return html`<div class="toasts" aria-live="polite">${list.map(t => html`
-      <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm}>
-        <span>${t.text}</span>${t.acts.map(([label, run]) => html`<button onClick=${() => { t.dismiss(); run(); }}>${label}</button>`)}${t.stay
-          ? html`<button class="x" aria-label="Dismiss" data-tip="Dismiss" onClick=${t.dismiss}>${icon('x')}</button>` : null}</div>`)}</div>`;
+    // (It stays while the keys are on it, as while the pointer is. What's pressed takes it away, and the keys go back where they came from, unless what it did took them.)
+    return html`<div class="toasts" data-region="toast" aria-live="polite">${list.map(t => html`
+      <div class="toast" key=${t.id} onPointerEnter=${() => clearTimeout(t.timer)} onPointerLeave=${t.arm} onFocusIn=${() => clearTimeout(t.timer)} onFocusOut=${t.arm}>
+        <span>${t.text}</span>${t.acts.map(([label, run]) => html`<button onClick=${() => { t.dismiss(); run(); land(); }}>${label}</button>`)}${t.stay
+          ? html`<button class="x" aria-label="Dismiss" data-tip="Dismiss" onClick=${() => { t.dismiss(); land(); }}>${icon('x')}</button>` : null}</div>`)}</div>`;
   }
 
   // ---- Find: records, lists, definitions, what needs attention, views and actions, ranked as you type, each
   // under its kind's head; "=" works a formula out; "?" lists the keys ----
+  const KEY_HEADS = ['Anywhere', 'On a chart', 'In a table', 'In the panel', 'In a list, a menu or a picker', 'A change pending'];
   let findButton = null;
   // Each kind under its head, the heads in the order of the best each has; what's within a thing under that
   // thing's. An answer doesn't say its kind again.
@@ -686,10 +796,21 @@ const Shell = (() => {
     }
     // An action that can't be done now is still found, greyed, saying why where it can, so nothing looked for is
     // missing; with nothing typed, only what can be done is listed.
-    const acts = many('action').filter(a => a.id !== 'find').map(a => { const off = !!a.enabled && !a.enabled();
+    const acts = many('action').filter(a => a.id !== 'find' && !a.hideInFind).map(a => { const off = !!a.enabled && !a.enabled();
       return { id: a.id, label: a.name, names: a.names, detail: 'Action', why: off ? a.why?.() ?? 'Not now' : null, keys: a.keys, disabled: off, run: a.run }; });
-    // The keys, but not the two ways here.
-    if (q.startsWith('?')) { const ks = acts.filter(a => a.keys && a.id !== 'keys').map(a => ({ ...a, detail: null })); return q.slice(1).trim() ? rank(ks, q.slice(1).trim()) : ks; }
+    // The keys, every one, by where it works, found by what it does or by the keys themselves: what's an action (Enter runs it), then what's only said here,
+    // a part's own keys (keyWords), each as it reads on the key.
+    if (q.startsWith('?')) {
+      const where = id => /^(chart|format|look)\./.test(id) ? 'On a chart' : /^table\./.test(id) ? 'In a table' : 'Anywhere';
+      // (What's most reached for first: how to get anywhere, and why.)
+      const first = ['why', 'keys', 'pane.next', 'pane.prev', 'attend', 'attend.prev', 'formulas', 'undo', 'redo', 'panel', 'back', 'forward', 'view.prev', 'view.next'], at = a => { const k = first.indexOf(a.id); return k < 0 ? first.length : k; };
+      const rows = [{ under: 'Anywhere', label: 'Find anything: a record, a list, an action', keys: '$mod+KeyK', names: ['Find', 'Search', 'Go to'], run: () => find('') },
+        ...acts.filter(a => a.keys).sort((a, b) => at(a) - at(b)).map(a => ({ ...a, under: where(a.id), detail: null, disabled: false, run: a.disabled ? null : a.run, names: [...(a.names ?? []), keyLabel(a.keys)] })),
+        ...many('keys').flatMap(k => k.rows.map(([keys, label]) => ({ under: k.head, label, keys, names: [keyLabel(keys)] })))];
+      const s = q.slice(1).trim();
+      if (s) return rank(rows, s).map(x => ({ ...x, detail: x.under }));
+      return KEY_HEADS.flatMap(h => { const of = rows.filter(r => r.under === h); return of.length ? [{ head: h }, ...of] : []; });
+    }
     const vs = views.value.map(v => ({ label: v.name, detail: 'View', run: () => show(v.id) })), can = acts.filter(a => !a.disabled);
     if (!q) return headed([...vs, ...can]);
     const all = [...many('find').flatMap(s => s.items(q)), ...counted(), ...vs, ...acts];
@@ -764,7 +885,7 @@ const Shell = (() => {
   };
   function TitleBar() {
     const u = part('undo'), t = time.value;
-    return html`<header class="titlebar" data-region="bars">
+    return html`<header class="titlebar" data-region="title">
       <div class="left">${naming.value ? html`<${Naming} key=${naming.value} />` : html`<button class="btn ghost dd chartmenu" aria-haspopup="menu" onPointerOver=${whole}
         ref=${el => { if (el && refocus) { refocus = false; el.focus(); } }} onClick=${e => menu(e.currentTarget, chartMenu)} onDblClick=${nameChart}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button>`}${part('keeping')?.render()}</div>
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
@@ -799,7 +920,7 @@ const Shell = (() => {
   }
   const BARS = { formatbar: 'Format', formulabar: 'Formula' };
   const Bar = ({ kind, hidden }) => part(kind)
-    ? html`<div class=${'slot ' + kind} role="region" aria-label=${BARS[kind]} data-region="bars" hidden=${hidden}><${Host} kind=${kind} /></div>` : html`<div hidden />`;
+    ? html`<div class=${'slot ' + kind} role="region" aria-label=${BARS[kind]} data-region=${BARS[kind].toLowerCase()} hidden=${hidden}><${Host} kind=${kind} /></div>` : html`<div hidden />`;
 
   // ---- The view and the inspector; a chart with no box offers its one action ----
   // Put away, the inspector leaves the view the width, unless History takes its place or it's widened.
@@ -874,12 +995,11 @@ const Shell = (() => {
       menu(e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : e.currentTarget, [{ label: 'Rename', disabled: App.readOnly.peek(), run: () => { editing.value = v.id; } }, ...vp.menu(v.id)], { placement: 'top-start' });
     };
     const onKey = e => {
-      const k = list.findIndex(x => x.id === view.peek()), d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
-      if (!d || editing.peek()) return;
+      const k = list.findIndex(x => x.id === view.peek()), to = e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : e.key === 'ArrowRight' ? (k + 1) % list.length : e.key === 'ArrowLeft' ? (k - 1 + list.length) % list.length : -1;
+      if (to < 0 || editing.peek()) return;
       e.preventDefault();
-      const next = list[(k + d + list.length) % list.length];
-      show(next.id);
-      ref.current.children[list.indexOf(next)]?.focus();
+      show(list[to].id);
+      ref.current.children[to]?.focus();
     };
     // Viewing, or at a past moment, a new view says why it can't be, rather than doing nothing.
     const add = e => !App.canAsk() ? toast(App.whyNot()) : vp.add(e.currentTarget).then(id => { if (id) { show(id); if (!App.readOnly.peek()) editing.value = id; } });
@@ -1032,19 +1152,25 @@ const Shell = (() => {
     ${floats.value.map(f => html`<${Float} key=${f.id} f=${f} />`)}
     <${Toasts} /><${Tip} /><${Ringed} />`;
 
+  // What's said in the list of keys of what's no action of the window's: a part says its own (register('keys', { head, rows: [[keys, words]] })).
+  register('keys', { head: 'Anywhere', rows: [['$mod+Slash', 'Keyboard shortcuts'], ['Tab', 'Next control'], ['Shift+Tab', 'Control before'], ['Shift+F10', 'The menu of what has the keys'], ['ContextMenu', 'The menu of what has the keys'], ['Esc', 'Back out a step: closes what’s open, and the keys go back where they were']] });
+  register('keys', { head: 'In a list, a menu or a picker', rows: [['ArrowUp ArrowDown', 'Go through a list, a menu or a section’s rows'], ['ArrowLeft ArrowRight', 'Across a picker, or a row of choices; into and out of a submenu'], ['Arrows', 'Through a picker’s swatches, shapes or days, each saying its name'], ['Home End', 'First and last'], ['Enter', 'Take it'], ['ArrowRight', 'Open a History entry’s details'], ['ArrowLeft', 'Close a History entry’s details'], ['A letter', 'The next in a menu to begin with it']] });
+  register('keys', { head: 'A change pending', rows: [['Enter', 'Make it'], ['Esc', 'Discard it'], ['F6', 'To its day'], ['ArrowDown', 'From, All along or Never held']] });
   // The shell's own actions and keys.
   const problems = () => needs().length > 0;
   [
     { id: 'find', name: 'Find', keys: '$mod+KeyK', inputs: true, run: () => { floats.peek().some(f => f.cls === 'findpal') ? closeAll() : find(); } },
     // What the title bar's Export does, for Find, by what it makes: a chart's slides or pages, the dates, and a table's
     // sheet, each with why not where it can't.
+    { id: 'export', name: 'Export', enabled: () => typeof Export !== 'undefined', run: () => Export.open() },
     ...[['pptx', 'PowerPoint'], ['pdf', 'PDF'], ['ics', 'Calendar']].map(([f, name]) => ({ id: 'export.' + f, name: `Export to ${name}`,
       enabled: () => typeof Export !== 'undefined' && (f === 'ics' || views.peek().some(v => v.layout === 'chart')), why: () => 'Add a chart view first', run: () => Export.open(f) })),
     { id: 'export.xlsx', name: 'Export to Excel', names: ['Excel', 'Spreadsheet', 'xlsx'], enabled: () => typeof Export !== 'undefined' && many('export').some(x => x.name === 'Excel'),
       why: () => 'Show a table first', run: () => Export.open('Excel') },
     // Printing is the PDF, as it would print: the browser would print the window.
     { id: 'print', name: 'Print', keys: '$mod+KeyP', inputs: true, enabled: () => typeof Export !== 'undefined', run: () => Export.open(current.peek()?.layout === 'chart' ? 'pdf' : undefined) },
-    { id: 'keys', name: 'Keyboard shortcuts', keys: '[Shift]+?', run: () => find('?') },
+    { id: 'keys', name: 'Keyboard shortcuts', names: ['Keys', 'Hot keys', 'Help', 'Shortcut list'], keys: '[Shift]+?', menu: 'chart', order: 35, run: () => find('?') },
+    { id: 'keys.slash', name: 'Keyboard shortcuts', keys: '$mod+Slash', inputs: true, hideInFind: true, run: () => find('?') },
     // With nothing to undo, Undo says so.
     { id: 'undo', name: 'Undo', keys: '$mod+KeyZ', enabled: () => !!part('undo'), run: () => part('undo').undo() },
     { id: 'redo', name: 'Redo', keys: '$mod+KeyY', enabled: () => !!part('undo'), run: () => part('undo').redo() },
@@ -1070,12 +1196,23 @@ const Shell = (() => {
   ].forEach(a => register('action', a));
   keys({
     '$mod+Shift+KeyZ': () => part('undo') ? part('undo').redo() : false,
-    // With no layer open: the widened inspector narrows, and then the selection clears.
-    'Escape': () => { if (wide.peek()) narrow(); else if (selection.peek().length) select([]); else return false; },
+    // With no layer open: the widened inspector narrows; from a pane that isn't the view (a toolbar, the tabs), the keys go to the
+    // view, what's selected staying; and there the selection clears.
+    'Escape': e => {
+      const at = e.target.closest?.('[data-region]')?.dataset.region;
+      if (wide.peek()) narrow();
+      else if (isLive && at && at !== 'view') enter('view');
+      else if (selection.peek().length) select([]);
+      else return false;
+    },
   });
   function stepView(d) {
-    const vs = views.peek(), k = vs.findIndex(v => v.id === view.peek());
-    if (vs.length) show(vs[(k + d + vs.length) % vs.length].id);
+    const vs = views.peek(), k = vs.findIndex(v => v.id === view.peek()), next = vs[(k + d + vs.length) % vs.length];
+    if (!vs.length) return;
+    // (The keys on the tabs go with the view shown, so the ring is on it.)
+    const onTab = document.activeElement?.closest?.('.sheets');
+    show(next.id);
+    if (onTab) setTimeout(() => document.getElementById('tab-' + next.id)?.focus());
   }
   addEventListener('resize', () => {
     if (insp.peek() > innerWidth - 320) insp.value = Math.max(280, innerWidth - 320);
@@ -1098,7 +1235,7 @@ const Shell = (() => {
 
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
-    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart,
+    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart, roved, land, enter, keyed: () => keyed, usingKeys,
     widen, narrow, wide, gliding, showPanel, theme, setTheme, html, h, signal, computed, effect, parts: reg,
     problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n) })), listProblems: kind => listOf(kind),
     aside: c => { aside.value = c; },

@@ -1084,7 +1084,10 @@ function mount(el) {
       if (m.type === 'box') {
         // (A drag lands on the half pixel; what's typed is kept as typed.)
         const old = n.position(treeOf(m.record), view), o = origin(page), r = p.typed ? v => v : round;
-        tx.note('Position', treeOf(m.record), { x: r(p.x - o.x), y: r(p.y - o.y), w: r(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: r(p.h ?? old.h) }), ...(old?.lock && { lock: true }), hand: true }, { view });
+        // A move moves, and leaves the size as it's drawn: where that's the height its rank shared, or the triangles of its width,
+        // that's kept as well, `soft`, as what its own text can still grow it past (Scene). Joining a row, it shares the row's. A width changed leaves its height to its text.
+        const held = p.h !== undefined ? { h: r(p.h) } : p.w === undefined && !p.joins ? (old?.h && !old.soft ? { h: r(old.h) } : { h: r(m.h), soft: true }) : old?.h && !old.soft ? { h: r(old.h) } : {};
+        tx.note('Position', treeOf(m.record), { x: r(p.x - o.x), y: r(p.y - o.y), w: r(p.w ?? m.w), ...held, ...(old?.lock && { lock: true }), hand: true }, { view });
       } else if (m.type === 'shape') {
         const row = rowOf(id), points = row?.points ?? (m.geometry === 'line' ? m.points : null), r = p.typed ? v => v : round;
         // A line: moved, and its width and height its ends' distance across and down; an end it's moved off what it's glued to, unless that moves with it, lets go.
@@ -1165,7 +1168,7 @@ function mount(el) {
     }
     if (places.size === 1) {
       const [[id, p]] = places, m = scene.byId.get(id);
-      if (p.w === undefined && p.h === undefined) { const y = rowJoined(m, p.x, p.y); if (y !== null) p.y = y; }
+      if (p.w === undefined && p.h === undefined) { const y = rowJoined(m, p.x, p.y); if (y !== null) { p.y = y; p.joins = true; } }
     }
     // With Snap to grid, what's dropped lands on the grid; a group by its first, so it stays as it is.
     if (aids.peek().snap && places.size) {
@@ -1822,7 +1825,7 @@ function mount(el) {
   // loosely: once a line relates it, it goes beside its relatives (Scene). What's made on a chart, the chart shows: where
   // the view would hide it, the same change shows it there (App.showMade).
   // `guide`, the line a handle was dragged out on, stays drawn to it while it's named, so it's plain the two will be related.
-  function create(kind, at, { relate, guide } = {}) {
+  function create(kind, at, { relate, guide, typed = '' } = {}) {
     if (still() || !scene || !kind) return guide?.remove();
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
     // (Its placeholder is the size it will be: a box of its kind's on this chart, the middle one, or else what a short name makes.)
@@ -1831,7 +1834,7 @@ function mount(el) {
     const ks = kinds(), choice = [...new Set([kind, ...ks.filter(k => k === last), ...ks])];
     let now = kind;
     guide?.setAttribute('d', guide.getAttribute('d').replace(/L[^L]*$/, `L${p.x + w / 2},${p.y + h / 2}`));
-    openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, '', name => {
+    openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, typed, name => {
       guide?.remove();
       name = Tree.clean(name);
       if (!name) return;
@@ -1973,25 +1976,44 @@ function mount(el) {
     const line = document.createElementNS(NS, 'path'), click = !down;
     line.setAttribute('class', 'dc-relating');
     marks.appendChild(line);
-    let target = null, unlayer = null;
+    let target = null, unlayer = null, stopSel = null;
     root.classList.add('relating');
     const at = ev => graph.clientToLocal(ev.clientX, ev.clientY);
     // (Any mark a line can be glued to: a line to a box is asked about, a line to a free shape, or from one, only glues.)
     const boxAt = p => hand.markAt(p, [from.id]);
-    // Begun from a menu, nothing else says what comes next: it's said beside the box, and then beside the pointer, where the eye is.
-    const next = click ? over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-tip dc-next', textContent: scene.marks.some(m => m.type === 'box' && m.id !== from.id) ? 'Now click the other box' : 'Now click where the other box goes' })) : null;
-    if (next) { const g = graph.localToGraph(from.x + from.w, from.y + from.h / 2); Object.assign(next.style, { left: `${g.x + 8}px`, top: `${g.y - 12}px` }); }
+    // Begun from a menu, nothing else says what comes next: it's said beside the box, and then beside the pointer, where the eye is; begun by
+    // the keys, in their words.
+    const others = scene.marks.some(m => m.type === 'box' && m.id !== from.id);
+    const next = click ? over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-tip dc-next', textContent: Shell.keyed() ? (others ? (only ? 'Now Tab to the other box and press Enter' : 'Now Tab to the other box and press Enter, or type a new name') : 'Now type its name') : others ? 'Now click the other box' : 'Now click where the other box goes' })) : null;
+    const beside = m => { const g = graph.localToGraph(m.x + m.w, m.y + m.h / 2); Object.assign(next.style, { left: `${g.x + 8}px`, top: `${g.y - 12}px` }); };
+    if (next) beside(from);
+    const lit = () => paintStates(new Map([[from.id, ['accent', 1]], ...(target ? [[target.id, ['accent', 1]]] : [])]));
     const move = ev => {
       const p = at(ev);
       target = boxAt(p);
       line.setAttribute('d', `M${start[0]},${start[1]} L${p.x},${p.y}`);
       if (next) { const r = root.getBoundingClientRect(); Object.assign(next.style, { left: `${ev.clientX - r.left + 14}px`, top: `${ev.clientY - r.top + 14}px` }); }
-      paintStates(new Map([[from.id, ['accent', 1]], ...(target ? [[target.id, ['accent', 1]]] : [])]));
+      lit();
     };
     const end = () => {
       removeEventListener('pointermove', move); removeEventListener(click ? 'mousedown' : 'pointerup', up, true); removeEventListener('keydown', esc, true);
-      unlayer?.(); line.remove(); next?.remove(); root.classList.remove('relating'); paintStates();
+      unlayer?.(); stopSel?.(); relateNow = null; line.remove(); next?.remove(); root.classList.remove('relating'); paintStates();
     };
+    // By the keys: Tab or Ctrl+Alt+arrow walks to the other box, drawn to as a pointer would, and Enter or Space takes it; a name typed makes a
+    // new box and asks the same of the two, as a drop in empty room does; Esc makes nothing, and the box it began from is selected again.
+    if (click) {
+      stopSel = Shell.on('select', keys => {
+        const m = keys.length === 1 ? scene.byId.get(keyParts(keys[0])[0]) : null;
+        target = m?.type === 'box' && m.id !== from.id ? m : null;
+        line.setAttribute('d', target ? `M${start[0]},${start[1]} L${target.x + target.w / 2},${target.y + target.h / 2}` : '');
+        if (next) beside(target ?? from);
+        lit();
+      });
+      relateNow = {
+        take: () => { const m = target; if (!m) return; end(); Shell.emit('relate-open', [from.id, m.id]); },
+        name: typed => { if (only) return; end(); Shell.select([from.id]); const g = graph.localToGraph(from.x + from.w / 2, from.y + from.h + 72), r = root.getBoundingClientRect(); const guide = marks.appendChild(line.cloneNode()); guide.setAttribute('d', `M${start[0]},${start[1]} L${start[0]},${start[1]}`); create(lastKind(), graph.clientToLocal(r.left + g.x, r.top + g.y), { relate: from.id, guide, typed }); },
+      };
+    }
     // Dropped on another box, the two's relations are asked for, in the two-box panel, a relation ticked there pending
     // through the bar; dropped in empty room, a new box goes there, of the kind last made, named as it's typed, as
     // Lucidchart's does, and then the two's relations are asked for; Esc, or dropping where it began, makes nothing.
@@ -2013,11 +2035,19 @@ function mount(el) {
     const esc = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(); } };
     addEventListener('pointermove', move);
     addEventListener(click ? 'mousedown' : 'pointerup', up, true);
-    if (click) unlayer = Shell.layer(end); else addEventListener('keydown', esc, true);
+    if (click) unlayer = Shell.layer(() => { end(); Shell.select([from.id]); root.focus({ preventScroll: true }); }); else addEventListener('keydown', esc, true);
   }
+  let relateNow = null;
 
   // ---- Right-click: what applies to what's under the pointer ----
-  root.addEventListener('contextmenu', e => e.preventDefault());
+  root.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (!e.keyed) return;
+    // Shift+F10 or the context-menu key: what's selected, as a right-click on it, its menu under it; or the page's, at the middle of the screen.
+    const ms = selected(), r = root.getBoundingClientRect(), m = ms[0], b = m && !m.points && graph.localToClient(m.x + m.w / 2, m.y + m.h);
+    const at = b ? { x: b.x, y: b.y + 4 } : { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    Shell.menu(at, ms.length ? markItems() : pageItems(graph.clientToLocal(at.x, at.y)));
+  });
   const contextOf = ({ e, node, edge }) => {
     let cell = node ?? edge ?? null;
     if (cell?.getData()?.kind === 'label') cell = graph.getCellById(cell.getData().mark);
@@ -2969,9 +2999,13 @@ function mount(el) {
     if (!seen()) return;
     const s = pageScale();
     if (k === 'in' || k === 'out') {
+      // Through a level, about what's selected, or else the middle of what's on screen, so what was looked at is still looked at.
       const z = graph.zoom() / s, next = k === 'in' ? LEVELS.find(v => v > z + 0.001) ?? 4 : [...LEVELS].reverse().find(v => v < z - 0.001) ?? LEVELS[0];
-      const c = graph.getGraphArea().center ?? null;
-      graph.zoomTo(next * s, c ? { center: graph.graphToLocal(c) } : undefined);
+      const ms = selected(), e = ms.length ? extent(ms) : null, r = root.getBoundingClientRect();
+      const c = e ? { x: e.x + e.w / 2, y: e.y + e.h / 2 } : graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2), was = graph.localToGraph(c.x, c.y);
+      graph.zoomTo(next * s);
+      const now = graph.localToGraph(c.x, c.y), t = graph.translate();
+      graph.translate(t.tx + was.x - now.x, t.ty + was.y - now.y);
     } else graph.zoomTo(k * s);
     zoomRead();
     glide(was);
@@ -3004,17 +3038,37 @@ function mount(el) {
   }
 
   // Tab and Shift+Tab select the next box and the one before, in reading order (by rows, top down, then
-  // left to right), as PowerPoint's step through its shapes.
+  // left to right), as PowerPoint's step through its shapes. Esc lets go of a box and not the place: the next goes on from the one
+  // it let go of (`walked`), while nothing else has been selected.
+  let walked = null;
+  const hereNow = () => keysOfSelection()[0] ?? walked;
+  const stopWalk = Shell.on('select', keys => { if (keys.length) walked = null; });
   function next(by) {
     const rows = [];
     for (const b of scene.marks.filter(m => m.type === 'box').sort((a, b) => a.y - b.y)) {
       const r = rows.at(-1);
       if (r && b.y < r[0].y + r[0].h / 2) r.push(b); else rows.push([b]);
     }
-    const boxes = rows.flatMap(r => r.sort((a, b) => a.x - b.x)), at = boxes.findIndex(b => b.id === keysOfSelection()[0]);
+    const boxes = rows.flatMap(r => r.sort((a, b) => a.x - b.x)), at = boxes.findIndex(b => b.id === hereNow());
     const m = boxes.at(at < 0 ? (by > 0 ? 0 : -1) : (at + by) % boxes.length);
     if (!m) return false;
     Shell.select([m.id]);
+  }
+  // Ctrl+Alt+arrow goes to the box that way: of those whose middle is past this one's edge, what stands in line with it before what's off
+  // to the side, the nearest first. Nothing that way, it stays. It looks, and writes nothing, where the arrows alone nudge.
+  function walk(dx, dy) {
+    const boxes = scene.marks.filter(m => m.type === 'box'), from = boxes.find(b => b.id === hereNow());
+    if (!from) return next(1);
+    const off = (a0, a1, b0, b1) => Math.max(0, Math.max(a0, b0) - Math.min(a1, b1));
+    let best = null, least = Infinity;
+    for (const b of boxes) {
+      if (b === from) continue;
+      const mx = b.x + b.w / 2, my = b.y + b.h / 2, ahead = dx > 0 ? mx > from.x + from.w : dx < 0 ? mx < from.x : dy > 0 ? my > from.y + from.h : my < from.y;
+      if (!ahead) continue;
+      const along = dx ? Math.abs(mx - (from.x + from.w / 2)) : Math.abs(my - (from.y + from.h / 2)), side = dx ? off(from.y, from.y + from.h, b.y, b.y + b.h) : off(from.x, from.x + from.w, b.x, b.x + b.w), cost = along + side * 4;
+      if (cost < least) { least = cost; best = b; }
+    }
+    if (best) { pickField(null); Shell.select([best.id]); }
   }
 
   // ---- Keys: PowerPoint's, Ctrl+[ and Ctrl+] among them for the order ----
@@ -3039,11 +3093,10 @@ function mount(el) {
     // (With a field selected, as with text in PowerPoint, its size; with a mark, its order.)
     '$mod+BracketRight': () => fieldNow() ? FormatBar.resize?.(1) : order('forward'), '$mod+BracketLeft': () => fieldNow() ? FormatBar.resize?.(-1) : order('backward'),
     '$mod+Shift+BracketRight': () => order('front'), '$mod+Shift+BracketLeft': () => order('back'),
-    '$mod+Equal': () => zoom('in'), '$mod+Minus': () => zoom('out'), 'Shift+Digit0': () => zoom(1),
     'F2': () => { const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length === 1) edit(k[0]); },
-    'Enter': () => { const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length !== 1) return false; edit(k[0]); },
+    'Enter': () => { if (relateNow) return relateNow.take(); const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length !== 1) return false; edit(k[0]); },
     // Esc backs out a step: from a field to its box, from the selection to none.
-    'Escape': () => { if (fieldNow()) return pickField(null); if (!keysOfSelection().length) return false; entered = null; Shell.select([]); },
+    'Escape': () => { if (fieldNow()) return pickField(null); const k = keysOfSelection(); if (!k.length) return false; entered = null; Shell.select([]); walked = k[0]; },
   };
   const turnsNow = () => selected().some(m => m.geometry === 'group' || (m.type === 'shape' && !['legend'].includes(m.geometry) && !m.role));
   const wrapped = Object.fromEntries(Object.entries(keyMap).map(([k, f]) => [k, e => { if (f(e) !== false) { e.preventDefault(); e.stopPropagation(); } }]));
@@ -3056,6 +3109,8 @@ function mount(el) {
   // the shortcuts, say) come first.
   const typeOver = e => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1 || e.target !== root) return;
+    // (Relating, Space takes the box the keys are on, and a name typed is a new box.)
+    if (relateNow) { e.preventDefault(); return e.key === ' ' ? relateNow.take() : relateNow.name(e.key); }
     const k = keysOfSelection(), f = fieldNow();
     if (f) { e.preventDefault(); editField(f.m, f.it, e.key); }
     else if (k.length === 1) { e.preventDefault(); edit(k[0], null, e.key); }
@@ -3150,7 +3205,7 @@ function mount(el) {
   function holdsFor(base) { const h = holdsOf(base), at = App.pending.peek()?.placing?.(); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
-    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
+    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
     flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
@@ -3161,7 +3216,7 @@ function mount(el) {
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },
     destroy() {
-      nudged(); stopNudge(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
+      nudged(); stopNudge(); stopWalk(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
       stopDraw(); stopKeyOver(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
@@ -3203,8 +3258,18 @@ Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destr
   kinds: () => [...kinds()].sort().map(k => ({ label: k, run: () => call('create')(k) })) });
 // A chart is shown, not just kept behind a table.
 const here = () => !!active.value && active.value.root.clientWidth > 0;
+// What the keys do on a chart, for the list of them: said beside keyMap, so a key changed there is changed here.
+Shell.register('keys', { head: 'On a chart', rows: [['Tab', 'Next box, in reading order'], ['Shift+Tab', 'Box before'], ['Arrows', 'Nudge what’s selected'], ['$mod+Arrows', 'Nudge it finely'], ['Shift+Arrows', 'Size it about its middle'], ['$mod+Shift+Arrows', 'Size it finely'], ['Alt+ArrowLeft', 'Turn it left, where it can turn'], ['Alt+ArrowRight', 'Turn it right, where it can turn'], ['F4', 'Do the last thing again'], ['Alt+F10', 'The Selection pane'], ['Alt+Shift+KeyL', 'Align left'], ['Alt+Shift+KeyE', 'Align center'], ['Alt+Shift+KeyR', 'Align right'], ['Alt+Shift+KeyT', 'Align top'], ['Alt+Shift+KeyM', 'Align middle'], ['Alt+Shift+KeyB', 'Align bottom'], ['Enter', 'Type in its name; on a field, in that'], ['F2', 'Type in its name'], ['A letter', 'Type over its name'], ['Enter, then Esc', 'Select the field, to format it alone'], ['Delete', 'Delete or end what’s selected, or clear a field'],
+  ['$mod+KeyA', 'Select everything'], ['$mod+Shift+Space', 'Select all like this'], ['$mod+KeyC', 'Copy'], ['$mod+KeyX', 'Cut'], ['$mod+KeyV', 'Paste'], ['$mod+KeyD', 'Duplicate'], ['$mod+KeyG', 'Group'], ['$mod+Shift+KeyG', 'Ungroup'], ['$mod+]', 'Bring forward'], ['$mod+[', 'Send backward'], ['$mod+Shift+]', 'Bring to front'], ['$mod+Shift+[', 'Send to back'],
+  ['Shift+F10', 'Add owner, Add holding, Relate… and the rest of a box’s menu'], ['Enter', 'While relating: take the box the keys are on'], ['A letter', 'While relating: a new box, named as it’s typed']] });
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
+// The zoom's, and the walk's, wherever the keys are on a chart shown: a look, writing nothing.
+Shell.register('action', { id: 'chart.zoomin', name: 'Zoom in', names: ['Larger', 'Magnify'], keys: '$mod+Equal', enabled: here, run: () => call('zoom')('in') });
+Shell.register('action', { id: 'chart.zoomout', name: 'Zoom out', names: ['Smaller'], keys: '$mod+Minus', enabled: here, run: () => call('zoom')('out') });
+Shell.register('action', { id: 'chart.zoom100', name: 'Zoom to 100%', names: ['Actual size'], keys: 'Shift+Digit0', enabled: here, run: () => call('zoom')(1) });
+for (const [word, names, k, dx, dy] of [['above', 'up', 'ArrowUp', 0, -1], ['below', 'down', 'ArrowDown', 0, 1], ['to the left', 'left', 'ArrowLeft', -1, 0], ['to the right', 'right', 'ArrowRight', 1, 0]])
+  Shell.register('action', { id: `chart.walk.${names}`, name: `Go to the box ${word}`, names: ['Walk', 'Next box', 'Box to box', 'Move between boxes'], keys: `$mod+Alt+${k}`, enabled: here, run: () => call('walk')(dx, dy), why: () => 'Show a chart first' });
 const aidToggle = k => () => { aids.value = { ...aids.peek(), [k]: !aids.peek()[k] }; };
 // What helps the eye and never prints, one row of a menu, its ticks a step in, so the menus it's on fit the window they open in.
 const aidsRow = () => ({ label: 'Gridlines and guides', items: [['Gridlines', 'grid'], ['Snap to grid', 'snap'], ['Rulers', 'rulers'], ['Margins', 'margins'], ['Guides', 'guides']].map(([label, k]) => ({ label, checked: aids.peek()[k], run: aidToggle(k) })) });

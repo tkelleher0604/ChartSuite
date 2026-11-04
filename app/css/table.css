@@ -1,12 +1,17 @@
 /* Table views and the time: the grid (on dendra.css's Tabulator restyle), the date control's calendar, the
    ruler under the view, and History in the inspector's place. Tokens are dendra.css's. */
 
+/* A row of a list the keys are going through: its ring inside it, as nothing beside it can be drawn over. */
+[data-list] .hist-row:focus-visible, [data-list] .hist-fold:focus-visible, [data-list] > .row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
 /* ---- The grid ---- */
 .view > .host.grid { display: flex; flex-direction: column; background: var(--surface); }
 .grid > .cells { position: relative; flex: 1; min-height: 0; }
 .grid > .cells > .tabulator { height: 100%; }
 .grid .tabulator .tabulator-tableholder .tabulator-table { min-width: 100%; }   /* rows to the edge, whatever the columns */
 .grid .tabulator .tabulator-tableholder:focus-visible { outline: none; }
+/* With no cell lit (what's selected is filtered out), the grid itself says it has the keys. */
+.grid .tabulator .tabulator-tableholder:focus-visible:not(:has(.tabulator-range-cell-active)) { outline: 2px solid var(--focus); outline-offset: -2px; }
 .grid .tabulator .tabulator-header { background: var(--paper); border-bottom-color: var(--rule-2); }
 .grid .tabulator .tabulator-header .tabulator-col { min-height: max(var(--heading, 0px), 49px); background: var(--paper); border-right-color: var(--rule); cursor: grab; }
 .grid .tabulator .tabulator-header .tabulator-col:active { cursor: grabbing; }
@@ -78,7 +83,8 @@
 .grid .tabulator .tabulator-header .tabulator-frozen.tabulator-frozen-left, .grid .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-left { border-right-color: var(--rule); }
 .grid .tabulator-row .tabulator-cell.pin { background: var(--surface); }
 .grid .tabulator-row.picked, .grid .tabulator-row.picked:hover, .grid .tabulator-row.picked .tabulator-cell:is(.tabulator-frozen, .pin) { background: var(--selected); }
-.grid .tabulator-row .tabulator-cell.pin.tabulator-range-only-cell-selected { box-shadow: inset 0 0 0 2px var(--accent); }
+.grid .tabulator-row .tabulator-cell.pin.tabulator-range-only-cell-selected { box-shadow: inset 0 0 0 2px var(--focus); }
+.grid .cells:not(:focus-within) .tabulator-row .tabulator-cell.pin.tabulator-range-only-cell-selected { box-shadow: inset 0 0 0 1px var(--ink-3); }
 .grid .tabulator-row .tabulator-cell.pin.tabulator-range-selected:not(.tabulator-range-only-cell-selected) { background: var(--selected); }
 .grid .tabulator-row .tabulator-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A name longer than half the grid goes on to another line rather than be cut (table.js). */

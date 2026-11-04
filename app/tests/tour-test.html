@@ -187,15 +187,143 @@ async function run() {
   check('Skip goes to the last card, with the selection the tour began on', step() === 'last' && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
   press('Escape', $('.tour-card input')); await tick(150);
   check('Esc ends it', step() === null);
-  // In a step, Esc is the window's: it leaves what's being done (here, the selection), and the tour goes on; on the
-  // tour's own card, it ends it, with the selection it began on.
+  // In a step, Esc first leaves what's being done (a menu open, what's typed), and then ends the tour, with the selection it began on,
+  // the chart having the keys; on the tour's own card too.
   Shell.parts.peek().action.find(a => a.id === 'tour').run(); await tick(200);
   Shell.select(['blocker']); await tick(150);
-  // (Each Esc leaves one thing: what's open over the view first, then the selection.)
-  for (let i = 0; i < 4 && Shell.selection.peek().length; i++) { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(150); }
-  check('Esc in a step leaves what’s being done, not the tour', step() === '2 / 7' && !Shell.selection.peek().length, `${step()} ${Shell.selection.peek().join()}`);
+  Shell.menu({ x: 200, y: 200 }, [{ label: 'One', run: () => {} }]); await tick(80);
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(150);
+  check('Esc in a step leaves what’s being done first, not the tour', step() === '2 / 7' && !document.querySelector('.float .menu'), `${step()}`);
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(150);
+  check('… and with nothing else to leave, it ends the tour, with the selection it began on', step() === null && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
+  Shell.parts.peek().action.find(a => a.id === 'tour').run(); await tick(200);
   press('Escape', $('.tour-card .skip')); await tick(150);
-  check('… and Esc on the tour’s card ends it, with the selection it began on', step() === null && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
+  check('… and Esc on the tour’s card ends it too', step() === null && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
+  // A menu by the keys: on its first item as it opens; Esc from a submenu goes on in the menu it opened from; a row of choices on the arrows' path.
+  {
+    let ran = '';
+    const kd = (k, o = {}) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: k, bubbles: true, cancelable: true, ...o }));
+    kd('PageDown'); // (the keys, last)
+    let picked = 'Light';
+    Shell.menu({ x: 200, y: 200 }, () => [{ label: 'Open', items: [{ label: 'Inner', run: () => { ran = 'inner'; } }] }, { label: 'After', run: () => { ran = 'after'; } }, { seg: ['Light', 'Dark'].map(l => ({ label: l, pressed: picked === l, run: () => { picked = l; } })) }]); await tick(80);
+    check('A menu the keys open is on its first item', $('.float .menu-item.on')?.textContent.includes('Open'), $('.float .menu')?.textContent);
+    kd('ArrowRight'); await tick(80);
+    check('… ArrowRight opens its submenu, on its first', $$('.float .menu').length === 2 && $$('.float .menu')[1].querySelector('.menu-item.on')?.textContent.includes('Inner'));
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(80);
+    check('… Esc closes the submenu alone, and the keys go on in the menu it opened from', $$('.float .menu').length === 1 && document.activeElement?.closest('.float') != null, document.activeElement?.className);
+    kd('ArrowDown'); await tick(40);
+    check('… the arrows still move', $('.float .menu-item.on')?.textContent.includes('After'));
+    kd('ArrowDown'); await tick(40);
+    check('… onto a row of choices', !!$('.float .menu-seg.on'));
+    kd('ArrowRight'); await tick(40);
+    check('… whose own arrows go across it', picked === 'Dark', picked);
+    kd('ArrowUp'); await tick(40); kd('Enter'); await tick(80);
+    check('… and Enter runs the item it’s on', ran === 'after' && !$('.float .menu'), ran);
+  }
+  // Where the keys go when nothing's said: back where they were, with nothing written; Esc from a pane to the view; Relate on to the panel; a message a stop of F6.
+  {
+    const kd = (k, el = document.activeElement) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: k, bubbles: true, cancelable: true }));
+    const pane = () => document.activeElement?.closest?.('[data-region]')?.dataset.region ?? null, cv = Canvas.active.peek();
+    kd('PageDown');
+    Shell.show(App.views.peek().find(v => v.layout === 'chart').id); await tick(200);
+    Shell.select(['gp']); await tick(120);
+    Shell.enter('tabs'); await tick(40);
+    kd('Escape'); await tick(80);
+    check('Esc from a pane that isn’t the view takes the keys to the view, what’s selected staying', pane() === 'view' && Shell.selection.peek().join() === 'gp', `${pane()} ${Shell.selection.peek().join()}`);
+    kd('Escape'); await tick(80);
+    check('… and there, Esc lets go of it', !Shell.selection.peek().length, Shell.selection.peek().join());
+    Shell.select(['gp']); await tick(120);
+    Shell.enter('inspector'); await tick(40);
+    check('(the keys in the panel)', pane() === 'inspector', pane());
+    document.activeElement.blur(); await tick(60);
+    check('What had the keys letting go of them, they go back to the pane they were in', pane() === 'inspector', pane());
+    const n1 = N();
+    document.activeElement.blur();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', code: 'KeyX', bubbles: true, cancelable: true })); await tick(80);
+    check('… at the latest with the next key, which is spent finding them: nothing typed anywhere', pane() === 'inspector' && !$('.dc-edit') && N() === n1, `${pane()} ${!!$('.dc-edit')} ${N() - n1}`);
+    Shell.enter('view'); await tick(40);
+    document.activeElement.blur();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', code: 'KeyX', bubbles: true, cancelable: true })); await tick(80);
+    check('… on a chart too: a box selected isn’t typed over by a key meant for something gone', pane() === 'view' && !$('.dc-edit') && N() === n1, `${pane()} ${!!$('.dc-edit')} ${N() - n1}`);
+    document.activeElement.blur();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '?', code: 'Slash', shiftKey: true, bubbles: true, cancelable: true })); await tick(80);
+    check('… but what’s the window’s own goes on to it: ? opens the list of keys', !!$('.menu.findpal'), document.activeElement?.className);
+    Shell.closeAll(); await tick(60);
+    // Relate… by the keys goes on to the two's relations; With… asks for a box and makes none.
+    Shell.select(['gp']); await tick(120);
+    cv.root.focus(); await tick(40);
+    cv.relate(); await tick(60);
+    kd('Tab', cv.root); await tick(80);
+    kd('Enter', cv.root); await tick(250);
+    check('Relate… by the keys takes the keys on to the two’s first relation, to tick', !!document.activeElement?.closest('.insp[data-tour="pair"] .relate .rr') && document.activeElement.matches('button.tag, button.sel, input'), document.activeElement?.outerHTML.slice(0, 80));
+    Shell.select(['gp']); await tick(120);
+    cv.root.focus(); await tick(40);
+    cv.withAnother(); await tick(60);
+    kd('x', cv.root); await tick(80);
+    check('With… by the keys: a name typed makes no box, as With… asks for one that’s there', cv.root.classList.contains('relating') && !$('.dc-edit'), `${cv.root.classList.contains('relating')} ${!!$('.dc-edit')}`);
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(80);
+    // The panel put away is no stop of F6: the keys go on past it to the tabs, and Esc brings them back with what's selected.
+    Shell.select(['gp']); await tick(120);
+    Shell.enter('view'); await tick(40);
+    const panelAct = () => Shell.parts.peek().action.find(a => a.id === 'panel');
+    panelAct().run(); await tick(250);
+    Shell.parts.peek().action.find(a => a.id === 'pane.next').run(); await tick(60);
+    check('The panel put away is no stop of F6: the keys go on past it to the tabs', pane() === 'tabs', pane());
+    kd('Escape'); await tick(80);
+    check('… and Esc brings them back to the view, what’s selected staying', pane() === 'view' && Shell.selection.peek().join() === 'gp', `${pane()} ${Shell.selection.peek().join()}`);
+    panelAct().run(); await tick(250);
+    // Esc on a checkbox in a dialog closes the dialog, and leaves what's selected behind it alone.
+    Shell.select(['gp']); await tick(120);
+    let closed = false;
+    Shell.dialog({ title: 'A dialog', body: Shell.html`<label><input type="checkbox" id="esc-box" /> A choice</label>` }).then(() => { closed = true; }); await tick(80);
+    $('#esc-box').focus();
+    kd('Escape', $('#esc-box')); await tick(80);
+    check('Esc on a checkbox in a dialog closes the dialog, what’s selected behind it staying', closed && !$('dialog[open]') && Shell.selection.peek().join() === 'gp', `${closed} ${!!$('dialog[open]')} ${Shell.selection.peek().join()}`);
+    // A message with something to do is a stop of F6; it stays while the keys are on it; pressed, the keys go to the view.
+    let undone = false;
+    Shell.select(['gp']); await tick(120);
+    Shell.enter('view'); await tick(40);
+    Shell.toast('Something', { undo: () => { undone = true; } }); await tick(60);
+    Shell.parts.peek().action.find(a => a.id === 'pane.next').run(); await tick(60);
+    check('A message with something to do is a stop of F6, on what it offers', pane() === 'toast' && document.activeElement.matches('.toast button'), `${pane()} ${document.activeElement?.className}`);
+    document.activeElement.click(); await tick(80);
+    check('… pressed, it’s done and gone, and the keys go to the view', undone && !$('.toast') && pane() === 'view', `${undone} ${!!$('.toast')} ${pane()}`);
+  }
+  // A chart by the keys, last, so what it moves disturbs no check above: a nudge keeps a box's size; Ctrl+Alt+arrow goes box to box; Esc keeps the place; Relate… by Tab and Enter.
+  {
+    const cv = Canvas.active.peek(), sc = () => cv.scene(), key = (k, o = {}) => cv.root.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: k, bubbles: true, cancelable: true, ...o }));
+    Shell.show(App.views.peek().find(v => v.layout === 'chart').id); Shell.select([]); await tick(200);
+    const reading = (() => { const rows = []; for (const b of sc().marks.filter(m => m.type === 'box').sort((a, b) => a.y - b.y)) { const r = rows.at(-1); if (r && b.y < r[0].y + r[0].h / 2) r.push(b); else rows.push([b]); } return rows.flatMap(r => r.sort((a, b) => a.x - b.x)).map(b => b.id); })();
+    // (A move leaves the size as it's drawn, where its height is what its rank or the triangles of its width share; and it's said as moved.)
+    const all = sc().marks.filter(m => m.type === 'box'), tall = all.find(m => m.shape === 'triangle') ?? all[0], h0 = tall.h, y0 = tall.y, n0 = N(), step = 8 / sc().page.scale;
+    Shell.select([tall.id]); cv.root.focus(); await tick(60);
+    key('ArrowDown'); await tick(60); key('ArrowDown'); await tick(60); key('ArrowDown'); await tick(700);
+    const now = sc().byId.get(tall.id);
+    check('A nudge moves and nothing else: it keeps the height it was drawn at, and History says Moved', Math.abs(now.h - h0) < 0.6 && Math.abs(now.y - y0 - 3 * step) <= 0.6 && N() === n0 + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), `${h0} → ${now.h}, ${y0} → ${now.y}, ${Time.describe(App.wb.changes().at(-1))}`);
+    Shell.parts.peek().undo.undo(); await tick(250);
+    Shell.select([reading[0]]); cv.root.focus(); await tick(60);
+    const n1 = N(), from = sc().byId.get(reading[0]);
+    key('ArrowDown', { ctrlKey: true, altKey: true }); await tick(60);
+    const below = sc().byId.get(Shell.selection.peek()[0]);
+    check('Ctrl+Alt+Down goes to the nearest box under this one, writing nothing', !!below && below.id !== from.id && below.y + below.h / 2 > from.y + from.h && N() === n1, `${from.id} → ${below?.id}`);
+    const at = Shell.selection.peek()[0], k = reading.indexOf(at);
+    key('Escape'); await tick(60);
+    key('Tab'); await tick(60);
+    check('Esc lets go of a box and not the place: Tab goes on from it', Shell.selection.peek()[0] === reading[(k + 1) % reading.length], `${at} → ${Shell.selection.peek()[0]}`);
+    const start = reading[0], other = reading[1];
+    Shell.select([start]); cv.root.focus(); await tick(60);
+    cv.relate(); await tick(60);
+    key('Tab'); await tick(60);
+    check('Relate… by the keys: Tab walks to the other box', Shell.selection.peek()[0] === other && cv.root.classList.contains('relating'), Shell.selection.peek().join());
+    key('Enter'); await tick(120);
+    check('… and Enter takes it, asking the two’s relations, no name opened for typing', [...Shell.selection.peek()].sort().join() === [start, other].sort().join() && !cv.root.classList.contains('relating') && !$('.dc-edit'), Shell.selection.peek().join());
+    Shell.select([start]); cv.root.focus(); await tick(60);
+    cv.relate(); await tick(60);
+    key('Tab'); await tick(60);
+    dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(60);
+    check('… and Esc makes nothing, the box it began from selected again', Shell.selection.peek()[0] === start && !cv.root.classList.contains('relating'), Shell.selection.peek().join());
+    Shell.select([]); await tick(60);
+  }
   check('Nothing threw', !errors.length, errors.join(' / '));
 }
 

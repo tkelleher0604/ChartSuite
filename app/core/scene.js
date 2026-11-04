@@ -465,7 +465,8 @@ function size(b, squeeze, at = null, grow = 1) {
     // (What its text alone would ask, which a height a hand gave doesn't change for the rest of its rank: see level.)
     b.need = h;
     b.texts = b.texts.filter(it => it.lines.length);
-    Object.assign(b, { w, h: b.pos.h ?? h, shape, base });
+    // (A height kept as it was drawn when the box was moved, `soft`, is no less than its text needs: a longer name still grows it.)
+    Object.assign(b, { w, h: b.pos.soft ? Math.max(b.pos.h, h) : b.pos.h ?? h, shape, base });
     if (shape === 'triangle') b.column = columnOf(b);
     return;
   }

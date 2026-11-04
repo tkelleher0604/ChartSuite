@@ -893,11 +893,11 @@ async function run() {
   check('… one captioned otherwise named on hover, not beneath', $$('.row.out').find(r => capOf(r) === 'Investors')?.querySelector('.v').title === 'Investor Group');
   check('a text style uncaptioned is keyed by the texts it sets, as a box style by its boxes: Names, Jurisdictions', outs.includes('Names/') && outs.includes('Jurisdictions/')
     && $$('.row.out').filter(r => r.querySelector('svg.sw text')).every(r => /s$/.test(capOf(r))), outs.join(' | '));
-  // A swatch is the page's own: drawn true, on the page's white, in dark as in light
+  // A swatch is the page's own: drawn on the page's white, in dark as in light, dimmed whole in dark so its plate isn't the brightest thing in the panel
   const swatch = $('svg.sw'), theme = document.documentElement.dataset.theme;
   document.documentElement.dataset.theme = 'dark';
   const dark = getComputedStyle(swatch), page = getComputedStyle(document.body).getPropertyValue('--page').trim();
-  check('in dark, a swatch is drawn true, on the page’s white, not turned to the panel’s colours', dark.filter === 'none' && dark.backgroundColor === 'rgb(255, 255, 255)' && page === '#ffffff', `${dark.filter} ${dark.backgroundColor} ${page}`);
+  check('in dark, a swatch is drawn on the page’s white, dimmed whole, not turned to the panel’s colours', /^brightness\(0\.\d+\)$/.test(dark.filter) && dark.backgroundColor === 'rgb(255, 255, 255)' && page === '#ffffff', `${dark.filter} ${dark.backgroundColor} ${page}`);
   document.documentElement.dataset.theme = theme;
   // Each 2 px inside its chip, a heavy outline too, so none runs along the chip's edge, where in dark a dashed one
   // (Not in good standing) would merge with the chip's white.

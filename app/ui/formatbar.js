@@ -517,7 +517,7 @@ const ALIGN_ICON = { left: 'align-left', center: 'align-center', right: 'align-r
 
 // The choices of one setting in a popover, each previewed while pointed at: a picked one is made, and
 // closes the popover where `close` is given. The one the setting has takes the focus as it opens.
-const choice = (label, v, close) => ({ onPointerEnter: () => preview(label, v), onClick: () => { close?.(); apply(label, v); } });
+const choice = (label, v, close) => ({ onPointerEnter: () => preview(label, v), onFocus: e => { if (e.currentTarget.matches(':focus-visible')) preview(label, v); }, onClick: () => { close?.(); apply(label, v); } });
 // A setting's choices as a menu, each previewed while it's pointed at or reached by the keys, the one it has checked.
 const choices = (label, list, now, glyphOf = null) => list.map(([v, text]) => ({ label: text, checked: now === v, ...(glyphOf && { glyph: glyphOf(v) }),
   run: () => apply(label, v), point: on => on ? preview(label, v) : preview() }));
@@ -569,13 +569,14 @@ function Slider({ label, k, v, max = 100, step = 1, unit = '%', disabled }) {
 const NONE = { Fill: 'No fill', Outline: 'No outline' };
 function Palette({ label, none, close, children }) {
   const mixed = differs(label), v = mixed ? '' : String(value(label)).toLowerCase(), own = chartColors(), mine = paletteOf(), table = mine ? themeOf(mine) : { theme: THEME, names: THEME_NAMES };
-  const swatch = (c, name) => html`<button style=${`background-color:${c}`} aria-pressed=${v === c} autofocus=${v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} />`;
+  // (The color it has, taken again, is no change: it stays with its style, not this box's own.)
+  const swatch = (c, name) => html`<button style=${`background-color:${c}`} aria-pressed=${v === c} autofocus=${v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} onClick=${() => { close?.(); if (v !== c) apply(label, c); }} />`;
   // Off the swatches, the chart is drawn in the color typed, while it's being typed.
   const rest = el => { const f = el.querySelector('.hex > input'), c = f === document.activeElement && hexOf(f.value); c ? preview(label, c) : preview(); };
   const typed = e => { const f = e.currentTarget; f.dataset.why = 'Not a color: #1F3864, say'; f.toggleAttribute('aria-invalid', !!f.value.trim() && !hexOf(f.value)); rest(f.closest('.palette')); };
   const entered = e => { const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { e.preventDefault(); e.stopPropagation(); close?.(); apply(label, c); } };
   // The chart's own colors have their row from the start, so nothing moves down as the first comes.
-  return html`<div class="palette" onPointerLeave=${e => rest(e.currentTarget)}>${table.theme.map((c, i) => swatch(c, table.names[i]))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i]))}
+  return html`<div class="palette" data-grid=":scope > button" role="group" aria-label=${label} onPointerLeave=${e => rest(e.currentTarget)}>${table.theme.map((c, i) => swatch(c, table.names[i]))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i]))}
     <i />${own.map(c => swatch(c, c.toUpperCase()))}${Array.from({ length: 10 - own.length }, () => html`<span class="room" />`)}
     <div class="more">
       ${mixed ? html`<div class="menu-head">${mixed}</div>` : null}
@@ -589,7 +590,7 @@ function Palette({ label, none, close, children }) {
         <span class="label">${NONE[label]}</span>${v === 'none' ? Shell.icon('check') : null}</button>` : null}
     </div></div>`;
 }
-const seg = (label, items, v, { as = x => x, close } = {}) => html`<div class="seg" onPointerLeave=${() => preview()}>${items.map(([k, text, tip]) =>
+const seg = (label, items, v, { as = x => x, close } = {}) => html`<div class="seg" data-grid=":scope > button" role="group" aria-label=${label} onPointerLeave=${() => preview()}>${items.map(([k, text, tip]) =>
   html`<button aria-pressed=${v === k} autofocus=${v === k} aria-label=${tip ?? null} data-tip=${tip ?? null} ...${choice(label, as(k), close)}>${text}</button>`)}</div>`;
 // A popover of the bar's, whose preview ends as it closes.
 const pop = (e, draw) => Shell.popover(e.currentTarget ?? e, (close, id) => draw(close, id), { placement: 'bottom-start', onClose: () => preview() });
@@ -636,6 +637,7 @@ function toggle() {
   const s = scopesOf(c), sc = scopeOf(s.scopes), like = likeOf(s);
   if (!sc || !like || !s.scopes.some(x => x.own)) return false;
   choose(sc.own ? like : s.scopes.find(x => x.own));
+  Shell.emit('scope-toggled');
 }
 // The cue: the group pointed at, for as long as it's pointed at; else the group chosen or aimed at, if any. (A Key row
 // or a frame is lit by the canvas as it is.) After a change it fades, over two seconds, so the change can be seen
@@ -734,7 +736,7 @@ function ShadowPicker() {
   const hex = o ? o.color.slice(1).toUpperCase() : '000000';
   return html`<div class="shadow">
     <div class="k">Shadow</div>
-    <div class="throw" onPointerLeave=${() => preview()}>${THROWN.map(t => html`<button aria-label=${t[3]} data-tip=${t[3]} aria-pressed=${same(t)} onPointerEnter=${() => preview('Shadow', preset(t))} onClick=${() => apply('Shadow', preset(t))}>${shadowGlyph(t[0], t[1])}</button>`)}</div>
+    <div class="throw" data-grid=":scope > button" role="group" aria-label="Shadow" onPointerLeave=${() => preview()}>${THROWN.map(t => html`<button aria-label=${t[3]} data-tip=${t[3]} aria-pressed=${same(t)} onPointerEnter=${() => preview('Shadow', preset(t))} onFocus=${e => { if (e.currentTarget.matches(':focus-visible')) preview('Shadow', preset(t)); }} onClick=${() => apply('Shadow', preset(t))}>${shadowGlyph(t[0], t[1])}</button>`)}</div>
     <button class="menu-item noshadow" role="menuitemcheckbox" aria-checked=${!o} onPointerEnter=${() => preview('Shadow', 'none')} onPointerLeave=${() => preview()} onClick=${() => apply('Shadow', 'none')}><span class="label">No shadow</span>${!o ? Shell.icon('check') : null}</button>
     <label class="menu-item"><span class="label">Blur</span><${Typed} label="Blur" v=${base.blur} unit="pt" max=${100} put=${x => set({ blur: x })} tries=${tries('blur')} /></label>
     <label class="menu-item"><span class="label">Distance</span><${Typed} label="Distance" v=${base.distance} unit="pt" max=${200} put=${x => set({ distance: x })} tries=${tries('distance')} /></label>
@@ -757,7 +759,7 @@ function ShapePop() {
   const [picked, setPicked] = useState(null);
   const now = picked ?? value('Shape') ?? current?.marks[0]?.geometry ?? 'rect', rounded = now === 'rounded';
   return html`<div class="picker shape">
-    <div class="gallery" onPointerLeave=${() => preview()}>${Shapes.gallery().map(g => html`<div class="menu-head">${g.head}</div><div class="shapes">${g.shapes.map(([id, name]) => html`<button aria-label=${name} data-tip=${name} aria-pressed=${now === id} onPointerEnter=${() => preview('Shape', id)} onClick=${() => { setPicked(id); apply('Shape', id); }}>${shapeGlyph(id)}</button>`)}</div>`)}</div>
+    <div class="gallery" data-grid=".shapes > button" role="group" aria-label="Shape" onPointerLeave=${() => preview()}>${Shapes.gallery().map(g => html`<div class="menu-head">${g.head}</div><div class="shapes">${g.shapes.map(([id, name]) => html`<button aria-label=${name} data-tip=${name} aria-pressed=${now === id} autofocus=${now === id} onPointerEnter=${() => preview('Shape', id)} onFocus=${e => { if (e.currentTarget.matches(':focus-visible')) preview('Shape', id); }} onClick=${() => { setPicked(id); apply('Shape', id); }}>${shapeGlyph(id)}</button>`)}</div>`)}</div>
     <${Slider} label="Rounding" k="Corner" v=${Math.round(value('Corner') ?? Scene.CORNER)} max="50" disabled=${!rounded} />
     <div class="menu-sep" />
     <${ShadowPicker} />
@@ -1063,12 +1065,12 @@ function clearStyles(view, notes) {
 
 // Insert: a box of each of the chart's kinds, a record named as it's typed; then the shapes PowerPoint has.
 function insertMenu(e, c) {
-  const item = (label, run, close) => html`<div class="menu-item" role="menuitem" tabindex="-1" onClick=${() => { close(); run(); }}
-    onKeyDown=${ev => { if (ev.key === 'Enter') { close(); run(); } }}><span class="label">${label}</span></div>`;
+  const item = (label, run, close) => html`<button type="button" class="menu-item" role="menuitem" onClick=${() => { close(); run(); }}><span class="label">${label}</span></button>`;
   // (In one order, so what's on top now is on top next time: drawing two of a kind moves nothing under the hand.)
   const kinds = [...Canvas.kinds()].sort();
   // A shape, a line or an arrow is drawn on the chart by dragging, a click placing it at its size (or Enter, in free room); a text box is typed straight in, or drawn too.
-  Shell.popover(e.currentTarget, close => html`<div class="insert" role="menu">
+  // One picker for the arrows, top to bottom, and across among the shapes; each shape says its name as the keys land on it.
+  Shell.popover(e.currentTarget, close => html`<div class="insert" role="menu" data-grid="button">
     ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
     ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].map(([g, name]) =>
       item(name, () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g), close))}

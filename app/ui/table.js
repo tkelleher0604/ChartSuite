@@ -933,6 +933,8 @@ const Table = (() => {
     t.on('columnResized', col => { sized.delete(col._column); keepWidth(col); pinned(t); });
     t.on('headerContext', (e, col) => { e.preventDefault(); columnMenu({ x: e.clientX, y: e.clientY }, col); });
     t.on('rowContext', (e, row) => { e.preventDefault(); rowMenu(e, row); });
+    // (A copy says what it took, as nothing on the grid shows it.)
+    t.on('clipboardCopied', () => { const n = cellsOf().length; Shell.toast(`Copied ${n === 1 ? 'a cell' : `${n} cells`}`, { ms: 2500 }); });
     t.on('renderComplete', () => { regain(); strip(); });
     t.on('scrollVertical', strip);
     // What's selected is outlined only where the grid scrolls, never over the columns kept in view (table.css).
@@ -1192,9 +1194,20 @@ const Table = (() => {
       rowEl?.querySelector('input, button')?.focus();
       return;
     }
-    // Alt+Down opens the active cell's column's menu, as it opens a heading's filter in Excel; the cell stays where it is.
+    // Shift+F10 or the context-menu key: the cell's menu, as a right-click on it.
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      const c = sr.getActiveCell()?.getComponent(), at = c?.getElement();
+      if (!at) return;
+      e.preventDefault(); e.stopPropagation();
+      const r = at.getBoundingClientRect();
+      at.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: Math.round(r.left + 8), clientY: Math.round(r.bottom), button: 2 }));
+      return;
+    }
+    // Alt+Down opens a list's cell's list, as Excel's validated list does; else the active cell's column's menu, as it opens a heading's filter in Excel; the cell stays where it is.
     if (e.key === 'ArrowDown' && e.altKey && !current?.red) {
       e.preventDefault(); e.stopPropagation();
+      const now = sr.getActiveCell()?.getComponent();
+      if (now && columnOf(now)?.type === 'choice' && canEdit(now) && !App.readOnly.peek()) { ranged = cellsOf(); atEnd = true; now.edit(true); if (!table.modules.edit.currentCell) atEnd = false; return; }
       const col = sr.getActiveCell()?.column.getComponent();
       if (col?.getField()) columnMenu(col.getElement().querySelector('.col-menu') ?? col.getElement(), col);
       return;
@@ -1801,7 +1814,16 @@ const Table = (() => {
     const st = App.state.peek(), N = App.notes.peek();
     // A relation by its name and its sides, as the chart and History say it.
     const what = ids.length > 1 || current.isDatatype ? count(ids.length, current.noun) : current.isKind ? N.nameOf(st, ids[0]) : `${N.nameOf(st, ids[0])}: ${Time.whose(st, ids[0], N)}`;
-    return { change: { records: Object.fromEntries(ids.map(id => [id, null])) }, stage: () => { App.deleting(ids, what, { source: 'rows ' + current.view }); back(); } };
+    return { change: { records: Object.fromEntries(ids.map(id => [id, null])) }, stage: () => {
+      // Made, the keys stay about where they were: on the row that's taken its place, in the same column, or else the last.
+      const sr = table?.modules.selectRange, col = sr?.getActiveCell()?.column.getComponent(), rows = table?.getRows('active') ?? [], at = rows.findIndex(r => ids.includes(r.getData().id));
+      App.deleting(ids, what, { source: 'rows ' + current.view, done: () => setTimeout(() => {
+        if (!table || !el?.offsetParent) return;
+        const left = table.getRows('active'), row = left[Math.min(Math.max(0, at), left.length - 1)], use = col && table.getColumns().includes(col) ? col : table.getColumns().find(c => c.getField());
+        if (row && use && !App.pending.peek()) { hold(row.getCell(use), row.getCell(use)); reveal(row.getData().id); focus(); }
+      }, 60) });
+      back();
+    } };
   }
   // The rows a range takes whole, as the row numbers select them, that were entered and so can be deleted.
   function wholeRows() {
@@ -2033,7 +2055,8 @@ const Table = (() => {
     setLook(m.view, { filters: fs });
     refilter();
   }
-  const clearFilters = () => { setLook(current.view, { filters: null }); refilter(); };
+  // (The button pressed goes with them, so the keys go back to the grid, at the cell it has.)
+  const clearFilters = () => { setLook(current.view, { filters: null }); refilter(); setTimeout(focus); };
   function refilter() {
     if (!table || !ready) return;
     const p = gridFilter(current);
@@ -2370,14 +2393,17 @@ const Table = (() => {
   const fitColumns = () => { setLook(current.view, { widths: null }); rebuild(); };
   // The table's commands, for Find, by the words for each, with why not where they can't run.
   const tool = name => el?.querySelector(`.tbar [data-tool="${name}"]`);
-  [{ id: 'table.sort', name: 'Sort by…', names: ['Sort', 'Sort column', 'Sort rows', 'Order by'], run: () => sortMenu(tool('sort')) },
+  [{ id: 'table.clear', name: 'Clear filters', names: ['Show all rows', 'Unfilter', 'No filter', 'Remove filter'], enabled: () => !!current && !!Object.keys(lookOf(current.view).filters ?? {}).length, why: () => current ? 'No filter is on' : 'Show a table first', run: clearFilters },
+    { id: 'table.delete', name: 'Delete this row…', names: ['Delete', 'Delete row', 'Remove row', 'End…', 'Dissolve…'], keys: '$mod+Minus', enabled: () => !!current && !current.red && !!table?.modules.selectRange?.getActiveCell() && !!el?.offsetParent && !App.readOnly.peek(), why: () => (current ? App.whyNot() : 'Show a table first'), run: deleteRows },
+    { id: 'table.sort', name: 'Sort by…', names: ['Sort', 'Sort column', 'Sort rows', 'Order by'], run: () => sortMenu(tool('sort')) },
     { id: 'table.filter', name: 'Filter…', names: ['Filter', 'Filter column', 'Filter rows', 'Show only'], run: () => filterMenu(tool('filter')) },
     { id: 'table.group', name: 'Group by…', names: ['Group', 'Subtotal', 'Pivot'], run: () => groupMenu(tool('group')) },
     { id: 'table.freeze', name: 'Freeze…', names: ['Freeze columns', 'Freeze panes', 'Unfreeze', 'Lock columns'], run: () => freezeMenu(tool('columns')) },
     { id: 'table.fit', name: 'Fit columns', names: ['Autofit', 'Fit width', 'Column width', 'Resize columns'], run: fitColumns },
-  ].forEach(a => Shell.register('action', { ...a, enabled: () => viewOf(Shell.view.peek())?.layout === 'table' && !!current && ready, why: () => 'Show a table first',
-    // (A chart filters by what it knows of each box, as a table does by what it holds, by the one word.)
-    ...(a.id === 'table.filter' && { enabled: () => (viewOf(Shell.view.peek())?.layout === 'table' && !!current && ready) || (typeof Canvas !== 'undefined' && viewOf(Shell.view.peek())?.layout === 'chart' && App.canAsk()), run: () => (viewOf(Shell.view.peek())?.layout === 'chart' ? Canvas.active.peek()?.filter() : filterMenu(tool('filter'))) }) }));
+  ].forEach(a => { const shownHere = () => viewOf(Shell.view.peek())?.layout === 'table' && !!current && ready;
+    Shell.register('action', { ...a, enabled: () => shownHere() && (a.enabled?.() ?? true), why: () => (shownHere() && a.why?.()) || 'Show a table first',
+      // (A chart filters by what it knows of each box, as a table does by what it holds, by the one word.)
+      ...(a.id === 'table.filter' && { enabled: () => shownHere() || (typeof Canvas !== 'undefined' && viewOf(Shell.view.peek())?.layout === 'chart' && App.canAsk()), run: () => (viewOf(Shell.view.peek())?.layout === 'chart' ? Canvas.active.peek()?.filter() : filterMenu(tool('filter'))) }) }); });
   // Every column, each a checkbox that shows or hides it, dragged by its row to reorder; and a new one, named as it's typed.
   // Opened, those ticked come first; a row then stays where it is as it's ticked or unticked, so nothing moves under the
   // pointer, and the search finds among them all. Show all and Hide all are at its top, what names the rows always kept.
@@ -2622,6 +2648,15 @@ const Table = (() => {
     if (done.length) write(done, filled(done.length));
   }
 
+  // The rows of the cells selected, deleted as Delete on rows selected whole deletes them: their bar first.
+  function deleteRows() {
+    if (App.readOnly.peek()) return Shell.toast(App.whyNot());
+    const ids = [...new Set(cellsOf().map(c => c.getRow().getData().id))].filter(id => id in App.entered.peek());
+    if (ids.length) deletion(ids).stage(); else Shell.toast('Nothing here can be deleted');
+  }
+  // What the keys do in a table, for the list of them.
+  Shell.register('keys', { head: 'In a table', rows: [['Arrows', 'Move'], ['Enter', 'Down, to where a run of Tabs began'], ['Shift+Enter', 'Up'], ['Tab', 'Across'], ['Shift+Tab', 'Back across'], ['A letter', 'Type over the cell, or find its option'], ['F2', 'Edit the cell, or open its list'], ['Alt+ArrowDown', 'A list’s cell: open its list; any other: its column’s menu'], ['Delete', 'Clear the cells; rows selected whole, delete them'], ['Space', 'Tick a box; on one a rule covers, say why'],
+    ['$mod+Space', 'Select the column'], ['Shift+Space', 'Select the row'], ['$mod+KeyA', 'Select everything'], ['Shift+Arrows', 'Stretch what’s selected'], ['Home End', 'First and last cell of the row'], ['$mod+Home $mod+End', 'First and last cell of the grid'], ['$mod+KeyC', 'Copy'], ['$mod+KeyV', 'Paste'], ['$mod+KeyD', 'Fill down'], ['$mod+KeyR', 'Fill right'], ['$mod+Enter', 'What’s typed in every cell selected'], ['Shift+F10', 'The row’s menu'], ['F6', 'To the toolbar, the bar’s day or the panel']] });
   // ---- A cell's menu: what applies to the cells selected and their rows ----
   const m0ours = (id, c) => { const st = App.state.peek(), o = c.up ? st[id]?.at : id; return st[o]?.kind ? o : null; };
   function rowMenu(e, row) {
@@ -2644,7 +2679,7 @@ const Table = (() => {
       ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, valuesIn(c, row.getData())) }] : []),
       ...(!current.isDatatype && writes ? ['-', { label: `New ${current.noun}`, run: () => rowEl?.querySelector('input, button')?.[current.isKind ? 'focus' : 'click']() }] : []),
       // Named for what it records, as the panel's and the chart's are (App.deleteVerb).
-      ...(d ? [{ label: `${App.deleteVerb(ids)}${ids.length > 1 || many ? ` ${count(ids.length, 'row')}` : ''}…`, danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }] : []),
+      ...(d ? [{ label: `${App.deleteVerb(ids)}${ids.length > 1 || many ? ` ${count(ids.length, 'row')}` : ''}…`, keys: '$mod+Minus', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }] : []),
     ]);
   }
 
@@ -2781,6 +2816,7 @@ const Table = (() => {
       el.classList.add('grid');
       const tools = document.createElement('div');
       tools.className = 'tools';
+      tools.dataset.region = 'tools';
       cells = document.createElement('div');
       cells.className = 'cells';
       rowEl = document.createElement('div');
@@ -2815,6 +2851,8 @@ const Table = (() => {
       return () => { offs.forEach(f => f()); sized.disconnect(); shown.disconnect(); preact.render(null, tools); preact.render(null, rowEl); table?.destroy(); table = null; el = cells = rowEl = pins = null; };
     },
     focus,
+    // What the active cell says, where a formula gives it, or a rule covers it: F1 asks why of that.
+    whyAt: () => { const c = el?.offsetParent && table?.modules.selectRange?.getActiveCell()?.getComponent(), m = c && c.getField() && atCell(c); return m?.id ?? null; },
   });
 
   // What a file of the table writes, as its Export and its first line say it: its rows, filtered by what, sorted how, and what's ended that it leaves out.

@@ -1086,7 +1086,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         ${said.filter(x => !x.off).slice(0, 4).map(x => html`<p class="ex-says">${named(x)}</p>`)}
         ${said.filter(x => x.off).slice(0, 4).map(x => html`<p class="ex-says ex-off">${named(x)} ${App.readOnly.peek() ? null : html`<button type="button" class="btn" onClick=${() => { fitToPage(x.s.view); setFits(n => n + 1); }}>Fit to page</button>`}</p>`)}
       </div>` : null}
-      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')}>
+      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')} data-grid="figure > button" tabindex="-1">
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name} style=${`--a: ${pg.aspect}`}>
           <figcaption>${pg.name} <span>${pg.when}</span></figcaption>
           <button type="button" aria-label=${`${pg.name}, ${pg.when}`} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><span class="ex-drawn" dangerouslySetInnerHTML=${{ __html: pg.drawn }} /></button></figure>`)}
