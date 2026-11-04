@@ -755,16 +755,21 @@ function mount(el) {
   const origin = (page = scene.page) => page.placed ? page.offset : { x: 0, y: 0 };
   const own = (x, y, page = scene.page) => { const o = origin(page); return [round(x - o.x), round(y - o.y)]; };
   let baked = null;
+  // In a chart with a box a hand put somewhere, no box moves for the lanes: so what the room for them had moved stands where it's
+  // drawn from now on, as a place of its own. → Map(record → place), but of what's `except`.
+  function stoodFor(base, except) {
+    const out = new Map(), n = App.notes.peek();
+    if (base.page.placed) for (const b of base.marks) {
+      if (b.type !== 'box' || !b.laid || b.exact || except.has(b.id) || Math.abs(b.y - base.page.offset.y - b.laid.y) < 0.01) continue;
+      const t = treeOf(b.record), old = t && n.position(t, base.view), [x, y] = own(b.x, b.y, base.page);
+      if (t) out.set(b.record, { x, y, w: round(b.w), ...(old?.h && { h: old.h }), kept: true });
+    }
+    return out;
+  }
   function place(tx, places) {
     const view = viewOf(), n = App.notes.peek(), page = scene.page;
-    // (In a chart with a box a hand put somewhere, no box moves for the lanes: so what the room for them had moved stands
-    // where it's drawn from now on, as a place of its own.)
     baked = new Set();
-    if (page.placed && [...places.keys()].some(id => scene.byId.get(id)?.type === 'box')) for (const b of scene.marks) {
-      if (b.type !== 'box' || !b.laid || b.exact || places.has(b.id) || Math.abs(b.y - page.offset.y - b.laid.y) < 0.01) continue;
-      const t = treeOf(b.record), old = t && n.position(t, view), [x, y] = own(b.x, b.y);
-      if (t) { tx.note('Position', t, { x, y, w: round(b.w), ...(old?.h && { h: old.h }), kept: true }, { view }); baked.add(b.record); }
-    }
+    if ([...places.keys()].some(id => scene.byId.get(id)?.type === 'box')) for (const [id, p] of stoodFor(scene, places)) { tx.note('Position', treeOf(id), p, { view }); baked.add(id); }
     for (const [id, p] of places) {
       const m = scene.byId.get(id);
       if (!m) continue;
@@ -2434,13 +2439,19 @@ function mount(el) {
   function placesBetween(base, { up, low, under, id }) {
     const a = base?.byId.get(up), b = base?.byId.get(low), out = new Map();
     if (!a || !b || still() || base.view !== viewShown || active.peek() !== canvas) return out;
-    const N = App.notes.peek(), holds = holdsOf(base), LANE = 24, room = b.y - (a.y + a.h), dy = Math.max(0, b.h + 2 * LANE - room);
+    const N = App.notes.peek(), holds = holdsOf(base), LANE = 24, foot = a.y + a.h;
+    // (Under whatever line crosses there, but the one it goes between: no row moves to make it room.)
+    const crossing = base.marks.filter(m => m.type === 'line' && m.points && !(m.from === up && m.to === low)).flatMap(m => m.points.slice(1).map((p, i) => [m.points[i], p]))
+      .filter(([p, q]) => Math.abs(p[1] - q[1]) < 0.5 && p[1] > foot && p[1] < b.y && Math.max(p[0], q[0]) > b.x && Math.min(p[0], q[0]) < b.x + b.w).map(([p]) => p[1]);
+    const top = Math.max(foot, ...crossing), room = b.y - top, dy = Math.max(0, b.h + 2 * LANE - room);
     if (dy) for (const x of [low, ...under]) {
       const t = treeOf(x), old = t && N.resolve('Position', t, base.view)?.value, p = old && Number.isFinite(old.x) && !old.loose ? old : holds.get(x);
-      if (base.byId.has(x) && p) out.set(x, { ...p, y: round(p.y + dy) });
+      if (base.byId.has(x) && p) out.set(x, { ...p, y: round(own(0, base.byId.get(x).y, base.page)[1] + dy) });
     }
-    const [x, y] = own(b.x, a.y + a.h + (room + dy - b.h) / 2, base.page);
-    out.set(id, { x, y, w: round(b.w), kept: true });
+    const [x, y] = own(b.x, top + (room + dy - b.h) / 2, base.page);
+    // (Placed as a hand places it, so no row moves for the lanes it brings; what they'd moved stands where it's drawn.)
+    out.set(id, { x, y, w: round(b.w), kept: true, hand: true });
+    for (const [r, p] of stoodFor(base, out)) out.set(r, p);
     return out;
   }
   // (What it places, the same change doesn't keep where it stood: see keep.)

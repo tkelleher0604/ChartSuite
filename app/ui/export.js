@@ -767,7 +767,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     tx.note('Scale', viewAt(view), { scale: s, x: 0, y: 0 });
     for (const m of on.marks) if (m.type === 'box' && !m.revealed) {
       const t = Tree.treeOf(App.state.peek(), m.record), old = N.position(t, view);
-      tx.note('Position', t, { x: half(m.x), y: half(m.y), w: half(m.w), ...(old?.h != null && { h: half(m.h) }), ...((!old || old.kept || !Number.isFinite(old.x)) && { kept: true }) }, { view });
+      tx.note('Position', t, { x: half(m.x), y: half(m.y), w: half(m.w), ...(old?.h != null && { h: half(m.h) }), ...((!old || old.kept || !Number.isFinite(old.x)) && { kept: true }), ...(old?.hand && { hand: true }), ...(old?.lock && { lock: true }) }, { view });
     }
     for (const r of App.shown.peek().rows(App.chart.peek())) if ('shape' in r && r.view === view) {
       const m = on.byId.get(r.shape);
