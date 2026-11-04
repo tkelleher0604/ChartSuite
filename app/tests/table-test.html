@@ -1426,6 +1426,7 @@ async function run() {
     check('… and Between two days typed, those days and those between', shownDays().length > 0 && shownDays().every(d => d >= '2027-01-01' && d <= '2027-03-31') && JSON.stringify(Table.look(dv).filters?.['$value']) === '{"range":"between","from":"2027-01-01","to":"2027-03-31"}',
       `${shownDays().join()} ${JSON.stringify(Table.look(dv).filters)}`);
     Shell.closeAll(); tool('Clear filters').click(); await tick(150);
+    check('Clear filters goes, and the keys go back to the grid, so what’s typed next isn’t lost', !tool('Clear filters') && $('.grid .cells').contains(document.activeElement), document.activeElement?.className);
     // Grouped by whose, or by what falls due, each group by its days.
     tool('Grouped by month').click(); await tick();
     const ways = $$('.float .menu-item').map(x => x.textContent.trim());

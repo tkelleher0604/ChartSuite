@@ -246,7 +246,7 @@ const Time = (() => {
       ${keeping}
       <div class="date-body">
         <${Month} month=${month} setMonth=${setMonth} value=${t?.asOf} marked=${marked} />
-        <div class="date-days" ref=${listRef}>
+        <div class="date-days" ref=${listRef} data-list=".dayrow">
           ${years.map(y => html`<div class="yr">${y}</div>
             ${y < today.slice(0, 4) && !marked.has(`${y}-12-31`) ? html`<button class="dayrow end" data-day=${`${y}-12-31`} aria-pressed=${day === `${y}-12-31`} onClick=${() => show(`${y}-12-31`)}><span class="d">Dec 31</span><span class="w muted">Year-end</span></button>` : null}
             ${evs.filter(e => e.day.startsWith(y)).reverse().map(e => html`<button class="dayrow" data-day=${e.day} aria-pressed=${e.day === day} onClick=${() => show(e.day)}>

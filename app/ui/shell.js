@@ -31,6 +31,7 @@
 // Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order?, names? } (the chart
 // menu by order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40), its keys bound in the
 // window (in fields too, with inputs) and listed by ?, and Find reaching it by any other names it goes by;
+// 'keys' { head, rows: [[keys, words]] }, what a part's own keys do, for the list of keys;
 // 'find' { items() → menu items }, Find's records, lists and definitions, an item with its kind (detail:
 // 'Entity', which heads it), any other names it goes by (names: […]) and a key, and what's within it (a list,
 // "AIV-1 › Signatories") with of: that key; 'export' { name, run }; 'status' { render() }; 'attention'
@@ -199,7 +200,7 @@ const Shell = (() => {
 
   // ---- Keys, and the Esc stack ----
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
-  const KEY = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Equal: '=', Minus: '−', PageUp: 'PgUp', PageDown: 'PgDn', Escape: 'Esc' };
+  const KEY = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Slash: '/', Equal: '=', Minus: '−', PageUp: 'PgUp', PageDown: 'PgDn', Escape: 'Esc', ContextMenu: 'Menu key' };
   // A shifted mark is said by what it types, as PowerPoint says Ctrl+Shift+>.
   const keyLabel = k => !k ? '' : k.replace(/Shift\+Period/, 'Shift+>').replace(/Shift\+Comma/, 'Shift+<').replace(/\[Shift\]\+/g, '').replace(/\$mod/g, isMac ? 'Cmd' : 'Ctrl').replace(/Key([A-Z])|Digit(\d)/g, '$1$2').replace(/\w+/g, w => KEY[w] ?? w);
   // A key a part has already taken (typing over a box, say) isn't the window's too.
@@ -732,7 +733,7 @@ const Shell = (() => {
         ...acts.filter(a => a.keys).sort((a, b) => at(a) - at(b)).map(a => ({ ...a, under: where(a.id), detail: null, disabled: false, run: a.disabled ? null : a.run, names: [...(a.names ?? []), keyLabel(a.keys)] })),
         ...many('keys').flatMap(k => k.rows.map(([keys, label]) => ({ under: k.head, label, keys, names: [keyLabel(keys)] })))];
       const s = q.slice(1).trim();
-      if (s) return rank(rows, s);
+      if (s) return rank(rows, s).map(x => ({ ...x, detail: x.under }));
       return KEY_HEADS.flatMap(h => { const of = rows.filter(r => r.under === h); return of.length ? [{ head: h }, ...of] : []; });
     }
     const vs = views.value.map(v => ({ label: v.name, detail: 'View', run: () => show(v.id) })), can = acts.filter(a => !a.disabled);

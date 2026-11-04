@@ -197,6 +197,27 @@ async function run() {
   Shell.parts.peek().action.find(a => a.id === 'tour').run(); await tick(200);
   press('Escape', $('.tour-card .skip')); await tick(150);
   check('… and Esc on the tour’s card ends it too', step() === null && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
+  // A menu by the keys: on its first item as it opens; Esc from a submenu goes on in the menu it opened from; a row of choices on the arrows' path.
+  {
+    let ran = '';
+    const kd = (k, o = {}) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: k, code: k, bubbles: true, cancelable: true, ...o }));
+    kd('F13'); // (the keys, last)
+    let picked = 'Light';
+    Shell.menu({ x: 200, y: 200 }, () => [{ label: 'Open', items: [{ label: 'Inner', run: () => { ran = 'inner'; } }] }, { label: 'After', run: () => { ran = 'after'; } }, { seg: ['Light', 'Dark'].map(l => ({ label: l, pressed: picked === l, run: () => { picked = l; } })) }]); await tick(80);
+    check('A menu the keys open is on its first item', $('.float .menu-item.on')?.textContent.includes('Open'), $('.float .menu')?.textContent);
+    kd('ArrowRight'); await tick(80);
+    check('… ArrowRight opens its submenu, on its first', $$('.float .menu').length === 2 && $$('.float .menu')[1].querySelector('.menu-item.on')?.textContent.includes('Inner'));
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(80);
+    check('… Esc closes the submenu alone, and the keys go on in the menu it opened from', $$('.float .menu').length === 1 && document.activeElement?.closest('.float') != null, document.activeElement?.className);
+    kd('ArrowDown'); await tick(40);
+    check('… the arrows still move', $('.float .menu-item.on')?.textContent.includes('After'));
+    kd('ArrowDown'); await tick(40);
+    check('… onto a row of choices', !!$('.float .menu-seg.on'));
+    kd('ArrowRight'); await tick(40);
+    check('… whose own arrows go across it', picked === 'Dark', picked);
+    kd('ArrowUp'); await tick(40); kd('Enter'); await tick(80);
+    check('… and Enter runs the item it’s on', ran === 'after' && !$('.float .menu'), ran);
+  }
   check('Nothing threw', !errors.length, errors.join(' / '));
 }
 

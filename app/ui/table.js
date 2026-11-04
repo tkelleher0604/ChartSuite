@@ -869,6 +869,8 @@ const Table = (() => {
     t.on('columnResized', col => { sized.delete(col._column); keepWidth(col); pinned(t); });
     t.on('headerContext', (e, col) => { e.preventDefault(); columnMenu({ x: e.clientX, y: e.clientY }, col); });
     t.on('rowContext', (e, row) => { e.preventDefault(); rowMenu(e, row); });
+    // (A copy says what it took, as nothing on the grid shows it.)
+    t.on('clipboardCopied', () => { const n = cellsOf().length; Shell.toast(`Copied ${n === 1 ? 'a cell' : `${n} cells`}`, { ms: 2500 }); });
     t.on('renderComplete', () => { regain(); strip(); });
     t.on('scrollVertical', strip);
     // What's selected is outlined only where the grid scrolls, never over the columns kept in view (table.css).
