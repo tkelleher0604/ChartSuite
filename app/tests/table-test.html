@@ -463,6 +463,8 @@ async function run() {
   later38.update(fd38, { value: '2039-05-05' });
   later38.commit(); await tick(150);
   check('What’s coming shows in its cell, beside the value it’ll replace', fdCell() === `${fd0} May 5, 2039 from Mar 1, 2038`, fdCell());
+  const fdEl = () => rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Formation Date').getElement();
+  check('… on its one line, taking only the room the date leaves', fdEl().classList.contains('coming') && fdEl().offsetHeight < 40, `${fdEl().className} ${fdEl().offsetHeight}`);
   App.wb.reverse(last().id, last().who); await tick(150);
   check('… and goes when what said it is undone', fdCell() === fd0, fdCell());
   n0 += 2;

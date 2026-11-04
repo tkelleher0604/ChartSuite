@@ -80,6 +80,10 @@
 .grid .tabulator-row .tabulator-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A name longer than half the grid goes on to another line rather than be cut (table.js). */
 .grid .tabulator-row .tabulator-cell.lead, .grid .tabulator-row .tabulator-cell.c-why { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+/* A name wraps; a date stays on its line, whole, what's coming beside it taking the room that's left, and all of it on hover. */
+.grid .tabulator-row .tabulator-cell.lead.c-date { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid .tabulator-row .tabulator-cell.c-date.coming { display: inline-flex; align-items: baseline; }
+.grid .tabulator-row .tabulator-cell.c-date.coming .nx { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .grid .tabulator-row .tabulator-cell .na { color: var(--ink-3); font-style: normal; }
 /* Scrolled across, the grid stops at a column's edge, clear of the first column, as Excel's does; swiped on past its
    edge, it stays, rather than the window going back a view. */

@@ -281,6 +281,8 @@ function format(datatype, v) {
 }
 // How a record's output reads: a value as its datatype reads, an option as itself, a tag Yes or No.
 const outputText = r => isField(r) ? format(r.field, r.value) : isChoice(r) ? r.choice : isTag(r) ? (r.tag ? 'Yes' : 'No') : '';
+// What's coming, beside the value it'll replace: "55% from Feb 1, 2027". A date that's the day it comes from, as a filing's is, says that day once.
+const comingText = r => { const day = formatDate(r.since, 'short'); return r.field !== 'date' ? `${outputText(r)} from ${day}` : r.value === r.since ? `next ${day}` : `${formatDate(r.value, 'short')} from ${day}`; };
 // A word's plural: Entities, Taxes, Statuses, Addresses, Analyses; one already plural (ERISA Plan Assets, Cayman Islands) is itself.
 const plural = w => /[^aeiou]y$/i.test(w) ? w.slice(0, -1) + 'ies' : /sis$/i.test(w) ? w.slice(0, -2) + 'es' : /[^su]s$/i.test(w) ? w : /(s|x|z|ch|sh)$/i.test(w) ? w + 'es' : w + 's';
 
@@ -392,6 +394,6 @@ return {
   // A record's parameterization key, as formulas.js keys what a definition covers.
   parameterization: (recs, id) => { const t = treeOf(recs, id); return t && paramKey(t); },
   schema, schemaError,
-  DATATYPES, PHRASES, MONTHS, parseDate, parseKnown, firstDay, notA, parseYearly, formatDate, isoOf, isNumber, isAddress, classify, parse, format, outputText, plural, linkOf,
+  DATATYPES, PHRASES, MONTHS, parseDate, parseKnown, firstDay, notA, parseYearly, formatDate, isoOf, isNumber, isAddress, classify, parse, format, outputText, comingText, plural, linkOf,
 };
 })();

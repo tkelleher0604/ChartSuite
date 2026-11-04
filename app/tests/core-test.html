@@ -497,6 +497,9 @@ function run(json) {
     && Tree.formatDate('2022-03') === 'March 2022' && Tree.formatDate('2022-03', 'short') === 'Mar 2022' && Tree.formatDate('2022') === '2022' && Tree.firstDay('2022-03') === '2022-03-01' && Tree.firstDay('2022') === '2022-01-01' && Tree.firstDay('2022-03-14') === '2022-03-14'
     && Tree.classify('Mar 2022') === 'date' && Tree.classify('3/2022') === 'date' && Tree.classify('2022') === 'number' && Tree.parseDate('Mar 2022') === null
     && Log.validOn({ since: '2022-03' }, '2022-03-01') && !Log.validOn({ since: '2022-03' }, '2022-02-28') && !Log.validOn({ before: '2022' }, '2022-01-01') && Log.validOn({ before: '2022' }, '2021-12-31'));
+  check('what’s coming reads as its value from its day, a date that is its day saying it once',
+    Tree.comingText({ field: 'percent', value: 0.55, since: '2037-02-01' }) === '55% from Feb 1, 2037' && Tree.comingText({ field: 'date', value: '2039-03-27', since: '2039-03-27' }) === 'next Mar 27, 2039'
+    && Tree.comingText({ field: 'date', value: '2039-05-05', since: '2038-03-01' }) === 'May 5, 2039 from Mar 1, 2038');
   check('dates parse as typed and read in full, short, or by month', Tree.parseDate('3/4/19') === '2019-03-04' && Tree.parseDate('Sept. 1, 2023') === '2023-09-01'
     && Tree.parseDate('2023-02-30') === null && Tree.formatDate('2023-02-14') === 'February 14, 2023' && Tree.formatDate('2023-02-14', 'short') === 'Feb 14, 2023'
     && Tree.formatDate('2023-02-14', 'month') === 'February 2023' && Tree.isoOf(new Date(2024, 1, 29, 23, 30)) === '2024-02-29' && Log.today() === Tree.isoOf(new Date()));

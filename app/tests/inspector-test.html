@@ -1203,6 +1203,10 @@ async function run() {
   laterPanel?.querySelector('.btn')?.click(); await tick(80);
   check('… Show the chart then shows it as of that day, still selected', Shell.time.peek()?.asOf === '2027-01-15' && !!st().northpine && Shell.selection.peek().join() === 'northpine' && !$('.insp > .later'));
   Shell.at(null); await tick(60);
+  const then27 = App.wb.asOf(C, '2027-01-15'), fd27 = Tree.index(then27).entries.get('northpine').find(e => then27[e].edge === 'Formation Date');
+  Shell.select([fd27]); await tick(60);
+  check('… an entry of it selected is named as its panel names it, under what it’s of, its value read', /Northpine/.test($('.ih')?.textContent ?? '') && !/Formation Date: Formation Date/.test($('.ih')?.textContent ?? '') && /Formation Date\s*Jan(uary)? 15, 2027/.test($('.rows.then')?.textContent ?? ''), `${$('.ih')?.textContent} / ${$('.rows.then')?.textContent}`);
+  Shell.select(['northpine']); await tick(60);
   document.querySelector('.toast button.x')?.click(); await tick();
   check('… and its toast dismissed by its ×', !document.querySelector('.toast'));
   Shell.parts.value.undo.undo(); await tick(60);

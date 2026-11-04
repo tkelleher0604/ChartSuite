@@ -493,7 +493,7 @@ function Versions({ id }) {
   if (!others.length) return null;
   const n = others.length, ahead = others.filter(v => v.since > now), said = `${n} ${!ahead.length ? 'earlier' : ahead.length === n ? 'later' : 'other'}`;
   // What's coming stands beside the value it'll replace: "55% from Feb 1, 2027", the next of them.
-  const next = ahead[0], say = next ? `${T.outputText(next)} from ${short(next.since)}${n > 1 ? ` · ${n - 1} ${n - 1 === ahead.length - 1 ? 'later' : ahead.length === 1 ? 'earlier' : 'other'}` : ''}` : said;
+  const next = ahead[0], say = next ? `${T.comingText(next)}${n > 1 ? ` · ${n - 1} ${n - 1 === ahead.length - 1 ? 'later' : ahead.length === 1 ? 'earlier' : 'other'}` : ''}` : said;
   const period = v => v.since && v.before ? `${short(v.since)} – ${short(v.before)}` : v.since ? `Since ${short(v.since)}` : v.before ? `Before ${short(v.before)}` : '';
   const day = v => v.since ?? later(v.before, -1);
   const still = App.readOnly.value;
@@ -994,7 +994,7 @@ function detail(it) {
     if (since) facts.push({ text: `since ${short(since)}` });
     if (span?.until) facts.push({ text: `until ${short(span.until.day)}` });
   }
-  if (next) facts.unshift({ text: `${T.outputText(next)} from ${short(next.since)}`, coming: true });
+  if (next) facts.unshift({ text: T.comingText(next), coming: true });
   const ev = relatives(it.rid).docs.find(d => linkOf(d.obj)), why = !role && !figure && !facts.length && because(it.rid), ground = why && groundSaid(it);
   // A role stated of a relation a check fails at doesn't hold, and is drawn so where it's stated (Okafor's "Managing Member").
   const fails = at.some(([id, e]) => e.tag === false && failed(id));
@@ -1409,18 +1409,20 @@ function LaterView({ id }) {
     ${Shell.time.value ? html`<button class="btn" onClick=${() => Shell.at(null)}>Today</button>` : null}</div>`;
   const entry = test => (T.index(then).entries.get(id) ?? []).find(e => then[e].field === 'date' && test(T.treeOf(then, e)) && then[e].value === (d ?? gone.day));
   const was = d ? entry(t => N().isStart(t)) : entry(t => N().isEnd(t));
-  const words = (was && App.actOf(then[was].edge)?.[1]) || (d ? 'From' : 'Ended'), name = x.kind ? N().nameOf(then, id) : `${N().nameOf(then, id)}: ${N().segmentOf(then, id)}`;
+  // (Named as its panel names it: a relation by what it is and between whom; an entry by its name, under the path to it.)
+  const words = (was && App.actOf(then[was].edge)?.[1]) || (d ? 'From' : 'Ended'), name = x.args ? `${N().nameOf(then, id)}: ${N().segmentOf(then, id)}` : N().nameOf(then, id);
+  const path = x.kind ? [{ label: x.kind }] : x.args ? [] : T.pathOf(then, id).slice(0, -1).map(p => ({ label: N().segmentOf(then, p), go: () => select([p]) }));
   // (And the way to change that day, as any is.)
   const change = !App.readOnly.value && dayItems(id, d ? 'from' : 'until', on).find(it => it.label.startsWith('Change'));
   // What it was, as of the last day it held (or the first it will), read: its values, and its relatives by list, and its History.
-  const n = N(), I = T.index(then), entries = (I.entries.get(id) ?? []).filter(e => !T.same(then[e].edge ?? '', 'Name') && ('field' in then[e] || 'choice' in then[e] || 'tag' in then[e]));
+  const n = N(), I = T.index(then), entries = [...(x.kind || x.args ? [] : [id]), ...(I.entries.get(id) ?? []).filter(e => !T.same(then[e].edge ?? '', 'Name') && ('field' in then[e] || 'choice' in then[e] || 'tag' in then[e]))];
   const lists = new Map();
   for (const rid of I.relations.get(id) ?? []) { const rel = then[rid], t = T.treeOf(then, rid), mine = rel.args?.find(a => a.at === id), other = rel.args?.find(a => a !== mine);
     if (!t || !mine || !other) continue;
     const list = n.listName(t, other.edge), who = n.shortOf(then, T.objectOf(then, other.at)), amount = (I.entries.get(rid) ?? []).map(e => then[e]).find(e => e.field === 'percent');
     if (!lists.has(list)) lists.set(list, []);
     lists.get(list).push({ who, amount: amount ? T.format('percent', amount.value) : rel.choice ?? '' }); }
-  return html`<div class="insp"><${Head} path=${x.kind ? [{ label: x.kind }] : []} title=${bound(name)} />
+  return html`<div class="insp"><${Head} path=${path} title=${bound(name)} />
     <div class="later"><span>${words} ${short(d ?? gone.day)}</span><button class="btn" onClick=${() => Shell.at(on === Log.today() ? null : { asOf: on })}>Show the chart then</button>${change ? html`<button class="btn" disabled=${!!change.disabled} data-tip=${change.tip ?? null} onClick=${change.run}>Change this day…</button>` : null}<button class="btn" onClick=${() => Time.of([id])}>History</button></div>
     <div class="rows then">${entries.map(e => html`<div class="row"><div class="k">${then[e].edge}</div><div class="v">${T.outputText(then[e])}</div></div>`)}
       ${[...lists].map(([list, items]) => html`<div class="st">${list}</div>${items.map(it => html`<div class="row"><div class="k">${it.who}</div><div class="v">${it.amount}</div></div>`)}`)}</div></div>`;

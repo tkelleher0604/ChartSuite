@@ -373,7 +373,7 @@ const Table = (() => {
         const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
         // What's coming stands beside the value it'll replace (dendra.md, Time).
         const next = c.type !== 'tag' && m.id && App.shown.value.item(App.chart.value, m.id).find(x => x.since > today);
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(notOurs.size && m.v == null && c.title && notOurs.has(`${c.up ? st[id]?.at : id}|${norm(c.title)}`) && { notours: true }), ...(next && { next: `${Tree.outputText(next)} from ${Tree.formatDate(next.since, 'short')}` }), ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(notOurs.size && m.v == null && c.title && notOurs.has(`${c.up ? st[id]?.at : id}|${norm(c.title)}`) && { notours: true }), ...(next && { next: Tree.comingText(next) }), ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
       }
       row._ruled = st[id].tag === false;
       row._fails = fails.get(id) ?? null;
@@ -524,6 +524,7 @@ const Table = (() => {
       if (m?.notours) return '<span class="notours">Not ours</span>';
       el.classList.toggle('pend', !!m && 'was' in m && c.type !== 'tag' && m.was !== null && v !== null);
       if (tip) el.dataset.tip = tip; else delete el.dataset.tip;
+      el.classList.toggle('coming', !!m?.next && !('was' in m));
       if (m?.next && !('was' in m)) { if (!tip) el.dataset.tip = m.next; return `${shown(v, m)} <span class="nx">${esc(m.next)}</span>`; }
       if (!m || !('was' in m) || c.type === 'tag') return shown(v, m);
       return [m.was !== null && `<span class="del">${shown(m.was, null, m.type ?? c.type)}</span>`, v !== null && `<span class="add">${shown(v, m)}</span>`].filter(Boolean).join(' ');
