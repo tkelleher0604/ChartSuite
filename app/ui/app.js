@@ -149,9 +149,9 @@ const App = (() => {
   // or an end it records past the day shown, which takes what it's at out of the chart then, is said, wherever it was
   // typed: a start with Show Mar 2, 2027, the chart then; an end says its day itself ("Ended … on Dec 1, 2026", Time.describe).
   // A change that changes something also keeps as they are the boxes it doesn't place in the chart shown (the canvas's
-  // keepers), unless `keep` is false (Tidy).
+  // keepers), unless `keep` is false (Tidy). `go`, a function of the change, gives what else its toast offers: [label, run].
   let staying = null;
-  function change(fn, { say, dated = true, ids, empty, keep = true } = {}) {
+  function change(fn, { say, dated = true, ids, empty, keep = true, go } = {}) {
     if (readOnly.peek()) { Shell.toast('Can’t change the past'); return null; }
     const tx = edit(dated, ids ?? named), was = entered.peek();
     if (!ids) named = [];
@@ -166,9 +166,9 @@ const App = (() => {
     const out = outBy(c, was), said = (typeof say === 'function' ? say(c) : say) || (out && typeof Time !== 'undefined' && Time.describe(c));
     // One that takes what it's at out of the chart till a later day offers that day, and stays till it's taken or dismissed;
     // where that leaves the chart nothing to draw, the chart goes to that day (see firstDrawn), and offers today.
-    const when = out?.holds === 'from' ? Tree.formatDate(out.day, 'short') : null, bare = when && nothingDrawn();
+    const when = out?.holds === 'from' ? Tree.formatDate(out.day, 'short') : null, bare = when && nothingDrawn(), more = !when && go?.(c);
     if (bare) { keptToday.add(chart.peek()); Shell.at({ asOf: out.day }); }
-    if (said) { const off = Shell.toast(bare ? `${said}; showing the chart as of then` : said, { undo, ...(bare ? { go: ['Today', () => Shell.at(null)] } : when && { go: [`Show ${when}`, () => Shell.at(out.day === Log.today() ? null : { asOf: out.day })] }) }); if (when) staying = off; }
+    if (said) { const off = Shell.toast(bare ? `${said}; showing the chart as of then` : said, { undo, ...(bare ? { go: ['Today', () => Shell.at(null)] } : when ? { go: [`Show ${when}`, () => Shell.at(out.day === Log.today() ? null : { asOf: out.day })] } : more && { go: more }) }); if (when || more) staying = off; }
     return c;
   }
   // A chart with nothing to draw on the day shown, every box of it not yet formed, opens on the first day it has one: a fund
@@ -257,11 +257,128 @@ const App = (() => {
   // change that added it.
   const openedAt = new Map();
   effect(() => { const c = chart.value; if (c && !openedAt.has(c)) openedAt.set(c, new Date().toISOString()); });
+  const lately = x => { const midnight = new Date(); midnight.setHours(0, 0, 0, 0); return !x || x.when >= midnight.toISOString() || x.when >= (openedAt.get(x.chart) ?? '9'); };
   function madeLately(id) {
-    const c = chart.peek(), first = book.peek().changes().find(x => x.chart === c && x.adds.some(r => r.record === id));
-    if (!first) return true;
-    const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
-    return first.when >= midnight.toISOString() || first.when >= (openedAt.get(c) ?? '9');
+    const c = chart.peek();
+    return lately(book.peek().changes().find(x => x.chart === c && x.adds.some(r => r.record === id)));
+  }
+  // The change that first said what a row of a record says, its value and its period: an undo's fresh copy of a row is
+  // that row, so it's the one who said it, and when.
+  const firstSaid = (rec, row) => { const c = chart.peek(), { id: _, ...own } = row, k = JSON.stringify(own); return book.peek().changes().find(x => x.chart === c && x.adds.some(r => r.record === rec && (({ id: __, ...o }) => JSON.stringify(o))(r) === k)) ?? null; };
+  // Who entered a record, as it stands on the day shown, and when: { who, when, note, since, before }; null where nothing did.
+  function enteredBy(id) {
+    const row = shown.peek().item(chart.peek(), id).find(v => Log.validOn(v, day.peek())), x = row && firstSaid(id, row);
+    return x ? { who: x.who, when: x.when, note: x.note ?? null, since: row.since ?? null, before: row.before ?? null } : null;
+  }
+
+  // ---- A value typed (dendra.md, Time) ----
+  // A record to add, at what it's at entered: an entry is only ever at a record the timeline holds, so one a formula
+  // gives is entered as it stands, with what it's at (a tax year owed, entered with its payment).
+  function enterAt(tx, r) {
+    const enter = id => { if (!result.peek().computed[id]) return id; const { computed: _, ...x } = state.peek()[id]; return tx.add('record', enterAt(tx, x)); };
+    return r.args ? { ...r, args: r.args.map(a => ({ ...a, at: enter(a.at) })) } : r.at ? { ...r, at: enter(r.at) } : r;
+  }
+  const withOut = (id, slot, out) => { const r = state.peek()[id] ?? slot; return { ...(r.args ? { args: r.args } : { at: r.at, edge: r.edge }), ...out }; };
+  // A record, or a blank one, with another output. Typing over a computed record enters it; clearing an entered one
+  // removes it, and lets a formula stand.
+  function putting(tx, id, slot, out) {
+    const r = id ? state.peek()[id] : null, mine = !!r && !r.computed;
+    if (!out) return mine && tx.remove(id);
+    if (mine) tx.set(id, withOut(id, slot, out)); else tx.add('record', enterAt(tx, withOut(id, slot, out)));
+  }
+  // Whether a value typed asks from when: an output put in place of one a record has, where there's history to keep. A
+  // date says its own day, and a value where there was none has nothing to keep; nor has one typed lately, as a slip is
+  // (today, or since the chart was opened), while it's for the day shown. What a formula gives, typed over, asks.
+  function asksFrom(id, out) {
+    const r = id && state.peek()[id];
+    if (!r || !out || r.kind !== undefined || r.field === 'date' || out.field === 'date') return false;
+    if (result.peek().computed[id]) return true;
+    const row = book.peek().item(chart.peek(), id).find(v => Log.validOn(v, day.peek()));
+    return !!row && !(lately(firstSaid(id, row)) && (!Shell.time.peek()?.asOf || row.since === day.peek()));
+  }
+  // A value as a sentence says it: whose, by the short names of what it's at, and what it is, a relation's percentage
+  // being its holder's stake in the other side; a tag, by what it is and where, which its button's verb says the rest of.
+  const possess = s => `${s}${s.endsWith('s') ? '’' : '’s'}`, lowered = s => s.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
+  function typedWords({ id, slot, out }) {
+    const recs = state.peek(), N = notes.peek(), r = recs[id] ?? slot, at = r.at && recs[r.at], is = `is ${Tree.outputText(out)}`;
+    const term = x => bind(N.shortOf(recs, Tree.objectOf(recs, x))), mid = x => term(x).replace(/^The /, 'the ');
+    if ('tag' in out) return r.at ? `${r.edge} of ${N.whereOf(recs, r)}` : `${N.nameOf(recs, id)}: ${N.segmentOf(recs, id)}`;
+    if (!at) return `${N.nameOf(recs, id)}: ${N.segmentOf(recs, id)} ${is}`;
+    if (at.kind !== undefined) return `${possess(term(r.at))} ${lowered(r.edge)} ${is}`;
+    const tr = transferable(r.at, entered.peek()), amount = tr?.amount && recs[tr.amount];
+    return amount?.field === 'percent' ? `${possess(term(tr.first.at))} ${tr.amount === id ? 'stake' : lowered(r.edge)} in ${mid(tr.rest[0].at)} ${is}` : `${r.edge} of ${N.segmentOf(recs, r.at)} ${is}`;
+  }
+  // What a change pending of values typed says and what its button's called: one, its sentence, and Rule out or Attest
+  // for a tag, Rename for a name; several, each.
+  const typedPending = typed => {
+    const [t] = typed, r = state.peek()[t.id] ?? t.slot;
+    const act = typed.length > 1 ? null : 'tag' in t.out ? (t.out.tag ? 'Attest' : 'Rule out') : Tree.same(r.edge ?? '', 'Name') ? 'Rename' : null;
+    return { typed, act, what: typed.length > 1 ? `${typed.length} values` : typedWords(t), parts: typed.length > 1 ? typed.map(x => html`<span class="add">${typedWords(x)}</span>`) : null,
+      needs: typed.map(x => x.id).filter(x => !result.peek().computed[x]) };
+  };
+  // Typed: made at once, where it asks nothing; or a change pending, asking from when, the day shown till another is
+  // typed, or All along, which corrects it. One typed while another's pending goes with it, from the one day, and typed
+  // back to what it was (`out` false), it goes from it. `auto`: the keys go to the day, as they do on Enter.
+  function put(id, slot, out, { auto = false } = {}) {
+    const p = mine(), now = p?.typed ?? null;
+    if (out === false || (!out && now?.some(t => t.id === id))) {
+      if (!now) return;
+      const left = now.filter(t => t.id !== id);
+      if (left.length) amend(p, typedPending(left)); else discard({ quiet: true });
+      return;
+    }
+    if (!asksFrom(id, out) && !now?.some(t => t.id === id)) return change(tx => putting(tx, id, slot, out));
+    const typed = [...(now ?? []).filter(t => t.id !== id), { id, slot, out }];
+    if (now) { amend(p, typedPending(typed)); if (auto) setTimeout(() => { const i = document.querySelector('.pendbar .when input'); i?.focus(); i?.select(); }); return; }
+    let told = null;
+    stage({ verb: 'Change', source: 'typed', asks: 'from', day: day.peek(), auto, ...typedPending(typed),
+      make: (tx, d, q) => { told = d && q.typed.length === 1 && !('tag' in q.typed[0].out) ? `${typedWords(q.typed[0])} from ${Tree.formatDate(d, 'short')}` : null; q.typed.forEach(t => putting(tx, t.id, t.slot, t.out)); },
+      say: c => told ?? Time.describe(c) });
+  }
+  // A value typed that's pending, as it would read, of the chart shown: its output, or undefined.
+  const typedOut = id => { const p = pending.value; return p?.typed && p.chart === chart.value ? p.typed.find(t => t.id === id)?.out : undefined; };
+  // A computed tag overridden (dendra.md, Part 2: the reason's Rule out… or Attest…): entered the other way, as a change pending.
+  function overriding(id) { const r = state.peek()[id]; if (r && 'tag' in r) put(id, r, { tag: !r.tag }, { auto: true }); }
+  // What a "no" is (dendra.md, Color): a check failed, 'fails', in red; a typed one a Check note says needs attention,
+  // 'heeds', in amber; any other, plain.
+  function noTone(id, recs = state.peek()) {
+    const t = recs[id] && Tree.treeOf(recs, id), N = notes.peek();
+    return !t ? '' : N.check(t) ? 'fails' : N.heeds(t) ? 'heeds' : '';
+  }
+
+  // When a record holds, as its panel says it: from, the latest of the day its own period starts, its start entry's day
+  // and, for a relation, the day its sides are there, said as what it is ("when Fund III Blocker was formed"); and until,
+  // the mirror. → { from: { day, word, when } | null, until: { day, word, when } | null }
+  function spanOf(id, recs = state.peek(), seen = new Set()) {
+    const c = chart.peek(), r = recs[id], N = notes.peek(), rows = shown.peek().item(c, id);
+    if (!r || seen.has(id) || !rows.length) return { from: null, until: null };
+    seen.add(id);
+    const name = x => bind(N.shortOf(recs, x)), dated = Tree.index(recs).entries.get(id)?.filter(e => recs[e].field === 'date') ?? [], t = Tree.treeOf(recs, id);
+    const own = rows.every(v => v.since) ? rows.map(v => v.since).sort()[0] : null, last = rows.every(v => v.before) ? rows.map(v => v.before).sort().at(-1) : null;
+    const entry = test => { const e = t && dated.find(x => test(Tree.treeOf(recs, x))), act = e && actOf(recs[e].edge)?.[1]; return e ? { day: recs[e].value, word: r.kind !== undefined ? act ?? null : null, act: act ?? null } : null; };
+    let from = entry(x => N.isStart(x)), until = entry(x => N.isEnd(x));
+    if (own && (!from || own > from.day)) from = { day: own, word: null, act: null };
+    if (last && (!until || last < until.day)) until = { day: last, word: null, act: null };
+    if (r.args) for (const a of r.args) {
+      const o = Tree.objectOf(recs, a.at), s = spanOf(o, recs, seen);
+      seen.delete(o);
+      const by = x => `when ${name(o)} ${x.act ? `was ${x.act.toLowerCase()}` : x === s.from ? 'began' : 'ended'}`;
+      if (s.from && (!from || s.from.day > from.day)) from = { day: s.from.day, word: null, when: by(s.from) };
+      if (s.until && (!until || s.until.day < until.day)) until = { day: s.until.day, word: null, when: by(s.until) };
+    }
+    return { from, until };
+  }
+  // The first day after the day shown it no longer holds, for what isn't in the chart then but was: the day it ended on,
+  // and how, from what it was the day before. null where it never held before then.
+  function heldUntil(id, d = day.peek()) {
+    const wb = shown.peek(), c = chart.peek();
+    if (!c || !id || entered.peek()[id] || !wb.item(c, id).length) return null;
+    const days = new Set(), up = [id], seen = new Set();
+    for (let i = 0; i < up.length; i++) if (!seen.has(up[i])) { seen.add(up[i]); for (const r of wb.item(c, up[i])) { if (r.before && r.before <= d) days.add(r.before); up.push(...Tree.argsOf(r).map(a => a.at)); } }
+    for (const r of wb.rows(c)) if ('record' in r && seen.has(r.at) && r.field === 'date' && r.value <= d) days.add(r.value);
+    const before = x => { const y = new Date(x + 'T12:00:00'); y.setDate(y.getDate() - 1); return Tree.isoOf(y); };
+    const ended = [...days].sort().reverse().find(x => wb.asOf(c, before(x))[id]);
+    return ended ? { day: ended, last: before(ended) } : null;
   }
   // The day asked, wherever a record added, deleted or transferred asks it (a change pending's bar, and its controls
   // where it was asked): `asks` 'from', "From" (or the start entry it's given, `word`, a general partner's Admission
@@ -272,7 +389,7 @@ const App = (() => {
   // the day selected, as it's shown. Esc puts back what was typed, keeping the keys there, as a value's does; left, a
   // day typed is set as a day. One after the day shown, once it's left, is a link to the chart then, where the change is
   // drawn, as the two-box panel's later relation is.
-  function From({ day, set, auto, asks, word: end }) {
+  function From({ day, set, auto, asks, word: end, alts }) {
     const { useState, useRef, useLayoutEffect } = preactHooks;
     const [text, setText] = useState(null), [typing, setTyping] = useState(false), input = useRef(), button = useRef(), keys = useRef(auto), was = useRef();
     // Shown with `auto`, or switched from its own menu (not another's showing the same, in the bar or where it was asked),
@@ -283,8 +400,9 @@ const App = (() => {
     }, [day === null]);
     const words = asks === 'until' ? [typeof end === 'string' ? end : 'Ends on', 'Never held'] : asks === 'on' ? ['On'] : [typeof end === 'string' ? end : 'From', 'All along'], always = day === null, word = words[always ? 1 : 0];
     const shown = Shell.time.value?.asOf ?? Log.today(), later = !!day && day > shown && !typing;
+    const back = () => { if (always) { keys.current = true; setText(null); set(shown); } };
     const pick = e => Shell.menu(e.currentTarget, [
-      { label: words[0], checked: !always, run: () => { if (always) { keys.current = true; setText(null); set(shown); } } },
+      ...(alts ? alts.map(a => ({ ...a, checked: a.checked && !always, run: () => { back(); a.run(); } })) : [{ label: words[0], checked: !always, run: back }]),
       { label: words[1], checked: always, run: () => { if (!always) keys.current = true; set(null); } }]);
     const key = e => {
       if (e.key !== 'Escape' || text === null) return;
@@ -328,8 +446,13 @@ const App = (() => {
   const ready = p => !(p.asks && p.day === undefined) && !(p.value && p.value.v === undefined) && (p.ready?.(p) ?? true);
   // What its button says: its verb, or what it's called (Dissolve); a deletion as never held is Delete.
   const actOn = p => p.asks === 'until' && p.day === null ? p.verb : p.act ?? p.verb;
-  const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring' };
-  const discarded = p => { const act = actOn(p); return `Discarded ${act !== p.verb ? act.toLowerCase().replace(/e$/, '') + 'ing' : doing[p.verb] ?? p.verb.toLowerCase()} ${p.what}`; };
+  const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring', Change: 'changing', 'Rule out': 'ruling out', Insert: 'inserting' };
+  const discarded = p => {
+    // (One value typed is said as a sentence, which is what's discarded; a tag's, or several, by what doing it was.)
+    if (p.typed?.length === 1 && !('tag' in p.typed[0].out)) return `Discarded “${p.what}”`;
+    const act = actOn(p);
+    return `Discarded ${doing[act] ?? (act !== p.verb ? act.toLowerCase().replace(/e$/, '') + 'ing' : p.verb.toLowerCase())} ${p.what}`;
+  };
   function stage(p) {
     if (readOnly.peek()) { Shell.toast('Can’t change the past'); return; }
     // Where the keys were as it was begun: what had them, the row it's in, and its part of the window.
@@ -381,7 +504,7 @@ const App = (() => {
     let empty = false;
     const c = batch(() => {
       pending.value = null;
-      const made = change(tx => p.make(tx, p.day, p), { dated: datedOf(p), ids: p.ids, say: p.say, empty: () => { empty = true; } });
+      const made = change(tx => p.make(tx, p.day, p), { dated: datedOf(p), ids: p.ids, say: p.say, go: p.go, empty: () => { empty = true; } });
       if (!made && !empty) pending.value = p;
       return made;
     });
@@ -394,12 +517,56 @@ const App = (() => {
   // ends; any other object or relation ends on the day asked, with all that's at it; and never held, each is deleted as
   // if never made. An entry is cleared from the day shown. It's named for what it records (deleteVerb), but Delete where
   // it's never held; and it begins on the day shown, or on Never held where every record was made lately (madeLately), as
-  // a slip is undone. `what` says what goes; `also`, what else the change does (a free shape deleted with them).
+  // a slip is undone. `what` says what goes; `also`, what else the change does (a free shape deleted with them). End that
+  // too, on its bar, adds to it what a check says it breaks (`too`, ending on the one day).
   function deleting(ids, what, o = {}) {
     const recs = state.peek(), ends = ids.map(id => endOf(id, recs)), asks = ends.some(e => e !== false), words = [...new Set(ends.filter(e => typeof e === 'string'))];
-    stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : Time.describe(c), ...o,
+    const end = (tx, d, id, e) => e === false ? tx.remove(id) : d && typeof e === 'string' ? ending(tx, entered.peek(), id, e, d) : tx.remove(id, d);
+    // One of a kind with more than one end says which (Dissolution Date, Merger Date), by its menu. An end named for a relation
+    // of what it ends (a merger) asks that relation's other side too, in its bar, and makes it.
+    const others = ids.length === 1 && typeof ends[0] === 'string' ? endsOf(ids[0], recs) : [];
+    const alts = others.length > 1 ? p => others.map(m => ({ label: m.say, checked: p.word === m.edge, run: () => amend(p, { word: m.edge, act: actOf(m.edge)?.[0] ?? p.verb, merge: m.rel ? { rel: m.rel, to: pending.peek()?.merge?.to ?? null } : null, Fill: m.rel ? Merging : null }) })) : null;
+    stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : Time.describe(c), ...o, alts, ready: p => !p.merge || p.day === null || !!p.merge.to,
       ...(asks && { asks: 'until', day: ids.every(madeLately) ? null : day.peek(), word: words.length === 1 && ends.every(e => e === words[0] || e === false) ? words[0] : true }),
-      make: (tx, d) => { ids.forEach((id, i) => ends[i] === false ? tx.remove(id) : d && typeof ends[i] === 'string' ? ending(tx, entered.peek(), id, ends[i], d) : tx.remove(id, d)); o.also?.(tx); } });
+      make: (tx, d, p) => {
+        ids.forEach((id, i) => end(tx, d, id, typeof p?.word === 'string' && others.length > 1 ? p.word : ends[i]));
+        p?.too?.forEach(id => end(tx, d, id, endOf(id)));
+        if (d && p?.merge?.to) tx.add('record', { args: [{ edge: p.merge.rel.edges[0], at: ids[0] }, { edge: p.merge.rel.edges[1], at: p.merge.to.at }], tag: true });
+        o.also?.(tx);
+      } });
+  }
+  // Each end entry of what a record is, with what its bar's menu calls it, and the relation it's named for, of two sides, the
+  // first the one ended, where it has one: Merger Date, by Merger ("Merged into…").
+  function endsOf(id, recs = state.peek()) {
+    const t = Tree.treeOf(recs, id), N = notes.peek(), edges = N.notes('End').map(n => n.pattern.args?.length === 1 && n.pattern.args[0].edge).filter(e => e && N.isEnd({ out: { field: 'date' }, args: [{ edge: e, loc: t }] }));
+    return [...new Set(edges)].map(edge => {
+      const noun = edge.replace(/\s+(date|day)$/i, ''), rel = relations.peek().find(r => Tree.same(r.name, noun) && r.edges?.length === 2), list = rel && rel.lists?.[rel.edges[0]]?.[rel.edges[1]];
+      return { edge, rel, say: list ? `${list[0]}${lowered(list.slice(1))}…` : edge };
+    });
+  }
+  // The other side of a merger, asked in its bar: a search of who can be there.
+  function Merging({ p, auto }) {
+    const { useRef, useLayoutEffect } = preactHooks, at = useRef(), recs = state.value, N = notes.value, m = p.merge;
+    if (!m) return null;
+    const side = Object.values(schema.value).filter(s => s.args?.length === 2 && Tree.same(N.name(Tree.bare(s)), m.rel.name)).map(s => s.args.find(a => Tree.same(a.edge, m.rel.edges[1]))).filter(Boolean);
+    const list = q => Object.keys(recs).filter(x => recs[x].kind !== undefined && !p.needs.includes(x) && side.some(a => Tree.narrower(Tree.treeOf(recs, x), a.loc)) && Tree.norm(N.nameOf(recs, x) + ' ' + N.shortOf(recs, x)).includes(Tree.norm(q ?? '')))
+      .sort((a, b) => N.nameOf(recs, a).localeCompare(N.nameOf(recs, b))).map(x => ({ label: N.nameOf(recs, x), checked: m.to?.at === x, run: () => { amend(p, { merge: { ...pending.peek().merge, to: { at: x } } }); setTimeout(() => at.current?.closest('.asking, .pendbar')?.querySelector('.when input')?.focus()); } }));
+    const choose = el => Shell.menu(el, list, { search: true });
+    useLayoutEffect(() => { if (!auto || m.to || !at.current) return; at.current.focus(); choose(at.current); }, []);
+    const word = m.rel.lists?.[m.rel.edges[0]]?.[m.rel.edges[1]] ?? m.rel.name;
+    return html`<span class="transfer"><span><span class="del">${p.what}</span> · ${word[0]}${lowered(word.slice(1))} <button ref=${at} type="button" class=${'sel dd' + (m.to ? '' : ' ph')} aria-haspopup="menu" aria-label=${word} onClick=${e => choose(e.currentTarget)}><span>${m.to ? bind(N.shortOf(recs, m.to.at)) : '…'}</span></button></span></span>`;
+  }
+  // Merge into…, as Find asks it: the deletion begun on the end that's a merger.
+  function merging(id) {
+    const m = endsOf(id).find(e => e.rel);
+    if (!m) return;
+    deleting([id], notes.peek().nameOf(state.peek(), id), { source: 'delete', auto: true, inline: true });
+    amend(pending.peek(), { word: m.edge, act: actOf(m.edge)?.[0] ?? 'Delete', merge: { rel: m.rel, to: null }, Fill: Merging, day: day.peek() });
+  }
+  // What a deletion pending breaks, ended with it (see failsOf). → nothing; its bar then says the two.
+  function endToo(p, fails) {
+    const more = [...new Set(fails.map(f => f.ends).filter(Boolean))], recs = state.peek(), N = notes.peek();
+    amend(p, { too: [...(p.too ?? []), ...more], needs: [...p.needs, ...more], what: `${p.what}, and ${more.map(x => `${N.nameOf(recs, x)}: ${N.segmentOf(recs, x)}`).join(', ')}` });
   }
   // A record given its end entry `e`, the day `d`: the one it has typed over, or one added.
   function ending(tx, recs, id, e, d) {
@@ -526,10 +693,71 @@ const App = (() => {
   function transferring(rid, o = {}) {
     if (!transferable(rid)) return;
     const recs = state.peek(), N = notes.peek();
-    let to = null;
+    let to = null, fresh = null, holder = null;
     stage({ verb: 'Transfer', what: `${N.nameOf(recs, rid)}: ${N.segmentOf(recs, rid)}`, source: 'transfer ' + rid, needs: [rid], transfer: { rid, to: null, part: null },
       asks: 'on', day: day.peek(), auto: true, inline: true, Fill: Transferring, ready: p => !!p.transfer.to && p.transfer.part !== undefined,
-      make: (tx, d, p) => { to = transfer(tx, rid, p.transfer, d); }, say: c => Time.describe(c), done: () => { if (to && state.peek()[to]) Shell.select([to]); }, ...o });
+      make: (tx, d, p) => {
+        const on = book.peek().asOf(chart.peek(), d);
+        to = transfer(tx, rid, p.transfer, d);
+        holder = holderOf(rid, on);
+        fresh = p.transfer.to?.kind ? tx.asOf(d)[to]?.args.find(a => Tree.same(a.edge, transferable(rid, on).first.edge))?.at : null;
+      }, say: c => Time.describe(c),
+      // A new holder, offered a holder of its own: what it holds now has nothing above it.
+      go: () => (fresh && holder && [`Add ${holder.article} ${holder.one} of ${bind(N.shortOf(state.peek(), fresh) ?? '')}…`, () => Shell.parts.peek().inspector?.addTo?.(fresh, holder.list)]) || null,
+      done: () => { if (to && state.peek()[to]) Shell.select([to]); }, ...o });
+    Shell.showPanel?.();
+    if (Shell.selection.peek().join() !== rid) Shell.select([rid]);
+  }
+  // The ways a relation of two sides can run, of the sides `tr` reads it by, whatever's at them.
+  function waysOf(rid, recs, tr) {
+    const r = recs[rid], other = tr.rest[0];
+    return notes.peek().fitting(schema.peek(), strip(Tree.treeOf(recs, rid))).filter(s => s.args.length === 2 && ('choice' in r ? s.out?.choice === r.choice : s.out?.tag === true))
+      .map(s => ({ mine: s.args.find(a => Tree.same(a.edge, tr.first.edge)), theirs: s.args.find(a => Tree.same(a.edge, other.edge)) })).filter(w => w.mine && w.theirs);
+  }
+  // A record of this tree can stand between a relation's holder and what it holds: holding that, and held by the holder.
+  function fitsBetween(rid, recs, tr, t) {
+    const ways = waysOf(rid, recs, tr), up = Tree.treeOf(recs, tr.first.at), down = Tree.treeOf(recs, tr.rest[0].at);
+    return ways.some(w => Tree.narrower(t, w.mine.loc) && Tree.narrower(down, w.theirs.loc)) && ways.some(w => Tree.narrower(up, w.mine.loc) && Tree.narrower(t, w.theirs.loc));
+  }
+  // What a new holder's own holder is called, by the list the relation makes at it ("an owner"), where one can hold it.
+  function holderOf(rid, recs = entered.peek()) {
+    const tr = transferable(rid, recs);
+    if (!tr?.amount) return null;
+    const one = notes.peek().listName(Tree.treeOf(recs, rid), tr.first.edge), word = lowered(one).replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
+    return { list: one, one: word, article: /^[aeiou]/i.test(word) ? 'an' : 'a' };
+  }
+  // Inserting one between (dendra.md, Time): a stake that a record of the kinds can stand in the middle of. A relation's
+  // amount is a percentage of what it holds, so the new one's 100% of that, the old holder's, says the same.
+  function interposable(rid, recs = entered.peek()) {
+    const tr = recs[rid] && transferable(rid, recs);
+    return !!tr?.amount && recs[tr.amount].field === 'percent' && takers(rid, '').kinds.some(k => fitsBetween(rid, recs, tr, { kind: k }));
+  }
+  function interpose(tx, rid, to, d) {
+    const at = book.peek().asOf(chart.peek(), d), r = at[rid], tr = transferable(rid, at), amt = at[tr.amount], entries = Tree.index(at).entries.get(rid) ?? [];
+    const under = transfer(tx, rid, { to, part: null }, d), mid = tx.asOf(d)[under].args.find(a => Tree.same(a.edge, tr.first.edge)).at;
+    const up = tx.add('record', { args: [{ edge: tr.first.edge, at: tr.first.at }, { edge: tr.rest[0].edge, at: mid }], ...('choice' in r ? { choice: r.choice } : { tag: true }) });
+    const start = startOf(tx.asOf(d)[up], tx.asOf(d));
+    if (start) tx.add('record', { at: up, edge: start, field: 'date', value: d });
+    for (const x of entries) if (at[x].field === amt.field && at[x].value === amt.value) tx.add('record', { at: up, edge: at[x].edge, field: at[x].field, value: 1 });
+    return { up, mid };
+  }
+  // Insert an entity between…: begun as a transfer is, asking whom (a new one named as it's typed, or one the chart has that
+  // fits both sides) and on what day. It's one change. The new box goes between them, on the chart shown, its lines to them.
+  function interposing(rid) {
+    if (!interposable(rid)) return;
+    const recs = state.peek(), N = notes.peek(), tr = transferable(rid), up = Tree.objectOf(recs, tr.first.at), low = Tree.objectOf(recs, tr.rest[0].at);
+    // What the lower holds by this relation, all the way down: it moves with it, where the new box needs the room.
+    const name = N.nameOf(recs, rid), under = [], step = x => { for (const id of Object.keys(recs)) { const r = recs[id]; if (r.args?.length !== 2 || id === rid || !Tree.same(N.nameOf(recs, id), name)) continue; const t = transferable(id); if (t && Tree.objectOf(recs, t.first.at) === x) { const y = Tree.objectOf(recs, t.rest[0].at); if (y !== low && !under.includes(y)) { under.push(y); step(y); } } } };
+    step(low);
+    let made = null, fresh = false;
+    stage({ verb: 'Insert', what: `${name}: ${N.segmentOf(recs, rid)}`, source: 'insert ' + rid, needs: [rid], transfer: { rid, to: null, part: null }, between: true,
+      asks: 'on', day: day.peek(), auto: true, inline: true, Fill: Transferring, ready: p => !!p.transfer.to,
+      make: (tx, d, p) => {
+        made = interpose(tx, rid, p.transfer.to, d);
+        fresh = !!p.transfer.to.kind;
+        if (fresh && typeof Canvas !== 'undefined') Canvas.active.peek()?.between(tx, { up, low, under, id: made.mid }, p.transfer.to.kind);
+      }, placing: () => (made && fresh ? { up, low, under, id: made.mid } : null),
+      say: c => Time.describe(c), done: () => { if (made && state.peek()[made.mid]) Shell.select([made.mid]); } });
     Shell.showPanel?.();
     if (Shell.selection.peek().join() !== rid) Shell.select([rid]);
   }
@@ -545,8 +773,9 @@ const App = (() => {
     const { rid, to, part } = p.transfer, recs = state.value, N = notes.value, tr = recs[rid] && transferable(rid, entered.value);
     const set = x => amend(p, { transfer: { ...pending.peek().transfer, ...x } });
     const on = () => setTimeout(() => (much.current ?? whom.current?.closest('.asking, .pendbar')?.querySelector('.when input'))?.focus());
+    const fits = x => !p.between || fitsBetween(rid, recs, tr, x);
     const choose = (anchor, query) => Shell.menu(anchor, q => {
-      const { found, kinds } = takers(rid, q), named = Tree.clean(q ?? '');
+      const { found: all, kinds: every } = takers(rid, q), named = Tree.clean(q ?? ''), found = all.filter(f => fits(Tree.treeOf(recs, f.at))), kinds = every.filter(k => fits({ kind: k }));
       return [...found.map(f => ({ label: f.name, detail: f.kind, checked: to?.at === f.at, run: () => { set({ to: { at: f.at, name: f.name, short: f.short } }); on(); } })),
         ...(named && kinds.length && !found.some(f => Tree.same(f.name, named) || Tree.same(f.short, named)) ? [...(found.length ? ['-'] : []), ...kinds.map(k => ({ label: `New ${k}: ${named}`, run: () => { set({ to: { kind: k, name: named } }); on(); } }))] : [])];
     }, { search: true, query });
@@ -566,8 +795,11 @@ const App = (() => {
       set({ part: x === undefined || !(x > 0) || x > amt.value + 1e-9 ? undefined : x >= amt.value - 1e-9 ? null : x });
     };
     const ahead = e => { if (e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); choose(e.currentTarget, e.key); } };
-    return html`<span class="transfer"><span>From ${name(tr.first.at)} to${' '}<button ref=${whom} type="button" class=${'sel dd' + (to ? '' : ' ph')} aria-haspopup="menu"
-        aria-label=${`To: ${to?.name ?? 'none'}`} title=${to && to.short !== to.name ? to.name : null} onClick=${e => choose(e.currentTarget)} onKeyDown=${ahead}><span>${to ? bind(to.at ? term(Tree.objectOf(recs, to.at)) : to.name) : '…'}</span></button></span><span class="sep">·</span><span>${amt
+    const picker = html`<button ref=${whom} type="button" class=${'sel dd' + (to ? '' : ' ph')} aria-haspopup="menu"
+        aria-label=${`To: ${to?.name ?? 'none'}`} title=${to && to.short !== to.name ? to.name : null} onClick=${e => choose(e.currentTarget)} onKeyDown=${ahead}><span>${to ? bind(to.at ? term(Tree.objectOf(recs, to.at)) : to.name) : '…'}</span></button>`;
+    // Inserted between, it's set out as the line it makes: Fund III → [Holdco] → Fund III Blocker.
+    if (p.between) return html`<span class="transfer between"><span>${name(tr.first.at)} → ${picker} → ${name(tr.rest[0].at)}</span></span>`;
+    return html`<span class="transfer"><span>From ${name(tr.first.at)} to${' '}${picker}</span><span class="sep">·</span><span>${amt
         ? html`<span class="hug"><input ref=${much} class="cell amount" aria-label="How much" spellcheck=${false} autocomplete="off" aria-invalid=${part === undefined ? 'true' : null}
             value=${text ?? Tree.format(amt.field, part ?? amt.value)} onFocus=${e => e.target.select()} onBlur=${() => { if (part !== undefined) setText(null); }} onInput=${typed} onKeyDown=${key} /></span>`
         : html`<span>${'choice' in recs[rid] ? recs[rid].choice : N.nameOf(recs, rid)}</span>`} of ${name(tr.rest[0].at)}</span></span>`;
@@ -609,7 +841,9 @@ const App = (() => {
   // What it would leave failing that passes now, worked out from its redline as the status bar would count it once
   // made, as a person says it: each check it fails, named for the record it's about ("Ownership Adds Up at Fund III"),
   // with the figure the formula bar's reason gives where it has one ("106.5%, not 100%"); or a formula's error. Those of
-  // a record the change itself adds are its own to-do list, counted once it's made, and left out. → [{ id, at, text }]
+  // a record the change itself adds are its own to-do list, counted once it's made, and left out. A check at a relation is
+  // said by the relation, in words, whose it is ("Capacity Held: Margaret A. Chen signs for Offshore Feeder, via Cayman GP"),
+  // and `ends` names that relation, where it's one that can end. → [{ id, at, text, ends }]
   const failing = new WeakMap();
   function failsOf(R2) {
     if (!R2) return [];
@@ -617,9 +851,13 @@ const App = (() => {
     const key = a => a.error ? `${a.id} ${a.error.message}` : a.id, now = new Set(needs.peek().filter(a => a.kind === 'error').map(key)), N = notes.peek(), recs = R2.records, st = state.peek();
     const about = a => Tree.objectOf(recs, a.error ? a.error.args?.[0]?.at ?? a.error.at : a.id);
     const figure = a => { const s = !a.error && typeof FormulaBar !== 'undefined' && FormulaBar.sentenceIn?.(R2, a.id); return s && [...s.matchAll(/\(([^()]*, not [^()]*)\)/g)].at(-1)?.[1]; };
+    // A relation in words, as the two-box panel and the formula bar say it, each side by its short name.
+    const words = x => { const t = Tree.treeOf(recs, x), sides = N.placed(recs, x), of = e => bind(N.shortOf(recs, Tree.objectOf(recs, recs[x].args.find(a => Tree.same(a.edge, e)).at))), [e0, e1, ...rest] = sides.map(s => s.edge);
+      const [a, says, b] = typeof FormulaBar !== 'undefined' && e1 ? FormulaBar.phrase(t, e0, e1, { choice: recs[x].choice }) : [e0, ' and ', e1];
+      return `${of(a)}${says}${b ? of(b).replace(/^The /, 'the ') : ''}${rest.map(e => `, ${lowered(e)} ${of(e).replace(/^The /, 'the ')}`).join('')}`; };
     const out = Formulas.attention(R2, asking.peek(), day.peek()).filter(a => a.kind === 'error' && !now.has(key(a)) && about(a) in st)
-      .map(a => { const at = about(a), f = figure(a), whose = bind(N.shortOf(recs, at));
-        return { id: a.id, at, text: a.error ? `an error at ${whose}` : `${recs[a.id].edge} at ${whose}${f ? ` (${f})` : ''}` }; });
+      .map(a => { const at = about(a), f = figure(a), whose = bind(N.shortOf(recs, at)), rel = !a.error && recs[at]?.args?.length > 1 && !R2.computed[at];
+        return { id: a.id, at, ends: rel && endOf(at) !== false ? at : null, text: a.error ? `an error at ${whose}` : rel ? `${recs[a.id].edge}: ${words(at)}` : `${recs[a.id].edge} at ${whose}${f ? ` (${f})` : ''}` }; });
     failing.set(R2, out);
     return out;
   }
@@ -640,9 +878,11 @@ const App = (() => {
     const shown = typeof FormulaBar !== 'undefined' ? FormulaBar.pending.value : null, fails = failsOf(shown?.from === 'pending' ? shown.R2 : null);
     // A check it fails, clicked, is asked about in the formula bar, at the record it's about.
     const why = f => { Shell.select([f.at]); Shell.emit('why-open', f.id); };
+    const endable = p.verb === 'Delete' ? fails.filter(f => f.ends) : [];
     return html`${fails.length ? html`<button type="button" class="fails" title=${fails.length > 1 ? fails.map(f => f.text).join('\n') : null} onClick=${() => why(fails[0])}>${Shell.icon('alert')}<span>Fails ${fails[0].text}${fails.length > 1 ? ` and ${fails.length - 1} more` : ''}</span></button>` : null}
+      ${endable.length ? html`<button type="button" class="btn too" onClick=${() => endToo(p, endable)}>${endable.length > 1 ? 'End those too' : 'End that too'}</button>` : null}
       ${p.value ? html`<span class="amt" onKeyDown=${enter}><${Amount} key=${p.n} p=${p} auto=${auto} /></span>` : null}
-      ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} set=${d => amend(p, { day: d })} /></span>`
+      ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} alts=${p.alts?.(p)} set=${d => amend(p, { day: d })} /></span>`
         : p.from ? html`<span class="when">From ${p.from > day.value ? dayLink(p.from) : Tree.formatDate(p.from, 'short')}</span>` : null}
       <span class="acts"><button class="btn" onClick=${() => discard()}>Discard</button>
       <button class="btn primary" disabled=${!ready(p)} onClick=${commit}>${actOn(p)}</button></span>`;
@@ -983,6 +1223,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, change, keeping, would, asksDay, endOf, heldFrom, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
+    readOnly, change, keeping, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
+    enterAt, putting, put, asksFrom, held: typedOut, overriding, noTone,
   };
 })();

@@ -155,7 +155,8 @@ function index(rows) {
     const t = args ? { args: args.map(a => ({ edge: a.edge, loc: treeOf(recs, a.at) ?? {} })) } : treeAt(recs, id), of = args ?? recs[id].args;
     const xs = edges(t).map(e => of.find(a => same(a.edge, e))).filter(Boolean);
     return xs.map((a, i) => {
-      const o = objectOf(recs, a.at) ?? a.at, text = shortOf(recs, o), kind = recs[o]?.kind, prep = i === 1 && xs.length > 2 && PREP.exec(listName(t, a.edge))?.[1];
+      // (A side that's itself a relation, what a document evidences, by its own place.)
+      const o = objectOf(recs, a.at) ?? a.at, text = recs[o]?.args ? segmentOf(recs, o) : shortOf(recs, o), kind = recs[o]?.kind, prep = i === 1 && xs.length > 2 && PREP.exec(listName(t, a.edge))?.[1];
       const join = !i ? '' : /^\d+$/.test(text) && kind ? `, ${kind.toLowerCase()} ` : xs.length === 2 ? ' → ' : prep ? ` ${prep.toLowerCase()} ` : `, ${lower(a.edge)} `;
       return { edge: a.edge, id: o, text, join };
     }).filter((s, i, all) => i < 2 || !all.slice(0, i).some(b => b.id === s.id));
@@ -195,7 +196,9 @@ function index(rows) {
     // none, and the list goes on by name.
     optionOrder: p => (byLabel.get('Order') ?? []).find(n => !n.view && n.pattern.out && narrower(n.pattern, p))?.value,
     required: t => value('Required', t) === true,
-    check: t => value('Check', t) === true,
+    // A Check note on a definition: one ruled out is a check failed. On an entry typed by hand: its "no" needs attention.
+    check: t => value('Check', t) === true && !!resolve('Formula', t),
+    heeds: t => value('Check', t) === true && !resolve('Formula', t),
     isStart: t => value('Start', t) === true,
     isEnd: t => value('End', t) === true,
     shown: (t, view) => value('Shown', t, view),

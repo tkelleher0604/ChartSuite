@@ -254,7 +254,7 @@ const cases = {
   async step() { Shell.select([CLOSE_NP]); await wait(80); Shell.emit('why-open', AP_NP_CHEN); },
   async rows() { Shell.select([CLOSE_NP]); await wait(80); await openRows(); },
   async type() { Shell.select([OKAFOR_GP]); await wait(80); await openRows(); typeIn('r2', '> ', '6', 1); },
-  async tag() { Shell.select([OKAFOR_GP]); await wait(80); document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerenter')); },
+  async tag() { Shell.select([OKAFOR_GP]); await wait(80); document.querySelector('.fx-override').dispatchEvent(new PointerEvent('pointerenter')); },
   async value() {
     Shell.select(['own_okfr_gp_pct']); await wait(80);
     const i = document.querySelector('.fx-value'); i.focus(); i.value = '20%'; i.dispatchEvent(new Event('input', { bubbles: true }));
@@ -436,10 +436,10 @@ async function checks() {
   document.querySelector('.fx-open').click(); await wait(20);
   check('… nor a part of a row pointed at, the rows closed', parted && !pulsing() && !FormulaBar.hover.peek(), `${parted} ${JSON.stringify(FormulaBar.hover.peek())}`);
   Shell.select([OKAFOR_GP]); await wait(40);
-  document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
+  document.querySelector('.fx-override').dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
   const previewed = !!FormulaBar.pending.peek();
   Shell.select([]); await wait(20);
-  check('… nor a tag pointed at, its record gone from the bar: its redline goes too', previewed && !FormulaBar.pending.peek() && !StandIn.rl.peek(), `${previewed}`);
+  check('… nor an override pointed at, its record gone from the bar: its redline goes too', previewed && !FormulaBar.pending.peek() && !StandIn.rl.peek(), `${previewed}`);
   FormulaBar.light(['bdc']); await wait(10);
   const clause = Object.keys(StandIn.hl.peek()?.colors ?? {}).join() === 'bdc';
   Shell.select([REMOTE_NS]); await wait(20); Shell.select([]); await wait(20);
@@ -462,7 +462,7 @@ async function checks() {
     && FormulaBar.sentence('chen') === null && FormulaBar.sentence('pos_chen_bdc') === null, FormulaBar.sentence('fx:capacity held=sign_okfr_fund'));
   document.querySelector('.fx-open').click(); await wait(30);
   const inline = document.querySelector('.fx-inline > .fx-why')?.textContent ?? '';
-  check('… and in the bar’s one row, in short where it must be, what failed and what follows', /is a member, not a managing member, of GP III, so the capacity is not held/.test(inline)
+  check('… and in the bar’s one row, in short where it must be, what failed and what follows', /is a member, not a managing member, of GP III, so .*capacity.* is not held/.test(inline)
     && (/ but /.test(inline) || inline.startsWith('David R. Okafor is a member')), inline);
   await openRows();
   check('… never a fact that didn’t decide it (Chen’s role), nor does the chart outline one', !/Chen/.test(said()) && !F().map.has('chen') && !F().map.has('mem_chen_gp')
@@ -710,35 +710,39 @@ async function checks() {
   document.querySelector('.fxbar .fx-name').dispatchEvent(new PointerEvent('pointerenter'));
   check('… and a name that fits says nothing more on hover', !document.querySelector('.fxbar .fx-name').title, document.querySelector('.fxbar .fx-name').title);
 
-  // The redline: hovering a tag
+  // The redline: what a formula gives is overridden only by its labelled command, which previews as it's pointed at
   Shell.select([OKAFOR_GP]); await wait(40);
   let t0 = performance.now();
-  document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
+  document.querySelector('.fx-override').dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
   const ms = performance.now() - t0;
   let p = FormulaBar.pending.peek();
   // Rebutting Okafor's presumed control of GP III takes his control of the eleven it reaches through GP III.
-  check('hovering a tag previews ruling it out, in plain words: Takes away 11 controls', p?.deltas.find(d => d.name === 'Control')?.minus === 11 && /^Takes away (.* and )?11 controls(?![a-z])/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
+  check('pointing at Rule out… previews it, in plain words: Takes away 11 controls', document.querySelector('.fx-override').textContent === 'Rule out…' && p?.deltas.find(d => d.name === 'Control')?.minus === 11 && /^Takes away (.* and )?11 controls(?![a-z])/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
   check('the canvas is asked to redline', StandIn.rl.peek()?.go?.length === p?.diff.go.length && p.diff.go.length >= 11, `${StandIn.rl.peek()?.go?.length} of ${p?.diff.go.length}`);
   check(`the preview is fast enough per keystroke (${ms.toFixed(0)} ms, the engine ${R().ms.toFixed(0)} ms)`, ms < 120, `${ms.toFixed(0)} ms`);
-  document.querySelector('.fx-out .tag').dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
+  document.querySelector('.fx-override').dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
   check('leaving it ends the preview', !FormulaBar.pending.peek() && !StandIn.rl.peek());
-  // Keys on the tag are a checkbox's, as in the inspector: reached by the keys, it redlines as when pointed at;
-  // Enter goes on, back to the view, overriding nothing; Space, which clicks it, makes the change on screen
+  // A computed tag's box only says: pointed at or reached by the keys, it previews nothing; Enter goes on, back to the view;
+  // Space, which clicks it, opens why. Overriding goes through the change pending's bar.
   const keyTag = document.querySelector('.fx-out .tag'), v1 = App.version.peek();
+  keyTag.dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
+  const quiet = !FormulaBar.pending.peek();
+  keyTag.dispatchEvent(new PointerEvent('pointerleave'));
   keyTag.focus(); await wait(10);
-  const keyed = FormulaBar.pending.peek()?.from === 'tag' && keyTag.classList.contains('pend') && FormulaBar.pending.peek().change.records['fx-pending']?.tag === false;
   keyTag.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await wait(10);
-  check('the tag reached by the keys redlines as pointed at; Enter goes on to the view, overriding nothing', keyed && App.version.peek() === v1 && document.activeElement?.id === 'view'
-    && !FormulaBar.pending.peek() && R().records[OKAFOR_GP]?.tag === true, `${keyed} ${document.activeElement?.id} ${JSON.stringify(FormulaBar.pending.peek()?.from)}`);
-  keyTag.focus(); await wait(10);
-  const shown = FormulaBar.pending.peek()?.change.records['fx-pending'];
+  check('a computed tag’s box previews nothing; Enter goes on to the view, overriding nothing', quiet && App.version.peek() === v1 && document.activeElement?.id === 'view'
+    && !FormulaBar.pending.peek() && R().records[OKAFOR_GP]?.tag === true, `${quiet} ${document.activeElement?.id} ${JSON.stringify(FormulaBar.pending.peek()?.from)}`);
   keyTag.click(); await wait(20);
-  check('… and Space, which clicks it, makes the change it showed', !!shown && App.version.peek() === v1 + 1 && !FormulaBar.pending.peek()
-    && Object.values(App.entered.peek()).some(r => r.tag === false && JSON.stringify(r.args) === JSON.stringify(shown.args)), JSON.stringify(shown));
+  check('… and a click opens why, overriding nothing', App.version.peek() === v1 && !!document.querySelector('.fx-panel') && R().records[OKAFOR_GP]?.tag === true);
+  document.querySelector('.fx-override').click(); await wait(30);
+  check('… and Rule out… is a change pending, asking from when', App.version.peek() === v1 && App.pending.peek()?.typed?.[0]?.id === OKAFOR_GP && App.pending.peek().act === 'Rule out' && App.pending.peek().asks === 'from', JSON.stringify(App.pending.peek()?.what));
+  App.commit(); await wait(30);
+  check('… Enter making it', App.version.peek() === v1 + 1 && !FormulaBar.pending.peek() && Object.values(App.entered.peek()).some(r => r.tag === false && r.args?.length === 2), `${App.version.peek()} ${v1}`);
   Shell.parts.peek().undo.undo(); await wait(30);
+  if (document.querySelector('.fx-panel')) { document.querySelector('.fx-open').click(); await wait(20); }
   Shell.select([]); Shell.select([OKAFOR_GP]); await wait(40);
   // A big chart waits for a pause in typing, never in hovering: each preview here made to seem slow
-  const clock = performance.now, tagBox = document.querySelector('.fx-out .tag');
+  const clock = performance.now, tagBox = document.querySelector('.fx-override');
   let skew = 0;
   performance.now = () => clock.call(performance) + (skew += 50);
   for (const k of [1, 2]) { tagBox.dispatchEvent(new PointerEvent('pointerenter')); if (k === 1) tagBox.dispatchEvent(new PointerEvent('pointerleave')); }

@@ -173,7 +173,7 @@ function relativesOf(id) {
     (lists.get(name) ?? lists.set(name, []).get(name)).push(item);
   }
   // Each by its short name, read once.
-  const shorts = new Map(), named = o => shorts.get(o) ?? shorts.set(o, shortOf(o)).get(o), by = (a, b) => named(a.obj).localeCompare(named(b.obj));
+  const shorts = new Map(), named = o => shorts.get(o) ?? shorts.set(o, r[o]?.args ? segment(o) : shortOf(o)).get(o), by = (a, b) => named(a.obj).localeCompare(named(b.obj));
   return { lists: [...lists].sort(([a], [b]) => a.localeCompare(b)).map(([name, items]) => [name, items.sort(by)]), docs: docs.sort(by), nots: nots.sort(by) };
 }
 
@@ -186,31 +186,20 @@ const disagreeing = computed(() => {
 });
 
 // ---- Changing: each edit one change, through App.change ----
-// A record, or a blank one, with another output. Typing over a computed record enters it; clearing an
-// entered one removes it, and lets a formula stand.
-const entered = id => !!id && !!recs()[id] && !recs()[id].computed;
+// A record, or a blank one, with another output (App.put), asking from when where it has history to keep. A start or an
+// end entry typed past the day shown takes what it's at out of the chart then, and all that's at that: the redline
+// strikes it, and the toast says why (App.change).
 const withOut = (id, slot, out) => { const r = recs()[id] ?? slot; return { ...(r.args ? { args: r.args } : { at: r.at, edge: r.edge }), ...out }; };
-// A record to add, at what it's at entered: an entry is only ever at a record the timeline holds, so one a
-// formula gives is entered as it stands, with what it's at (a tax year owed, entered with its payment).
-function enterAt(tx, r) {
-  const enter = id => { if (!fx(id)) return id; const { computed: _, ...x } = recs()[id]; return tx.add('record', enterAt(tx, x)); };
-  return r.args ? { ...r, args: r.args.map(a => ({ ...a, at: enter(a.at) })) } : r.at ? { ...r, at: enter(r.at) } : r;
-}
-function putting(tx, id, slot, out) {
-  if (!out) return entered(id) && tx.remove(id);
-  if (entered(id)) tx.set(id, withOut(id, slot, out)); else tx.add('record', enterAt(tx, withOut(id, slot, out)));
-}
-// A start or an end entry typed past the day shown takes what it's at out of the chart then, and all that's at that:
-// the redline strikes it, and the toast says why (App.change).
-const put = (id, slot, out) => App.change(tx => putting(tx, id, slot, out));
+const { enterAt, putting, put } = App;
 // What it would change, as the formula bar redlines it: the records it would leave, as it would leave them.
-const putChange = (id, slot, out) => App.would(tx => putting(tx, id, slot, out));
+const putChange = (id, slot, out) => App.would(tx => putting(tx, id, slot, out), { dated: App.asksFrom(id, out) ? App.day.peek() : true });
 const flipped = id => ({ tag: !(recs()[id]?.tag ?? false) });
-const flip = (id, slot) => put(id, slot, flipped(id));
+const flip = (id, slot) => put(id, slot, flipped(id), { auto: true });
 // Deleting, as every deletion is made: redlined first, the bar asking until when where a record ends on a day
 // (App.deleting), Enter making it. A relation by its place, an entry by where it is.
 const said = id => { const r = recs()[id]; return r.args ? `${nameOf(id)}: ${segment(id)}` : r.edge !== undefined ? `${r.edge} of ${N().whereOf(recs(), r)}` : nameOf(id); };
-const remove = (id, o = {}) => App.deleting([id], said(id), { source: 'inspector', ...o });
+// A relation gone to from a record's panel, ended, comes back to that record, scrolled where it was (dendra.md, inspector).
+const remove = (id, o = {}) => { const from = cameFrom?.to === id ? cameFrom : null; App.deleting([id], said(id), { source: 'inspector', ...o, ...(from && { done: () => { backTo = { key: from.keys.join(), top: from.top }; select(from.keys); } }) }); };
 // A deletion pending of a record, as its redline shows it here as on the chart: the end entry it gives it, in blue, and
 // the record struck where it goes as of the day shown.
 const deletion = id => { const p = App.pending.value; return p?.verb === 'Delete' && p.chart === App.chart.value && p.needs?.includes(id) ? p : null; };
@@ -263,14 +252,20 @@ const naming = signal(null);    // a relation of a new name being typed in the t
 // or its start entry); Enter adds it with them, and the panel offers its entries. `key` names the panel's row; `out`, its
 // tick, role or value.
 function begin(a, b, key, out, rec) {
-  const st = { ...recs(), '': rec }, sides = N().placed(recs(), null, rec.args).map(s => s.join + s.text).join('');
+  const st = { ...recs(), '': rec }, sides = N().placed(recs(), null, rec.args).map(s => s.join + (recs()[s.id]?.args ? rowName(s.id) : s.text)).join('');
   App.relating(rec, { what: `${N().nameOf(st, '')}: ${sides}`, source: `relate ${a} ${b}`, relate: { a, b, key, out }, inline: true,
     needs: rec.args.map(x => x.at).filter(x => !fx(x)), make: tx => tx.add('record', enterAt(tx, rec)), say: c => Time.describe(c), done: () => { fresh.value = { a, b, key }; } });
 }
 
-// A name that selects what it names: a button, reached by Tab, set as text. `tip` is said on hover: a
-// reason's own words.
-const Go = ({ to, cls = '', title, tip, children }) => html`<button class=${'lk ' + cls} title=${title} data-tip=${tip || null} onClick=${() => select([].concat(to))}>${children}</button>`;
+// A name that selects what it names: a button, reached by Tab, set as text. `tip` is said on hover: where it goes, or a
+// reason's own words. A relation gone to from a record's panel is remembered, so ending it comes back there (`cameFrom`).
+let cameFrom = null, backTo = null;
+const goTo = to => {
+  const ks = [].concat(to), now = Shell.selection.peek();
+  if (ks.length === 1 && recs()[ks[0]]?.args && now.length === 1 && recs()[now[0]]) cameFrom = { to: ks[0], keys: now, top: host?.closest('.inspector')?.scrollTop ?? 0 };
+  select(ks);
+};
+const Go = ({ to, cls = '', title, tip, children }) => html`<button class=${'lk ' + cls} title=${title} data-tip=${tip || null} onClick=${() => goTo(to)}>${children}</button>`;
 
 // Where Enter goes from a value or a tag's box, as in Excel: down (d = 1) or up (-1) to the next value to type in its
 // part of the panel (a section, or a relation's entries), never one a formula gives, whose why would take the chart
@@ -299,10 +294,11 @@ function drag(e, onDrop, onClick) {
 // Text, and a title, wrap, as many lines as they take; a title's name keeps its suffix (Scene.bind). With `preview`,
 // what keeping it would change (out → a change), the formula bar redlines that while it's typed, as it does a value
 // typed in the bar, so the chart is laid out ahead as Enter leaves it.
-function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', title, label, due, children }) {
+function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', title, label, due, held = null, children }) {
   const doc = datatype === 'document', shown = r ? T.format(r.field, r.value) : '', raw = r ? (doc ? r.value : shown) : '';
-  // What's typed, null while nothing is; kept in a ref too, as a blur can come after the record has gone.
-  const [text, setText] = useState(null), [bad, setBad] = useState(false), ref = useRef(), typed = useRef(null), clicked = useRef(false), previewed = useRef(null);
+  // What's typed, null while nothing is; kept in a ref too, as a blur can come after the record has gone. `held`, what
+  // was typed, pending (App.put): shown as typed is, till it's made or discarded, and typed over again.
+  const [text, setText] = useState(null), [bad, setBad] = useState(false), ref = useRef(), typed = useRef(null), clicked = useRef(false), previewed = useRef(null), now = text ?? held;
   // What text typed keeps: its output, null where it's cleared, undefined where it doesn't read; false where it's as it was.
   const outOf = t => {
     if (t === null || t === T.clean(raw)) return false;
@@ -316,24 +312,34 @@ function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', ti
     if (preview) { const out = t === null ? false : outOf(T.clean(t)); redline(out === false || out === undefined ? null : preview(out)); }
   };
   useLayoutEffect(() => { if (auto) ref.current?.focus(); return () => { if (previewed.current) FormulaBar.preview(null); }; }, []);
-  const typing = () => typed.current !== null && T.clean(typed.current) !== T.clean(raw), dirty = text !== null && T.clean(text) !== T.clean(raw);
-  // Keeps what's typed, where it reads; false where it doesn't.
-  const done = () => {
-    const out = outOf(typed.current === null ? null : T.clean(typed.current));
-    if (out === false) { type(null); return true; }
+  const typing = () => typed.current !== null && T.clean(typed.current) !== T.clean(raw), dirty = now !== null && T.clean(now) !== T.clean(raw);
+  // Keeps what's typed, where it reads; false where it doesn't. Typed back to what it was, what's pending of it goes.
+  const done = keys => {
+    const out = outOf(typed.current === null ? null : T.clean(typed.current)), back = held !== null && typed.current !== null;
+    if (out === false) { type(null); if (back) put(false); return true; }
     if (out === undefined) { setBad(true); return false; }
     type(null);
-    put(out);
+    put(out, { auto: keys });
     return true;
   };
+  const asked = () => !!id && !!App.pending.peek()?.typed?.some(t => t.id === id);
   const key = e => {
     const el = e.currentTarget, mod = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase();
-    if (e.key === 'Enter') { e.preventDefault(); const to = onward(el, e.shiftKey ? -1 : 1); if (done()) to?.focus(); }
+    // Enter keeps it and goes on, but where it asks from when, whose day the keys go to, and from a name, which stays on
+    // its head, not selecting the next field to be typed over. Pending and left as it is, Enter makes it.
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (held !== null && typed.current === null) { App.commit(); return; }
+      const to = title ? el.closest('.ih') : onward(el, e.shiftKey ? -1 : 1);
+      if (title && to) to.tabIndex = -1;
+      if (done(true) && !asked()) to?.focus();
+    }
     // Esc puts back what was typed and keeps the keys here, the value selected, as Excel's keeps its cell; with
-    // nothing typed, it leaves for its row, so a key typed next is the window's.
+    // nothing typed, it leaves for its row, so a key typed next is the window's. What's pending of it, Esc discards.
     else if (e.key === 'Escape') {
       e.preventDefault(); e.stopPropagation();
       if (typing() || bad) { type(null); setBad(false); setTimeout(() => el.isConnected && el.select()); }
+      else if (held !== null) { type(null); App.discard(); setTimeout(() => el.isConnected && el.select()); }
       else { const row = el.closest('.row, .rr, .ih'); if (row) { row.tabIndex = -1; row.focus(); } else el.blur(); }
     }
     else if ((mod === 'z' || mod === 'y') && !typing()) {
@@ -344,13 +350,13 @@ function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', ti
   };
   const wrap = title || (r?.field ?? datatype) === 'text', Box = wrap ? 'textarea' : 'input';
   // Typed over, what it said is struck before what's typed, whole, as comparison software prints the two.
-  return html`<label class=${'cellbox' + (title ? ' title' : '') + cls}>${dirty && raw ? html`<s class=${'del' + ((r?.field ?? datatype) === 'date' ? ' date' : '')}>${shown}</s>` : null}<span class=${'hug' + (over ? ' over' : '') + (due && text === null ? ' ' + due : '')}>
-    <${Box} ref=${ref} rows=${wrap ? 1 : null} class=${'cell' + ((r?.field ?? datatype) === 'date' ? ' date' : '') + (fx && text === null ? ' fx' : '') + (dirty && T.clean(text) ? ' add' : '') + (bad ? ' bad' : '')}
-      value=${text ?? (title ? Scene.bind(shown) : shown)} placeholder=${ph} disabled=${App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null}
+  return html`<label class=${'cellbox' + (title ? ' title' : '') + cls}>${dirty && raw ? html`<s class=${'del' + ((r?.field ?? datatype) === 'date' ? ' date' : '')}>${shown}</s>` : null}<span class=${'hug' + (over ? ' over' : '') + (due && now === null ? ' ' + due : '')}>
+    <${Box} ref=${ref} rows=${wrap ? 1 : null} class=${'cell' + ((r?.field ?? datatype) === 'date' ? ' date' : '') + (fx && now === null ? ' fx' : '') + (dirty && T.clean(now) ? ' add' : '') + (bad ? ' bad' : '')}
+      value=${now ?? (title ? Scene.bind(shown) : shown)} placeholder=${ph} disabled=${App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null}
       aria-label=${label ? label + (due ? `, ${DUE[due]}` : '') : ph} data-tour=${fx ? 'computed' : null} data-fx=${fx ? '' : null}
       onPointerDown=${e => { clicked.current = document.activeElement !== e.currentTarget; }} onMouseUp=${e => { if (clicked.current) e.preventDefault(); clicked.current = false; }}
       onFocus=${e => { const el = e.currentTarget; if (doc) { type(raw); setTimeout(() => el.select()); } else el.select(); if (fx) emit('why-open', id); }}
-      onInput=${e => { type(e.target.value); setBad(false); }} onKeyDown=${key} onBlur=${done}
+      onInput=${e => { type(e.target.value); setBad(false); }} onKeyDown=${key} onBlur=${() => done()}
       onCopy=${title ? e => { const el = e.currentTarget; e.clipboardData.setData('text/plain', el.value.slice(el.selectionStart, el.selectionEnd).replace(/\u00a0/g, ' ')); e.preventDefault(); } : null} /></span>
     ${doc && r && text === null ? html`<a class="btn icon open" href=${SharePoint.href(r.value)} target="_blank" rel="noopener" aria-label="Open" data-tip="Open">${OPEN}</a>` : null}
     ${dirty ? null : children}
@@ -369,7 +375,7 @@ function namedOption(name, options) {
   return options.find(o => words(o).length > 1 && initials(o) === tail)
     ?? (SAYS[tail] ? options.filter(o => words(o).at(-1) === SAYS[tail]).sort((a, b) => words(a).length - words(b).length)[0] : null) ?? null;
 }
-function Choice({ r, options, put, fx, over, id, fixed, label, ph, hint, children }) {
+function Choice({ r, options, put, fx, over, id, fixed, label, ph, hint, was, children }) {
   const [typing, setTyping] = useState(false);
   if (typing) return html`<span class="cellbox"><input class="cell" placeholder="New option" aria-label=${label ?? 'New option'} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
     onKeyDown=${e => { if (e.key === 'Enter') { const t = T.clean(e.target.value); setTyping(false); if (t) put({ choice: t }); } else if (e.key === 'Escape') { e.stopPropagation(); setTyping(false); } }}
@@ -382,25 +388,27 @@ function Choice({ r, options, put, fx, over, id, fixed, label, ph, hint, childre
       ...(fixed ? [] : [...(options.length ? ['-'] : []), { label: 'New option', asked: true, run: () => setTyping(true) }])],
       { search: options.length > 7, more: fixed ? null : q => options.some(o => T.same(o, q)) ? [] : ['-', { label: `New option: ${q}`, asked: true, run: () => put({ choice: q }) }] });
   };
-  return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'sel dd' + (fx ? ' fx' : '')} disabled=${App.readOnly.value} data-tour=${fx ? 'computed' : null}
+  return html`<span class="cellbox">${was ? html`<s class="del">${was}</s>` : null}<span class=${'hug' + (over ? ' over' : '')}><button class=${'sel dd' + (fx ? ' fx' : '') + (was ? ' add' : '')} disabled=${App.readOnly.value} data-tour=${fx ? 'computed' : null}
     aria-label=${label ? `${label}: ${r?.choice ?? 'none'}` : null} aria-haspopup="menu" onClick=${open}><span class=${r ? null : 'ph'}>${r?.choice ?? ph ?? ''}</span></button></span>${!r && hint && !App.readOnly.value
       ? html`<button class="lk hint" data-tip="From its name" onClick=${() => put({ choice: hint })}>${hint}?</button>` : null}${children}</span>`;
 }
-// A tag's checkbox: green attested, red ruled out, outlined when computed. Pointed at, or reached by the keys,
-// it shows the other state, and the formula bar redlines what switching it would change; a click or Space
-// switches it, as a checkbox's do, and Enter goes on, as from any value, so no key meant to move on changes
-// it. After a switch nothing is previewed until it's left, so the tag shows what was just done, even remounted
-// under it. `to` is what a click leaves (a relation unticked goes, its box empty); `fixed`, the box only says; `still`,
-// drawn again as what it began is discarded, it previews nothing till it's left, so it never looks ticked as it goes.
+// A tag's checkbox: green attested, outlined when computed; a "no" a plain X, but red where it's a check failed and amber
+// where it needs attention (`tone`, App.noTone). One a formula gives only says: a click or Space opens its reason, as its
+// label does, where overriding it is a labelled command (`reason`). Any other, pointed at or reached by the keys, shows
+// the other state, and the formula bar redlines what switching it would change; a click or Space switches it, as a
+// checkbox's do, and Enter goes on, as from any value, so no key meant to move on changes it. After a switch nothing is
+// previewed until it's left, so the tag shows what was just done, even remounted under it. `to` is what a click leaves
+// (a relation unticked goes, its box empty); `fixed`, the box only says; `still`, drawn again as what it began is
+// discarded, it previews nothing till it's left, so it never looks ticked as it goes; `held`, its other state pending.
 let clicked = false;
-function TagBox({ r, flip, fx, over, change, label, to, fixed, still, children }) {
-  const [peek, setPeek] = useState(false), [hush, setHush] = useState(!!still), on = r?.tag, show = peek ? (to === undefined ? !(on ?? false) : to) : on;
+function TagBox({ r, flip, fx, over, change, label, to, fixed, still, reason, tone, held, children }) {
+  const [peek, setPeek] = useState(false), [hush, setHush] = useState(!!still), on = held ? held.tag : r?.tag, show = peek ? (to === undefined ? !(on ?? false) : to) : on;
   // A box that previews nothing (a relation not yet ticked, which its tick begins) leaves the redline to others.
-  const hover = p => { if (p && (clicked || hush)) return; setPeek(p); if (change) FormulaBar.preview(p ? change() : null); };
+  const hover = p => { if (reason || (p && (clicked || hush))) return; setPeek(p); if (change) FormulaBar.preview(p ? change() : null); };
   const leave = () => { clicked = false; setHush(false); if (peek) hover(false); };
   const key = e => { if (e.key !== 'Enter') return; e.preventDefault(); onward(e.currentTarget, e.shiftKey ? -1 : 1)?.focus(); };
-  return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'tag' + (show === true ? ' yes' : show === false ? ' no' : '') + (fx && !peek ? ' fx' : '') + (peek ? ' peek' : '')}
-    role="checkbox" aria-checked=${on ? 'true' : 'false'} aria-label=${label && (on === false ? `${label}, ruled out` : label)} disabled=${App.readOnly.value || !!fixed}
+  return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'tag' + (show === true ? ' yes' : show === false ? ` no${tone ? ' ' + tone : ''}` : '') + (fx && !peek ? ' fx' : '') + (peek || held ? ' peek' : '')}
+    role="checkbox" aria-checked=${on ? 'true' : 'false'} aria-label=${label && (on === false ? `${label}, ruled out` : label)} disabled=${(App.readOnly.value && !reason) || !!fixed}
     onPointerEnter=${() => hover(true)} onPointerLeave=${leave} onFocus=${e => e.currentTarget.matches(':focus-visible') && hover(true)} onBlur=${leave} onKeyDown=${key}
     onClick=${() => { hover(false); clicked = true; flip(); }} /></span>${children}</span>`;
 }
@@ -495,12 +503,14 @@ function Output({ id, slot, label }) {
   if (g) return html`<${Answers} g=${g} />`;
   const r = id ? recs()[id] : null, f = !!id && fx(id), o = !!id && overrides(id);
   const k = r ? null : slot.type ? slot : kindAt(tree(slot.at), slot.edge);
-  const type = r ? T.typeOf(r) : k.type, set = out => put(id, slot, out);
+  const type = r ? T.typeOf(r) : k.type, set = (out, o2) => put(id, slot, out, o2), held = id ? App.held(id) : undefined;
   const more = !r ? null : !f ? html`<${Versions} id=${id} />` : r.field === 'date' ? html`<${Filed} id=${id} />` : null;
-  return type === 'tag' ? html`<${TagBox} r=${r} fx=${f} over=${o} label=${label} flip=${() => flip(id, slot)} change=${() => putChange(id, slot, flipped(id))}>${more}</${TagBox}>`
-    : type === 'choice' ? html`<${Choice} r=${r} id=${id} fx=${f} over=${o} put=${set} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}
+  return type === 'tag' ? html`<${TagBox} r=${r} fx=${f && !held} over=${o} label=${label} reason=${f && !held} tone=${id ? App.noTone(id) : ''} held=${held}
+        flip=${() => (held ? set(false) : f ? emit('why-open', id) : flip(id, slot))} change=${f || held ? null : () => putChange(id, slot, flipped(id))}>${more}</${TagBox}>`
+    : type === 'choice' ? html`<${Choice} r=${held ? { ...r, ...held } : r} was=${held ? r.choice : null} id=${id} fx=${f && !held} over=${o} put=${out => (held && T.same(out.choice, r.choice) ? set(false) : set(out, { auto: true }))} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}
         hint=${!r && recs()[slot.at]?.kind ? namedOption(nameOf(slot.at), k.options ?? []) : null}>${more}</${Choice}>`
-    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} preview=${out => putChange(id, slot, out)} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}>${more}</${Field}>`;
+    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} preview=${out => putChange(id, slot, out)} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}
+        held=${held ? T.format(held.field, held.value) : null}>${more}</${Field}>`;
 }
 
 // ---- The record's entries, as a tree ----
@@ -508,6 +518,8 @@ function entryMenu(anchor, id) {
   const r = recs()[id], f = fx(id);
   menu(anchor, [
     { label: `All ${T.plural(r.edge)}`, keys: 'Alt+Click', run: () => select([general(patternOf(id))]) },
+    // What a formula gives is overridden only by saying so (App.overriding), as its reason in the formula bar offers it.
+    ...(f && 'tag' in r && !App.readOnly.peek() ? [{ label: r.tag ? 'Rule out…' : 'Attest…', run: () => App.overriding(id) }] : []),
     ...(f || App.readOnly.peek() ? [] : [{ label: 'Rename', run: () => { renaming.value = id; } }, ...(recs()[r.at]?.at ? [{ label: 'Move up a level', run: () => moveUp(id) }] : [])]),
     ...('field' in r || App.readOnly.peek() ? [] : [{ label: 'Add', items: addItems(id, anchor) }]),
     ...(f || App.readOnly.peek() ? [] : ['-', { label: 'Delete', danger: true, run: () => remove(id) }]),
@@ -526,13 +538,14 @@ function addItems(at, anchor) {
 // The lists of relatives a record's kind can have, by their names (Owners, General Partners, Holdings), as its sections
 // name them once it has some: each the relations of the schema, entered not worked out, of two sides, one of which the
 // record (or a record in it) fits. → [{ name, ways }]
-function listsOf(id) {
+function listsOf(id, docs = false) {
   const n = N(), own = within(id), lists = new Map(), S = Object.values(App.schema.value);
-  // A document is linked by Document…, not listed here.
+  // A document is linked by Document…, not listed here; `docs`, those alone, for what's linked to by a relation of its own
+  // (Evidence, of an ownership).
   const doc = loc => !!loc.kind && S.some(s => s.out?.field === 'document' && s.args?.length === 1 && T.same(s.args[0].loc.kind ?? '', loc.kind));
   for (const s of S) if (s.args?.length === 2 && ('tag' in s.out || 'choice' in s.out) && !n.resolve('Formula', T.bare(s))) for (const sm of s.args) {
     const sl = s.args.find(a => a !== sm), at = own.find(x => T.narrower(tree(x), sm.loc));
-    if (!at || !sl || doc(sl.loc)) continue;
+    if (!at || !sl || doc(sl.loc) !== docs) continue;
     const name = n.listName(T.bare(s), sl.edge), was = lists.get(T.norm(name));
     if (!was) lists.set(T.norm(name), { name, ways: [{ s, sm, sl, at }] }); else if (!was.ways.some(w => T.key(w.sl.loc) === T.key(sl.loc) && T.same(w.sm.edge, sm.edge))) was.ways.push({ s, sm, sl, at });
   }
@@ -548,9 +561,9 @@ function whoFor(id, l, q) {
   const out = [], seen = new Set(relatives(id).lists.find(([name]) => T.same(name, l.name))?.[1].map(it => it.obj) ?? []), words = T.norm(q ?? '');
   for (const w of l.ways) for (const x of Object.keys(recs())) {
     const b = objectOf(x);
-    if (seen.has(b) || b === id || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {}) || !T.norm(nameOf(b)).includes(words)) continue;
+    if (seen.has(b) || b === id || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {}) || !T.norm(placeName(b)).includes(words)) continue;
     seen.add(b);
-    out.push({ label: nameOf(b), detail: recs()[b].kind, run: () => joinTo(id, b, w, x) });
+    out.push({ label: placeName(b), detail: recs()[b].kind ?? nameOf(b), run: () => joinTo(id, b, w, x) });
   }
   out.sort((a, b) => a.label.localeCompare(b.label));
   // The kinds a new one can be, those the chart draws most first, as Insert offers them.
@@ -563,35 +576,49 @@ function whoFor(id, l, q) {
 // opens the two-box panel; any other is a change pending, as one ticked there is (App.relating), redlined and asked in
 // its row of the two-box panel, or, for a new one, in the bar; Enter makes it, the new one with it, as one change.
 function joinTo(id, b, w, lb, fresh = null) {
-  const make = tx => { const o = tx.add('record', { kind: fresh.kind }); tx.add('record', { at: o, edge: 'Name', field: 'text', value: fresh.name }); return o; };
-  if ('choice' in w.s.out) { if (fresh) { let o = null; if (!App.change(tx => { o = make(tx); App.showMade(tx, [o]); })) return; b = o; } return select([id, b]); }
+  // What's added here is left to the view (dendra.md, Views): by a relation it doesn't draw, the new one is kept off it by
+  // the same change, and where it isn't drawn, the toast says so, with Show.
+  const v = viewShown(), chart = v?.layout === 'chart' ? v : null; let o = null;
+  const make = tx => { o = tx.add('record', { kind: fresh.kind }); tx.add('record', { at: o, edge: 'Name', field: 'text', value: fresh.name }); if (chart && N().resolve('Shown', w.s, chart.id)?.value === false) tx.note('Shown', { id: o, kind: fresh.kind }, false, { view: chart.id }); return o; };
+  const off = () => !!chart && !!o && !linkOf(o) && !App.scene.peek()?.byId.has(o), told = { go: () => (off() ? ['Show', () => showHere([o], chart)] : null) }, saying = `${fresh?.name} isn’t on ${chart?.name}`;
+  if ('choice' in w.s.out) { if (fresh) { if (!App.change(make, { ...told, say: () => (off() ? saying : null) })) return; b = o; } return select([id, b]); }
   const rec = other => ({ args: [{ edge: w.sm.edge, at: w.at }, { edge: w.sl.edge, at: other }], tag: true });
   if (!fresh) {
     begin(id, b, [w.sm.edge, w.sl.edge, w.at, lb].join('|').toLowerCase(), { tag: true }, rec(lb));
     return select([id, b]);
   }
-  // The new one, related as it's made, is shown on the chart shown, where that would hide it, by the same change. What it
-  // asks is asked of a stand-in of its kind.
-  const p = T.bare(w.s), first = T.same(N().edges(p)[0], w.sm.edge), what = `${N().name(p)}: ${first ? `${shortOf(id)} → ${fresh.name}` : `${fresh.name} → ${shortOf(id)}`}`;
-  const made = tx => { const o = make(tx), r = tx.add('record', enterAt(tx, rec(o))); App.showMade(tx, [o]); return r; };
-  App.relating(rec('§new'), { what, source: `list ${id}`, needs: [id], make: made, say: c => Time.describe(c) }, { ...recs(), '§new': { kind: fresh.kind } });
+  // The new one, related as it's made. What it asks is asked of a stand-in of its kind.
+  const p = T.bare(w.s), first = T.same(N().edges(p)[0], w.sm.edge), here = rowName(id), what = `${N().name(w.s)}: ${first ? `${here} → ${fresh.name}` : `${fresh.name} → ${here}`}`;
+  const made = tx => { const n = make(tx), r = tx.add('record', enterAt(tx, rec(n))); return r; };
+  App.relating(rec('§new'), { what, source: `list ${id}`, needs: [id], make: made, ...told, say: c => (off() ? saying : Time.describe(c)) }, { ...recs(), '§new': { kind: fresh.kind } });
 }
 // A document linked: picked from SharePoint, where it's set up, or its link typed.
 const linkAdd = (anchor, at) => SharePoint.configured() ? menu(anchor, [{ label: 'SharePoint…', run: () => pickLink(at) }, { label: 'Link…', run: () => { linking.value = at; } }]) : (linking.value = at);
 
+// A clock time and a day, as History says when something was typed.
+const whenTyped = iso => { const d = new Date(iso); return `${short(T.isoOf(d))}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`; };
+// Who typed a fact and when: its author, the time, and any note on the change, with the way to its History.
+function typedBy(anchor, id) {
+  const by = App.enteredBy(id);
+  if (!by) return;
+  Shell.popover(anchor, close => html`<div class="typed">
+    <p class="who">${by.who}</p><p class="meta">${whenTyped(by.when)}${by.since ? ` · from ${short(by.since)}` : ''}${by.before ? ` · until ${short(by.before)}` : ''}</p>
+    ${by.note ? html`<p class="note">${by.note}</p>` : null}
+    <button class="btn ghost" onClick=${() => { close(); select([id]); if (Time.of) Time.of([id]); else Time.open('all'); }}>History</button></div>`, { placement: 'bottom-start' });
+}
 function Label({ it, fx }) {
   const r = it.id && recs()[it.id];
   if (r && renaming.value === it.id) return html`<input class="cell" value=${r.edge} ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())}
     onKeyDown=${e => { if (e.key === 'Enter') e.target.blur(); else if (e.key === 'Escape') { e.stopPropagation(); e.target.value = r.edge; e.target.blur(); } }}
     onBlur=${e => { renaming.value = null; rename(it.id, T.clean(e.target.value)); }} />`;
-  const click = e => { if (e.altKey && it.id) select([general(patternOf(it.id))]); else if (fx) emit('why-open', it.id); };
-  return html`<span class="lbl" onClick=${click} onContextMenu=${e => { if (it.id) { e.preventDefault(); entryMenu({ x: e.clientX, y: e.clientY }, it.id); } }}>
+  const click = e => { if (e.altKey && it.id) select([general(patternOf(it.id))]); else if (fx) emit('why-open', it.id); else if (r) typedBy(e.currentTarget, it.id); };
+  return html`<span class=${'lbl' + (fx || r ? ' asks' : '')} onClick=${click} onContextMenu=${e => { if (it.id) { e.preventDefault(); entryMenu({ x: e.clientX, y: e.clientY }, it.id); } }}>
     ${it.edge}${it.blank ? html`<i class="req" aria-label="Required" />` : null}</span>`;
 }
 
 // A tag ruled out where its definition's Check note says that's a problem (Ownership Adds Up): an error,
-// said in place in red, where any other ruled out is quiet.
-const failed = id => N().check(tree(id));
+// said in place in red, where any other ruled out is quiet, but one a Check note says needs attention, in amber.
+const failed = id => App.noTone(id) === 'fails';
 // ---- An entry on the chart: a field of the box (or line) its record is drawn as (dendra.md, Fields) ----
 // The box or line on the chart shown that an entry at `at` would be drawn in: the nearest record up from it that's one.
 function hostIn(at) {
@@ -684,8 +711,9 @@ function Entry({ it, at, depth }) {
     : html`<div class="v ctl"><${Output} id=${it.id} slot=${it} label=${it.edge} /></div>`;
   const light = on => fields()?.light(on ? fieldKey(it, at) : null);
   const grip = e => { const chart = carry(e, it); drag(e, (from, i) => { if (!chart()) reorder(at, moved(sibs(), from, i)); }, g => entryMenu(g, it.id)); };
+  const tone = r?.tag === false ? App.noTone(it.id) : '';
   return html`<div class="ent" data-drag=${r ? at : null}>
-    <div class=${'row' + (tag ? ' chk' : '') + (r?.tag === false ? (failed(it.id) ? ' failed' : ' ruled') : '') + (lit(it, at) ? ' lit' : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`}
+    <div class=${'row' + (tag ? ' chk' : '') + (r?.tag === false ? (tone === 'fails' ? ' failed' : tone === 'heeds' ? ' heeds' : ' ruled') : '') + (lit(it, at) ? ' lit' : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`}
       onKeyDown=${keyMenu} onPointerEnter=${() => light(true)} onPointerLeave=${() => light(false)} onCopy=${e => copied(e, it, at)}>
       ${r ? html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${grip}>${GRIP}</button>` : null}
       ${tag ? [v, k] : [k, v]}
@@ -727,12 +755,36 @@ function Entries({ at, depth, offer }) {
 }
 
 // ---- Relatives, documents and look: sections, each folding under its heading ----
-function Section({ title, n, shut = false, act, id, children }) {
+function Section({ title, n, shut = false, act, id, cls = '', children }) {
   const [open, setOpen] = useState(!shut);
   // Aimed at, as Find aims at a list, it opens.
   if (!open && aim.value === id) setOpen(true);
-  return html`<section class=${open ? 'open' : ''} data-key=${id}><h3 class="sect"><button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
+  return html`<section class=${(open ? 'open' : '') + cls} data-key=${id} data-title=${title}><h3 class="sect"><button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
     ${n ? html`<span class="n">${n}</span>` : null}${act}</h3>${open ? children : null}</section>`;
+}
+// A long panel's strip, sticky at its top: the record, then each section by its name, a click from each, folded or not;
+// Look and Position last, always shown, however many there are before them. It shows once the panel runs past the window.
+function Strip() {
+  App.state.value; App.scene.value;   // (Sections come and go with the chart.)
+  const [names, setNames] = useState([]), [long, setLong] = useState(false), ref = useRef();
+  useLayoutEffect(() => {
+    const panel = ref.current?.parentElement, pane = panel?.closest('.inspector');
+    if (!panel) return;
+    const now = [...panel.querySelectorAll(':scope > section')].map(s => s.dataset.title);
+    if (now.join('|') !== names.join('|')) setNames(now);
+    if (!long && pane && pane.scrollHeight > pane.clientHeight + 8) setLong(true);
+  });
+  const go = title => {
+    const panel = ref.current.parentElement, pane = panel.closest('.inspector');
+    if (!title) { pane.scrollTop = 0; return; }
+    const s = [...panel.querySelectorAll(':scope > section')].find(x => x.dataset.title === title);
+    s?.querySelector('.fold[aria-expanded="false"]')?.click();
+    setTimeout(() => s?.scrollIntoView({ block: 'start' }));
+  };
+  const chip = (title, label = title) => html`<button class="lk" key=${label} onClick=${() => go(title)}>${label}</button>`, pinned = ['Look', 'Position'].filter(x => names.includes(x));
+  return html`<nav class=${'strip' + (long ? '' : ' none')} ref=${ref} aria-label="Sections">
+    <span class="names" onWheel=${e => { if (e.deltaY) { e.currentTarget.scrollLeft += e.deltaY; e.preventDefault(); } }}>${chip(null, 'Record')}${names.filter(x => !pinned.includes(x)).map(x => chip(x))}</span>
+    ${pinned.length ? html`<span class="pinned">${pinned.map(x => chip(x))}</span>` : null}</nav>`;
 }
 const plus = (label, run) => App.readOnly.value ? null : html`<button class="btn icon" aria-label=${label} data-tip=${label} onClick=${run}>${icon('plus')}</button>`;
 
@@ -755,14 +807,36 @@ function detail(it) {
   const words = [...at.filter(([, e]) => 'choice' in e).map(([, e]) => e.choice), ...at.filter(([, e]) => e.field === 'text').map(([, e]) => e.value)];
   let role = 'choice' in rel ? rel.choice : 'field' in rel ? T.format(rel.field, rel.value) : at.some(([, e]) => 'choice' in e) ? words[0] : null;
   role = (role && words.find(w => w.length > role.length && T.norm(w).startsWith(T.norm(role)))) ?? role;
-  const facts = [...at.filter(([, e]) => e.tag === false).map(([id, e]) => ({ text: `${e.edge}: No`, no: !N().notes('Check').length || failed(id) })),
+  const figures = at.filter(([id, e]) => 'field' in e && !['text', 'date', 'document'].includes(e.field) && !(fx(id) && e.value === 0)).map(([, e]) => value(e)).filter(Boolean);
+  // With no role, its figures stand for one, at the right.
+  const figure = !role && figures.length ? figures.join(' · ') : null;
+  const facts = [...at.filter(([, e]) => e.tag === false).map(([id, e]) => ({ text: `${e.edge}: No`, no: failed(id) })),
     ...further(it).map(a => ({ text: `${lower(a.edge)} ${termOf(a.at)}` })),
     ...words.filter(w => !(role && T.same(w, role))).map(text => ({ text })),
-    ...at.filter(([id, e]) => 'field' in e && !['text', 'date', 'document'].includes(e.field) && !(fx(id) && e.value === 0)).map(([, e]) => ({ text: value(e) })).filter(f => f.text),
+    ...(figure ? [] : figures.map(text => ({ text }))),
     ...at.filter(([, e]) => e.field === 'date').map(([e, f]) => ({ date: e, text: `${N().isStart(tree(e)) ? 'since' : N().isEnd(tree(e)) ? 'ends' : lower(f.edge)} ${short(f.value)}` }))];
-  const ev = relatives(it.rid).docs.find(d => linkOf(d.obj)), why = !role && !facts.length && because(it.rid);
-  return { role: role ?? (why ? why.cite : null), tip: why?.words, facts: facts.slice(0, 3),
+  // When it holds, where it has no date of its own to say so: an ownership's period, or what's at its sides'.
+  const entered = !fx(it.rid), span = entered && !at.some(([, e]) => e.field === 'date') && App.spanOf(it.rid);
+  if (span?.from) facts.push({ text: `since ${short(span.from.day)}` });
+  if (span?.until) facts.push({ text: `until ${short(span.until.day)}` });
+  const ev = relatives(it.rid).docs.find(d => linkOf(d.obj)), why = !role && !figure && !facts.length && because(it.rid), ground = why && groundSaid(it);
+  return { role: role ?? figure ?? (why ? why.cite : null), tip: why?.words, facts: [...(ground ? [{ text: ground }] : []), ...facts].slice(0, 3), held: entered,
     doc: ev && { name: nameOf(ev.obj), href: SharePoint.href(recs()[linkOf(ev.obj)].value) } };
+}
+// A computed relative's ground, in words, where the rows that gave it have some (a label that's a citation has none): a row
+// of words ("general partner"), or, through another, whom and how: "via GP III, its general partner"; and how the
+// relative stands to that one, where its row has words ("managing member there").
+function groundSaid(it) {
+  const R = App.computed.value, r = recs(), rel = r[it.rid], def = R.computed[it.rid]?.def, word = l => l && !/^[(§]/.test(l) ? lower(l) : null;
+  let row = null;
+  try { row = Formulas.ground(R, it.rid)?.rows?.[0]; } catch {}
+  if (!row) return null;
+  const mine = rel.args.find(a => T.same(a.edge, it.mine))?.at, other = rel.args.find(a => T.same(a.edge, it.edge))?.at;
+  const ids = (row.parts ?? []).flatMap(p => [p.id, ...(p.items ?? []).map(x => x.id)]).filter(x => x && x !== it.rid && R.computed[x]?.def === def);
+  const to = ids.find(x => r[x]?.args?.some(a => a.at === mine)), from = ids.find(x => r[x]?.args?.some(a => a.at === other));
+  if (!to) return word(row.label);
+  const via = r[to].args.find(a => a.at !== mine)?.at, near = word(because(to)?.label), far = from && word(because(from)?.label);
+  return `via ${termOf(via)}${near ? `, ${near.includes(':') ? '' : 'its '}${near}` : ''}${far ? `; ${far} there` : ''}`;
 }
 const fact = (f, first) => { const text = first ? upper(f.text) : f.text; return f.date ? dated(f.date, text) : f.no ? html`<span class="no">${text}</span>` : text; };
 const facts = (list, first) => list.map((f, i) => html`${i ? ' · ' : ''}${fact(f, first && !i)}`);
@@ -791,6 +865,24 @@ function notText(it, held) {
     : `${says} ${termOf(it.obj)}${rest}${why ? `: ${lower(why.cite)}` : ''}`;
 }
 
+// A document linked to a record, from its Documents section's +: an object's by a link; a relation's (an ownership, a position)
+// by the relation it's evidenced by, one the chart has, or a new one named as it's typed, as a list's Add asks who.
+const docList = id => recs()[id].args ? listsOf(id, true)[0] ?? null : null;
+const docAdd = id => { const l = docList(id); return recs()[id].kind ? plus('Link a document', e => linkAdd(e.currentTarget, id)) : l ? plus('Add a document', e => addTo(e.currentTarget, id, l)) : null; };
+// How long a list a formula gives can be and stay open.
+const SHORT = 5;
+// Rows ticked in the panel's lists, the session's, till the selection moves on.
+const ticked = signal(new Set());
+// A relative as its row names it: an object by its short name; a relation by the place rule, with what it says (its role,
+// or its amount): "Margaret A. Chen → Cayman GP, Director", "Holdco → Blocker, 100%". placeName, as a tooltip or a search has
+// it: an object's name in full.
+function rowName(x) {
+  const r = recs()[x];
+  if (!r?.args) return shortOf(x);
+  const lead = 'choice' in r ? r.choice : (t => t?.amount ? T.outputText(recs()[t.amount]) : null)(App.transferable(x)) ?? slots(x).map(s => s.id && recs()[s.id]).find(e => e && 'choice' in e)?.choice;
+  return `${segment(x)}${lead ? `, ${lead}` : ''}`;
+}
+const placeName = x => recs()[x]?.args ? rowName(x) : nameOf(x);
 // A list's + adds to it as Add's list of it does (addTo): who, one the chart has or a new one named.
 function Relatives({ id }) {
   const { lists, docs, nots } = relatives(id);
@@ -798,11 +890,15 @@ function Relatives({ id }) {
   // A relative takes two lines: its name and role, then the facts; with no role, the facts take its place.
   // The name is the long thing and the role or figure the short one, set at the right.
   // One the chart shown leaves out, though it draws others of its list, says so, with Show (leftOut).
-  const left = new Map(leftHere(id).flatMap(p => p.items.map(it => [it.rid, it.show]))), v = viewShown();
-  const item = it => { const f = fx(it.rid), d = detail(it), out = left.get(it.rid);
-    return html`<div class="row rel" key=${it.rid}>
-      <div class=${'k' + (d.role || d.facts.length || d.doc ? '' : ' wide')}><${Go} to=${it.obj} cls=${f ? 'fx' : ''} title=${nameOf(it.obj)}>${bound(shortOf(it.obj))}</${Go}></div>
-      <div class="v">${d.role || d.facts.length ? html`<${Go} to=${it.rid} cls=${f ? 'fx' : ''} tip=${d.tip}>${d.role ?? facts(d.facts, true)}</${Go}>` : null}
+  const left = new Map(leftHere(id).flatMap(p => p.items.map(it => [it.rid, it.show]))), v = viewShown(), picked = ticked.value, still = App.readOnly.value;
+  const pick = rid => { const s = new Set(ticked.peek()); s.has(rid) ? s.delete(rid) : s.add(rid); ticked.value = s; };
+  // A relative's name goes to the record, its figure or role to the relation; each says so on hover, as a link does. An
+  // entered one has a box to tick, for ending several at once (see Section's End these…).
+  const item = it => { const f = fx(it.rid), d = detail(it), out = left.get(it.rid), going = goes(it.rid) || App.pending.value?.too?.includes(it.rid);
+    return html`<div class=${'row rel' + (going ? ' going' : '')} key=${it.rid}>
+      ${d.held && !still ? html`<input type="checkbox" class="tick" aria-label=${`Tick ${nameOf(it.obj)}`} checked=${picked.has(it.rid)} onChange=${() => pick(it.rid)} />` : null}
+      <div class=${'k' + (d.role || d.facts.length || d.doc ? '' : ' wide')}><${Go} to=${it.obj} cls=${f ? 'fx' : ''} tip=${`Open ${placeName(it.obj)}`}>${bound(rowName(it.obj))}</${Go}></div>
+      <div class="v">${d.role || d.facts.length ? html`<${Go} to=${it.rid} cls=${f ? 'fx' : ''} tip=${d.tip || `Open this ${lower(nameOf(it.rid))}`}>${d.role ?? facts(d.facts, true)}</${Go}>` : null}
         ${d.doc ? html`<a class="btn icon open" href=${d.doc.href} target="_blank" rel="noopener" aria-label=${`Open ${d.doc.name}`} data-tip=${d.doc.name}>${OPEN}</a>` : null}
         ${entriesAt(it.rid).filter(e => fx(e) && recs()[e].field === 'date').map(e => html`<span class="due-at" data-key=${e}><${Filed} id=${e} /></span>`)}</div>
       ${d.role && d.facts.length ? html`<div class="facts">${facts(d.facts)}</div>` : null}
@@ -810,17 +906,25 @@ function Relatives({ id }) {
   // A document by its name, its first choice and date beneath, and a way to open it.
   const docRow = it => { const l = recs()[linkOf(it.obj)], s = slots(it.obj).filter(x => x.id).map(x => recs()[x.id]);
     const sub = [s.find(x => 'choice' in x)?.choice, s.find(x => x.field === 'date')].filter(Boolean).map(x => x.value ? short(x.value) : x);
-    return html`<div class="doc" key=${it.rid}><${Go} to=${it.obj}>${bound(nameOf(it.obj))}</${Go}>
+    return html`<div class="doc" key=${it.rid}><${Go} to=${it.obj} tip=${`Open ${nameOf(it.obj)}`}>${bound(nameOf(it.obj))}</${Go}>
       ${l ? html`<a class="btn icon open" href=${SharePoint.href(l.value)} target="_blank" rel="noopener" aria-label="Open" data-tip="Open">${OPEN}</a>` : null}
       ${sub.length ? html`<span class="meta">${sub.join(' · ')}</span>` : null}</div>`; };
   // Lists someone entered first; those a formula gave, folded, after; then documents, once there are any; and
   // last, quieter, what's ruled out, each with its reason's words on hover.
   const worked = items => items.every(it => fx(it.rid)), typing = linking.value === id;
   const held = lists.flatMap(([, items]) => items);
-  return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${items.length}
-      shut=${worked(items)} act=${items[0].rest.length || worked(items) ? null : plus(`Add to ${name}`, e => add(e, name))}>${items.map(item)}
+  // A list's count says how many of it a check fails at: "3 · 1 doesn't hold".
+  const counted = items => { const bad = items.filter(it => entriesAt(it.rid).some(e => recs()[e].tag === false && failed(e))).length;
+    return bad ? html`${items.length} · <span class="no">${bad} ${bad === 1 ? 'doesn’t' : 'don’t'} hold</span>` : items.length; };
+  // Ticked rows of a list end together, on one day, as a change pending; the panel stays on this record.
+  const endRows = items => { const ids = items.filter(it => picked.has(it.rid)).map(it => it.rid);
+    return !ids.length || still ? null : html`<button class="btn ghost ends" onClick=${() => { const n = ids.length; App.deleting(ids, n === 1 ? said(ids[0]) : `${n} ${lower(T.plural(nameOf(ids[0])))}`, { source: 'inspector', auto: true, done: () => { ticked.value = new Set(); } }); }}>${App.deleteVerb(ids)} ${ids.length > 1 ? 'these' : 'this'}…</button>`; };
+  const adds = (name, items) => items[0].rest.length || worked(items) ? null : plus(`Add to ${name}`, e => add(e, name));
+  // A list a formula gives is folded where it's long; a short answer (a fund's Controllers) shows.
+  return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${counted(items)}
+      cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} act=${html`${endRows(items)}${adds(name, items)}`}>${items.map(item)}
       ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t…</button></div>` : null}</${Section}>`)}
-    ${docs.length || typing ? html`<${Section} title="Documents" n=${docs.length} act=${recs()[id].kind ? plus('Link a document', e => linkAdd(e.currentTarget, id)) : null}>
+    ${docs.length || typing || docList(id) ? html`<${Section} title="Documents" id="docs" n=${docs.length} act=${docAdd(id)}>
       ${docs.map(docRow)}
       ${typing ? html`<div class="row"><div class="k wide"><input class="cell" placeholder="Link" aria-label="Link" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
         onKeyDown=${e => { if (e.key === 'Enter') { const u = T.clean(e.target.value); if (T.isAddress(u)) { linking.value = null; link(id, u); } else e.target.setAttribute('aria-invalid', 'true'); } else if (e.key === 'Escape') { e.stopPropagation(); linking.value = null; } }}
@@ -846,7 +950,7 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
 function LookSection({ look, reset, named }) {
   if (!look.length) return null;
   const from = [...new Set(look.map(x => x.from))];
-  return html`<${Section} title="Look" act=${reset}>${from.map(f => html`
+  return html`<${Section} title="Look" id="look" act=${reset}>${from.map(f => html`
     ${f ? html`<div class="row src" key=${f}><div class="k wide">${f}</div></div>` : null}
     ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${labelOf(x.label, named)}</div><div class="v">${val(x.label, x.value, named)}</div></div>`)}`)}</${Section}>`;
 }
@@ -855,7 +959,7 @@ function LookSection({ look, reset, named }) {
 // its proportions as either is typed: { on, set }.
 const PLACES = [['Left', 'x'], ['Top', 'y'], ['Width', 'w'], ['Height', 'h']];
 const Place = ({ at, put, reset, keys = 'xywh', lock, turn }) => { const page = App.scene.value?.page;
-  return html`<${Section} title="Position" act=${reset}>
+  return html`<${Section} title="Position" id="place" act=${reset}>
   ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v ctl" data-place=${k}>
     <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, at[k] / Scene.PT) * 10) / 10 }} datatype="number" label=${label}
       put=${out => out && put(k, Math.round(Scene.fromSlide(page, out.value) * Scene.PT * 100) / 100)}><span class="unit">pt</span></${Field}></div></div>`)}
@@ -888,12 +992,22 @@ function Look({ id }) {
 // ---- The views of a selection ----
 // A header: its eyebrow, where it says more than the title does, and the title, or `children` in its place.
 // `more`, what can be done with what's shown, as its box's or row's right-click offers it: behind ⋯ at the top right.
-function Head({ path = [], title, more, children }) {
+// `span`, when it holds, under its title.
+function Head({ path = [], title, more, span, children }) {
   const said = path.length && !(path.length === 1 && T.same(path[0].label, title));
   return html`<header class="ih">
     ${said ? html`<nav class="path">${path.map(p => p.go ? html`<button class="lk" data-tip=${p.tip ?? null} onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
     ${more ? html`<button class="btn icon more" aria-label="More" data-tip="More" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, more(), { placement: 'bottom-end' })}>${icon('more')}</button>` : null}
-    ${children ?? html`<h2 class="ih-title">${title}</h2>`}</header>`;
+    ${children ?? html`<h2 class="ih-title">${title}</h2>`}${span}</header>`;
+}
+// When a record holds, as its head says it (App.spanOf): "From May 22, 2023, when Fund III Blocker was formed", "Until
+// Feb 1, 2027"; an object's by the act its entries record ("Formed", "Dissolved"). Each day is a link to the chart then.
+function Span({ id }) {
+  const { from, until } = App.spanOf(id), at = d => Shell.at(d === Log.today() ? null : { asOf: d }), before = d => later(d, -1);
+  if (!from && !until) return null;
+  return html`<p class="span">
+    ${from ? html`<span>${from.word ?? 'From'} <button class="lk day" onClick=${() => at(from.day)}>${short(from.day)}</button>${from.when ? `, ${from.when}` : ''}</span>` : null}
+    ${until ? html`<span>${until.word ?? 'Until'} <button class="lk day" onClick=${() => at(until.day <= App.day.value ? before(until.day) : until.day)}>${short(until.day)}</button>${until.when ? `, ${until.when}` : ''}</span>` : null}</p>`;
 }
 // What can be done with a record from its panel: what its box's or line's right-click has that isn't the chart's own
 // arranging, in sections, none empty: where to see more of it (its table, every box of its option, its History); hiding
@@ -908,6 +1022,7 @@ function moreOf(id) {
     chart && (r.kind || r.args) ? [drawn ? { label: 'Hide in this view', disabled: still, run: hide }
       : hiddenNote(id, v.id) ? { label: 'Show in this view', disabled: still, run: () => showHere([id], v) } : null].filter(Boolean) : [],
     [...(App.transferable(id) ? [{ label: 'Transfer…', disabled: still, run: () => App.transferring(id) }] : []),
+      ...(App.interposable(id) ? [{ label: 'Insert an entity between…', disabled: still, run: () => App.interposing(id) }] : []),
       { label: `${App.deleteVerb([id])}…`, danger: true, disabled: still, run: () => remove(id, { auto: true, inline: true }) }],
   ];
   return sections.filter(s => s.length).flatMap((s, i) => i ? ['-', ...s] : s);
@@ -946,28 +1061,27 @@ function RecordView({ id }) {
   const path = T.pathOf(recs(), id), first = slots(id).find(s => s.id && 'choice' in recs()[s.id]), name = r.kind ? null : nameOf(id);
   // An object's title is its Name, typed over (cleared, it stays); a relation's or an entry's is what it is,
   // with its tag's box before it, as the formula bar has it.
+  const nameId = entryNamed(id, 'Name'), held = nameId ? App.held(nameId) : undefined;
+  const span = (r.kind || r.args) ? html`<${Span} id=${id} />` : null;
   const head = r.kind
-    ? html`<${Head} more=${() => moreOf(id)} path=${[{ label: r.kind, go: () => kindTable(id), tip: `Open ${T.plural(r.kind)}` }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
-        <${Field} r=${recs()[entryNamed(id, 'Name')]} datatype="text" ph="Name" title put=${out => out && put(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)}
-          preview=${out => out && putChange(entryNamed(id, 'Name'), { at: id, edge: 'Name' }, out)} /></${Head}>`
-    : html`<${Head} title=${name} more=${r.args ? () => moreOf(id) : null} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
-        ${boxed(id) ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm">${name}</span></h2>` : null}</${Head}>`;
+    ? html`<${Head} more=${() => moreOf(id)} span=${span} path=${[{ label: r.kind, go: () => kindTable(id), tip: `Open ${T.plural(r.kind)}` }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
+        <${Field} r=${recs()[nameId]} id=${nameId} datatype="text" ph="Name" title held=${held ? held.value : null} put=${(out, o) => (out || out === false) && put(nameId, { at: id, edge: 'Name' }, out, o)}
+          preview=${out => out && putChange(nameId, { at: id, edge: 'Name' }, out)} /></${Head}>`
+    : html`<${Head} title=${name} span=${span} more=${r.args ? () => moreOf(id) : null} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
+        ${boxed(id) ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm lbl asks" onClick=${e => (fx(id) ? emit('why-open', id) : typedBy(e.currentTarget, id))}>${name}</span></h2>` : null}</${Head}>`;
   const sides = r.args ? N().sides(recs(), id) : [];
   // A deletion or a transfer of it pending is asked here too, atop its panel, as in the bar; a relation that can be
   // transferred says so quietly beside Add, as its line's menus do.
   const p = App.pending.value, here = p?.chart === App.chart.value && (p.transfer?.rid === id || (p.verb === 'Delete' && p.needs?.length === 1 && p.needs[0] === id)) ? p : null;
   const moving = !here && !App.readOnly.value && r.args && App.transferable(id)
     ? html`<button class="btn ghost add-entry" onClick=${() => App.transferring(id)}>${icon('ArrowRightLeft')}Transfer…</button>` : null;
-  // A record whose period ends after the day shown (deleted, or transferred, from a later day) says the day it ends on,
-  // the first it no longer holds, a link to the chart then.
-  const ends = App.shown.value.item(App.chart.value, id).find(v => Log.validOn(v, App.day.value))?.before;
   return html`<div class=${'insp' + (goes(id) ? ' going' : '')}>${head}
     ${here ? html`<${App.Asking} key=${here.n} p=${here} />` : null}
+    <${Strip} />
     <div class="rows">
       ${sides.map(a => { const way = trail(a.at);
-        return html`<div class="row" key=${a.edge}><div class="k">${a.edge}</div><div class="v"><${Go} to=${objectOf(a.at)}>${bound(nameOf(objectOf(a.at)))}</${Go}>
+        return html`<div class="row" key=${a.edge}><div class="k">${a.edge}</div><div class="v"><${Go} to=${objectOf(a.at)} tip=${`Open ${nameOf(objectOf(a.at))}`}>${bound(nameOf(objectOf(a.at)))}</${Go}>
         ${way ? html`<span class="muted"> › ${way}</span>` : null}</div></div>`; })}
-      ${ends ? html`<div class="row ends" key="ends"><div class="k">Ends on</div><div class="v"><button class="lk" onClick=${() => Shell.at({ asOf: ends })}>${T.formatDate(ends)}</button></div></div>` : null}
       ${r.kind || boxed(id) ? null : html`<div class="row" data-key=${id}><div class="k"><span class="lbl">${name}</span></div>
         <div class="v ctl"><${Output} id=${id} slot=${r} label=${name} /></div></div>`}
       ${'field' in r ? null : html`<${Entries} at=${id} depth=${0} /><${AddRow} at=${id} also=${moving} />`}
@@ -977,19 +1091,21 @@ function RecordView({ id }) {
     ${(r.kind || r.args) && App.scene.value?.byId.has(id) ? html`<${Look} id=${id} />` : null}
   </div>`;
 }
-// A record not in the chart on the day shown. One that starts after it says when, by the act its start entry records
-// (Formed) or else From, with Show the chart then; any other, that it isn't in the chart then.
+// A record not in the chart on the day shown says so as a state, with the way to the chart when it was. One that starts
+// after it says when, by the act its start entry records (Formed) or else From. One that ended before it says when, by
+// its end entry's act (Dissolved) or else Ended. Any other, that it isn't in the chart then.
 function LaterView({ id }) {
   App.version.value;
-  const c = App.chart.value, wb = App.shown.value, d = App.heldFrom(id, App.day.value);
+  const c = App.chart.value, wb = App.shown.value, d = App.heldFrom(id, App.day.value), gone = !d ? App.heldUntil(id, App.day.value) : null;
   if (!wb.item(c, id).length) return null;
-  const then = d && wb.asOf(c, d), x = then?.[id];
+  const on = d ?? gone?.last, then = on && wb.asOf(c, on), x = then?.[id];
   if (!x) return html`<div class="empty"><span>Not in the chart as of ${short(App.day.value)}</span>
     ${Shell.time.value ? html`<button class="btn" onClick=${() => Shell.at(null)}>Today</button>` : null}</div>`;
-  const start = (T.index(then).entries.get(id) ?? []).find(e => then[e].field === 'date' && then[e].value === d && N().isStart(T.treeOf(then, e)));
-  const said = (start && App.actOf(then[start].edge)?.[1]) || 'From', name = x.kind ? N().nameOf(then, id) : `${N().nameOf(then, id)}: ${N().segmentOf(then, id)}`;
+  const entry = test => (T.index(then).entries.get(id) ?? []).find(e => then[e].field === 'date' && test(T.treeOf(then, e)) && then[e].value === (d ?? gone.day));
+  const was = d ? entry(t => N().isStart(t)) : entry(t => N().isEnd(t));
+  const words = (was && App.actOf(then[was].edge)?.[1]) || (d ? 'From' : 'Ended'), name = x.kind ? N().nameOf(then, id) : `${N().nameOf(then, id)}: ${N().segmentOf(then, id)}`;
   return html`<div class="insp"><${Head} path=${x.kind ? [{ label: x.kind }] : []} title=${bound(name)} />
-    <div class="later"><span>${said} ${short(d)}</span><button class="btn" onClick=${() => Shell.at(d === Log.today() ? null : { asOf: d })}>Show the chart then</button></div></div>`;
+    <div class="later"><span>${words} ${short(d ?? gone.day)}</span><button class="btn" onClick=${() => Shell.at(on === Log.today() ? null : { asOf: on })}>Show the chart then</button></div></div>`;
 }
 // A box or line the chart shown hides by its own note (Delete, Hide in this view): said, with the way to show it
 // there again, its own Shown in the view, as the narrowest decides. Any other way out of a chart is the view's.
@@ -1214,11 +1330,17 @@ function RelateView({ a, b }) {
   }));
   const slotOf = x => { const got = x.rest.map(p => picks[x.key + p.edge]); return got.every(Boolean) ? { args: [{ edge: x.ea, at: x.la }, { edge: x.eb, at: x.lb }, ...x.rest.map((p, k) => ({ edge: p.edge, at: got[k] }))], options: x.options } : null; };
   const pick = (e, x, p) => menu(e.currentTarget, Object.keys(r).filter(y => !('field' in r[y]) && T.narrower(tree(y), p.loc)).map(y => ({ label: nameOf(objectOf(y)), run: () => setPicks({ ...picks, [x.key + p.edge]: y }) })), { search: true });
-  const side = (at, first) => first ? bound(shortOf(objectOf(at))) : termOf(at);
+  const side = (at, first) => r[at]?.args ? rowName(at) : first ? bound(shortOf(objectOf(at))) : termOf(at);
   // A role chosen in the sentence: its option in its place, or "…" till one is, a dropdown of the options.
   const role = (label, now, options, choose) => said => html`<button class=${'sel dd' + (now ? '' : ' ph')} aria-label=${`${label}: ${now ?? 'none'}`} aria-haspopup="menu"
     onClick=${e => menu(e.currentTarget, options.map(o => ({ label: o, checked: !!now && T.same(o, now), run: () => !(now && T.same(o, now)) && choose(o) })))}><span>${said}</span></button>`;
 
+  // What's between them, as the formula bar says it (FormulaBar.between): a figure's chain written out, and each relation a
+  // formula could give the two that doesn't hold, why not, in a sentence; clicked, the bar is on it. One ruled out by name is
+  // said among what holds.
+  const between = T.isObject(r[a]) && T.isObject(r[b]) ? FormulaBar.between?.(a, b) : null, chainOf = id => between?.holds.find(l => l.id === id)?.chain ?? null;
+  const notRow = l => html`<div class="rr not" key=${l.key}><span class="ctl"><span class="tag" aria-disabled="true" /></span>
+    <span class="nm"><button class="lk" onClick=${() => FormulaBar.pickLine?.(l.key)}>${l.sentence}</button></span></div>`;
   // What holds: its box first, ticked whatever its output (a tag a formula gives, or one ruled out, flips as a tag's
   // does; any other entered, unticked, goes, as a deletion does, its bar asking until when); the sentence, its role
   // a dropdown where it's entered (italic where a formula gives it, and why beneath, as the formula bar says it, its
@@ -1235,7 +1357,7 @@ function RelateView({ a, b }) {
         <span class="nm">${sentence(tree(x.id), n.placed(r, x.id).map(s => s.edge), (e, first) => side(at(e), first), { choice: rel.choice, not: rel.tag === false, role: chosen,
           wrap: words => html`<${Go} to=${x.id} cls=${f ? 'fx' : ''}>${words}</${Go}>` })}</span>
         <span class="val">${'field' in rel ? html`<${Output} id=${x.id} slot=${rel} label=${x.name} />` : null}</span>
-        ${why ? html`<span class="why" data-tip=${why.words || null}>${why.cite}</span>` : null}
+        ${why || chainOf(x.id) ? html`<span class="why" data-tip=${why?.words || null}>${[why?.cite, chainOf(x.id)].filter(Boolean).join(' · ')}</span>` : null}
         ${gone && p.needs.length === 1 ? ask(p) : null}
       </div>
       ${f ? null : html`<div class="rr-at" key=${x.id + '@'}><${Entries} at=${x.id} depth=${0} offer=${x.key === added} /></div>`}`; };
@@ -1312,13 +1434,14 @@ function RelateView({ a, b }) {
   for (const id of Object.keys(r)) if (r[id].args?.length > 1 && !fx(id)) { const k = T.norm(nameOf(id)); uses.set(k, (uses.get(k) ?? 0) + 1); }
   const used = x => uses.get(T.norm(x.name)) ?? 0;
   const holds = [...held.values()].sort(order), could = [...open.values()].sort((x, y) => named(x) - named(y) || filled(x) - filled(y) || fits(x) - fits(y) || used(y) - used(x) || x.name.localeCompare(y.name) || (y.la === a) - (x.la === a)), after = [...later.values()].sort((x, y) => x.since.localeCompare(y.since));
-  const name = x => html`<${Go} to=${x}>${bound(nameOf(objectOf(x)))}${x !== objectOf(x) ? html`<span class="muted"> › ${segment(x)}</span>` : null}</${Go}>`;
+  const name = x => html`<${Go} to=${x}>${r[x].args ? bound(`${nameOf(x)}: ${rowName(x)}`) : html`${bound(nameOf(objectOf(x)))}${x !== objectOf(x) ? html`<span class="muted"> › ${segment(x)}</span>` : null}`}</${Go}>`;
   // What else could hold, once asked for; at once where nothing did.
   const ghost = (label, run) => html`<div class="rr new"><button class="btn ghost add-entry" onClick=${run}>${icon('plus')}${label}</button></div>`;
   none.current ??= !holds.length;
   return html`<div class="insp" data-tour="pair">
     <header class="ih"><h2 class="ih-title">${name(a)} <span class="and">and</span> ${name(b)}</h2></header>
     ${holds.length || after.length ? html`<div class="relate">${holds.map(heldRow)}${after.map(laterRow)}</div>` : null}
+    ${between?.not.some(l => !held.has(l.id) && l.sentence) ? html`<div class="relate nots-of">${between.not.filter(l => !held.has(l.id) && l.sentence).map(notRow)}</div>` : null}
     ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
       ${form ? html`<div class=${'rr new' + (ours ? ' adding' : '')} onKeyDown=${formKeys}><span class="ctl"><span class=${'tag' + (ours ? ' yes' : '')} /></span><span class="form">
@@ -1463,7 +1586,13 @@ function Many({ ids }) {
 let host = null, aimed = null;
 function Inspector() {
   const sel = Shell.selection.value, key = sel.join();
-  useLayoutEffect(() => { const s = host?.closest('.inspector'); if (s && aimed !== key) s.scrollTop = 0; aimed = null; }, [key]);
+  useLayoutEffect(() => {
+    const s = host?.closest('.inspector'), top = backTo?.key === key ? backTo.top : null;
+    // (Again once it's drawn, as its strip takes its room only then.)
+    if (s && top !== null) { s.scrollTop = top; requestAnimationFrame(() => { s.scrollTop = top; }); }
+    else if (s && aimed !== key) s.scrollTop = 0;
+    aimed = null; backTo = null;
+  }, [key]);
   return chosen(sel);
 }
 // What a selection key names: a free shape (or a row of a Key) has its own panel; a relation's text in one box
@@ -1472,7 +1601,8 @@ function chosen(sel) {
   const p = sel.length === 1 && Shell.pattern(sel[0]);
   if (!App.chart.value) return null;   // opening
   if (p) return html`<${GeneralView} key=${sel[0]} p=${p} />`;
-  if (sel.length === 2 && sel.every(k => T.isObject(recs()[k] ?? {}))) return html`<${RelateView} key=${sel.join()} a=${sel[0]} b=${sel[1]} />`;
+  // (Two records either of which may be a relation: an ownership and the certificate that evidences it.)
+  if (sel.length === 2 && sel.some(k => T.isObject(recs()[k] ?? {})) && sel.every(k => T.isObject(recs()[k] ?? {}) || recs()[k]?.args)) return html`<${RelateView} key=${sel.join()} a=${sel[0]} b=${sel[1]} />`;
   if (sel.length > 1) return html`<${Many} ids=${sel} />`;
   // A frame is drawn by a style: selecting it shows the entry the style is of, with its styles.
   const frame = sel.length === 1 && sel[0].startsWith('frame:') && App.scene.value?.byId.get(sel[0]);
@@ -1501,7 +1631,15 @@ const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' 
   return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, go: a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
 }));
 
-Shell.register('inspector', { mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
+// A list's Add, asked for from elsewhere (a transfer's toast: Add an owner of Holdco…): the record shown, its Add's search open
+// on that list's who.
+function addToList(id, list) {
+  const l = listsOf(id).find(x => T.same(x.name, list));
+  Shell.showPanel?.();
+  select([id]);
+  if (l) setTimeout(() => { const at = document.querySelector('.insp .addrow .add-entry'); if (at) addTo(at, id, l); }, 120);
+}
+Shell.register('inspector', { addTo: addToList, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
 Shell.register('attention', { items: () => attention.value });
 // What the panel's ⋯ changes, for Find, of the one record selected: Transfer… (by the words a sale goes by) and Delete…,
 // with why not, where they can't be.
@@ -1510,6 +1648,15 @@ const notNow = (can, what) => () => App.readOnly.peek() ? 'Can’t change the pa
 Shell.register('action', { id: 'record.transfer', name: 'Transfer…', names: ['Sell', 'Sale', 'Assign', 'Transfer ownership'],
   enabled: () => !App.readOnly.peek() && !!theOne() && !!App.transferable(theOne()), run: () => App.transferring(theOne()),
   why: notNow('Only a relation of two sides transfers', 'an ownership or another relation') });
+Shell.register('action', { id: 'record.interpose', name: 'Insert an entity between…', names: ['Insert', 'Interpose', 'Holdco', 'Between'],
+  enabled: () => !App.readOnly.peek() && !!theOne() && !!App.interposable(theOne()), run: () => App.interposing(theOne()),
+  why: notNow('Only an ownership takes one between', 'an ownership') });
+// What a formula gives, overridden by saying so, as the reason in the formula bar offers it.
+const computedTag = () => { const id = theOne(); return id && fx(id) && 'tag' in recs()[id] ? id : null; };
+Shell.register('action', { id: 'record.override', get name() { return computedTag() && !recs()[computedTag()].tag ? 'Attest…' : 'Rule out…'; }, names: ['Rule out', 'Attest', 'Override'],
+  enabled: () => !App.readOnly.peek() && !!computedTag(), run: () => App.overriding(computedTag()), why: notNow('Only what a formula gives is overridden', 'what a formula gives') });
+Shell.register('action', { id: 'record.merge', name: 'Merge into…', names: ['Merger', 'Merged into', 'Merge'],
+  enabled: () => !App.readOnly.peek() && !!theOne() && App.endsOf(theOne()).some(e => e.rel), run: () => App.merging(theOne()), why: notNow('Only what can merge merges', 'an entity') });
 Shell.register('action', { id: 'record.delete', get name() { return `${theOne() ? App.deleteVerb([theOne()]) : 'Delete'}…`; }, names: ['Delete', 'Remove', 'Dissolve', 'End'],
   enabled: () => !App.readOnly.peek() && !!theOne(), run: () => remove(theOne(), { auto: true, inline: true }), why: notNow('', 'what to delete') });
 // Renamed in its panel's title, its Name, which the keys go to.
@@ -1581,7 +1728,7 @@ preactSignals.effect(() => {
 // it was put away.
 on('relate-open', d => { Shell.showPanel?.(); select(d); });
 // A relation just added offers its entries while its two boxes stay selected.
-on('select', () => { fresh.value = null; });
+on('select', () => { fresh.value = null; if (ticked.peek().size) ticked.value = new Set(); });
 // A definition opened from the formula bar widens the inspector, since its statute set out wide is what the
 // bar was asked for.
 on('select', keys => { const p = keys.length === 1 && Shell.pattern(keys[0]); if (p && document.activeElement?.closest('.formulabar') && N().resolve('Formula', p)) Shell.widen(); });
