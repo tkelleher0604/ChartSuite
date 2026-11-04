@@ -234,7 +234,8 @@ async function historyChecks(ours, fund) {
   item('Viewing').click(); await tick(120);
   const v0 = N();
   check('Viewing: said in the title bar, filled', switchBtn()?.textContent === 'Viewing' && !!$('.titlebar .mode.viewing') && App.readOnly.peek());
-  check('… and nothing writes: a change', App.change(tx => tx.update('fund_ein', { value: '92-5555555' })) === null && N() === v0 && /^Viewing/.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
+  const refused = App.change(tx => tx.update('fund_ein', { value: '92-5555555' })); await tick(60);
+  check('… and nothing writes: a change, saying why', refused === null && N() === v0 && /^Viewing/.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
   check('… one pending', (App.stage({ verb: 'Add', what: 'x', make: () => {} }), !App.pending.peek()));
   check('… Undo', (undo(), N() === v0));
   check('… and the rest of History', (App.reverse(ours[3].id), App.restore('gp_agent'), N() === v0));
@@ -285,6 +286,11 @@ async function historyChecks(ours, fund) {
   [...$$('.toast button')].find(x => x.textContent === 'Redo').click(); await tick(150);
   check('… its toast’s Redo putting them all back', st().fund_ein.value === '92-6666663' && /^Redid 2 changes/.test($('.toast span')?.textContent ?? ''), `${st().fund_ein.value} ${$('.toast span')?.textContent}`);
   undo(); await tick(40); undo(); await tick(40); undo(); await tick(60);
+
+  // ---- A change's note, a line of why ----
+  const noted = App.wb.apply({ id: 'noted1', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'noted1a', record: 'noted1r', at: fund, edge: 'Test Remark', field: 'text', value: 'x' }], note: 'The auditors asked' }); await tick(120);
+  check('A change’s note shows on its entry', typeof noted !== 'string' && openOf(noted)?.querySelector('.note')?.textContent === 'The auditors asked', openOf(noted)?.textContent);
+  App.wb.reverse('noted1', 'Dana Jordan'); await tick(120);
 
   // ---- The status list: what's one problem is one ----
   Shell.closeAll(); await tick(40);

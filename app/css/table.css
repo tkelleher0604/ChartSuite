@@ -309,13 +309,12 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .hist-rule > .lab { font-weight: 500; color: var(--ink-2); }
 .hist-rule > .was, .hist-rule > .now { display: grid; grid-template-columns: 44px minmax(0, 1fr); margin-top: 2px; white-space: pre-wrap; }
 .hist-rule .ba { color: var(--ink-3); }
+.hist-rule .fn { font-variant: all-small-caps; letter-spacing: .04em; }
 .hist-rule .del { color: var(--no); text-decoration: line-through; }
 .hist-rule .add { color: var(--accent-ink); text-decoration: underline double; text-underline-offset: 2px; }
 .hist-fold { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 20px; border: 0; background: none; color: var(--ink-3); font: var(--t12); text-align: left; }
 .hist-fold:hover { background: var(--hover); color: var(--ink-2); }
 .hist-fold > svg { width: 12px; height: 12px; flex: none; }
-.hist-focus { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 8px 2px 20px; border-bottom: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); }
-.hist-focus > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hist-list { flex: 1; overflow: auto; padding-bottom: 16px; }
 .hist-day { position: sticky; top: 0; z-index: 1; padding: 16px 20px 4px; background: var(--surface); font: 500 var(--t12); color: var(--ink-3); }
 .hist-row { position: relative; padding: 8px 20px 8px; cursor: default; }

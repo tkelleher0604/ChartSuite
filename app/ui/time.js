@@ -704,10 +704,12 @@ const Time = (() => {
     }
     return [p, q];
   }
+  let FN = null;
+  const cased = t => t.split(FN ??= new RegExp(`\\b(${Formulas.FUNCTION_NAMES.join('|')})\\b`, 'g')).map((x, i) => i % 2 ? html`<span class="fn">${x}</span>` : x);
   const inks = (words, cls) => {
     const out = [];
-    for (const [t, on] of words) { if (on && out.at(-1)?.on) out.at(-1).t += t; else if (!on && out.length && !out.at(-1).on) out.at(-1).t += t; else out.push({ t, on }); }
-    return out.map(w => w.on ? html`<span class=${cls}>${w.t}</span>` : w.t);
+    for (const [t, on] of words) { if (out.length && out.at(-1).on === on) out.at(-1).t += t; else out.push({ t, on }); }
+    return out.map(w => w.on ? html`<span class=${cls}>${cased(w.t)}</span>` : cased(w.t));
   };
   // Each row that changed: paired by its label, or else in order; a row only on one side is all of it marked.
   function Rows({ was, now }) {
@@ -864,7 +866,7 @@ const Time = (() => {
     everything();
     now();
   }
-  Shell.register('action', { id: 'history', name: 'History', menu: 'chart', order: 10, run: () => { if (open.peek() && !focus.peek() && kind.peek() === 'all' && mode.peek() === 'all') close(); else { everything(); openHistory('all'); } } });
+  Shell.register('action', { id: 'history', name: 'History', names: ['Changes', 'Audit trail', 'Log', 'Who changed'], menu: 'chart', order: 10, run: () => { if (open.peek() && !focus.peek() && kind.peek() === 'all' && mode.peek() === 'all') close(); else { everything(); openHistory('all'); } } });
   // Its list of what's deleted, which Find reaches by what's done there too.
   Shell.register('action', { id: 'history.deleted', name: 'History › Deleted', names: ['Restore'], run: () => openHistory('deleted') });
 
