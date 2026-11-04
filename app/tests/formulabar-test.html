@@ -580,7 +580,8 @@ async function checks() {
   await saidOf([CLOSE_MGMT]);
   const alsoFact = [...document.querySelectorAll('.fx-said .fx-fact.go')].find(x => /an affiliated person of Margaret/.test(x.textContent));
   alsoFact?.click(); await wait(40);
-  check('a ground after “Also” steps down as any does, by the clause it cites', M().title === 'Affiliated Person' && M().clause === '(C)', `${M().title} ${M().clause}`);
+  check('a ground after “Also” steps down as any does, by the clause it cites, with its breadcrumb', M().title === 'Affiliated Person' && M().clause === '(C)' && /^Close Affiliate/.test(document.querySelector('.fx-crumb')?.textContent ?? ''), `${M().title} ${M().clause}`);
+  check('… and cites of what a row names (LET(a, …, a.[(C)] OR a.[(D)])) the clause it asks for that holds', /Margaret A\. Chen is an affiliated person of the Manager \(§2\(a\)\(3\)\(C\)\)\.$/.test(FormulaBar.because('fx:bdc=bdc_ics&close affiliate=chen')), FormulaBar.because('fx:bdc=bdc_ics&close affiliate=chen'));
   check('because(): plain text, or empty for what no row gives', FormulaBar.because('chen') === '' && FormulaBar.because(REMOTE_NS) === FormulaBar.sentence(REMOTE_NS));
   // A step down selects what it steps to: the panel follows the band
   await saidOf([OKAFOR_GP]);
@@ -591,9 +592,14 @@ async function checks() {
   check('… the rows still open, and the breadcrumb steps back, selecting it again', Shell.selection.peek().join() === M().id && M().id !== 'fx:controlled=fund&controller=okafor' && !!document.querySelector('.fx-panel') && !!document.querySelector('.fx-crumb'), `${Shell.selection.peek().join()} ${M().id}`);
   FormulaBar.back(); await wait(40);
   check('… back where it was', Shell.selection.peek().join() === 'fx:controlled=fund&controller=okafor' && M().id === 'fx:controlled=fund&controller=okafor' && !document.querySelector('.fx-crumb') && !!document.querySelector('.fx-panel'), Shell.selection.peek().join());
+  Shell.select(['pension', 'bdc']); await wait(40); await openRows();
+  [...document.querySelectorAll('.fx-said .fx-fact.go')].find(x => /affiliated person/.test(x.textContent))?.click(); await wait(40);
+  const stepped1 = Shell.selection.peek().length === 1 && !!document.querySelector('.fx-crumb') && !!document.querySelector('.fx-panel');
+  FormulaBar.back(); await wait(40);
+  check('… and from two records, back to the two', stepped1 && Shell.selection.peek().join() === 'pension,bdc' && M().options?.length > 0 && !document.querySelector('.fx-crumb') && !!document.querySelector('.fx-panel'), `${stepped1} ${Shell.selection.peek().join()}`);
   // A figure down a chain multiplies the whole chain
   const LT_AIV = 'fx:investment=tessellate&investor=inv_aiv';
-  check('a look-through says each link, then the whole sum', FormulaBar.because(LT_AIV) === 'AIV-1 Investors (Fund III and III-A Partners) is an owner of AIV-1 with a percentage of 100%, AIV-1 is an owner of AIV-1 Blocker with a percentage of 100% and AIV-1 Blocker is an owner of Tessellate Dental Partners Holdco, LLC with a percentage of 66%, so the look-through ownership of AIV-1 Investors (Fund III and III-A Partners) in Tessellate Dental Partners Holdco, LLC is 100% × 100% × 66% = 66%.', FormulaBar.because(LT_AIV));
+  check('a look-through says each link, then the whole sum', FormulaBar.because(LT_AIV) === 'AIV-1 Investors is an owner of AIV-1 with a percentage of 100%, AIV-1 is an owner of AIV-1 Blocker with a percentage of 100% and AIV-1 Blocker is an owner of Tessellate Dental Partners Holdco, LLC with a percentage of 66%, so AIV-1 Investors’ look-through ownership of Tessellate Dental Partners Holdco, LLC is 100% × 100% × 66% = 66%.', FormulaBar.because(LT_AIV));
   check('… and a holding of one link, as it is', FormulaBar.because('fx:investment=tessellate&investor=aivblk') === 'AIV-1 Blocker is an owner of Tessellate Dental Partners Holdco, LLC with a percentage of 66%, so its look-through ownership of Tessellate Dental Partners Holdco, LLC is 66%.', FormulaBar.because('fx:investment=tessellate&investor=aivblk'));
   // What's between two records: what holds, with its figure and chain; and what doesn't, why not
   const btw = FormulaBar.between('fund', 'tessellate'), said1 = d => btw.not.find(x => x.def === d && x.from === 'fund')?.sentence;
@@ -608,6 +614,8 @@ async function checks() {
   const nowhere = id => FormulaBar.between('macallister', 'bdc').not.find(x => x.def === id)?.sentence ?? '';
   check('why is MacAllister on neither list: only an affiliated person of a close affiliate not under the clauses asked', /not an affiliated person of any of the BDC’s close affiliates under \(b\)\(1\) or \(b\)\(2\), only of Cayman GP, which is not under \(b\)\(1\) or \(b\)\(2\) \(§57\(e\)\(2\)\)\.$/.test(nowhere('def_remote'))
     && /^Fiona MacAllister is not a close affiliate of the BDC: not among the BDC’s personnel/.test(nowhere('def_close')), `${nowhere('def_remote')} | ${nowhere('def_close')}`);
+  const byClause = FormulaBar.between('macallister', 'caygp').not.find(x => x.def === 'def_affiliated' && x.from === 'caygp')?.sentence ?? '';
+  check('… a relation asked by a clause, as asked: it holds, but not under (A)', /Fiona MacAllister is not an affiliated person of Cayman GP under \(A\) \(§2\(a\)\(3\)\(B\)\)/.test(byClause), byClause);
   check('… and of two that aren’t objects, nothing', !FormulaBar.between('own_fund_npine', 'bdc').holds.length && !FormulaBar.between('own_fund_npine', 'bdc').not.length);
   // The bar and Find say the same
   Shell.select(['fund', 'tessellate']); await wait(40);
@@ -624,6 +632,9 @@ async function checks() {
   pairFound?.run(); await wait(30);
   check('… and selects them both', Shell.selection.peek().join() === 'fund,tessellate', Shell.selection.peek().join());
   check('… but not one name, or a name and nothing', !findFor('Fund III').some(x => x.pair) && !findFor('Fund III Zebra').some(x => x.pair));
+  findFor('MacAllister BDC').find(x => x.pair)?.run(); await wait(30);
+  check('… a name in part, the record with most to it: the BDC, not its Bylaws', Shell.selection.peek().join() === 'macallister,bdc', Shell.selection.peek().join());
+  check('… and where none holds, the most derived that could, why not', M().absent && M().title === 'Remote Affiliate' && /only of Cayman GP/.test(document.querySelector('.fx-inline')?.textContent ?? ''), M().title);
   // Why isn't X here: a search of who could be on the list; picked, that relation open on the two
   Shell.select([]); await wait(20);
   const anchor = document.body.appendChild(document.createElement('button'));
@@ -779,7 +790,7 @@ async function checks() {
   document.querySelector('.fxbar [data-key="r0"]').click(); await wait(20);
   check('a row clicked is read: no field to type over, no grip, no way to delete it, and it’s lit', !document.querySelector('.fxbar input.fx-label') && !document.querySelector('.fxbar .fx-x') && !document.querySelector('.fxbar .fx-grip')
     && document.querySelector('.fxbar [data-key="r0"]').classList.contains('reading') && cmOf('r0').getOption('readOnly') === true && !document.querySelector('.fx-row.editing') && App.version.peek() === v2);
-  document.querySelector('.fxbar [data-key="r1"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await wait(40);
+  document.querySelector('.fxbar [data-key="r1"]').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 })); await wait(40);
   check('a double-click asks to write: its label a field, each row its delete, the cursor in it', !!document.querySelector('.fxbar input.fx-label') && !!document.querySelector('.fxbar .fx-x') && cmOf('r1').getOption('readOnly') === false && !document.querySelector('.fxbar .fx-pencil'));
   FormulaBar.discard(); await wait(30);
   check('… and Esc leaves it as it was, read', !document.querySelector('.fxbar input.fx-label') && !!document.querySelector('.fxbar .fx-pencil') && cmOf('r1').getOption('readOnly') === true && App.version.peek() === v2);

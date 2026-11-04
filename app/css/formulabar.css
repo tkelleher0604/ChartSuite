@@ -70,6 +70,10 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-fact.go:focus-visible { outline-offset: 1px; }
 .fx-said { padding: 4px 0 11px; margin-bottom: 7px; border-bottom: 1px solid var(--rule); }
 .fx-said > .fx-why { display: block; max-width: 112ch; text-wrap: pretty; }
+/* The relations two records could be in: each name, and the sides it's of. */
+.menu.fx-pick { max-width: min(640px, calc(100vw - 32px)); }
+.menu.fx-pick .menu-item > .label { flex: 1 0 auto; }
+.menu.fx-pick .menu-item > .detail { overflow: hidden; text-overflow: ellipsis; }
 /* The rest of what's between two records, each said in full; a click picks it. */
 .fx-between { list-style: none; margin: 0 0 7px; padding: 0 0 7px; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
 .fx-between > li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
@@ -102,6 +106,8 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-row.editable:not(.editing) > .fx-cm:hover .CodeMirror { background: var(--hover); border-radius: var(--r); }
 .fx-row.editing > .fx-cm .CodeMirror { background: var(--surface); border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), inset 0 0 0 1px var(--accent); }
 .fx-row.editing .CodeMirror-focused { outline: none; }   /* the row's ring is the focus ring; one, not two */
+.fx-row:not(.editing) .CodeMirror-focused { outline: none; }   /* a row read has text to select, no field */
+.fx-row:not(.editing) .CodeMirror-cursors { visibility: hidden; }
 .fx-row.editing .CodeMirror { color: var(--ink); }
 /* Why a row can't be made yet, once Enter asks, under it. */
 .fx-problem { grid-column: 2; margin: 0 2px 4px; font: var(--t12); color: var(--no); }
