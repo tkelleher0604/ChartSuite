@@ -1258,6 +1258,52 @@ async function run() {
   Shell.parts.value.undo.undo(); await tick(60);
   Shell.parts.value.undo.undo(); await tick(60);
 
+  // ---- A page owns its date (dendra.md, Views and Time): what it keeps, a look at another day, a step, a plan's one set of places ----
+  {
+    const sees = () => App.views.peek().filter(v => v.layout === 'chart'), [A, B] = sees(), D1 = '2038-03-01', D2 = '2038-05-01', today = Log.today(), was = Shell.view.peek();
+    const keeps = id => App.views.peek().find(v => v.id === id)?.keeps ?? null, band = () => document.querySelector('.pastband')?.textContent ?? '';
+    Shell.select([]); Shell.show(A.id); Shell.at(null); await tick(120);
+    Time.keep(A.id, today); await tick(60);
+    check('Today can be kept, and the tab says so', keeps(A.id) === today && Shell.time.peek()?.asOf === today && !!document.querySelector(`#tab-${A.id} .keeps`), keeps(A.id));
+    Shell.at({ asOf: D1 }); await tick(120);
+    check('On a kept tab another day is a look: the band says what it keeps, with Keep this instead and Back', /keeps/.test(band()) && /Keep this instead/.test(band()) && /Back/.test(band()) && keeps(A.id) === today, band());
+    check('… and Export isn’t moved by it', Time.pageDay(A.id) === today && App.day.peek() === D1, Time.pageDay(A.id));
+    Shell.show(B.id); await tick(120);
+    check('A tab that keeps none shows the day of the rest, not the look', !Shell.time.peek() && !band() && Time.pageDay(B.id) === today, JSON.stringify(Shell.time.peek()));
+    Shell.at({ asOf: D2 }); await tick(120);
+    check('… which nothing about a kept tab changes', Time.pageDay(B.id) === D2 && Time.pageDay(A.id) === today);
+    Shell.show(A.id); await tick(120);
+    check('Back on the kept tab it shows the day it keeps', Shell.time.peek()?.asOf === today && !band(), JSON.stringify(Shell.time.peek()));
+    Shell.show(B.id); await tick(120);
+    check('… and on the other, the day of the rest again', Shell.time.peek()?.asOf === D2);
+    Shell.at(null); Shell.show(A.id); await tick(120);
+    Time.keep(A.id, null); await tick(60);
+    check('Unticked, it lets its day go', !keeps(A.id));
+    // Next step…: a name and a date, one change: a copy keeping that date, titled as typed, marking what's changed, one plan with the page it's from.
+    const n0 = App.wb.changes().length, stepping = Time.nextStep(A.id);
+    await tick(60);
+    const dlg = document.querySelector('dialog.dlg'), [nameIn, dayIn] = dlg.querySelectorAll('input');
+    nameIn.value = 'Step X'; nameIn.dispatchEvent(new Event('input', { bubbles: true }));
+    dayIn.value = 'March 1, 2038'; dayIn.dispatchEvent(new Event('input', { bubbles: true }));
+    dlg.querySelector('.btn.primary').click(); await stepping; await tick(200);
+    const step = App.views.peek().find(v => v.name === 'Step X'), source = App.views.peek().find(v => v.id === A.id);
+    const titled = App.wb.rows(App.chart.peek()).find(r => 'shape' in r && r.view === step?.id && r.role === 'title')?.text;
+    check('Next step is one change: a copy keeping that date, its title the name typed, marking what’s changed since the page before', !!step && App.wb.changes().length === n0 + 1 && step.keeps === D1 && titled === 'Step X' && !!step.changes?.page, JSON.stringify(step));
+    check('… shown, after the page it’s from', Shell.view.peek() === step?.id && App.views.peek().findIndex(v => v.id === step?.id) === App.views.peek().findIndex(v => v.id === A.id) + 1);
+    check('… the page it’s from holding still, and the two one plan', source.keeps === today && !!step.plan && step.plan === source.plan, JSON.stringify(source));
+    check('… its style a Styles row like any other, last', Scene.isChange(App.notes.peek().styles(step.id).at(-1).pattern) && Scene.groupsOf(App.notes.peek(), step.id).filter(g => g.outputs.every(Scene.isChange)).map(g => g.caption).join() === 'New or changed,Gone');
+    // A place put on one page is put on every page of the plan, one change, said once.
+    const box = App.scene.peek().marks.find(m => m.type === 'box'), t = Tree.treeOf(App.state.peek(), box.record), moved = { x: 40, y: 40, w: box.w, hand: true };
+    App.change(tx => tx.note('Position', t, moved, { view: step.id }), { dated: false });
+    await tick(60);
+    check('A plan’s pages have one set of places', App.notes.peek().position(t, A.id)?.x === 40 && App.notes.peek().position(t, step.id)?.x === 40, JSON.stringify(App.notes.peek().position(t, A.id)));
+    Shell.parts.value.undo.undo(); await tick(60);
+    check('… and Undo takes it from them all', App.notes.peek().position(t, A.id)?.x !== 40 && App.notes.peek().position(t, step.id)?.x !== 40);
+    Shell.parts.value.undo.undo(); await tick(120);
+    Time.keep(A.id, null); await tick(60);
+    Shell.show(was); Shell.at(null); await tick(120);
+  }
+
   // ---- The panel's way of working ----
   Shell.select(['fund']); await tick(60);
   const scroller = document.querySelector('.inspector'); scroller.scrollTop = 400; await tick();

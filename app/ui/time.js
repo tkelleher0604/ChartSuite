@@ -72,25 +72,30 @@ const Time = (() => {
     const t = Shell.time.peek(), to = kept(id) ?? floating;
     if (!t?.stood && (t?.asOf ?? null) !== to) Shell.at(to ? { asOf: to } : null, { replace: true });
   };
+  // (A page opened by its address, once the workbook is, shows the day it keeps; one that keeps none, the day asked for.)
+  const arrive = () => {
+    const vs = App.views.peek(), v = Shell.view.peek();
+    if (arrived || !vs.length || v !== lastView) return;
+    arrived = true;
+    if (vs.find(x => x.id === v)?.keeps) queueMicrotask(() => go(v));
+    else floating = Shell.time.peek()?.asOf ?? null;
+  };
   // Showing a view that keeps a date shows that day; leaving it shows the day of the rest.
-  Shell.on('view-switch', id => { lastView = id; if (arrived) go(id); });
+  Shell.on('view-switch', id => { lastView = id; if (arrived) go(id); else arrive(); });
   Shell.effect(() => {
     const t = Shell.time.value, v = Shell.view.value, vs = App.views.value;
-    if (!vs.length || v !== lastView || t?.stood) return;
-    // (A page opened by its address, once the workbook is, shows the day it keeps.)
-    const first = !arrived;
-    arrived = true;
-    if (!vs.find(x => x.id === v)?.keeps) floating = t?.asOf ?? null;
-    else if (first) queueMicrotask(() => go(v));
+    if (!arrived) return arrive();
+    if (v === lastView && !t?.stood && !vs.find(x => x.id === v)?.keeps) floating = t?.asOf ?? null;
   });
   // Whether the day shown is a look: another than the day the page shown keeps.
   const looking = () => { const t = Shell.time.value, k = App.views.value.find(v => v.id === Shell.view.value)?.keeps; return !!k && !t?.stood && (t?.asOf ?? Log.today()) !== k; };
-  function away() { const t = Shell.time.value; return !!t && (!!t.stood || !App.views.value.find(v => v.id === Shell.view.value)?.keeps || looking()); }
+  function away() { const t = Shell.time.value; return !t && !looking() ? null : looking() ? 'Back' : t.stood || !App.views.value.find(v => v.id === Shell.view.value)?.keeps ? 'Today' : null; }
   // The day a page is drawn as of when it isn't the one shown: an export's, each page at its own.
   const pageDay = id => Shell.time.peek()?.stood ? App.day.peek() : kept(id) ?? floating ?? Log.today();
   // Keeping a day: what the page shows from then on, which the rest no longer follow; let go, it's the day of the rest.
   function keep(id, day) {
-    const c = App.change(tx => tx.note('As Of', viewTree(id), day ?? undefined), { dated: false });
+    const name = App.views.peek().find(v => v.id === id)?.name;
+    const c = App.change(tx => tx.note('As Of', viewTree(id), day ?? undefined), { dated: false, say: day ? `${name} keeps ${short(day)}` : `${name} keeps no day` });
     if (!c) return;
     if (id !== Shell.view.peek()) return;
     if (day) { floating = null; if ((Shell.time.peek()?.asOf ?? null) !== day) Shell.at({ asOf: day }, { replace: true }); }
@@ -879,7 +884,7 @@ const Time = (() => {
   const stand = c => { if (!Shell.time.peek()?.stood) home = Shell.view.peek(); Shell.at({ stood: c.id, at: c.when }); };
   function now() {
     const took = !App.views.peek().some(v => v.id === home);
-    if (Shell.time.peek()?.stood) Shell.at(null);
+    if (Shell.time.peek()?.stood) { Shell.at(null); go(Shell.view.peek()); }
     if (took && home && home !== Shell.view.peek() && App.views.peek().some(v => v.id === home)) Shell.show(home, { replace: true });
     home = null;
   }
@@ -1044,10 +1049,10 @@ const Time = (() => {
     const before = changes.filter(x => x.when.slice(0, 10) <= d).at(-1);
     return { day: short(Tree.isoOf(new Date(c.when))), who: c.who, stand: before ? () => stand(before) : null };
   }
-  // What's on the status lists, as of the day shown, that isn't on them as of today: a test of an item; null where today's shown.
+  // What's on the status lists, as of a day to come, that isn't on them as of today: a test of an item; null on any other day.
   function newSinceToday() {
     const today = Log.today();
-    if (App.day.peek() === today || Shell.time.peek()?.stood) return null;
+    if (App.day.peek() <= today || Shell.time.peek()?.stood) return null;
     const had = new Set(Formulas.attention(App.workAt(today), App.notes.peek(), today).map(a => `${a.id}|${a.edge ?? ''}`));
     return it => !had.has(`${it.id}|${it.edge ?? ''}`);
   }

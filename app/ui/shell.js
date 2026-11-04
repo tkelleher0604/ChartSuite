@@ -24,8 +24,9 @@
 //                  the chart menu, and the chart's name in the title bar, renamed there (app.js)
 //   'undo'       { undo(), redo(), canUndo(), canRedo(), steps() → the words of what Undo takes back, the latest first,
 //                undoTo(n) }                                                                 (app.js)
-//   'time'       { When({ close }), Ruler(), Band(), today() }   the date's popover, the ruler under the view, the band
-//                across it as it stood, and back to today from another day or the past       (time.js)
+//   'time'       { When({ close }), Ruler(), Band(), away(), today(), newSinceToday() }   the date's popover, the ruler under the
+//                view, the band across it as it stood or on a look, what the date's × goes back to, going back, and what's new
+//                on the status lists as of a day to come       (time.js)
 //   'evaluate'   (text, selection) → { value } | { items } | { error }   Find's "="            (formulabar.js)
 // Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order?, names? } (the chart
 // menu by order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40), its keys bound in the
@@ -706,7 +707,7 @@ const Shell = (() => {
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
       <div class="right">
         ${part('time') ? html`<span class=${'asof' + (t ? ' past' : '')}><button class="btn ghost dd" aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>${part('time').away()
-          ? html`<button class="btn icon" aria-label="Back" data-tip="Back" onClick=${() => part('time').today()}>${icon('x')}</button>` : null}</span>` : null}
+          ? html`<button class="btn icon" aria-label=${part('time').away()} data-tip=${part('time').away()} onClick=${() => part('time').today()}>${icon('x')}</button>` : null}</span>` : null}
         <span class="sep" />
         <button class="btn icon" aria-label=${away.value ? 'Show panel' : 'Hide panel'} data-tip=${away.value ? 'Show panel' : 'Hide panel'} data-keys=${keyLabel('$mod+Backslash')}
           aria-pressed=${!away.value} onClick=${() => wide.peek() ? narrow() : setShut(!away.peek())}>${icon('panel')}</button>

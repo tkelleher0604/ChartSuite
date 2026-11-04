@@ -411,6 +411,28 @@ async function run() {
       Object.values(typed).every(t => on.includes(`Each of the ${t} is a close affiliate of the BDC`)), on.filter(n => n.startsWith('Each of')).join(' | '));
   }
 
+  // ---- What's changed (dendra.md, Changes): the deck and the PDF draw it from the scene, in a style of its own ----
+  {
+    const wb9 = Log.open(SAMPLE), main = 'view_main', D1 = '2037-01-01', D2 = '2037-06-01', at = d => { const N = wb9.notes(C), S = wb9.schema(C); return Formulas.computeState(wb9.asOf(C, d), N.definitions(S), { relations: N.relations(S), schema: S }); };
+    const R1 = at(D1), s1 = Scene.of(wb9, C, main, D1, { state: R1.records, computed: R1 }), lines = s1.marks.filter(m => m.type === 'line' && m.texts.some(it => R1.records[it.id]?.field === 'percent'));
+    const [held, ended] = lines, pct = held.texts.find(it => R1.records[it.id]?.field === 'percent'), tx = wb9.edit({ chart: C, who: WHO, day: D2 });
+    tx.update(pct.id, { value: 0.123 });
+    tx.remove(ended.record, D2);
+    if (typeof tx.commit() === 'string') throw new Error('no change');
+    const tx2 = wb9.edit({ chart: C, who: WHO });
+    tx2.note('Changes', { id: main, kind: 'View' }, { since: D1 });
+    for (const [what, look] of Object.entries(Scene.CHANGE_LOOKS)) { for (const [label, v] of Object.entries(look)) tx2.note(label, Scene.changeOutput(what), v, { view: main }); tx2.note('Caption', Scene.changeOutput(what), Scene.CHANGE_CAPTIONS[what], { view: main }); }
+    if (typeof tx2.commit() === 'string') throw new Error('no note');
+    const N = wb9.notes(C), R2 = at(D2), s2 = { ...Scene.of(wb9, C, main, D2, { state: R2.records, computed: R2 }), name: 'Step' }, R1b = at(D1), s0 = { ...Scene.of(wb9, C, main, D1, { state: R1b.records, computed: R1b }), name: 'Before' };
+    const zip = await JSZip.loadAsync(await Export.write('pptx', [s0, s2], 'Changes', { R: R2, N })), slide = await zip.file('ppt/slides/slide2.xml').async('string'), first = await zip.file('ppt/slides/slide1.xml').async('string');
+    const svg = Export.svg(s2, { pdf: true });
+    check('In the deck a changed percentage is its old, struck, and its new, on one line of one paragraph', /<a:p>(?:(?!<\/a:p>)[\s\S])*strike="sngStrike"(?:(?!<\/a:p>)[\s\S])*<a:t>12\.3%<\/a:t>(?:(?!<\/a:p>)[\s\S])*<\/a:p>/.test(slide), slide.length);
+    const gone = s2.marks.find(m => m.type === 'line' && m.change === 'Gone'), holder = gone && N.shortOf(s2.state, s2.state[gone.record].args.find(a => a.edge === 'Owner').at);
+    check('… what’s gone in the deck stands where it stood, dashed in grey, a connector named as of its page’s day', !!gone && new RegExp(`name="${holder} is an owner of [^"]*"[\\s\\S]{0,900}<a:srgbClr val="A6A6A6"/></a:solidFill><a:prstDash val="dash"/>`, 'i').test(slide), holder);
+    check('… a deck’s slides each named as of their own day: the first marks nothing', !/sngStrike/.test(first) && !/0070C0/i.test(first));
+    check('In the PDF, the same: the old figure drawn, a rule through it, the new beside it', svg.includes('>12.3%<') && svg.includes(`>${pct.text}<`), svg.length);
+  }
+
   // ---- A box's fields (dendra.md, Fields): a free text drawn in the deck and the PDF as the scene reads it, {Entry}
   // and all; a blank field's name never, its room kept, in the deck an empty paragraph ----
   {
@@ -724,13 +746,13 @@ async function run() {
     const far = lead ? [lead, ...quiet.filter(m => m.from === lead.from)].sort((a, b) => s1.byId.get(a.to).x - s1.byId.get(b.to).x).map(m => short(s1.byId.get(m.to).record)) : [], first = await described(0);
     const trunkSaid = far.length > 2 && first.find(([n, d]) => n === d && n.startsWith(`${short(s1.byId.get(lead.from).record)} is a `) && n.endsWith(` of ${far.slice(0, -1).join(', ')} and ${far.at(-1)}`));
     check('a trunk’s label said once is said with all its lines: “GP III is a general partner of AIV-1, Co-Invest, Fund III-A and Fund III”', !!trunkSaid, trunkSaid?.[0] ?? far.join(', '));
-    // A PDF of every view, with a name set: titled for the chart, by that name.
+    // A PDF of every view, with a name set: titled for the chart, by that name; its file's name says what's in it.
     const Store = G('Store'), was = Store.who;
     Store.who = () => WHO;
     const doc = await exported('pdf', everyView);
     Store.who = was;
     const raw = new TextDecoder('latin1').decode(await doc.blob.arrayBuffer());
-    check('a PDF of every view the dialog writes is titled for the chart, by whoever exported it', doc.name === `${chart}.pdf` && raw.includes(`/Title (${chart})`) && raw.includes(`/Author (${WHO})`)
+    check('a PDF of every view the dialog writes is titled for the chart, by whoever exported it, its name saying what’s in it', doc.name === `${chart} - ${charts[0].name} to ${charts.at(-1).name}.pdf` && raw.includes(`/Title (${chart})`) && raw.includes(`/Author (${WHO})`)
       && (raw.match(/\/Type \/Page\b(?!s)/g) ?? []).length === A.views.peek().filter(v => v.layout === 'chart').length, `${doc.name}: ${/\/Author \([^)]*\)/.exec(raw)?.[0]}`);
     // The dialog remembers, for the chart, what it last exported: opened again, it's on that format and those views, on
     // the page's paper; and it offers every paper there is.
@@ -754,7 +776,7 @@ async function run() {
     };
     await cancel(opening);
     const two = await exported(undefined, pickTwo), twoRaw = new TextDecoder('latin1').decode(await two.blob.arrayBuffer());
-    check('The views are a checklist: two of them make a PDF of two pages, on the paper picked, named for the chart', two.name === `${chart}.pdf` && (twoRaw.match(/\/Type \/Page\b(?!s)/g) ?? []).length === 2
+    check('The views are a checklist: two of them make a PDF of two pages, on the paper picked, named for the chart and what’s in it', two.name === `${chart} - ${charts[0].name} and ${charts[2].name}.pdf` && (twoRaw.match(/\/Type \/Page\b(?!s)/g) ?? []).length === 2
       && /\/MediaBox \[([^\]]+)\]/.exec(twoRaw)?.[1].trim().split(/\s+/).map(Number).join() === '0,0,1224,792', `${two.name} ${(twoRaw.match(/\/Type \/Page\b(?!s)/g) ?? []).length} ${/\/MediaBox \[[^\]]*\]/.exec(twoRaw)?.[0]}`);
     opening = X.open();
     await until(() => dlg()?.querySelector('.btn.primary'));
@@ -764,20 +786,46 @@ async function run() {
     const Sh = G('Shell'), one = async d => { const boxes = [...d.querySelectorAll('.ex-views input')]; for (const [i, box] of boxes.entries()) if (box.checked !== (i === 0)) { box.click(); await tick(60); } };
     Sh.at({ asOf: '2037-12-31' }); await tick(300);
     const dated = await exported('pdf', one);
-    Sh.at(null); await tick(300);
-    check('an as-of day other than today is in the file’s name', dated.name === `${chart} - ${charts[0].name} - as of Dec 31, 2037.pdf`, dated.name);
+    // (The view's name left out, the chart's saying it: Hal's "post-sale structure - Structure".)
+    check('an as-of day other than today is in the file’s name', dated.name === `${chart} - as of Dec 31, 2037.pdf`, dated.name);
+    // Each ticked page goes at its own day: its As Of if it keeps one, else the day of the rest, whatever tab you stand on; each
+    // says its name and day over it; and a file's name carries a date only where every page shares it.
+    const T = G('Time'), both = async d => { for (const [i, box] of [...d.querySelectorAll('.ex-views input')].entries()) if (box.checked !== i < 2) { box.click(); await tick(60); } };
+    T.keep(charts[1].id, '2038-02-01'); await tick(200);
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    await both(dlg());
+    const heads = [...dlg().querySelectorAll('.ex-page figcaption')].map(c => c.textContent.trim());
+    check('Each page in the dialog says its name and its own day', heads[0] === `${charts[0].name} Dec 31, 2037` && heads[1] === `${charts[1].name} Feb 1, 2038`, heads.join(' | '));
+    await cancel(opening);
+    const mixed = await exported('pptx', both), mz = await JSZip.loadAsync(new Uint8Array(await mixed.blob.arrayBuffer())), lineOf = async i => [...tags(xml(await mz.file(`ppt/slides/slide${i}.xml`).async('string')), 'a:t')].map(t => t.textContent).find(t => t.startsWith('As of'));
+    check('One file holds two dates, each page at its own, whatever tab you stand on', (await lineOf(1)) === 'As of December 31, 2037' && (await lineOf(2)) === 'As of February 1, 2038', `${await lineOf(1)} | ${await lineOf(2)}`);
+    check('… and its name carries none, the pages not sharing one', mixed.name === `${chart} - ${charts[0].name} and ${charts[1].name}.pptx`, mixed.name);
+    // It opens on what was last exported where the tab you're on was among them, or else on that tab alone.
+    Sh.at(null); await tick(200);
+    Sh.show(charts[3].id); await tick(300);
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    check('Export opens on the tab you’re on alone where it wasn’t among what was last exported', JSON.stringify(ticked()) === JSON.stringify(charts.map((_, i) => i === 3)), `${ticked()}`);
+    await cancel(opening);
+    Sh.show(charts[0].id); await tick(300);
+    opening = X.open();
+    await until(() => dlg()?.querySelector('.btn.primary'));
+    check('… and on what was, where it was', JSON.stringify(ticked()) === JSON.stringify(charts.map((_, i) => i < 2)), `${ticked()}`);
+    await cancel(opening);
+    T.keep(charts[1].id, null); await tick(200);
     // While the past is shown, the moment is: in the file's name, on its page, and on a calendar's; and nothing's written.
     const past = A.wb.changes().at(-1), logged = () => A.wb.changes().length, logged0 = logged();
     Sh.at({ stood: past.id, at: past.when }); await tick(400);
     const words = Log.stoodText(past.when, 'short'), inName = words[0].toLowerCase() + words.slice(1).replace(':', '.');
     const pastFile = await exported('pdf', one), pastCal = await exported('ics');
-    check('While the past is shown, a file’s name says the moment, without a colon', pastFile.name === `${chart} - ${charts[0].name} - ${inName}.pdf` && /, \d+\.\d\d [AP]M\.pdf$/.test(pastFile.name), pastFile.name);
+    check('While the past is shown, a file’s name says the moment, without a colon', pastFile.name === `${chart} - ${inName}.pdf` && /, \d+\.\d\d [AP]M\.pdf$/.test(pastFile.name), pastFile.name);
     check('… as the page’s date line does, as a calendar’s name does, and nothing is written', A.scene.peek().marks.filter(m => m.role === 'date').every(m => m.texts[0].text.startsWith('As it stood on ')) && pastCal.name === `${chart} - ${inName}.ics` && logged() === logged0, j([pastCal.name, logged() - logged0]));
     Sh.at(null); await tick(300);
     // In Viewing, Export works and writes nothing.
     A.setViewing(true); await tick(200);
     const viewed = await exported('pdf', one);
-    check('In Viewing, Export writes its file and nothing else', viewed.name === `${chart} - ${charts[0].name}.pdf` && viewed.blob.size > 0 && logged() === logged0, j([viewed.name, logged() - logged0]));
+    check('In Viewing, Export writes its file and nothing else', viewed.name === `${chart}.pdf` && viewed.blob.size > 0 && logged() === logged0, j([viewed.name, logged() - logged0]));
     A.setViewing(false); await tick(200);
     // A table's file says what it writes: as the table shows it, or every row.
     const S = G('Shell'), entities = A.views.peek().find(v => v.name === 'Entities'), back = S.view.peek();

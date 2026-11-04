@@ -1212,7 +1212,7 @@ function Styles({ v, only }) {
   };
   // A style that is its one group is that row alone: Names, not Name over Names.
   return parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
-    ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname"><${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}></div></div>${rows.map(g => output(g, null, part, s))}`}
+    ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname">${Scene.isChange(s.pattern) ? rows[0].name : html`<${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}>`}</div></div>${rows.map(g => output(g, null, part, s))}`}
   </div>`));
 }
 
