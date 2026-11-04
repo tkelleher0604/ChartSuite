@@ -50,7 +50,7 @@ const Table = (() => {
   // Editing is the view's, and logged.
   const viewed = Shell.signal(new Map());
   const seeColumns = (view, cs, on) => { const m = new Map(viewed.peek()), v = new Map(m.get(view) ?? []); for (const c of cs) v.set(c.key, on); m.set(view, v); viewed.value = m; return true; };
-  const seen = (view, c) => c.pattern && App.viewing.peek() ? viewed.peek().get(view)?.get(c.key) : undefined;
+  const seenAs = (view, c) => c.pattern && App.viewing.peek() ? viewed.peek().get(view)?.get(c.key) : undefined;
 
   // A tag's cell where its rule hasn't tested the record (Formulas.notTested): its own value, apart from Yes, No and blank.
   const NA = 'n/a';
@@ -253,7 +253,7 @@ const Table = (() => {
         c.place = o?.note.view === view ? o.value : Infinity;
         c.check = c.type === 'tag' && !!c.specs?.some(s => N.value('Check', s) === true);
         const said = c.pattern ? N.value('Shown', c.pattern, view, c.param) : undefined;
-        c.shown = !c.pattern || (seen(view, c) ?? said ?? (c.type !== 'list' && !c.check && (!!c.param || c.path.length === 1)));
+        c.shown = !c.pattern || (seenAs(view, c) ?? said ?? (c.type !== 'list' && !c.check && (!!c.param || c.path.length === 1)));
       }
       cols.sort((a, b) => a.place - b.place || ownOrder(a, b));
       // Beside a row's Name, its link says where the document is filed rather than its name again.
@@ -265,7 +265,7 @@ const Table = (() => {
     if (rows === 'date' || (!isKind && !isDatatype && Object.values(S).some(t => t.args?.length > 1 && Tree.narrower(t, rows) && N.resolve('Formula', t)))) {
       const pattern = { id: view, kind: 'View' }, o = N.resolve('Order', pattern, view, 'Why');
       why = { key: '$why', title: 'Why', type: 'text', pattern, param: 'Why', place: o?.value ?? Infinity, base: [Infinity] };
-      why.shown = (seen(view, why) ?? N.value('Shown', pattern, view, 'Why')) === true;
+      why.shown = (seenAs(view, why) ?? N.value('Shown', pattern, view, 'Why')) === true;
     }
     if (why && base) { const at = cols.findIndex(c => c.place > why.place); cols.splice(at < 0 ? cols.length : at, 0, why); }
     cols = [...lead, ...cols, ...trail, ...(why && !base ? [why] : [])];
