@@ -755,7 +755,7 @@ const ParagraphPop = () => { readNow(); const ms = current?.marks ?? [], free = 
     <label class="menu-item"><span class="label">Indent</span><${Typed} label="Indent" v=${value('Indent') ?? 0} unit="pt" max=${200} step=${1} put=${x => apply('Indent', x || null)} /></label>
     <div class="menu-head">Inner margins</div>
     ${[['Left', 'l', 7.2], ['Top', 't', 3.6], ['Right', 'r', 7.2], ['Bottom', 'b', 3.6]].map(([label, k, d]) => html`<label class="menu-item"><span class="label">${label}</span><${Typed} label=${`Inner margin, ${label}`} v=${side(k, d)} unit="pt" max=${200} step=${0.5} put=${setSide(k)} /></label>`)}
-    <button class="menu-item" role="menuitemcheckbox" aria-checked=${!!value('Shrink')} onClick=${() => apply('Shrink', !value('Shrink'))}><span class="label">Shrink text on overflow</span>${value('Shrink') ? Shell.icon('check') : null}</button>` : null}
+    <label class="menu-item check"><input type="checkbox" checked=${!!value('Shrink')} onChange=${e => apply('Shrink', e.target.checked)} /><span class="label">Shrink text on overflow</span></label>` : null}
 </div>`; };
 
 // ---- Fonts ----

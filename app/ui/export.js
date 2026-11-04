@@ -948,7 +948,12 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const [paper, setPaper] = useState(choice.paper), [portrait, setPortrait] = useState(choice.portrait), [text, setText] = useState(choice.text), [number, setNumber] = useState(choice.number), [at, setAt] = useState(choice.at), [date, setDate] = useState(choice.date), [margins, setMargins] = useState(choice.margins), [own, setOwn] = useState(choice.own);
     Object.assign(choice, { paper, portrait, number, at, date, margins, own });
     const was = pageNow(view), same = paper === was.paper && portrait === was.portrait && sameSides(margins, choice.was.margins) && JSON.stringify(own) === JSON.stringify(choice.was.own);
-    const sc = useMemo(() => Scene.of(footed(App.shown.peek(), asFooter(text, number, at, date)), App.chart.peek(), view, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), ...(!same && { paper: turned(paper ?? 'slide', portrait, margins, own) }) }), [paper, portrait, text, number, at, date, margins, own]);
+    const sc = useMemo(() => {
+      const s = Scene.of(footed(App.shown.peek(), asFooter(text, number, at, date)), App.chart.peek(), view, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), ...(!same && { paper: turned(paper ?? 'slide', portrait, margins, own) }) });
+      // (As OK will leave them: what's laid over a box, with it.)
+      if (!same) for (const [id, c] of Scene.annotated(view === App.scene.peek()?.view ? App.scene.peek() : scene(view), s).rows) { const m = s.byId.get(id); if (m) Object.assign(m, c); }
+      return s;
+    }, [paper, portrait, text, number, at, date, margins, own]);
     const page = sheets('pdf', [{ ...sc, name: '' }])[0], says = Scene.says(sc, called(sc), PAPERS[paper] ?? null);
     // A measure in inches, as a page is set up: typed, read as it's left.
     const inch = (label, v, put) => html`<label class="ex-inch"><span>${label}</span><input type="text" inputmode="decimal" aria-label=${label} value=${String(v)} spellcheck="false" onFocus=${e => e.currentTarget.select()} onChange=${e => { const x = parseFloat(e.target.value); if (Number.isFinite(x) && x >= 0) put(x); else e.target.value = String(v); }} /></label>`;

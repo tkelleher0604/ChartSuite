@@ -1145,6 +1145,8 @@ function mount(el) {
     ed.textContent = text;
     over.appendChild(ed);
     ed.focus();
+    const parts = rich && richEditor(ed, text, rich.runs ?? [], it.look);
+    if (parts) richEdit = parts;
     // Double-click selects it all, to type over; typing over starts after what was typed.
     const range = document.createRange(), s = getSelection();
     range.selectNodeContents(ed);
@@ -1152,8 +1154,6 @@ function mount(el) {
     s.removeAllRanges(); s.addRange(range);
     let done = false;
     const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box);
-    const parts = rich && richEditor(ed, text, rich.runs ?? [], it.look);
-    if (parts) richEdit = parts;
     const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys, runs); else escaped?.(); };
     // (Going to the format bar's palette, it stays open, what's selected kept, till a press anywhere else.)
     const outside = e => { if (!e.target.closest?.('.dc-edit, .fb, .float')) finish(true); };
