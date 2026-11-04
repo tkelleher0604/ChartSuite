@@ -764,6 +764,7 @@ function Section({ title, n, shut = false, act, id, cls = '', children }) {
 // A long panel's strip, sticky at its top: the record, then each section by its name, a click from each, folded or not;
 // Look and Position last, always shown, however many there are before them. It shows once the panel runs past the window.
 function Strip() {
+  App.state.value; App.scene.value;   // (Sections come and go with the chart.)
   const [names, setNames] = useState([]), [long, setLong] = useState(false), ref = useRef();
   useLayoutEffect(() => {
     const panel = ref.current?.parentElement, pane = panel?.closest('.inspector');
@@ -834,7 +835,7 @@ function groundSaid(it) {
   const to = ids.find(x => r[x]?.args?.some(a => a.at === mine)), from = ids.find(x => r[x]?.args?.some(a => a.at === other));
   if (!to) return word(row.label);
   const via = r[to].args.find(a => a.at !== mine)?.at, near = word(because(to)?.label), far = from && word(because(from)?.label);
-  return `via ${termOf(via)}${near ? `, its ${near}` : ''}${far ? `; ${far} there` : ''}`;
+  return `via ${termOf(via)}${near ? `, ${near.includes(':') ? '' : 'its '}${near}` : ''}${far ? `; ${far} there` : ''}`;
 }
 const fact = (f, first) => { const text = first ? upper(f.text) : f.text; return f.date ? dated(f.date, text) : f.no ? html`<span class="no">${text}</span>` : text; };
 const facts = (list, first) => list.map((f, i) => html`${i ? ' · ' : ''}${fact(f, first && !i)}`);
@@ -1562,7 +1563,13 @@ function Many({ ids }) {
 let host = null, aimed = null;
 function Inspector() {
   const sel = Shell.selection.value, key = sel.join();
-  useLayoutEffect(() => { const s = host?.closest('.inspector'); if (s && backTo?.key === key) s.scrollTop = backTo.top; else if (s && aimed !== key) s.scrollTop = 0; aimed = null; backTo = null; }, [key]);
+  useLayoutEffect(() => {
+    const s = host?.closest('.inspector'), top = backTo?.key === key ? backTo.top : null;
+    // (Again once it's drawn, as its strip takes its room only then.)
+    if (s && top !== null) { s.scrollTop = top; requestAnimationFrame(() => { s.scrollTop = top; }); }
+    else if (s && aimed !== key) s.scrollTop = 0;
+    aimed = null; backTo = null;
+  }, [key]);
   return chosen(sel);
 }
 // What a selection key names: a free shape (or a row of a Key) has its own panel; a relation's text in one box

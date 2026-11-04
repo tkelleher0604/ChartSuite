@@ -1689,7 +1689,7 @@ function mount(el) {
     const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, s = styled && quick ? styled : null;
     // The scene a redline draws, for the view and day shown: laid out now where the chart is quick, else ahead.
     if (red && base && !(red.scene?.view === base.view && red.scene.day === base.day))
-      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true, holds: holdsOf(base) }) : null);
+      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true, holds: holdsFor(base) }) : null);
     const r = red?.scene ? red : null;
     const st = stateNow(), N = App.notes.peek();
     const away = id => { const k = st[Tree.objectOf(st, id)]?.kind; return !!k && N.value('Shown', { kind: k }, base?.view) === false; };
@@ -1727,7 +1727,7 @@ function mount(el) {
   // day, however often it's asked for again meanwhile.
   const laidAhead = new WeakMap();
   function* redAhead(r, base) {
-    const sc = yield* Scene.steps(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true, holds: holdsOf(base) });
+    const sc = yield* Scene.steps(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true, holds: holdsFor(base) });
     (laidAhead.get(r.state) ?? laidAhead.set(r.state, new Map()).get(r.state)).set(`${base.view}|${base.day}`, sc);
     if (red?.state === r.state && !red.scene) show();
   }
@@ -2176,8 +2176,26 @@ function mount(el) {
     drop(edge) { const m = marked(dropOn); dropOn = null; paintFields(); return m && setField([m], edge, true, scoped(m)); },
     clip: (edge, text) => { clip = { items: [], text, field: edge }; },
   };
+  // A box inserted between two (App.interposing): set square over the lower, midway under the upper; where that hasn't the
+  // room for it and a lane either side, the lower and what it holds move down to make it, each from where it stands.
+  // → Map(record → place), the new box's under `id`. A redline is laid out with them held, as Enter will enter them.
+  function placesBetween(base, { up, low, under, id }) {
+    const a = base?.byId.get(up), b = base?.byId.get(low), out = new Map();
+    if (!a || !b || still() || base.view !== viewShown || active.peek() !== canvas) return out;
+    const N = App.notes.peek(), holds = holdsOf(base), LANE = 24, room = b.y - (a.y + a.h), dy = Math.max(0, b.h + 2 * LANE - room);
+    if (dy) for (const x of [low, ...under]) {
+      const t = treeOf(x), old = t && N.resolve('Position', t, base.view)?.value, p = old && Number.isFinite(old.x) && !old.loose ? old : holds.get(x);
+      if (base.byId.has(x) && p) out.set(x, { ...p, y: round(p.y + dy) });
+    }
+    const [x, y] = own(b.x, a.y + a.h + (room + dy - b.h) / 2, base.page);
+    out.set(id, { x, y, w: round(b.w) });
+    return out;
+  }
+  const between = (tx, at, kind) => { const base = App.scene.peek(); for (const [x, p] of placesBetween(base, at)) tx.note('Position', x === at.id ? { id: x, kind } : treeOf(x), p, { view: base.view }); };
+  // What a change pending keeps where it stands, and what it places itself, over any place entered.
+  const holdsFor = base => { const h = holdsOf(base), at = App.pending.peek()?.placing?.(); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; };
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, zoom,
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.

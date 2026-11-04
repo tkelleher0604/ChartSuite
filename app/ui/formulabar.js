@@ -964,22 +964,22 @@ const FormulaBar = (() => {
     for (const { n, plus, minus } of held.values()) { const both = Math.min(plus, minus); if (both) { by.get(n).plus -= both; by.get(n).minus -= both; } }
     return [...by.values()].filter(x => x.plus + x.minus + x.changed).sort((x, y) => (y.plus + y.minus + y.changed) - (x.plus + x.minus + x.changed));
   }
-  // What a change pending leaves as it was, said in black where it changes what those over it hold: of each definition of a
-  // relation it changes that reads as a holding (Control, not an Affiliated Person, a role), who holds what it's about at
-  // the top, and still does: "Margaret A. Chen's control is unchanged".
+  // What a change pending leaves as it was, said in black where it takes something away: of the first definition of a
+  // relation it takes from that reads as a holding (Control, not an Affiliated Person, a role), who holds what it's about
+  // at the top, and still does: "Margaret A. Chen's control is unchanged".
   function steady(p) {
     const ap = p?.from === 'pending' ? App.pending.peek() : null, rid = ap?.transfer?.rid ?? (ap?.verb === 'Delete' && ap.needs?.length === 1 ? ap.needs[0] : null), A = R.peek(), B = p?.R2, rel = rid && A.records[rid];
-    if (rel?.args?.length !== 2) return [];
-    const n = N(), t = Tree.treeOf(A.records, rid), e0 = n.edges(t)[0], at = rel.args.find(a => !Tree.same(a.edge, e0))?.at, about = at && Tree.objectOf(A.records, at), out = [];
+    if (rel?.args?.length !== 2) return null;
+    const n = N(), t = Tree.treeOf(A.records, rid), e0 = n.edges(t)[0], at = rel.args.find(a => !Tree.same(a.edge, e0))?.at, about = at && Tree.objectOf(A.records, at);
     for (const d of p.deltas) {
       const def = [...defs.peek().values()].find(x => x.name === d.name);
-      if (!def || def.edges?.length !== 2 || !(d.minus || d.plus)) continue;
+      if (!def || def.edges?.length !== 2 || !d.minus) continue;
       const mine = Object.keys(A.computed).filter(id => A.computed[id].def === def.id && A.records[id]?.args?.length === 2), held = id => { const s = n.edges(Tree.treeOf(A.records, id))[0], r = A.records[id]; return [r.args.find(a => Tree.same(a.edge, s))?.at, r.args.find(a => !Tree.same(a.edge, s))?.at]; };
       if (!mine.length || Tree.same(singular(n.listName(Tree.treeOf(A.records, mine[0]), n.edges(Tree.treeOf(A.records, mine[0]))[0])), def.name)) continue;
       const pairs = mine.map(id => [id, ...held(id)]), under = new Set(pairs.map(x => x[2])), who = pairs.filter(([id, h, o]) => o === about && !under.has(h) && B.records[id]).map(x => x[1]);
-      if (who.length) out.push(`${who.map(h => { const s = n.shortOf(A.records, Tree.objectOf(A.records, h)); return `${s}${s.endsWith('s') ? '’' : '’s'}`; }).join(' and ')} ${lower(def.name)} is unchanged`);
+      if (who.length) { const names = who.slice(0, 2).map(h => { const s = n.shortOf(A.records, Tree.objectOf(A.records, h)); return `${s}${s.endsWith('s') ? '’' : '’s'}`; }); return `${names.join(' and ')} ${lower(def.name)} is unchanged`; }
     }
-    return out;
+    return null;
   }
   effect(() => {
     const p = pending.value, canvas = Shell.parts.peek().canvas;
@@ -1435,11 +1435,11 @@ const FormulaBar = (() => {
   const VERBS = [['plus', 'Adds', 'add'], ['minus', 'Takes away', 'take'], ['changed', 'Changes', 'change']];
   const counted = (n, name) => `${n} ${n === 1 ? lower(name) : Tree.plural(lower(name))}`;
   const Delta = ({ p }) => {
-    const ds = p?.deltas.slice(0, 3) ?? [], said = VERBS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => counted(d[k], d.name))] : null; }).filter(Boolean), calm = p ? steady(p) : [];
+    const ds = p?.deltas.slice(0, 3) ?? [], said = VERBS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => counted(d[k], d.name))] : null; }).filter(Boolean), calm = p ? steady(p) : null;
     // A transfer to one named as it's typed takes away what reached through the old holder, till the new one has its own.
     const to = p?.from === 'pending' && App.pending.peek()?.verb === 'Transfer' && App.pending.peek().transfer?.to, until = to?.kind && ds.some(d => d.minus) ? `until ${to.name} has ${lower(ownerWord(App.pending.peek().transfer.rid))}` : null;
-    return said.length || calm.length ? html`<span class="fx-delta">${said.map(([verb, cls, xs], i) => html`<span>${i ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `}${xs.map((x, j) =>
-      html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<b class=${cls}>${x}</b>`)}${i < said.length - 1 ? ';' : ''}</span>`)}${until ? html`<span>${until}</span>` : null}${calm.map(c => html`<span class="fx-net">${said.length ? '· ' : ''}${c}</span>`)}</span>` : null;
+    return said.length ? html`<span class="fx-delta">${said.map(([verb, cls, xs], i) => html`<span>${i ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `}${xs.map((x, j) =>
+      html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<b class=${cls}>${x}</b>`)}${i < said.length - 1 ? ';' : ''}</span>`)}${until ? html`<span>${until}</span>` : null}${calm ? html`<span class="fx-net">· ${calm}</span>` : null}</span>` : null;
   };
   // What a relation's holder is called, by the list it makes ("an owner"), as a toast offers one.
   const ownerWord = rid => { const recs = R.peek().records, t = Tree.treeOf(recs, rid), one = singular(N().listName(t, N().edges(t)[0])); return `${/^[aeiou]/i.test(one) ? 'an' : 'a'} ${one}`; };

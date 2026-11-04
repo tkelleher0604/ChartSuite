@@ -20,7 +20,7 @@
 /* A long panel's strip, sticky at its top: its sections, a click from each, Look and Position always in view at its end. */
 .strip { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 12px; padding: 0 20px; height: 28px; border-bottom: 1px solid var(--rule); background: var(--surface); font: var(--t12); color: var(--ink-2); }
 .strip.none { display: none; }
-.strip > .names { flex: 1; min-width: 0; display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+.strip > .names { flex: 1; min-width: 0; display: flex; gap: 12px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; mask-image: linear-gradient(90deg, #000 calc(100% - 16px), transparent); }
 .strip > .pinned { flex: none; display: flex; gap: 12px; padding-left: 12px; border-left: 1px solid var(--rule); }
 .strip .lk { color: inherit; white-space: nowrap; cursor: pointer; }
 .strip .lk:hover { color: var(--ink); }
@@ -29,6 +29,7 @@
 .ih-title > .and { font-weight: 400; color: var(--ink-3); }
 /* A title wraps, as many lines as it takes, balanced. A tag's title has its box before it, as a checkbox row has. */
 .cellbox.title .hug { flex: 1; }
+.cellbox.title > .del { flex-basis: 100%; margin-right: 0; font: var(--t15); }
 .cellbox.title .cell { font: var(--t15); text-wrap: balance; }
 .ih-tag { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 8px; }
 .ih-tag > .cellbox { position: static; min-height: 0; }
@@ -202,7 +203,7 @@ section.open > :last-child { margin-bottom: 8px; }
 .row.rel .lk:hover { text-decoration-color: currentColor; }
 /* A box to tick each, for ending several at once: in the row's gutter, shown as it's pointed at or once one's ticked. */
 .row.rel > .tick { position: absolute; left: 3px; top: 7px; width: 13px; height: 13px; opacity: 0; }
-.row.rel:hover > .tick, .row.rel > .tick:focus-visible, section.ticking .tick { opacity: 1; }
+.row.rel:hover > .tick, .row.rel > .tick:focus-visible, section.ticking .row.rel > .tick { opacity: 1; }
 .sect > .ends { height: 20px; margin: 0; padding: 0 6px; font: var(--t12); color: var(--no); }
 .sect > .n > .no { color: var(--no); }
 .row.rel.going > .k, .row.rel.going > .v, .row.rel.going > .facts { color: var(--no); text-decoration: line-through; }

@@ -657,8 +657,9 @@ async function run() {
   key($('.asking .from input'), 'Escape'); await tick(60);
   check('Esc drops a transfer, saying so, with Redo', !App.pending.peek() && toastText() === 'Discarded transferring Ownership: Fund III Blocker → Halvard Logistics Holdings, Inc.'
     && [...document.querySelectorAll('.toast button')].some(b => b.textContent === 'Redo'), toastText());
-  // What the panel makes on a chart, the chart shows: a new owner named in a list's Add, or a transfer's new one, where
-  // the view shown hides its kind, is shown there by the same change (App.showMade)
+  // What's added from a list is left to the view: a new owner named in a list's Add, where the view shown hides its kind,
+  // stays off it, and the toast says so, with Show. A transfer's new one, which a line on the chart asks for, is shown
+  // there by the same change (App.showMade).
   const view = Shell.view.peek(), nH = nP();
   App.change(tx => tx.note('Shown', { kind: 'Entity' }, false, { view }), { dated: false }); await tick(60);
   const shownAt = id => App.notes.peek().notes('Shown').some(n => n.view === view && n.pattern.id === id && n.value === true);
@@ -668,7 +669,11 @@ async function run() {
   await findIn('Zeta Holdings'); await pick('New Entity: Zeta Holdings'); await tick(60);
   key(document.body, 'Enter'); await tick(80);
   const zeta = Object.keys(st()).find(k => st()[k].kind === 'Entity' && N().nameOf(st(), k) === 'Zeta Holdings');
-  check('a new owner named in a list’s Add, where the view hides its kind, is shown there by the same change', !!zeta && shownAt(zeta) && App.scene.peek()?.byId.has(zeta) && nP() === nH + 2, `${zeta} ${nP() - nH}`);
+  const viewName = N().nameOf(st(), view), offToast = toastText();
+  check('a new owner named in a list’s Add, where the view hides its kind, stays off it, the toast saying so', !!zeta && !shownAt(zeta) && !App.scene.peek()?.byId.has(zeta) && nP() === nH + 2 && offToast === `Zeta Holdings isn’t on ${viewName}`, `${zeta} ${nP() - nH} ${offToast}`);
+  [...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Show')?.click(); await tick(60);
+  check('… with Show, its own note the other way', shownAt(zeta) && App.scene.peek()?.byId.has(zeta), zeta);
+  Shell.parts.value.undo.undo(); await tick(60);
   Shell.parts.value.undo.undo(); await tick(60);
   Shell.select([own]); App.transferring(own); await tick(80);
   await findIn('Omega Holdings'); await pick('New Entity: Omega Holdings'); await tick(60);
@@ -1254,6 +1259,123 @@ async function run() {
   check('a style row double-clicked is typed over, its caption selected', !!capIn && document.activeElement === capIn, document.activeElement?.outerHTML.slice(0, 100));
   if (capIn) await type(capIn, 'Fund vehicles');
   check('… and kept as its caption', $$('.row.out .cap').some(b => b.textContent === 'Fund vehicles'), $$('.row.out .cap').map(b => b.textContent).join(' | '));
+  Shell.parts.value.undo.undo(); await tick(60);
+  await saysWhen(C, keep);
+}
+// The panel and changes (dendra.md, inspector and Time): a record says when, its rows where they go, Red means failing,
+// several end together, and one is inserted between.
+async function saysWhen(C, keep) {
+  const typeIn = async q => { const f = document.querySelector('.float .menu-find'); f.textContent = q; f.dispatchEvent(new Event('input', { bubbles: true })); await tick(); };
+  const finding = async q => { Shell.find(q); await tick(150); const out = [...document.querySelectorAll('.findpal .menu-item .label, .findpal .label')].map(x => x.textContent); Shell.closeAll(); await tick(30); return out; };
+  const blocked = Object.keys(st()).find(k => st()[k].args && N().nameOf(st(), k) === 'Ownership' && st()[k].args.some(a => a.at === 'fund') && st()[k].args.some(a => a.at === 'blocker'));
+  Shell.select([blocked]); await tick(60);
+  const spanned = () => spoken($('.ih .span') ?? document.createElement('p')).trim();
+  check('a relation’s head says from when, one nobody entered said as what it is', /^From [A-Z][a-z]{2} \d+, \d{4}(, when .* was formed)?$/.test(spanned()), spanned());
+  $('.ih .span .lk')?.click(); await tick(60);
+  check('… a click opening the chart then', !!Shell.time.peek()?.asOf, JSON.stringify(Shell.time.peek()));
+  Shell.at(null); await tick(60);
+  Shell.select(['fund']); await tick(60);
+  check('an object’s says it by the act its entry records', /^Formed [A-Z][a-z]{2} \d+, \d{4}$/.test(spanned()), spanned());
+  const holdingRow = $$('.row.rel').find(r => r.querySelector('.k').textContent.startsWith('Fund III Blocker') || r.querySelector('.k').textContent.startsWith('Fund\u00a0III Blocker'));
+  check('… and each row of its lists when it holds', /since [A-Z][a-z]{2} \d+, \d{4}/.test(spoken(holdingRow?.querySelector('.facts') ?? document.body)), holdingRow?.textContent);
+  check('a row’s name and figure each say where they go, and take a pointer', holdingRow?.querySelector('.k .lk')?.dataset.tip === `Open ${N().nameOf(st(), 'blocker')}` && holdingRow?.querySelector('.v .lk')?.dataset.tip === 'Open this ownership'
+    && getComputedStyle(holdingRow.querySelector('.k .lk')).cursor === 'pointer', `${holdingRow?.querySelector('.k .lk')?.dataset.tip} / ${holdingRow?.querySelector('.v .lk')?.dataset.tip}`);
+  const signatories = $$('section').find(s => s.dataset.title === 'Signatories');
+  check('a list says how many of it don’t hold', spoken(signatories?.querySelector('.sect .n') ?? document.body) === '3 · 1 doesn’t hold', signatories?.querySelector('.sect .n')?.textContent);
+  const controllers = $$('section').find(s => s.dataset.title === 'Controllers'), chenControl = [...(controllers?.querySelectorAll('.row.rel') ?? [])].find(r => r.textContent.includes('Chen'));
+  check('a fund’s Controllers are open, and a controller’s row says its ground', controllers?.classList.contains('open') && /via GP III, its general partner; managing member there/.test(spoken(chenControl?.querySelector('.facts') ?? document.body)), chenControl?.textContent);
+  check('… a long list a formula gives is folded', !$$('section').find(s => s.dataset.title === 'Affiliated Person Of')?.classList.contains('open'));
+  // Who typed a fact is a click on its label
+  rowOf('EIN').querySelector('.lbl').click(); await tick(60);
+  check('a typed fact’s label says who typed it and when', !!document.querySelector('.float .typed .who')?.textContent && /\d:\d\d/.test(document.querySelector('.float .typed .meta')?.textContent ?? ''), document.querySelector('.float .typed')?.textContent);
+  Shell.closeAll(); await tick(30);
+  // A long panel's strip names its sections, Look and Position always there, each a click from it
+  const strip = $('.strip');
+  check('a long panel has a strip of its sections, Look and Position at its end', !!strip && !strip.classList.contains('none') && spoken(strip.querySelector('.names .lk')) === 'Record'
+    && [...strip.querySelectorAll('.pinned .lk')].map(b => b.textContent).join().startsWith('Position') === !$$('section').some(s => s.dataset.title === 'Look') && getComputedStyle(strip).position === 'sticky', strip?.textContent);
+  [...strip.querySelectorAll('.names .lk')].find(b => b.textContent === 'Affiliated Person Of')?.click(); await tick(60);
+  const apo = $$('section').find(s => s.dataset.title === 'Affiliated Person Of');
+  check('… one clicked opens it, and brings it to the top', apo?.classList.contains('open') && Math.abs(apo.getBoundingClientRect().top - strip.getBoundingClientRect().bottom) < 4, `${apo?.getBoundingClientRect().top} ${strip.getBoundingClientRect().bottom}`);
+  // Red means failing: a typed no is plain, one that needs attention amber, a failed check red; only that one is counted
+  Shell.select(['aiv']); await tick(60);
+  const standing = rowOf('Good Standing');
+  check('Good Standing: No is amber, as it needs attention, and counts as no error', standing?.classList.contains('heeds') && standing.querySelector('.tag').classList.contains('heeds')
+    && !App.needs.peek().some(a => a.kind === 'error' && st()[a.id]?.edge === 'Good Standing'), standing?.outerHTML.slice(0, 200));
+  // A name's Enter stays on the head, not selecting the next field to be typed over
+  const titled = $('.ih .cell'), nTitle = App.wb.changes().length;
+  await type(titled, 'Calder Ridge AIV-1, L.P.');
+  check('Enter from a name asks from when, the keys on its day, no field selected to be typed over', pb('.btn.primary')?.textContent === 'Rename' && document.activeElement === pb('.from input') && App.wb.changes().length === nTitle, pb()?.textContent);
+  key(pb(), 'Escape'); await tick(60);
+  // Ending a row gone to from a record's panel comes back to that record, scrolled where it was
+  Shell.select(['chen']); await tick(60);
+  const pane = document.querySelector('.inspector'), positions = $$('section').find(s => s.dataset.title === 'Positions');
+  positions.scrollIntoView(); await tick(30);
+  const topWas = pane.scrollTop, posRow = [...positions.querySelectorAll('.row.rel')].find(r => r.textContent.includes('Northpine'));
+  posRow.querySelector('.v .lk').click(); await tick(60);
+  const posId = Shell.selection.peek()[0];
+  $('.ih .more').click(); await tick(); await pick('End…'); await tick(60);
+  key($('.asking .from input') ?? pb('.from input'), 'Enter'); await tick(120);
+  check('ending a row gone to from a person’s panel comes back to the person, scrolled where it was', Shell.selection.peek().join() === 'chen' && pane.scrollTop === topWas && !st()[posId], `${Shell.selection.peek()} ${pane.scrollTop} ${topWas}`);
+  Shell.parts.value.undo.undo(); await tick(60);
+  // Several rows of a list end together, the panel staying on the record; what they break is said in words, with End that too
+  Shell.select(['chen']); await tick(60);
+  const posSect = () => $$('section').find(s => s.dataset.title === 'Positions'), nEnd = App.wb.changes().length;
+  [...posSect().querySelectorAll('.tick')].forEach(t => t.click()); await tick(60);
+  const endThese = posSect().querySelector('.sect .ends');
+  check('rows ticked in a list offer End these…', endThese?.textContent === 'End these…' && posSect().classList.contains('ticking'), posSect().querySelector('.sect')?.textContent);
+  endThese.click(); await tick(80);
+  check('… a bar saying what goes, what it breaks in words, and End that too', /^\d positions$/.test(spoken(pb('.what'))) && /^Fails Capacity Held: Margaret A\. Chen signs for Offshore Feeder, via Cayman GP/.test(spoken(pb('.fails') ?? document.body)) && pb('.too')?.textContent === 'End that too', pb()?.textContent);
+  pb('.too').click(); await tick(80);
+  check('… which goes with it, what it breaks no longer failing', !pb('.fails') && /Signing Authority: Margaret A\. Chen for Offshore Feeder/.test(spoken(pb('.what'))), pb()?.textContent);
+  await keep();
+  check('… made on one day, as one change, the panel staying on the record', App.wb.changes().length === nEnd + 1 && Shell.selection.peek().join() === 'chen' && !posSect(), `${App.wb.changes().length - nEnd} ${Shell.selection.peek()}`);
+  Shell.parts.value.undo.undo(); await tick(60);
+  // Not in the chart is a state: ended, it says when, with the chart then
+  Shell.select(['own_us_fund']); await tick(60);
+  App.deleting(['own_us_fund'], 'Ownership'); await tick(40);
+  await type(pb('.from input'), 'December 1, 2036'); await tick(60);
+  Shell.at({ asOf: '2036-12-02' }); await tick(80);
+  const later0 = $('.insp > .later');
+  check('a relation that ended before the day shown says when, as a state, with the chart then', spoken(later0 ?? document.body).startsWith('Ended Dec 1, 2036') && !!later0?.querySelector('.btn') && !$('.empty'), $('.insp')?.textContent);
+  later0?.querySelector('.btn')?.click(); await tick(80);
+  check('… which shows the last day it held', Shell.time.peek()?.asOf === '2036-11-30', JSON.stringify(Shell.time.peek()));
+  Shell.at(null); await tick(40);
+  Shell.parts.value.undo.undo(); await tick(60);
+  // Insert an entity between: one change, read back from its records; the old stake ended, the holder over the new at 100%, the new
+  // over what it held at the old figure; found by the words for it
+  const nIns = App.wb.changes().length;
+  Shell.select([blocked]); await tick(60);
+  const insertFind = await finding('interpose');
+  check('Find reaches Insert an entity between by Interpose', insertFind.some(x => x.startsWith('Insert an entity between')), insertFind.join(' | '));
+  App.interposing(blocked); await tick(80);
+  await typeIn('Calder Ridge Holdco, LLC'); await pick('New Entity: Calder Ridge Holdco, LLC'); await tick(80);
+  check('… asking whom and on what day', spoken(pb('.transfer')).trim() === 'Fund III → Calder Ridge Holdco, LLC → Fund III Blocker' && pb('.btn.primary')?.textContent === 'Insert' && App.wb.changes().length === nIns, pb()?.textContent);
+  await type(pb('.from input') ?? $('.asking .from input'), 'January 1, 2037'); await tick(80);
+  const on37 = App.wb.asOf(C, '2037-01-01'), named = Object.keys(on37).find(k => on37[k].value === 'Calder Ridge Holdco, LLC'), mid = named && on37[named].at, rels = Object.keys(on37).filter(k => on37[k].args?.some(a => a.at === mid)), pctAt = r => Object.values(on37).find(x => x.at === r && x.edge === 'Percentage')?.value;
+  check('… the old ended on the day, the holder over the new at 100%, the new over what it held at the old figure', App.wb.changes().length === nIns + 1 && !on37[blocked] && !!App.wb.asOf(C, '2036-12-31')[blocked]
+    && rels.length === 2 && rels.some(r => on37[r].args.some(a => a.at === 'fund') && pctAt(r) === 1) && rels.some(r => on37[r].args.some(a => a.at === 'blocker') && pctAt(r) === 1), JSON.stringify(rels));
+  check('… History and its toast saying it as one', spoken(document.querySelector('.toast span')) === 'Inserted Calder Ridge Holdco, LLC between Fund III and Fund III Blocker on Jan 1, 2037', document.querySelector('.toast span')?.textContent);
+  Shell.parts.value.undo.undo(); await tick(60);
+  // Transfer's toast offers the new one an owner
+  Shell.select([blocked]); App.transferring(blocked); await tick(80);
+  await typeIn('Calder Ridge Holdco, LLC'); await pick('New Entity: Calder Ridge Holdco, LLC'); await tick(80);
+  key(document.body, 'Enter'); await tick(80);
+  const addOwner = [...document.querySelectorAll('.toast button')].find(b => b.textContent.startsWith('Add an owner of'));
+  check('a transfer to a new one offers it an owner, in its toast', spoken(addOwner ?? document.body) === 'Add an owner of Calder Ridge Holdco, LLC…', document.querySelector('.toast')?.textContent);
+  addOwner?.click(); await tick(200);
+  check('… which opens Owners’ search on it', /Holdco/.test($('.ih .cell')?.value ?? '') && !!document.querySelector('.float .menu-find'), $('.ih')?.textContent);
+  Shell.closeAll(); await tick(30);
+  Shell.parts.value.undo.undo(); await tick(60);
+  // A person added from a list, by a relation the view doesn't draw, stays off the page
+  const here2 = Shell.view.peek();
+  App.change(tx => tx.note('Shown', { args: [{ edge: 'Holder', loc: {} }, { edge: 'Company', loc: {} }] }, false, { view: here2 }), { dated: false }); await tick(60);
+  Shell.select(['blocker']); await tick(60);
+  $$('section').find(s => s.dataset.title === 'Personnel')?.querySelector('.sect .btn.icon')?.click(); await tick();
+  await typeIn('Elena Vasquez'); await pick('New Individual: Elena Vasquez'); await tick(80);
+  const elena = Object.keys(st()).find(k => st()[k].kind === 'Individual' && N().nameOf(st(), k) === 'Elena Vasquez');
+  check('a person added from a list, by a relation the view doesn’t draw, stays off the page, the toast saying so, with Show', !!elena && !App.scene.peek().byId.has(elena) && N().resolve('Shown', Tree.treeOf(st(), elena), here2)?.value === false
+    && spoken(document.querySelector('.toast span')) === `Elena Vasquez isn’t on ${N().nameOf(st(), here2)}` && [...document.querySelectorAll('.toast button')].some(b => b.textContent === 'Show'), document.querySelector('.toast')?.textContent);
+  Shell.parts.value.undo.undo(); await tick(60);
   Shell.parts.value.undo.undo(); await tick(60);
 }
 // The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.

@@ -648,12 +648,17 @@ const App = (() => {
   function transferring(rid, o = {}) {
     if (!transferable(rid)) return;
     const recs = state.peek(), N = notes.peek();
-    let to = null, fresh = null;
+    let to = null, fresh = null, holder = null;
     stage({ verb: 'Transfer', what: `${N.nameOf(recs, rid)}: ${N.segmentOf(recs, rid)}`, source: 'transfer ' + rid, needs: [rid], transfer: { rid, to: null, part: null },
       asks: 'on', day: day.peek(), auto: true, inline: true, Fill: Transferring, ready: p => !!p.transfer.to && p.transfer.part !== undefined,
-      make: (tx, d, p) => { to = transfer(tx, rid, p.transfer, d); fresh = p.transfer.to?.kind ? tx.asOf(d)[to]?.args.find(a => Tree.same(a.edge, transferable(rid, book.peek().asOf(chart.peek(), d)).first.edge))?.at : null; }, say: c => Time.describe(c),
+      make: (tx, d, p) => {
+        const on = book.peek().asOf(chart.peek(), d);
+        to = transfer(tx, rid, p.transfer, d);
+        holder = holderOf(rid, on);
+        fresh = p.transfer.to?.kind ? tx.asOf(d)[to]?.args.find(a => Tree.same(a.edge, transferable(rid, on).first.edge))?.at : null;
+      }, say: c => Time.describe(c),
       // A new holder, offered a holder of its own: what it holds now has nothing above it.
-      go: () => { const w = fresh && holderOf(rid); return w && [`Add ${w.article} ${w.one} of ${bind(N.shortOf(state.peek(), fresh))}…`, () => Shell.parts.peek().inspector?.addTo?.(fresh, w.list)]; },
+      go: () => (fresh && holder && [`Add ${holder.article} ${holder.one} of ${bind(N.shortOf(state.peek(), fresh) ?? '')}…`, () => Shell.parts.peek().inspector?.addTo?.(fresh, holder.list)]) || null,
       done: () => { if (to && state.peek()[to]) Shell.select([to]); }, ...o });
     Shell.showPanel?.();
     if (Shell.selection.peek().join() !== rid) Shell.select([rid]);
@@ -695,16 +700,19 @@ const App = (() => {
   // fits both sides) and on what day. It's one change. The new box goes between them, on the chart shown, its lines to them.
   function interposing(rid) {
     if (!interposable(rid)) return;
-    const recs = state.peek(), N = notes.peek(), tr = transferable(rid), view = Shell.view.peek();
-    let made = null;
-    stage({ verb: 'Insert', what: `${N.nameOf(recs, rid)}: ${N.segmentOf(recs, rid)}`, source: 'insert ' + rid, needs: [rid], transfer: { rid, to: null, part: null }, between: true,
+    const recs = state.peek(), N = notes.peek(), tr = transferable(rid), up = Tree.objectOf(recs, tr.first.at), low = Tree.objectOf(recs, tr.rest[0].at);
+    // What the lower holds by this relation, all the way down: it moves with it, where the new box needs the room.
+    const name = N.nameOf(recs, rid), under = [], step = x => { for (const id of Object.keys(recs)) { const r = recs[id]; if (r.args?.length !== 2 || id === rid || !Tree.same(N.nameOf(recs, id), name)) continue; const t = transferable(id); if (t && Tree.objectOf(recs, t.first.at) === x) { const y = Tree.objectOf(recs, t.rest[0].at); if (y !== low && !under.includes(y)) { under.push(y); step(y); } } } };
+    step(low);
+    let made = null, fresh = false;
+    stage({ verb: 'Insert', what: `${name}: ${N.segmentOf(recs, rid)}`, source: 'insert ' + rid, needs: [rid], transfer: { rid, to: null, part: null }, between: true,
       asks: 'on', day: day.peek(), auto: true, inline: true, Fill: Transferring, ready: p => !!p.transfer.to,
       make: (tx, d, p) => {
         made = interpose(tx, rid, p.transfer.to, d);
-        // New, it's placed loosely midway, and goes between them once its lines join it, as a box made on the chart does.
-        const sc = scene.peek(), a = sc?.byId.get(Tree.objectOf(recs, tr.first.at)), b = sc?.byId.get(Tree.objectOf(recs, tr.rest[0].at));
-        if (p.transfer.to.kind && a && b) tx.note('Position', { id: made.mid, kind: p.transfer.to.kind }, { x: (b.x + b.w / 2 + a.x + a.w / 2) / 2 - (sc.page.offset?.x ?? 0) - 50, y: (a.y + a.h + b.y) / 2 - (sc.page.offset?.y ?? 0) - 14, loose: true }, { view });
-      }, say: c => Time.describe(c), done: () => { if (made && state.peek()[made.mid]) Shell.select([made.mid]); } });
+        fresh = !!p.transfer.to.kind;
+        if (fresh && typeof Canvas !== 'undefined') Canvas.active.peek()?.between(tx, { up, low, under, id: made.mid }, p.transfer.to.kind);
+      }, placing: () => (made && fresh ? { up, low, under, id: made.mid } : null),
+      say: c => Time.describe(c), done: () => { if (made && state.peek()[made.mid]) Shell.select([made.mid]); } });
     Shell.showPanel?.();
     if (Shell.selection.peek().join() !== rid) Shell.select([rid]);
   }
