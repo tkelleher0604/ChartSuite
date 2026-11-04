@@ -124,6 +124,22 @@ const fontClass = f => FONTS[f]?.[0] ?? (/mono|courier|consol|code/i.test(f) ? '
 const fontFamily = f => FONTS[f]?.[1] ?? `'${String(f).replace(/['\\]/g, '')}', ${{ sans: 'sans-serif', serif: 'serif', mono: 'monospace' }[fontClass(f)]}`;
 const groupBy = (list, f) => list.reduce((m, x) => { const k = f(x); (m.get(k) ?? m.set(k, []).get(k)).push(x); return m; }, new Map());
 const none = c => !c || c === 'none';
+// Ink on a fill (dendra.md, Settings). A color's luminance, as WCAG works it out, or null for what isn't one; a fill
+// too dark for ink, on which white reads better than black; and the white a text is drawn in on one, where it has no
+// color of its own and its own wouldn't read there.
+const luminance = c => { const m = /^#?([0-9a-f]{6})$/i.exec(c ?? ''); return !m ? null : [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0); };
+const tooDark = s => !none(s.Fill) && (s.Transparency ?? 0) < 50 && (L => L !== null && L < 0.179)(luminance(s.Fill));
+const unread = (color, fill) => { const a = luminance(color), b = luminance(fill); return a === null || b === null || (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) < 3; };
+const WHITE = '#ffffff';
+function inkOn(b) {
+  const fill = b.settings.Fill?.value;
+  if (!tooDark({ Fill: fill, Transparency: b.settings.Transparency?.value })) return;
+  for (const it of b.texts) {
+    // Its own: given it or its box, this one or a group's. Not the default, or its entry's style everywhere, which know nothing of this fill.
+    const n = it.settings.Color?.note, own = !!n?.view && (idsIn(n.pattern).size > 0 || !!n.param || !!n.pattern.out && ('choice' in n.pattern.out || 'tag' in n.pattern.out) || n.pattern.args?.length !== 1);
+    if (!own && unread(it.look.Color, fill)) { it.look = { ...it.look, Color: WHITE }; it.settings = { ...it.settings, Color: { value: WHITE, note: n ?? null } }; }
+  }
+}
 
 // ---- Geometry: PowerPoint's preset shapes, by plain names, as paths in a w × h frame ----
 
@@ -787,7 +803,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     for (const label of TEXT_PROPS) settings[label] = label !== 'Format' && label in v ? { value: v[label], note: c.note } : h.settings[label];
     return text ? [{ id: `text@${h.id}`, type: 'text', settings, look: look(settings), text, free: { note: c.note.note, text: v.text }, computed: false, shownBy: c.note }] : [];
   }
-  for (const b of boxes) { blanksIn(b); b.texts = [...gather(b.texts), ...freeText(b)]; }
+  for (const b of boxes) { blanksIn(b); b.texts = [...gather(b.texts), ...freeText(b)]; inkOn(b); }
   // The key is of what the view draws: what's revealed for a while doesn't change it. While nothing is keyed, as on a
   // new chart's page, a Key isn't drawn, and the page is as it would be without it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
@@ -1595,6 +1611,7 @@ function freeShape(row, text, u = 1, k = 1) {
     ...(row.geometry === 'line' && { Arrow: 'none' }) };
   const t = { ...base, Size: base.Size * u, ...format, Weight: (format.Weight ?? base.Weight) * u };
   t.Size = half(t.Size, 1 / u);
+  if (format.Color == null && tooDark(t) && unread(t.Color, t.Fill)) t.Color = WHITE;
   const m = { id: shape, type: 'shape', row: id, geometry: row.geometry ?? 'rect', x: row.x ?? 0, y: row.y ?? 0, w: row.w ?? 200 * u, h: row.h ?? 52 * u,
     look: t, settings: Object.fromEntries(Object.entries(t).map(([k, v]) => [k, { value: v, note: null }])), texts: [], ...(row.role && { role: row.role }) };
   if (m.geometry === 'line') {

@@ -877,7 +877,9 @@ function Look({ id }) {
     : (s => { const c = Scene.captionOf(n, x.pattern, v); return T.norm(c).startsWith(T.norm(s)) ? c : `${s}: ${c}`; })(Scene.styleName(n, T.bare(x.pattern)));
   const look = Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
     .map(([label, s]) => ({ label, value: s.value, from: from(s.note), rank: rank(s.note) })).sort((a, b) => a.rank - b.rank);
-  const own = [...Object.values(n.formats(t, v)).map(r => r.note), n.resolve('Position', t, v)?.note].filter(x => x && x.view === v && mine(x));
+  // (And what's this box's alone of its fields, beside it, as a look pasted on it gives.)
+  const beside = n.notes('Size').length ? ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'].flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
+  const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note].filter(x => x && x.view === v && mine(x));
   const move = (k, x) => App.change(tx => tx.note('Position', t, { ...pos, [k]: x }, { view: v }), { dated: false });
   return html`<${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />
     ${pos ? html`<${Place} at=${pos} put=${move} reset=${resetting(own, l => l === 'Position')} />` : null}`;
@@ -1060,41 +1062,50 @@ function Styles({ v, only }) {
   // A caption typed as an output's own name is no caption.
   const cap = (ps, text) => App.change(tx => ps.forEach(p => tx.note('Caption', p, text && text !== Scene.outputName(n, p) ? text : undefined, { view: v })));
   const grip = part => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order(part))}>${GRIP}</button>`;
+  // Its own place among those of its part, a step up or down: what a row's menu offers beside its grip.
+  const steps = (part, s) => { const i = part.findIndex(b => b.s.key === s.key), go = to => order(part)(i, to);
+    return only ? [] : [{ label: 'Move up', disabled: i < 1, run: () => go(i - 1) }, { label: 'Move down', disabled: i >= part.length - 1, run: () => go(i + 1) }]; };
   // A row: its swatch, its caption (the Key's word, typed over, which captions each output in it), and, where a
   // caption calls it, what it stands for: beneath, where several, or on hover. A style's one row, `alone`, is
-  // dragged among that part.
-  const output = (g, alone) => {
+  // dragged among that part. Its swatch clicked is its caption clicked.
+  const output = (g, alone, part, s) => {
     const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]);
-    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key}>${alone ? grip(alone) : null}<div class="k"><${Swatch} sw=${g.swatch} off=${g.off} /></div>
-      <div class="v" title=${said && names.length === 1 ? names[0] : null}><${Caption} g=${g} label=${names.join(', ')} put=${out => cap(g.outputs, out?.value ?? '')} />
+    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key}>${alone ? grip(alone) : null}<div class="k" onClick=${() => aimAt(g)} onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
+      <div class="v" title=${said && names.length === 1 ? names[0] : null}><${Caption} g=${g} label=${names.join(', ')} put=${out => cap(g.outputs, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
   // A style that is its one group is that row alone: Names, not Name over Names.
   return parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
-    ${lone ? output(rows[0], part) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname"><${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}></div></div>${rows.map(g => output(g))}`}
+    ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname"><${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}></div></div>${rows.map(g => output(g, null, part, s))}`}
   </div>`));
 }
 
-// A Styles row's caption. Clicked, it lights on the chart the boxes and lines it reaches, as the scope's group is cued,
-// till it's left; double-clicked, F2 or Enter, or Rename from its menu, it's typed over, as a name is.
-function Caption({ g, label, put }) {
-  const [typing, setTyping] = useState(false), [on, setOn] = useState(false);
+// A Styles row aimed at: the ribbon's scope, what it reaches lit on the chart (the format bar's aim), till it's clicked again.
+const aimAt = g => { if (typeof FormatBar !== 'undefined') FormatBar.aim?.(FormatBar.aimedAt?.(g) ? null : g); };
+// What a Styles row's right-click offers, as they apply: Rename; a step up or down; Copy look and Paste look; Delete, which
+// takes away what it gives the view.
+function styleMenu(e, g, v, moves, rename) {
+  e.preventDefault();
+  const fb = typeof FormatBar !== 'undefined' && FormatBar.aim ? FormatBar : null, ro = App.readOnly.peek(), keys = new Set(g.outputs.map(p => T.key(p)));
+  const look = () => { const on = !fb.aimedAt(g); if (on) fb.aim(g); };
+  const given = App.shown.peek().rows(App.chart.peek()).filter(x => 'note' in x && x.view === v && keys.has(T.key(x.pattern)) && Notes.looksLike(x));
+  menu({ x: e.clientX, y: e.clientY }, [
+    ...(rename ? [{ label: 'Rename', keys: 'F2', disabled: ro, run: rename }] : []), ...moves.map(m => ({ ...m, disabled: ro || m.disabled })),
+    ...(fb ? [...(rename || moves.length ? ['-'] : []), { label: 'Copy look', run: () => { look(); fb.copyLook(); Shell.toast(`Copied the look of ${g.caption}`); } }, { label: 'Paste look', disabled: ro || !fb.canPasteLook(), run: () => { look(); fb.pasteLook(); } }] : []),
+    ...(given.length ? ['-', { label: 'Delete', danger: true, disabled: ro, run: () => { if (fb?.aimedAt(g)) fb.aim(null); App.change(tx => { given.forEach(x => tx.remove(x.note)); tx.says(`Deleted the style ${g.caption} in ${N().nameOf(App.state.peek(), v)}`); }, { dated: false }); } }] : []),
+  ]);
+}
+// A Styles row's caption. Clicked, it aims the ribbon at the row; double-clicked, F2 or Enter, or Rename from its menu,
+// it's typed over, as a name is.
+function Caption({ g, label, put, moves, v }) {
+  const [typing, setTyping] = useState(false);
   if (typing) return html`<span class="cellbox" onFocusOut=${e => { if (!e.currentTarget.contains(e.relatedTarget)) setTyping(false); }}>
     <${Field} r=${{ field: 'text', value: g.caption }} datatype="text" label=${label} cls=${g.off ? ' off' : ''} auto put=${out => { setTyping(false); put(out); }} /></span>`;
-  const c = charted() ? Canvas.active.peek() : null;
-  const light = () => { const sc = App.scene.peek(); if (!c || !sc) return; setOn(true); c.cue?.(reachedBy(sc, g.outputs)); };
-  const dark = () => { if (!on) return; setOn(false); typeof FormatBar !== 'undefined' ? FormatBar.cue?.(false) : c?.cue?.(null); };
-  const rename = () => { dark(); if (!App.readOnly.peek()) setTyping(true); };
-  return html`<button type="button" class=${'cap' + (on ? ' on' : '') + (g.off ? ' off' : '')} aria-label=${label} aria-pressed=${on} onClick=${() => (on ? dark() : light())} onDblClick=${rename} onBlur=${dark}
+  const on = typeof FormatBar !== 'undefined' && !!FormatBar.aimedAt?.(g);
+  const rename = () => { if (!App.readOnly.peek()) setTyping(true); };
+  return html`<button type="button" class=${'cap' + (on ? ' on' : '') + (g.off ? ' off' : '')} aria-label=${label} aria-pressed=${on} onClick=${() => aimAt(g)} onDblClick=${rename}
     onKeyDown=${e => { if (e.key === 'F2' || e.key === 'Enter') { e.preventDefault(); rename(); } }}
-    onContextMenu=${e => { e.preventDefault(); menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rename', keys: 'F2', disabled: App.readOnly.peek(), run: rename }]); }}>${g.caption}</button>`;
-}
-// The boxes and lines of a scene that a Styles row's outputs reach, as the scope's groups reach them.
-function reachedBy(sc, outputs) {
-  const out = new Set();
-  for (const m of sc.marks) if ((m.type === 'box' || m.type === 'line') && !m.revealed)
-    for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, recs())) if (outputs.some(p => T.narrower(r.output, p))) out.add(m.id);
-  return [...out];
+    onContextMenu=${e => styleMenu(e, g, v, moves, rename)}>${g.caption}</button>`;
 }
 
 // The view: its layout and its rows (its own notes), and its styles in their order. Its name is its tab's,

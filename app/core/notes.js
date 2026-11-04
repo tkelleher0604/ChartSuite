@@ -252,5 +252,5 @@ function lookFrom(data) {
   } catch { return null; }
 }
 
-return { index, FORMATS, houseLook, takeLook, lookFrom };
+return { index, FORMATS, isOption, looksLike, houseLook, takeLook, lookFrom };
 })();

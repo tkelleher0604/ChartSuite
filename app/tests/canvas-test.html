@@ -153,18 +153,16 @@ async function run() {
   check('its ▾ offers the selection, then each group that reaches it, with its reach', items[0] === 'This box' && items.slice(1).every(t => /^\S.* \(\d+\)$/.test(t) && !t.startsWith('All '))
     && items.includes('Portfolio companies (4)'), menu.join(' | '));
   const pcHead = menu.slice(0, menu.indexOf('Portfolio companies (4)')).filter(t => heads.includes(t)).at(-1);
-  check('… the Styles rows each under its style’s name, and a style that is its one group (Names) that row alone, after the heads and apart from them', !!pcHead && pcHead !== 'Portfolio companies'
-    && items.includes('Names (24)') && !heads.includes('Name') && menu.indexOf('Names (24)') > menu.indexOf(heads.at(-1))
-    && seps.slice(0, seps.indexOf('Names (24)')).reverse().find(t => t === '-' || heads.includes(t)) === '-', seps.join(' | '));
-  // The Styles rows that reach the box, by Styles' captions, as Styles lists them (Scene.groupsOf's order), under
-  // their styles' names, then those under none; then apart, the box's own groups, its kind first.
+  check('… the Styles rows each under its style’s name, and a style that is its one group (Names) that row alone, first, in the same place for every box', !!pcHead && pcHead !== 'Portfolio companies'
+    && items.includes('Names (24)') && !heads.includes('Name') && seps.slice(0, 3).join() === 'This box,-,Names (24)', seps.join(' | '));
+  // The Styles rows that reach the box, by Styles' captions: those under no name first; then as Styles lists them (Scene.groupsOf's
+  // order), under their styles' names; then apart, under Same field value, the box's own groups, its kind first.
   const reaching = Scene.groupsOf(App.notes.peek(), sc().view).filter(g => Scene.reach(App.shown.peek(), App.chart.peek(), sc().view, sc(), 'northpine', App.state.peek())
     .some(r => r.style === g.style && g.outputs.some(p => Tree.narrower(r.output, p))));
-  const listedSo = reaching.flatMap((g, i) => [...(g.name && g.style !== reaching[i - 1]?.style ? ['#' + g.name] : []), ...(!g.name && reaching[i - 1]?.name ? ['-'] : []), g.caption]);
-  const ownAt = seps.findIndex((t, i) => t === '-' && i > seps.indexOf('This box') + 1 && /^Entity \(\d+\)$/.test(seps[i + 1] ?? ''));
-  const menuSays = seps.slice(seps.indexOf('This box') + 2, ownAt).map(t => heads.includes(t) ? '#' + t : t.replace(/ \(\d+\)$/, ''));
-  check('… in the order Styles lists them, each style’s under its name, and those under none after them all', ownAt > 0 && JSON.stringify(menuSays) === JSON.stringify(listedSo)
-    && listedSo.indexOf('Names') > listedSo.indexOf('Portfolio companies'), `${menuSays.join(' | ')} vs ${listedSo.join(' | ')}`);
+  const headedSo = reaching.filter(g => g.name), listedSo = [...reaching.filter(g => !g.name).map(g => g.caption), '-', ...headedSo.flatMap((g, i) => [...(g.style !== headedSo[i - 1]?.style ? ['#' + g.name] : []), g.caption])];
+  const ownHead = seps.indexOf('Same field value'), ownAt = ownHead;
+  const menuSays = seps.slice(seps.indexOf('This box') + 2, ownHead - 1).map(t => heads.includes(t) ? '#' + t : t.replace(/ \(\d+\)$/, ''));
+  check('… in the order Styles lists them, each style’s under its name, and those under none before them all', ownHead > 0 && JSON.stringify(menuSays) === JSON.stringify(listedSo), `${menuSays.join(' | ')} vs ${listedSo.join(' | ')}`);
   // Its own groups: every box of its kind, and of each of its options and tags, by the boxes drawn that have it.
   const rs = App.state.peek(), drawnBoxes = sc().marks.filter(m => m.type === 'box'), entryOf = (b, edge) => Object.keys(rs).find(id => rs[id].at === b.record && rs[id].edge === edge);
   const reachOf = (edge, out) => drawnBoxes.filter(b => { const e = entryOf(b, edge); return e && Object.entries(out).every(([k, v]) => rs[e][k] === v); }).length;
@@ -301,7 +299,12 @@ async function run() {
 
   // ---- Sizes in slide points, on the half-point grid; a frame shows its caption's ----
   const shown = () => +$('[data-fb="size"]').value;
-  check('the format bar shows a size in slide points, to the half point', shown() * 2 === Math.round(shown() * 2) && Math.abs(shown() - Scene.toSlide(sc().page, sizeOf())) <= 0.25, `${shown()} for ${Scene.toSlide(sc().page, sizeOf())}`);
+  // (Of a box whose name and jurisdiction differ, it's blank, as PowerPoint's is; so of the name alone.)
+  const sizesOf = id => new Set(sc().byId.get(id).texts.map(it => it.look.Size));
+  check('the format bar’s size is blank where the texts it would change differ', sizesOf(Shell.selection.peek()[0]).size > 1 && $('[data-fb="size"]').value === '', `${[...sizesOf(Shell.selection.peek()[0])]}: “${$('[data-fb="size"]').value}”`);
+  $('[data-fb="groups"]').click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e).startsWith('Names ('))?.click(); await tick(120);
+  check('the format bar shows a size in slide points, to the half point', shown() > 0 && shown() * 2 === Math.round(shown() * 2) && Math.abs(shown() - Scene.toSlide(sc().page, sizeOf())) <= 0.25, `${shown()} for ${Scene.toSlide(sc().page, sizeOf())}`);
   // A size picked reads back as picked where the chart can keep a scale for it, though the box grows and the
   // chart's scale drops with it (12 on Fund III); and where it can't, the bar says what it prints, as near the
   // pick as the page allows (14).
@@ -884,7 +887,7 @@ async function run() {
   key('V', { code: 'KeyV', ctrlKey: true, shiftKey: true }); await tick(250);
   const cv1 = App.scene.peek().byId.get('corvane');
   check('Ctrl+Shift+C copies a box’s look and Ctrl+Shift+V pastes it on another, one change, its notes at the box', App.wb.changes().length === pasteFrom + 1 && cv1.settings.Fill.value === '#fbe5d6'
-    && cv1.settings.Shadow.value === 'soft' && cv1.texts[0].look.Strike && cv1.texts[0].look.Color === '#c00000' && notesAt('corvane').join() === 'Color,Fill,Shadow,Strike', notesAt('corvane').join());
+    && cv1.settings.Shadow.value === 'soft' && cv1.texts.every(it => it.look.Strike && it.look.Color === '#c00000') && [...new Set(notesAt('corvane'))].join() === 'Color,Fill,Shadow,Strike', notesAt('corvane').join());
   check('… keeping its own shape, as PowerPoint’s painter does', cv1.shape === App.scene.peek().byId.get('corvane').shape && !App.notes.peek().notes('Shape').some(n => n.pattern.id === 'corvane'));
   Shell.parts.peek().undo.undo(); await tick(150);
   Shell.select(['halvard']); await tick(120);
@@ -1521,6 +1524,71 @@ async function format() {
   check('Find reaches them by Style, Theme, Template, House, Master, Match', ['look.match', 'look.house', 'look.save', 'look.load'].every(id => acts().find(a => a.id === id)?.names?.includes('Theme')) && ['Style', 'Template', 'House style', 'Master', 'Match'].every(w => acts().find(a => a.id === 'look.match').names.includes(w)));
   await Store.forgetHouseStyle('hs1'); await Store.forgetHouseStyle('hs2'); await Shell.parts.peek().formatbar.relist?.();
   Shell.parts.peek().undo.undo(); await tick(300);
+
+  // ---- The Styles panel aims the ribbon: a row or its swatch clicked is the scope, what it reaches lit ----
+  Shell.select([]); await tick(150);
+  const row = capt => $$('.row.out').find(r => txt(r.querySelector('.cap')) === capt), cap = capt => row(capt).querySelector('.cap');
+  const barOn = () => !$('[data-fb="font"]').disabled, likeSays = () => txt($('[data-fb="like"]')), dull = () => $$('.dc .x6-cell.dc-dull').length;
+  check('with nothing selected, the ribbon is off, its scope in its place', !barOn() && !!$('[data-fb="scope"].off'));
+  const scopeAt0 = $('[data-fb="scope"]').getBoundingClientRect(), fontAt0 = $('[data-fb="font"]').getBoundingClientRect();
+  cap('Funds').click(); await tick(150);
+  check('a Styles row clicked aims the ribbon at it, what it reaches lit, the rest dulled', barOn() && /^All 6 funds/.test(likeSays()) && dull() > 0 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
+  check('… the bar’s controls where they were', Math.abs($('[data-fb="scope"]').getBoundingClientRect().left - scopeAt0.left) < 0.5 && Math.abs($('[data-fb="scope"]').getBoundingClientRect().width - scopeAt0.width) < 0.5 && Math.abs($('[data-fb="font"]').getBoundingClientRect().left - fontAt0.left) < 0.5);
+  const fundBox = () => sc().byId.get('fund');
+  $('[data-fb="fill"]').click(); await tick(120);
+  const hexIn = $('.float .palette .hex > input');
+  hexIn.value = '1F3864'; hexIn.dispatchEvent(new Event('input', { bubbles: true })); hexIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(400);
+  check('… a fill given goes to the row', fundBox().settings.Fill.value === '#1f3864' && !Shell.selection.peek().length);
+  check('… and the cue goes, so the change can be seen', dull() === 0, dull());
+  $('[data-fb="scope"]').dispatchEvent(new PointerEvent('pointerenter', { bubbles: false })); await tick(120);
+  check('… a pointer on the scope list bringing it back', dull() > 0, dull());
+  // Ink on a dark fill: what has no color of its own is white, what's given one keeps it.
+  check('a text with no color of its own is drawn white on a fill too dark for ink', fundBox().texts.every(it => it.look.Color === '#ffffff'), fundBox().texts.map(it => it.look.Color).join());
+  // Text color at a group means every field it shows, as a shape's in PowerPoint.
+  $('[data-fb="color"]').click(); await tick(120);
+  const swatchRed = $$('.float .palette > button').find(b => b.getAttribute('aria-label') === 'Yellow');
+  swatchRed.dispatchEvent(new PointerEvent('pointerenter')); swatchRed.click(); await tick(400);
+  check('a text color given a group of boxes goes to every field they show', fundBox().texts.every(it => it.look.Color === '#ffff00'), fundBox().texts.map(it => it.look.Color).join());
+  // A field chosen alone still applies alone.
+  $('[data-fb="own"]')?.click; cap('Funds').click(); await tick(150);
+  check('… the aim ends as its row is clicked again', !$('.row.out .cap.on'));
+  Shell.parts.peek().undo.undo(); await tick(300); Shell.parts.peek().undo.undo(); await tick(300);
+  // The swatch aims too; Esc ends it; a press on the chart ends it.
+  row('Funds').querySelector('.k').click(); await tick(120);
+  const bySwatch = /^All 6 funds/.test(likeSays());
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(120);
+  check('a row’s swatch clicked does too, and Esc ends it', bySwatch && !barOn() && dull() === 0);
+  cap('Names').click(); await tick(120);
+  // ---- The ribbon reports what's on the page ----
+  const sizeBox = () => $('[data-fb="size"]');
+  check('Names chosen: the font and size are the names’, B lit where every name is bold', barOn() && sizeBox().value !== '' && $('[data-fb="bold"]').getAttribute('aria-pressed') === 'true', `${sizeBox().value} ${$('[data-fb="bold"]').getAttribute('aria-pressed')}`);
+  cap('Jurisdictions').click(); await tick(120);
+  const before7 = sizeBox().value;
+  sizeBox().value = '7'; sizeBox().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(400);
+  check('Jurisdictions given a size: the size box says what was typed', sizeBox().value === '7' && $('[data-fb="bold"]').getAttribute('aria-pressed') === 'false', `${before7} → ${sizeBox().value}`);
+  Shell.parts.peek().undo.undo(); await tick(300);
+  // Reordering, copying and pasting a look, and deleting a row, from its right-click.
+  cap('Funds').click(); await tick(120);
+  const openMenu = el => { el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 900, clientY: 300 })); return tick(120); };
+  await openMenu(cap('Funds'));
+  check('a Styles row’s right-click offers Rename, its order, Copy look, Paste look and Delete', ['Rename', 'Move up', 'Move down', 'Copy look', 'Paste look', 'Delete'].every(l => menuItems().some(t => t.startsWith(l))), menuItems().join(' | '));
+  await closeMenus();
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(120);
+  // ---- Pasting a look is one thing: on a box or on a style, the same ----
+  const FP = () => sc().byId.get('halvard'), lookIs = m => m.texts.map(it => [fieldEdgeIs(it), it.look.Color, it.look.Bold, it.look.Italic].join()).sort().join(';'), fieldEdgeIs = it => App.state.peek()[it.id]?.edge;
+  App.change(tx => { const t = Tree.treeOf(App.state.peek(), 'fund'), name = Object.keys(App.state.peek()).find(id => App.state.peek()[id].at === 'fund' && App.state.peek()[id].edge === 'Jurisdiction');
+    tx.note('Fill', t, '#1f3864', { view: st.id }); tx.note('Color', t, '#ffffff', { view: st.id }); tx.note('Italic', Tree.treeOf(App.state.peek(), name), true, { view: st.id }); }, { dated: false }); await tick(300);
+  Shell.select(['fund']); await tick(150);
+  FormatBar.copyLook();
+  Shell.select(['halvard']); await tick(150); FormatBar.pasteLook(); await tick(400);
+  const onBox = lookIs(FP()), boxFill = FP().settings.Fill.value;
+  Shell.parts.peek().undo.undo(); await tick(300);
+  $('[data-fb="groups"]').click(); await tick(120);
+  $$('.float .menu-item').find(e => txt(e).startsWith('Portfolio companies'))?.click(); await tick(120);
+  FormatBar.pasteLook(); await tick(400);
+  check('a look pasted on a style is the look pasted on a box, sizes and text colors included', lookIs(FP()) === onBox && FP().settings.Fill.value === boxFill && /Jurisdiction,#ffffff,false,true/.test(onBox), `${lookIs(FP())} vs ${onBox}`);
+  Shell.parts.peek().undo.undo(); await tick(300); Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([]); await tick(150);
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);

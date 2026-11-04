@@ -75,11 +75,17 @@ const keyOf = ps => JSON.stringify(ps.map(p => Tree.key(p)).sort());
 // (its Show on chart says where), ask it as they're drawn.
 const scopesKept = new WeakMap();
 function scopesOf(c) {
-  const sc = c.scene(), keys = c.keys(), k = JSON.stringify(keys), st = App.state.peek(), N = App.notes.peek(), was = scopesKept.get(sc);
+  const sc = c.scene(), keys = c.keys(), a = keys.length ? null : aimed.peek(), k = JSON.stringify([keys, a?.key ?? null]), st = App.state.peek(), N = App.notes.peek(), was = scopesKept.get(sc);
   if (was?.k === k && was.st === st && was.N === N) return was.s;
-  const s = scopesNow(c, sc, keys);
+  const s = a ? scopesAimed(sc, a) : scopesNow(c, sc, keys);
   scopesKept.set(sc, { k, st, N, s });
   return s;
+}
+// A Styles row aimed at, with nothing selected: the ribbon's scope is that row, whichever of the marks it reaches are
+// drawn; none drawn, it still goes to the row, and reads from its swatch.
+function scopesAimed(sc, a) {
+  const g = Scene.groupsOf(App.notes.peek(), sc.view).find(x => x.style === a.style && x.outputs.some(p => Tree.key(p) === a.key)) ?? a, marks = marksOf(sc, g);
+  return { aim: g, marks: [...marks].map(id => sc.byId.get(id)).filter(Boolean), scopes: [{ ...g, key: 'row', marks }] };
 }
 function scopesNow(c, sc, keys) {
   // A group is formatted as its members.
@@ -218,8 +224,9 @@ function allOf(s, n) {
   const one = w => w.replace(/ies$/i, 'y').replace(/(?<![su])s$/i, '');
   return `${n === 1 ? 'The only' : all} ${[...words.slice(0, -1), n === 1 ? one(last) : /s$/i.test(last) ? last : Tree.plural(last)].map((w, i) => i ? w : lower(w)).join(' ')}`;
 }
-// The scope a change goes to: the group chosen (by its key), or else the selection itself.
-const chosen = signal(null);
+// The scope a change goes to: the group chosen (by its key), or else the selection itself. With nothing selected, a
+// Styles row aimed at, its click in the panel: { style, key, … }, a group of Scene.groupsOf.
+const chosen = signal(null), aimed = signal(null);
 const scopeOf = (scopes, key = chosen.peek()) => scopes.find(s => s.key === key) ?? scopes[0];
 // The marks a group reaches that keep their own value of a property, entered for them alone in the view,
 // which a change for the group leaves as it is (entered wins): each with the notes that decide it.
@@ -253,12 +260,49 @@ function write(tx, c, label, value) {
   if (!scope) return;
   const f = TEXT_LABELS.has(label) && label !== 'Format' ? fieldOf(c) : null;
   if (f) return c.styleField(tx, f, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
-  const view = c.scene().view, tree = id => Tree.treeOf(App.state.peek(), id);
-  if (scope.outputs) for (const p of scope.outputs) tx.note(label, p, value, { view });
-  else for (const m of marks) {
-    if (m.type === 'box' || m.type === 'line') tx.note(label, tree(m.record), value, { view });
+  const view = c.scene().view, tree = id => Tree.treeOf(App.state.peek(), id), texty = TEXT_LABELS.has(label) && label !== 'Format';
+  if (scope.outputs) {
+    for (const p of scope.outputs) tx.note(label, p, value, { view });
+    if (texty) everyField(tx, c.scene(), scope, label, value);
+  } else for (const m of marks) {
+    if (m.type === 'box' || m.type === 'line') {
+      tx.note(label, tree(m.record), value, { view });
+      // As a shape's in PowerPoint: what was this box's own of a field goes with it.
+      if (texty) ownFields(tx, m, label);
+    }
     else if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, [label]: value } });
   }
+}
+// A field's own label, where a text is a field; its own look of a label, given by its entry's style or beside a group, as
+// against one it takes from the box it's in.
+const fieldEdge = it => !it.free && !it.blank ? App.state.peek()[it.id]?.edge ?? null : null;
+const givenField = (it, label) => { const n = it.settings?.[label]?.note; return !!n && !Tree.idsIn(n.pattern).size && (!!n.param || (!Notes.isOption(n.pattern) && n.pattern.args?.length === 1)) ? n : null; };
+// A text property given a group of boxes or lines is given every field they show, as a shape's is in PowerPoint: where
+// a field's own style decides it in them (Jurisdictions), beside the group's outputs too, which is narrower. Given a style
+// of one entry (Jurisdictions), it's every one of those texts: where a group's look of it decides one, beside that
+// group's outputs too, so what's typed last is what they all have.
+function everyField(tx, sc, scope, label, value) {
+  const view = sc.view, N = App.notes.peek(), marks = [...scope.marks ?? marksOf(sc, scope)].map(id => sc.byId.get(id)).filter(Boolean);
+  if (scope.swatch?.kind === 'text') {
+    const edge = scope.outputs[0].args?.[0]?.edge, st = App.state.peek();
+    if (edge === undefined) return;
+    const over = new Map(N.notes(label).filter(n => n.view === view && n.param && Tree.same(n.param, edge)).map(n => [Tree.key(n.pattern), n.pattern]));
+    for (const m of marks) for (const it of m.texts ?? []) {
+      const n = it.settings?.[label]?.note;
+      if (n && Tree.same(fieldEdge(it) ?? '', edge) && n.view === view && !Tree.idsIn(n.pattern).size && !givenField(it, label)) over.set(Tree.key(n.pattern), n.pattern);
+    }
+    for (const p of over.values()) tx.note(label, p, value, { view, param: edge });
+    return;
+  }
+  const edges = new Map();
+  for (const m of marks) for (const it of m.texts ?? []) { const e = fieldEdge(it); if (e && givenField(it, label)) edges.set(Tree.norm(e), e); }
+  for (const p of scope.outputs) for (const e of edges.values()) tx.note(label, p, value, { view, param: e });
+}
+// What's this box's own alone of a label, of the fields in it: at their records or beside it.
+function ownFields(tx, m, label) {
+  const view = Canvas.active.peek().scene().view, st = App.state.peek(), N = App.notes.peek(), t = Tree.treeOf(st, m.record);
+  for (const id of inMark(st, m)) if (id !== m.record) { const f = Tree.treeOf(st, id), r = f && N.resolve(label, f, view); if (r?.note.view === view && Tree.idsIn(r.note.pattern).size) tx.note(label, r.note.pattern, undefined, { view, param: r.note.param }); }
+  for (const [e, r] of Object.entries(N.fields(t, view, label))) if (r.note.view === view && Tree.idsIn(r.note.pattern).size) tx.note(label, r.note.pattern, undefined, { view, param: e });
 }
 function apply(label, value) {
   const c = Canvas.active.peek();
@@ -269,6 +313,7 @@ function apply(label, value) {
   const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]), first = firstFor(c, scope, label, value);
   const says = [kept.length && `${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own`, first.say].filter(Boolean);
   App.change(tx => { write(tx, c, label, value); first.also?.(tx); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : null });
+  fade();
   // Keys go back to the chart, so the next change can be typed.
   requestAnimationFrame(() => c.root.focus({ preventScroll: true }));
 }
@@ -353,6 +398,7 @@ function sized(v) {
 // its caption's).
 function value(label) {
   const m = current?.marks[0];
+  if (current?.aim && !m) return current.aim.swatch[label];
   if (!m) return undefined;
   if (current.row) return current.row.swatch[label] ?? current.row.caption.look[label];
   // A frame is the style's, drawn round the boxes it reaches.
@@ -360,23 +406,30 @@ function value(label) {
     const outs = new Set((current.scope?.outputs ?? []).map(p => Tree.key(p)));
     return current.canvas.scene().marks.find(f => f.type === 'frame' && outs.has(Tree.key(f.output)))?.kind ?? 'none';
   }
-  const text = current.field?.it ?? m.texts?.[0] ?? m.caption;
+  const text = current.field?.it ?? scopeTexts()[0] ?? m.texts?.[0] ?? m.caption;
   if (TEXT_LABELS.has(label) && text) return text.look?.[label] ?? text.settings?.[label]?.value;
   return m.settings?.[label]?.value ?? m.look?.[label];
+}
+// The marks the scope reaches, and of them the texts a text property of it would change: with a field selected, that
+// field, in the box selected or in each box of the group chosen; for a style of one entry (Jurisdictions), those; else
+// every text of them.
+const scopeMarks = () => { const sc = current.canvas.scene(), scope = current.scope; return scope?.own || !scope?.marks || scope.key === 'frame' || current.row ? current.marks : [...scope.marks].map(id => sc.byId.get(id)).filter(Boolean); };
+function scopeTexts() {
+  if (current.texts) return current.texts;
+  const f = current.field, scope = current.scope, st = App.state.peek(), only = scope?.swatch?.kind === 'text' ? scope.outputs : null;
+  return current.texts = scopeMarks().flatMap(m => m.texts ?? (m.caption ? [m.caption] : []))
+    .filter(it => !it.blank && (f ? it === f.it || (!f.it.free && edgeOf(it) === edgeOf(f.it)) : !only || only.some(p => Tree.fits(st, it.id, p))));
 }
 // The field selected in the one box selected, if any (the canvas's field()).
 const fieldOf = c => { const f = c.field?.(), ks = c.keys(); return f?.it && ks.length === 1 && Canvas.keyParts(ks[0])[0] === f.m.id ? f : null; };
 // A toggle's state (bold, italic, underline, strikethrough), as Office's: pressed only where every text it would
 // change has it, so a box whose name is bold and whose jurisdiction isn't shows Bold unpressed, and pressing it sets
-// them all. Those texts: with a field selected, that field, in the box selected or in each box of the group chosen;
-// else every text of the marks the scope reaches. A Key row is its swatch's and caption's.
+// them all. A Key row is its swatch's and caption's.
 const edgeOf = it => it.free ? `text@${it.free.note}` : Tree.norm(App.state.peek()[it.id]?.edge ?? it.blank?.edge ?? '');
 function pressed(label) {
-  if (!current?.marks.length) return false;
+  if (!current?.marks.length) return current?.aim ? !!value(label) : false;
   if (current.row) return !!value(label);
-  const sc = current.canvas.scene(), scope = current.scope, f = current.field;
-  const marks = scope?.own || !scope?.marks ? current.marks : [...scope.marks].map(id => sc.byId.get(id)).filter(Boolean);
-  const texts = marks.flatMap(m => m.texts ?? (m.caption ? [m.caption] : [])).filter(it => !it.blank && (!f || (it === f.it || (!f.it.free && edgeOf(it) === edgeOf(f.it)))));
+  const texts = scopeTexts();
   return texts.length ? texts.every(it => !!it.look?.[label]) : !!value(label);
 }
 
@@ -430,8 +483,9 @@ function Palette({ label, none, close, children }) {
   const rest = el => { const f = el.querySelector('.hex > input'), c = f === document.activeElement && hexOf(f.value); c ? preview(label, c) : preview(); };
   const typed = e => { const f = e.currentTarget; f.toggleAttribute('aria-invalid', !!f.value.trim() && !hexOf(f.value)); rest(f.closest('.palette')); };
   const entered = e => { const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { close?.(); apply(label, c); } };
+  // The chart's own colors have their row from the start, so nothing moves down as the first comes.
   return html`<div class="palette" onPointerLeave=${e => rest(e.currentTarget)}>${THEME.map((c, i) => swatch(c, THEME_NAMES[i]))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i]))}
-    ${own.length ? html`<i />${own.map(c => swatch(c, c.toUpperCase()))}` : null}
+    <i />${own.map(c => swatch(c, c.toUpperCase()))}${Array.from({ length: 10 - own.length }, () => html`<span class="room" />`)}
     <div class="more">
       <label class="menu-item"><span class="label">More colors</span>
         <span class="hex">#<input value=${/^#[0-9a-f]{6}$/.test(v) ? v.slice(1).toUpperCase() : ''} maxlength="7" spellcheck="false" autocomplete="off" aria-label="More colors"
@@ -469,7 +523,17 @@ const whole = e => { const b = e.currentTarget, t = b.firstElementChild; b.datas
 // A group chosen: what the next change goes to, cued on the chart; the selection itself clears the cue. The group
 // last chosen for a selection is the one its right part names again.
 const liked = signal(null);
-function choose(x) { chosen.value = x?.own ? null : x?.key ?? null; if (chosen.peek()) liked.value = chosen.peek(); cue(); }
+function choose(x) { chosen.value = x?.own ? null : x?.key ?? null; if (chosen.peek()) liked.value = chosen.peek(); wake(); }
+// A Styles row aimed at from the panel, or `null`: the ribbon's scope, what it reaches lit, till it's aimed at again,
+// Esc, a press on the chart or another selection. Another row's click moves the aim.
+let unaim = null;
+function aim(g) {
+  unaim?.(); unaim = null;
+  aimed.value = g ? { style: g.style, key: Tree.key(g.outputs[0]), outputs: g.outputs, caption: g.caption, swatch: g.swatch, name: g.name } : null;
+  if (g) unaim = Shell.layer(() => aim(null));
+  wake();
+}
+const aimedAt = g => !!aimed.value && aimed.value.style === g.style && g.outputs.some(p => Tree.key(p) === aimed.value.key);
 // The two parts: the selection, and the group all like it names (the one last chosen, or the narrowest).
 const likeOf = s => { const sc = scopeOf(s.scopes); return !sc ? null : !sc.own ? sc : s.scopes.find(x => x.key === liked.peek()) ?? s.narrowest; };
 // Ctrl+Shift+A: from one part to the other.
@@ -480,14 +544,26 @@ function toggle() {
   if (!sc || !like || !s.scopes.some(x => x.own)) return false;
   choose(sc.own ? like : s.scopes.find(x => x.own));
 }
-// The cue: the group pointed at, for as long as it's pointed at; else the group chosen, if any. (A Key row or a
-// frame is lit by the canvas as it is.)
+// The cue: the group pointed at, for as long as it's pointed at; else the group chosen or aimed at, if any. (A Key row
+// or a frame is lit by the canvas as it is.) After a change it fades, over two seconds, so the change can be seen
+// without clicking away, till a pointer on the scope list, or another scope, brings it back.
+let faded = false, fading = 0;
 function cue(x) {
   const c = Canvas.active.peek();
   if (!c?.scene()) return;
-  const s = x === undefined ? (() => { const all = scopesOf(c), sc = scopeOf(all.scopes); return all.scopes.some(o => o.own) && !sc?.own ? sc : null; })() : x;
+  const s = x === undefined ? (faded ? null : (() => { const all = scopesOf(c), sc = scopeOf(all.scopes); return (all.aim || all.scopes.some(o => o.own)) && !sc?.own ? sc : null; })()) : x;
   c.cue(s?.marks ? [...s.marks] : null);
 }
+function fade() {
+  const c = Canvas.active.peek();
+  if (!c || faded) return;
+  faded = true;
+  c.root.classList.add('cue-fading');
+  clearTimeout(fading);
+  fading = setTimeout(() => c.root.classList.remove('cue-fading'), 2000);
+  cue();
+}
+function wake() { faded = false; clearTimeout(fading); Canvas.active.peek()?.root.classList.remove('cue-fading'); cue(); }
 
 // ---- The popovers ----
 
@@ -613,19 +689,30 @@ const LINE_LOOK = ['Outline', 'Weight', 'Dash', 'Arrow'];
 const TEXT_LOOK = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'];
 const LOOK = new Set([...BOX_LOOK, ...LINE_LOOK, ...TEXT_LOOK]);
 const kindOf = m => m.type === 'line' || m.geometry === 'line' ? 'line' : 'box';
-function lookOf(m, p = page()) {
-  const text = m.texts?.[0] ?? m.caption, out = {};
-  for (const l of kindOf(m) === 'line' ? LINE_LOOK : BOX_LOOK) { const v = m.settings?.[l]?.value ?? m.look?.[l]; if (v !== undefined && v !== null) out[l] = l === 'Weight' ? +Scene.toSlide(p, v).toFixed(3) : v; }
-  for (const l of TEXT_LOOK) { const v = text?.look?.[l] ?? m.settings?.[l]?.value ?? m.look?.[l]; if (v !== undefined && v !== null) out[l] = l === 'Size' ? Math.round(Scene.toSlide(p, v) * 2) / 2 : v; }
+const textValue = (it, l, p = page()) => { const v = it?.look?.[l]; return l === 'Size' && typeof v === 'number' ? Math.round(Scene.toSlide(p, v) * 2) / 2 : v; };
+// The look of a mark, and with `only` (a text of a style of one entry) that text's alone: its first text's, and by its
+// label each other field's that differs, so a look pasted reads as it did where it was copied (a name in 9, its
+// jurisdiction in 7 and italic).
+function lookOf(m, p = page(), only = null) {
+  const first = only ?? m.texts?.[0] ?? m.caption, out = {};
+  if (!only) for (const l of kindOf(m) === 'line' ? LINE_LOOK : BOX_LOOK) { const v = m.settings?.[l]?.value ?? m.look?.[l]; if (v !== undefined && v !== null) out[l] = l === 'Weight' ? +Scene.toSlide(p, v).toFixed(3) : v; }
+  for (const l of TEXT_LOOK) { const v = textValue(first, l, p) ?? m.settings?.[l]?.value ?? m.look?.[l]; if (v !== undefined && v !== null) out[l] = v; }
+  if (!only) for (const it of m.texts ?? []) {
+    const e = it !== first && !it.blank && fieldEdge(it), own = e && Object.fromEntries(TEXT_LOOK.map(l => [l, textValue(it, l, p)]).filter(([l, v]) => v !== undefined && v !== null && v !== out[l]));
+    if (e && Object.keys(own).length) (out.fields ??= {})[Tree.norm(e)] = own;
+  }
   return out;
 }
 // The painter: the look copied, `once` for one paste or until Esc, and whether it goes to all like what it's pasted on.
 const painter = signal(null);
 let copied = null, unlayer = null;
+// From a style of one entry, that text's look alone; from a Styles row none of whose marks is drawn, its swatch.
 function copyLook() {
   const m = current?.marks.find(x => x.type === 'box' || x.type === 'line' || x.type === 'shape');
+  if (!m && current?.aim) { copied = { look: Object.fromEntries(Object.entries(current.aim.swatch).filter(([l]) => LOOK.has(l))), from: current.aim.caption }; return true; }
   if (!m) return false;
-  copied = { look: lookOf(m), from: m.record ? App.notes.peek().nameOf(App.state.peek(), m.record) : null };
+  const textStyle = current.scope?.swatch?.kind === 'text';
+  copied = { look: lookOf(m, page(), textStyle ? scopeTexts()[0] : null), from: current.aim?.caption ?? (m.record ? App.notes.peek().nameOf(App.state.peek(), m.record) : null) };
   return true;
 }
 function arm(once) {
@@ -640,34 +727,51 @@ function disarm() { unlayer?.(); unlayer = null; painter.value = null; dropper.v
 // click on the page puts it down.
 const dropper = signal(null);
 function drop(label) { unlayer?.(); unlayer = Shell.layer(disarm); painter.value = null; dropper.value = { label }; }
-// The look pasted on the selection, at its scope: for the selection, a note of each property its mark doesn't
-// already take so, at its record's own tree in the view (a free shape's, in its row); for a group, a note of each that
-// any mark it reaches doesn't take so, at each of its outputs. One change.
+// The look pasted on the selection, at its scope, one thing either way: for the selection, at its record's own tree in
+// the view (a free shape's, in its row); for a group, at each of its outputs. What it says of the mark, of each property
+// some mark there doesn't take so; of its texts, at that pattern and beside it for each field there, the look's own for
+// that field or else its first text's, so every field ends as the look has it, whatever else has decided it. On a style
+// of one entry (Jurisdictions), its first text's, as the bar's own change goes. One change.
 function pasteLook(look = copied?.look) {
   const c = Canvas.active.peek();
   if (!look || !c?.scene() || App.readOnly.peek()) return false;
   const s = scopesOf(c), scope = scopeOf(s.scopes), sc = c.scene(), view = sc.view, st = App.state.peek();
   if (!scope) return false;
-  const fits = m => [...(kindOf(m) === 'line' ? LINE_LOOK : BOX_LOOK), ...TEXT_LOOK].filter(l => l in look), differs = (m, l) => JSON.stringify(lookOf(m)[l]) !== JSON.stringify(look[l]);
-  const marks = scope.own ? s.marks : [...scope.marks].map(id => sc.byId.get(id)).filter(Boolean);
-  const labels = [...new Set(marks.flatMap(m => fits(m).filter(l => differs(m, l))))];
-  if (!labels.length) { Shell.toast('Already has that look'); return true; }
-  // A size is the slide's, as the bar picks one: the page's that prints it, though the chart be drawn smaller for it.
-  const size = labels.includes('Size') ? sized(look.Size) : null, at = l => l === 'Size' ? size : look[l];
+  const textStyle = scope.swatch?.kind === 'text', marks = scope.own ? s.marks : [...scope.marks].map(id => sc.byId.get(id)).filter(Boolean);
+  const markLabels = m => textStyle ? [] : (kindOf(m) === 'line' ? LINE_LOOK : BOX_LOOK).filter(l => l in look), texts = m => (m.texts ?? (m.caption ? [m.caption] : [])).filter(it => !it.blank);
+  const onlyTexts = textStyle ? (it => scope.outputs.some(p => Tree.fits(st, it.id, p))) : () => true;
+  const wanted = (it, l) => (textStyle ? null : look.fields?.[Tree.norm(fieldEdge(it) ?? '')]?.[l]) ?? look[l];
+  const markDiffers = (m, l) => JSON.stringify(lookOf(m)[l]) !== JSON.stringify(look[l]), textDiffers = (m, l) => texts(m).filter(onlyTexts).some(it => JSON.stringify(textValue(it, l)) !== JSON.stringify(wanted(it, l)));
+  const at = (l, v) => l === 'Size' ? sized(v) : v, textLabels = TEXT_LOOK.filter(l => l in look);
+  // What goes to a pattern, for the marks it reaches.
+  const give = (tx, pattern, ms) => {
+    for (const l of new Set(ms.flatMap(m => markLabels(m).filter(k => markDiffers(m, k))))) tx.note(l, pattern, at(l, look[l]), { view });
+    for (const l of textLabels) if (ms.some(m => textDiffers(m, l))) {
+      tx.note(l, pattern, at(l, look[l]), { view });
+      if (!textStyle) for (const e of new Map(ms.flatMap(m => texts(m)).map(it => [Tree.norm(fieldEdge(it) ?? ''), it])).values()) if (fieldEdge(e)) tx.note(l, pattern, at(l, wanted(e, l)), { view, param: fieldEdge(e) });
+    }
+  };
+  if (!marks.some(m => markLabels(m).some(l => markDiffers(m, l)) || textLabels.some(l => textDiffers(m, l))) && !s.aim) { Shell.toast('Already has that look'); return true; }
   App.change(tx => {
-    if (scope.outputs) { for (const l of labels) for (const p of scope.outputs) tx.note(l, p, at(l), { view }); return; }
+    if (scope.outputs) {
+      for (const p of scope.outputs) give(tx, p, marks);
+      if (textStyle) for (const l of textLabels) everyField(tx, sc, scope, l, at(l, look[l]));
+      return;
+    }
     for (const m of marks) {
-      const ls = fits(m).filter(l => differs(m, l));
-      if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, ...Object.fromEntries(ls.map(l => [l, at(l)])) } });
-      else for (const l of ls) tx.note(l, Tree.treeOf(st, m.record), at(l), { view });
+      if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, ...Object.fromEntries([...markLabels(m), ...textLabels].map(l => [l, at(l, look[l])])) } });
+      else { give(tx, Tree.treeOf(st, m.record), [m]); for (const l of textLabels) ownFields(tx, m, l); }
     }
   }, { say: `Pasted ${copied?.from ? `the look of ${copied.from}` : 'a look'} on ${scope.own ? (marks.length === 1 && marks[0].record ? App.notes.peek().nameOf(st, marks[0].record) : named(c, scope).replace(/^This|^These/, m => m === 'This' ? 'this' : 'these')) : named(c, scope)}` });
+  fade();
   return true;
 }
 // A click with the painter armed pastes on what's clicked, selecting it, at its scope; on the page, it disarms. With
 // the eyedropper, it takes the color clicked.
 function painting(e) {
   const c = Canvas.active.peek(), p = painter.peek(), d = dropper.peek();
+  // A press on the chart ends an aim, the painter's and the eyedropper's aside.
+  if (!p && !d && aimed.peek() && c?.root.contains(e.target)) aim(null);
   if ((!p && !d) || !c || e.button !== 0 || !c.root.contains(e.target) || !e.target.closest('.dc-graph')) return;
   e.preventDefault(); e.stopPropagation();
   const cell = e.target.closest('[data-cell-id]')?.getAttribute('data-cell-id') ?? '', id = cell.replace(/·label$/, ''), m = c.scene()?.byId.get(id);
@@ -815,17 +919,20 @@ const lookMenu = id => { const others = matchItems(id);
 
 // While the inspector is widened over the chart there's nothing here to format.
 function Bar() {
-  App.scene.value; Shell.selection.value; Canvas.fieldPicked?.value;
+  App.scene.value; Shell.selection.value; Canvas.fieldPicked?.value; aimed.value;
   const c = Canvas.active.value;
   if (!c || !c.scene() || Shell.wide.value) return html`<div class="fb" hidden=${Shell.wide.value} />`;
   const s = scopesOf(c), scope = scopeOf(s.scopes, chosen.value);
   current = { canvas: c, ...s, scope, field: fieldOf(c) };
-  const none = !s.marks.length, lineOnly = s.marks.length && s.marks.every(m => m.type === 'line' || m.geometry === 'line');
-  const any = !none, boxy = any && !lineOnly && !s.marks.every(m => m.type === 'frame'), ro = App.readOnly.value;
+  const none = !s.marks.length && !s.aim, lineOnly = s.marks.length && s.marks.every(m => m.type === 'line' || m.geometry === 'line');
+  const textStyle = s.aim?.swatch?.kind === 'text';
+  const any = !none, boxy = any && !textStyle && !lineOnly && !s.marks.every(m => m.type === 'frame'), ro = App.readOnly.value;
+  // A picture, or a line of the page's own, has no text to set; the font box stays where it is, off.
+  const texty = any && (!s.marks.length || s.marks.some(m => m.type !== 'shape' || !['picture', 'line'].includes(m.geometry)));
   const set = (label, v) => apply(label, v);
   const toggle = label => set(label, !pressed(label));
   const zoom = Math.round(Canvas.zoom.value * 100);
-  const placeable = s.marks.filter(m => m.type === 'box' || m.type === 'shape').length;
+  const placeable = s.aim ? 0 : s.marks.filter(m => m.type === 'box' || m.type === 'shape').length, layered = !none && !s.aim;
   const aligns = [
     { head: 'Text' }, ...[['left', 'Left'], ['center', 'Center'], ['right', 'Right']].map(([a, label]) => ({ label, icon: ALIGN_ICON[a], checked: value('Align') === a, run: () => set('Align', a), tries: ['Align', a] })),
     '-', { head: placeable > 1 ? 'Shapes' : 'To the page' },
@@ -845,30 +952,36 @@ function Bar() {
   // pointer has rested there (the canvas's restyle). Made, the change ends the preview.
   const view = c.scene().view, tidy = { label: c.tidyName(), disabled: ro || !c.tidyable(),
     run: () => { tried = null; c.tidy(); }, tries: ['Tidy'] };
-  // The selection; then its Styles rows as Styles lists them, each style's under its name, and apart after them
-  // those under none (Names); then its own groups; and, where members of the group chosen keep their own look of
-  // what the group is given here, a way to clear it. Each group pointed at is cued on the chart.
+  // In one order, so the hand knows where each is: the selection; those under no style's name, which most marks have
+  // (Names, Jurisdictions); the Styles rows as Styles lists them, each style's under its name; then Same field value,
+  // the selection's own groups; and, where members of the group chosen keep their own look of what the group is given
+  // here, a way to clear it. Each group pointed at is cued on the chart.
   const scopes = () => {
     const item = x => ({ label: named(c, x), checked: x === scope, run: () => choose(x), ...(!x.own && { point: on => cue(on ? x : undefined) }) });
-    const rows = s.scopes.filter(x => !x.own && !x.kin), headed = rows.filter(x => x.name);
+    const rows = s.scopes.filter(x => !x.own && !x.kin), headed = rows.filter(x => x.name), own = s.scopes.filter(x => x.kin);
     const kept = scope?.outputs ? keeping(c, scope, givenTo(view, scope)) : [], whose = kept.length && possessive(keepers(kept));
     const what = listed([...new Set(kept.flatMap(k => k.notes.map(n => n.label)))]);
     const clear = kept.length ? [{ label: `Clear ${whose} own ${what}`, disabled: ro,
       run: () => App.change(tx => kept.forEach(k => k.notes.forEach(n => tx.remove(n.note))), { say: `Cleared ${whose} own ${what}` }) }] : [];
-    return [s.scopes.filter(x => x.own).map(item), headed.flatMap((x, i) => x.style === headed[i - 1]?.style ? [item(x)] : [{ head: x.name }, item(x)]),
-      rows.filter(x => !x.name).map(item), s.scopes.filter(x => x.kin).map(item), clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
+    return [s.scopes.filter(x => x.own).map(item), rows.filter(x => !x.name).map(item), headed.flatMap((x, i) => x.style === headed[i - 1]?.style ? [item(x)] : [{ head: x.name }, item(x)]),
+      own.length ? [{ head: 'Same field value' }, ...own.map(item)] : [], clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
   };
   // The scope as two parts, PowerPoint's selection on the left and all like it on the right: the group chosen, or
   // else the narrowest, which its ▾ chooses among the rest. A Key row or a frame is its group alone.
   liked.value; chosen.value;
   const like = likeOf(s), ownPart = s.scopes.find(x => x.own), armed = painter.value;
-  // A font or size the selected marks' names don't share is shown blank, as PowerPoint shows one its selection mixes.
-  const several = l => new Set(s.marks.map(m => (m.texts?.[0] ?? m.caption)?.look?.[l]).filter(v => v !== undefined)).size > 1;
-  const font = !any ? 'Arial' : several('Font') ? '' : value('Font'), size = !any ? 10 : several('Size') ? '' : shown(value('Size')), align = (any && value('Align')) || 'center';
+  // A font or size the texts it would change don't share is shown blank, as PowerPoint shows one its selection mixes.
+  const several = l => texty && new Set(scopeTexts().map(it => it.look?.[l]).filter(v => v !== undefined)).size > 1;
+  const font = !texty ? (any ? '' : 'Arial') : several('Font') ? '' : value('Font'), size = !texty ? (any ? '' : 10) : several('Size') ? '' : shown(value('Size')), align = (texty && value('Align')) || 'center';
   return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}>
     <button class="btn dd" data-fb="insert" onClick=${e => insertMenu(e, c)}>Insert</button>
     <span class="sep" />
-    ${none ? null : html`<div class=${'scope' + (scope?.own ? ' own' : '')} role="group" aria-label="Format" data-fb="scope">
+    <button class="btn icon" data-fb="painter" aria-label="Format painter" data-tip="Format painter" data-keys="Ctrl+Shift+C" aria-pressed=${!!armed} disabled=${ro || none}
+      onClick=${() => armed ? disarm() : arm(true)} onDblClick=${() => arm(false)}>${Shell.icon('painter')}</button>
+    <button class="btn icon" data-fb="clear" aria-label="Clear formatting" data-tip="Clear formatting" data-keys="Ctrl+Space" disabled=${ro || none} onClick=${clearLook}>${Shell.icon('eraser')}</button>
+    <span class="sep" />
+    <div class=${'scope' + (scope?.own ? ' own' : '') + (none ? ' off' : '')} role="group" aria-label="Format" data-fb="scope" onPointerEnter=${wake}>
+      ${none ? html`<button disabled><span>Nothing selected</span></button>` : null}
       ${ownPart ? html`<button aria-pressed=${!!scope?.own} data-fb="own" data-tip=${like ? 'Just the selection' : null} data-keys=${like ? 'Ctrl+Shift+A' : null}
         onClick=${() => choose(ownPart)}><span>${ownPart.label}</span></button>` : null}
       ${like ? html`<button aria-pressed=${!scope?.own} data-fb="like" data-tour="like" data-keys=${ownPart ? 'Ctrl+Shift+A' : null} onPointerOver=${whole}
@@ -876,30 +989,27 @@ function Bar() {
       ${like && s.scopes.length > 2 ? html`<button class="more" data-fb="groups" aria-label="All like it" data-tip="All like it" aria-haspopup="menu"
         onClick=${e => Shell.menu(e.currentTarget, scopes(), { placement: 'bottom-end', onClose: () => cue() })} />` : null}
     </div>
-    <button class="btn icon" data-fb="painter" aria-label="Format painter" data-tip="Format painter" data-keys="Ctrl+Shift+C" aria-pressed=${!!armed} disabled=${ro}
-      onClick=${() => armed ? disarm() : arm(true)} onDblClick=${() => arm(false)}>${Shell.icon('painter')}</button>
-    <button class="btn icon" data-fb="clear" aria-label="Clear formatting" data-tip="Clear formatting" data-keys="Ctrl+Space" disabled=${ro} onClick=${clearLook}>${Shell.icon('eraser')}</button>
-    <span class="sep" />`}
-    <button class="btn dd font" data-fb="font" disabled=${none} onClick=${e => opener.font(e.currentTarget)}><span>${font}</span></button>
-    <${SizeBox} v=${size} disabled=${none} />
-    <button class="btn icon" data-fb="grow" aria-label="Increase font size" data-tip="Increase font size" data-keys="Ctrl+Shift+>" disabled=${none} onClick=${() => resize(grown)}>${Shell.icon('grow')}</button>
-    <button class="btn icon" data-fb="shrink" aria-label="Decrease font size" data-tip="Decrease font size" data-keys="Ctrl+Shift+<" disabled=${none} onClick=${() => resize(shrunk)}>${Shell.icon('shrink')}</button>
     <span class="sep" />
-    <button class="btn icon" data-fb="bold" aria-label="Bold" data-tip="Bold" data-keys="Ctrl+B" aria-pressed=${any && pressed('Bold')} disabled=${none} onClick=${() => toggle('Bold')}>${Shell.icon('bold')}</button>
-    <button class="btn icon" data-fb="italic" aria-label="Italic" data-tip="Italic" data-keys="Ctrl+I" aria-pressed=${any && pressed('Italic')} disabled=${none} onClick=${() => toggle('Italic')}>${Shell.icon('italic')}</button>
-    <button class="btn icon" data-fb="underline" aria-label="Underline" data-tip="Underline" data-keys="Ctrl+U" aria-pressed=${any && pressed('Underline')} disabled=${none} onClick=${() => toggle('Underline')}>${Shell.icon('underline')}</button>
-    <button class="btn icon" data-fb="strike" aria-label="Strikethrough" data-tip="Strikethrough" data-keys="Ctrl+Shift+X" aria-pressed=${any && pressed('Strike')} disabled=${none} onClick=${() => toggle('Strike')}>${Shell.icon('strike')}</button>
-    <button class="btn dd" aria-label="Text color" data-tip="Text color" data-fb="color" disabled=${none} onClick=${e => opener.color(e.currentTarget)}>${glyph.color(any ? value('Color') : '#000000')}</button>
-    <button class="btn dd" aria-label="Paragraph" data-tip="Alignment and spacing" data-fb="paragraph" disabled=${none} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
+    <button class="btn dd font" data-fb="font" disabled=${!texty} onClick=${e => opener.font(e.currentTarget)}><span>${font}</span></button>
+    <${SizeBox} v=${size} disabled=${!texty} />
+    <button class="btn icon" data-fb="grow" aria-label="Increase font size" data-tip="Increase font size" data-keys="Ctrl+Shift+>" disabled=${!texty} onClick=${() => resize(grown)}>${Shell.icon('grow')}</button>
+    <button class="btn icon" data-fb="shrink" aria-label="Decrease font size" data-tip="Decrease font size" data-keys="Ctrl+Shift+<" disabled=${!texty} onClick=${() => resize(shrunk)}>${Shell.icon('shrink')}</button>
+    <span class="sep" />
+    <button class="btn icon" data-fb="bold" aria-label="Bold" data-tip="Bold" data-keys="Ctrl+B" aria-pressed=${texty && pressed('Bold')} disabled=${!texty} onClick=${() => toggle('Bold')}>${Shell.icon('bold')}</button>
+    <button class="btn icon" data-fb="italic" aria-label="Italic" data-tip="Italic" data-keys="Ctrl+I" aria-pressed=${texty && pressed('Italic')} disabled=${!texty} onClick=${() => toggle('Italic')}>${Shell.icon('italic')}</button>
+    <button class="btn icon" data-fb="underline" aria-label="Underline" data-tip="Underline" data-keys="Ctrl+U" aria-pressed=${texty && pressed('Underline')} disabled=${!texty} onClick=${() => toggle('Underline')}>${Shell.icon('underline')}</button>
+    <button class="btn icon" data-fb="strike" aria-label="Strikethrough" data-tip="Strikethrough" data-keys="Ctrl+Shift+X" aria-pressed=${texty && pressed('Strike')} disabled=${!texty} onClick=${() => toggle('Strike')}>${Shell.icon('strike')}</button>
+    <button class="btn dd" aria-label="Text color" data-tip="Text color" data-fb="color" disabled=${!texty} onClick=${e => opener.color(e.currentTarget)}>${glyph.color(texty ? value('Color') : '#000000')}</button>
+    <button class="btn dd" aria-label="Paragraph" data-tip="Alignment and spacing" data-fb="paragraph" disabled=${!texty} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
     <span class="sep" />
     <button class="btn dd" aria-label="Shape" data-tip="Shape and shadow" data-fb="shape" disabled=${!boxy} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
     <button class="btn dd" aria-label="Fill" data-tip="Fill" data-fb="fill" disabled=${!boxy} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-tip="Outline" data-fb="outline" disabled=${none} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any ? value('Outline') : 'none')}</button>
     <span class="sep" />
     <button class="btn dd wide" data-fb="align" disabled=${none} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
-    <button class="btn dd wide" data-fb="order" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
+    <button class="btn dd wide" data-fb="order" disabled=${!layered} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
     <button class="btn wide" data-fb="group" disabled=${grouping.disabled} onClick=${grouping.run}>${grouping.label}</button>
-    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: none })), '-', grouping, tidy])}>
+    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: !layered })), '-', grouping, tidy])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
     <button class="btn" data-fb="tidy" disabled=${tidy.disabled} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label}</button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
@@ -908,10 +1018,10 @@ function Bar() {
 }
 
 function mount(el) {
-  // Another selection is formatted as itself, until a group is chosen for it.
-  const stopSel = effect(() => { Shell.selection.value; chosen.value = null; liked.value = null; });
+  // Another selection is formatted as itself, until a group is chosen for it; and another selection or view ends an aim.
+  const stopSel = effect(() => { Shell.selection.value; Shell.view.value; chosen.value = null; liked.value = null; if (aimed.peek()) queueMicrotask(() => aim(null)); faded = false; });
   // The cue follows the scope, and the chart it's on.
-  const stopCue = effect(() => { chosen.value; Shell.selection.value; App.scene.value; if (Canvas.active.value) queueMicrotask(() => cue()); });
+  const stopCue = effect(() => { chosen.value; aimed.value; Shell.selection.value; App.scene.value; if (Canvas.active.value) queueMicrotask(() => cue()); });
   // The painter armed shows the brush wherever the pointer is on the chart, and a click there pastes.
   document.documentElement.style.setProperty('--brush', pointer('Paintbrush', 3, 20));
   document.documentElement.style.setProperty('--dropper', pointer('Pipette', 2, 22));
@@ -1013,5 +1123,5 @@ function open(what, at) {
 
 Shell.register('formatbar', { mount, relist: () => listHouses() });
 return { apply, value, colorName, shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
-  copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value };
+  copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim, aimedAt };
 })();
