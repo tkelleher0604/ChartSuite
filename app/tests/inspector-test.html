@@ -1422,6 +1422,8 @@ async function saysWhen(C, keep) {
   check('a relation and a record selected say what could be, or New relation, never “2 selected” alone', !!$('[data-tour="pair"]') && $$('.rr .add-entry').some(b => /relation/.test(b.textContent)) && !/2 selected/.test($('.ih')?.textContent ?? ''), $('.insp')?.textContent.slice(0, 200));
   // Two records: what's between them, the chain written out, and why not
   Shell.select(['fund', 'tessellate']); await tick(60);
+  check('what can be done comes first: what doesn’t hold is folded under it, with how many', !$('.rr.not') && /^What doesn’t hold/.test($('[data-key="nots-of"] .sect')?.textContent ?? ''), $('[data-key="nots-of"] .sect')?.textContent);
+  $('[data-key="nots-of"] .fold').click(); await tick(60);
   const notLines = $$('.rr.not .nm').map(x => spoken(x));
   check('two records say why not: Fund III has no look-through ownership of Tessellate', notLines.some(x => /^Fund III has no look-through ownership of Tessellate.*: none of its holdings reaches it\./.test(x)), notLines.join(' | '));
   // A preview says the net: what's really lost in red, and in black who stays as they were

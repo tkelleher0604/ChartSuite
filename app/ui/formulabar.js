@@ -773,7 +773,13 @@ const FormulaBar = (() => {
     // what would have it so (yes), for what clears a check.
     let pre, yes, obj = [];
     if (x && p) [pre, yes, obj] = [[...who, verbal(p, true) + p.prep], [...who, verbal(p) + p.prep], [{ name: x }]];
-    else if (x) { const among = [...(named ? [{ name: owner }, possessive(Rv, owner)] : [`${who[0]}’s`]), ` ${lower(list)}`]; return [{ clause: { subj: x, pre: [' is not among '], obj: among, post: [], yes: { subj: x, pre: [' is among '], obj: among, post: [] } } }]; }
+    else if (x) {
+      // A list narrowed to one value of what links each (FILTER(Members, @.Membership = "Managing Member")) is said by that
+      // value: not a managing member of GP III. Not among its members would say more than what's asked, and may be false.
+      const q = rest.length === 1 && rest[0].k === 'CMP' && rest[0].op === '=' ? rest[0] : null, [s, o] = q ? (q.kids[0]?.at ? q.kids : [...q.kids].reverse()) : [], v = named && s && /^@\s*\./.test(s.text) && !o?.at && ask(Rv, d, id, lets, o.text)?.value;
+      if (typeof v === 'string') { const role = `${article(v)} ${lower(v)} of `; return [{ clause: { subj: x, pre: [` is not ${role}`], obj: [{ name: owner }], post: [], yes: { subj: x, pre: [` is ${role}`], obj: [{ name: owner }], post: [] } } }]; }
+      const among = [...(named ? [{ name: owner }, possessive(Rv, owner)] : [`${who[0]}’s`]), ` ${lower(list)}`]; return [{ clause: { subj: x, pre: [' is not among '], obj: among, post: [], yes: { subj: x, pre: [' is among '], obj: among, post: [] } } }];
+    }
     else if (!c) { const kind = kindOfList(list); [pre, yes] = [[...who, p ? `${verbal(p, true)}${p.prep}anything` : ` has no ${lower(list)}`], [...who, p ? `${verbal(p)}${p.prep}${kind ? `${article(kind)} ${lower(kind)}` : 'something'}` : ` has ${lower(list)}`]]; }
     else {
       const [side, other] = c.kids?.[0]?.at ? c.kids : [...(c.kids ?? [])].reverse(), e = /^@\s*\.\s*(?:\[([^\]]+)\]|([A-Za-z_]\w*))$/.exec(side?.text ?? '');

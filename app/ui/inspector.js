@@ -1486,7 +1486,9 @@ function RelateView({ a, b }) {
   const uses = new Map();
   for (const id of Object.keys(r)) if (r[id].args?.length > 1 && !fx(id)) { const k = T.norm(nameOf(id)); uses.set(k, (uses.get(k) ?? 0) + 1); }
   const used = x => uses.get(T.norm(x.name)) ?? 0;
-  const holds = [...held.values()].sort(order), could = [...open.values()].sort((x, y) => named(x) - named(y) || filled(x) - filled(y) || fits(x) - fits(y) || used(y) - used(x) || x.name.localeCompare(y.name) || (y.la === a) - (x.la === a)), after = [...later.values()].sort((x, y) => x.since.localeCompare(y.since));
+  // And what says how much (an owner's percentage) before what only says that it holds (a member).
+  const much = x => 'field' in x.s.out ? 0 : 1;
+  const holds = [...held.values()].sort(order), could = [...open.values()].sort((x, y) => named(x) - named(y) || filled(x) - filled(y) || fits(x) - fits(y) || used(y) - used(x) || much(x) - much(y) || x.name.localeCompare(y.name) || (y.la === a) - (x.la === a)), after = [...later.values()].sort((x, y) => x.since.localeCompare(y.since));
   const name = x => html`<${Go} to=${x}>${r[x].args ? bound(`${nameOf(x)}: ${rowName(x)}`) : html`${bound(nameOf(objectOf(x)))}${x !== objectOf(x) ? html`<span class="muted"> › ${segment(x)}</span>` : null}`}</${Go}>`;
   // What else could hold, once asked for; at once where nothing did.
   const ghost = (label, run) => html`<div class="rr new"><button class="btn ghost add-entry" onClick=${run}>${icon('plus')}${label}</button></div>`;
@@ -1494,7 +1496,6 @@ function RelateView({ a, b }) {
   return html`<div class="insp" data-tour="pair">
     <header class="ih"><h2 class="ih-title">${name(a)} <span class="and">and</span> ${name(b)}</h2></header>
     ${holds.length || after.length ? html`<div class="relate">${holds.map(heldRow)}${after.map(laterRow)}</div>` : null}
-    ${between?.not.some(l => !held.has(l.id) && l.sentence) ? html`<div class="relate nots-of">${between.not.filter(l => !held.has(l.id) && l.sentence).map(notRow)}</div>` : null}
     ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
       ${form ? html`<div class=${'rr new' + (ours ? ' adding' : '')} onKeyDown=${formKeys}><span class="ctl"><span class=${'tag' + (ours ? ' yes' : '')} /></span><span class="form">
@@ -1502,6 +1503,7 @@ function RelateView({ a, b }) {
           ${ours ? ask(p) : null}</div>`
         : ghost('New relation', () => { if (draft) App.discard(); naming.value = { a, b, name: '', ra: '', rb: '' }; })}
     </div>`}
+    ${(l => l.length ? html`<${Section} title="What doesn’t hold" n=${l.length} shut=${true} id="nots-of"><div class="relate nots-of">${l.map(notRow)}</div></${Section}>` : null)(between?.not.filter(l => !held.has(l.id) && l.sentence) ?? [])}
   </div>`;
 }
 

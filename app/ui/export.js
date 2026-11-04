@@ -884,7 +884,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // format never changes it. What's amiss with a page is said over it: a size it can't hold, a box off it, with Fit to
   // page beside that unless nothing can be changed (in Viewing, or the past shown, where exporting writes nothing), and
   // what overlaps.
-  function Choice({ choice, here, others }) {
+  function Choice({ choice, here, others, close }) {
     const [format, setFormat] = useState(choice.format), [ids, setIds] = useState(choice.views), [paper, setPaper] = useState(choice.paper);
     const [all, setAll] = useState(choice.all), [full, setFull] = useState(null), [fits, setFits] = useState(0);
     const drawn = format === 'pptx' || format === 'pdf', table = format.startsWith('x') ? others[+format.slice(1)] : null;
@@ -897,6 +897,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const oneOff = drawn && paper !== OWN && stay.some(p => p !== paper);
     const said = chosen.flatMap(s => Scene.says(s, called, paper === OWN ? PAPERS[pageNow(s.view).paper] : PAPERS[paper]).map(t => ({ t, s, off: !s.page.paper && t.endsWith(' runs off the page') })));
     const named = x => chosen.length > 1 ? `${x.s.name}: ${x.t}` : x.t;
+    // What's wrong with the chart is said before it goes out, a click from each: what's overdue, in error or blank.
+    const open = Shell.problems().filter(c => c.kind !== 'soon');
     return html`<div class="ex">
       <div class="ex-pick">
         <select aria-label="Format" value=${format} onChange=${e => { setFull(null); setFormat(e.target.value); }}>
@@ -911,12 +913,13 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       ${drawn && charts().length > 1 ? html`<div class="ex-views" role="group" aria-label="Views">${charts().map(v => html`<label>
         <input type="checkbox" checked=${ids.includes(v.id)} disabled=${ids.length === 1 && ids[0] === v.id} onChange=${e => tick(v.id, e.target.checked)} />${v.name}</label>`)}</div>` : null}
       ${table?.says ? html`<p class="ex-says">${table.says(all)}</p>` : null}
+      ${open.length ? html`<p class="ex-says ex-off">Still open on this chart: ${open.map(c => c.said).join(', ')} <button type="button" class="btn" onClick=${() => { close(false); setTimeout(() => Shell.listProblems(open[0].kind)); }}>See them</button></p>` : null}
       ${oneOff ? html`<p class="ex-says">${PAPERS[paper]} for this file only. ${stay.length === 1 && stay[0] ? `The page stays ${PAPERS[stay[0]]}.` : 'The pages stay as they are.'}</p>` : null}
       ${said.length ? html`<div class="ex-warns">
         ${said.filter(x => !x.off).slice(0, 4).map(x => html`<p class="ex-says">${named(x)}</p>`)}
         ${said.filter(x => x.off).slice(0, 4).map(x => html`<p class="ex-says ex-off">${named(x)} ${App.readOnly.peek() ? null : html`<button type="button" class="btn" onClick=${() => { fitToPage(x.s.view); setFits(n => n + 1); }}>Fit to page</button>`}</p>`)}
       </div>` : null}
-      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')} style=${`--said: ${(Math.min(4, said.filter(x => !x.off).length) + Math.min(4, said.filter(x => x.off).length) * 1.5 + (oneOff ? 1.5 : 0)) * 20}px`}>
+      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')} style=${`--said: ${(Math.min(4, said.filter(x => !x.off).length) + Math.min(4, said.filter(x => x.off).length) * 1.5 + (oneOff ? 1.5 : 0) + (open.length ? 1.5 : 0)) * 20}px`}>
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name} style=${`--a: ${pg.aspect}`}>
           <button type="button" aria-label=${pg.name} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><img src=${pg.src} alt="" /></button>
           ${pages.length > 1 && !one ? html`<figcaption>${pg.name}</figcaption>` : null}</figure>`)}
@@ -938,7 +941,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const first = asked ?? (tableShown ? other(was.table) ?? 'x0' : usable(was.format) ? was.format : here ? 'pptx' : 'ics');
     const kept = (was.views ?? []).filter(id => list.some(v => v.id === id)), views0 = kept.length ? kept : here ? [here.id] : [], onPages = new Set(views0.map(id => pageNow(id).paper));
     const choice = { format: first, views: views0, all: !!was.all, paper: onPages.size === 1 && [...onPages][0] ? [...onPages][0] : list.length ? OWN : 'slide' };
-    const go = await Shell.dialog({ title: 'Export', width: 720, body: () => html`<${Choice} choice=${choice} here=${here} others=${others} />`,
+    const go = await Shell.dialog({ title: 'Export', width: 720, body: settle => html`<${Choice} choice=${choice} here=${here} others=${others} close=${settle} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'Export', value: true, primary: true }] });
     if (!go) return;
     const x = choice.format.startsWith('x') ? others[+choice.format.slice(1)] : null;

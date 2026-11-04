@@ -1672,7 +1672,7 @@ function mount(el) {
     ];
   }
   const pageItems = p => [
-    ...kinds().map(k => ({ label: `New ${lowered(k)}`, disabled: still(), run: () => create(k, p) })), '-',
+    ...[...kinds()].sort().map(k => ({ label: `New ${lowered(k)}`, disabled: still(), run: () => create(k, p) })), '-',
     { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() }, '-',
     { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, '-',
     { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Tidy', disabled: still(), run: tidy },
@@ -2523,7 +2523,7 @@ function mount(el) {
 const call = name => (...a) => active.peek()?.[name](...a);
 Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destroy(); }, active: () => active.peek(),
   highlight: call('highlight'), redline: call('redline'), reveal: call('reveal'), cue: call('cue'), point: call('point'), toward: call('toward'), zoomTo: call('zoomTo'),
-  kinds: () => kinds().map(k => ({ label: k, run: () => call('create')(k) })) });
+  kinds: () => [...kinds()].sort().map(k => ({ label: k, run: () => call('create')(k) })) });
 // A chart is shown, not just kept behind a table.
 const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });

@@ -963,6 +963,7 @@ const Shell = (() => {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
     register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, iconMarkup, store, nameChart,
     widen, narrow, wide, gliding, showPanel, theme, setTheme, html, h, signal, computed, effect, parts: reg,
+    problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n) })), listProblems: kind => listOf(kind, countButton(kind)),
     aside: c => { aside.value = c; },
   };
 })();

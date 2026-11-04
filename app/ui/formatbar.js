@@ -937,7 +937,8 @@ function clearStyles(view, notes) {
 function insertMenu(e, c) {
   const item = (label, run, close) => html`<div class="menu-item" role="menuitem" tabindex="-1" onClick=${() => { close(); run(); }}
     onKeyDown=${ev => { if (ev.key === 'Enter') { close(); run(); } }}><span class="label">${label}</span></div>`;
-  const kinds = Canvas.kinds();
+  // (In one order, so what's on top now is on top next time: drawing two of a kind moves nothing under the hand.)
+  const kinds = [...Canvas.kinds()].sort();
   Shell.popover(e.currentTarget, close => html`<div class="insert" role="menu">
     ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
     <div class="shapes">${SHAPES.map(([g, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); c.insert(g); }}>${shapeGlyph(g)}</button>`)}</div>
