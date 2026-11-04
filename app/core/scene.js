@@ -15,6 +15,8 @@
 // so it's drawn at once when the change is made, and isn't kept as how the view was drawn: a redline is that scene,
 // inked by the canvas, as Enter will draw it, `holds` keeping where they stand the boxes making it will keep so (record
 // → place; see the layout) and, by its `page`, the scale and offset making it will keep.
+// A view whose Changes note says so draws the comparison too (see comparing), so every output does: `since`, the day
+// it's compared with; `state`, what's drawn from; a mark's `change`, New, Changed or Gone; a text's `was`, what it said, struck.
 // `marks` are in drawing order: frames, lines, boxes, then
 // free shapes, each by its Layer.
 // Scene.steps(…), with the same arguments, draws it a step at a time: `next()` takes a step, the last giving
@@ -524,7 +526,9 @@ function workedIn(notesAre, view, rows) {
       for (const [id, s] of shapes) if (!last.shapes.has(id)) changed.add(s);
       for (const [id, s] of last.shapes) if (!shapes.has(id)) changed.add(s);
     }
-    const had = r => { const x = before?.get(r); return x && !changed.has(x.shape) ? (map.set(r, x), x) : undefined; };
+    // (A note at a pattern leaving a location open, what's changed, is of every shape.)
+    const every = [...changed].some(s => s.includes('?'));
+    const had = r => { const x = before?.get(r); return x && !every && !changed.has(x.shape) ? (map.set(r, x), x) : undefined; };
     w = { view, shapes, map, get: r => map.get(r) ?? had(r), set: (r, x) => map.set(r, x) };
   }
   worked.delete(notesAre);
@@ -532,6 +536,80 @@ function workedIn(notesAre, view, rows) {
   if (worked.size > 12) worked.delete(worked.keys().next().value);
   return w;
 }
+// ---- What's changed (dendra.md, Changes) ----
+// What a view showing changes says of a mark: New, Changed or Gone, an option of one entry any record can have, its
+// location left open, which the comparison gives and nothing enters: so its look is a style like any other, a Styles row and a
+// Key row, aimed, restyled and carried by a look as any is, what's drawn by it the same on the canvas, in the PDF and the deck.
+const CHANGES = 'Changes';
+const changeOutput = what => ({ out: { choice: what }, args: [{ edge: CHANGES, loc: Tree.OPEN }] });
+const isChange = p => p.args?.length === 1 && same(p.args[0].edge, CHANGES) && !!p.args[0].loc?.open;
+// The look it begins in, in no colour that says anything else on a chart: not the Key's red.
+const CHANGED_LOOK = { Fill: '#fff2cc', Outline: '#0070c0', Weight: 1.5, Color: '#1f4e79' };
+const CHANGE_LOOKS = { New: CHANGED_LOOK, Changed: CHANGED_LOOK, Gone: { Fill: 'none', Outline: '#a6a6a6', Dash: 'dashed', Weight: 0.75, Color: '#7f7f7f', Strike: true } };
+const CHANGE_CAPTIONS = { New: 'New or changed', Changed: 'New or changed', Gone: 'Gone' };
+// A view's chart pages, in tab order.
+const pagesOf = (N, state) => Object.keys(state).filter(id => Tree.isView(state[id]) && typeof N.value('Layout', { id, kind: 'View' }) !== 'object')
+  .sort((a, b) => (N.order({ id: a, kind: 'View' }) ?? Infinity) - (N.order({ id: b, kind: 'View' }) ?? Infinity) || (a < b ? -1 : 1));
+// The day a view compares with, by its Changes note: one it names, or the page before it's, the day that keeps, or today.
+function sinceOf(N, view, state) {
+  const v = N.value(CHANGES, { id: view, kind: 'View' });
+  if (!v) return null;
+  if (v.since) return v.since;
+  const pages = pagesOf(N, state), at = pages.indexOf(view);
+  return at > 0 ? N.value('As Of', { id: pages[at - 1], kind: 'View' }) ?? Log.today() : null;
+}
+// What the chart works out as of that day, kept with what's entered then, which stands while the log does.
+const workedThen = new WeakMap();
+function stateThen(wb, chart, day, from) {
+  const entered = wb.asOf(chart, day);
+  let R = workedThen.get(entered);
+  if (!R) { const N = wb.notes(chart), S = wb.schema(chart); workedThen.set(entered, R = Formulas.computeState(entered, N.definitions(S), { relations: N.relations(S), schema: S }, from)); }
+  return R.records;
+}
+// The comparison, of what the view draws as of `day` with what it draws as of the day it compares with, a mark at a time, its
+// looks and its words: nothing its fields don't say, so nothing's marked that can't be seen. → { since, state, marks, was, lost }:
+// `state`, the state to draw, what's gone brought back into it (its records as they were, with their entries and what
+// they're at), and each mark's option a record at it; `marks`, by record, New, Changed or Gone; `was`, by text, what a text
+// said that says otherwise now; `lost`, by mark, the texts it had and has no more. Null where there's nothing to compare.
+const comparedFrom = new WeakMap(), changeRows = new Map();
+function comparing(wb, chart, view, day, opts) {
+  const N = wb.notes(chart), since = sinceOf(N, view, opts.state);
+  if (!since || since >= day) return null;
+  const then = stateThen(wb, chart, since, opts.computed), k = `${view}|${since}|${readRows(wb.rows(chart), view).notes}`;
+  const kept = !opts.seen?.size && (comparedFrom.get(opts.state) ?? comparedFrom.set(opts.state, new Map()).get(opts.state));
+  if (kept && kept.get(k)?.then === then) return kept.get(k);
+  const drawnOn = (state, d) => of(wb, chart, view, d, { state, compared: true, looks: 'texts', ...(opts.seen && { seen: opts.seen }) }).byId;
+  const was = drawnOn(then, since), is = drawnOn(opts.state, day), state = { ...opts.state }, marks = new Map(), said = new Map(), lost = new Map();
+  const bring = id => { if (state[id] || !then[id]) return; state[id] = then[id]; argsOf(then[id]).forEach(a => bring(a.at)); (Tree.index(then).entries.get(id) ?? []).forEach(bring); };
+  const mark = (record, what) => {
+    marks.set(record, what);
+    const row = `${what}|${record}`;
+    state[`·${row}`] = changeRows.get(row) ?? changeRows.set(row, { at: record, edge: CHANGES, choice: what }).get(row);
+  };
+  for (const [id, m] of is) {
+    const w = was.get(id);
+    if (!w) { mark(m.record, 'New'); continue; }
+    const had = new Map(w.texts.filter(t => !t.blank).map(t => [t.id, t])), has = new Set(m.texts.filter(t => !t.blank).map(t => t.id));
+    let differs = KEYED[m.type].some(p => JSON.stringify(m.settings[p]?.value) !== JSON.stringify(w.settings[p]?.value));
+    for (const t of m.texts) if (!t.blank) {
+      const o = had.get(t.id);
+      if (!o) differs = true;
+      else if (o.text !== t.text) { differs = true; said.set(t.id, o.text); }
+    }
+    const left = [...had.values()].filter(t => !has.has(t.id));
+    if (left.length) { differs = true; lost.set(id, left); }
+    if (differs) mark(m.record, 'Changed');
+  }
+  for (const [id, m] of was) if (!is.has(id)) {
+    bring(m.record);
+    m.texts.forEach(t => (t.records ?? [t.id]).forEach(bring));
+    mark(m.record, 'Gone');
+  }
+  const out = { then, since, state, marks, was: said, lost };
+  if (kept) kept.set(k, out);
+  return out;
+}
+
 // Each view's latest scenes, and what each was drawn from, which is all a scene reads: the state, the notes,
 // the view's free shapes and what they say, its day and its paper. Drawn again from the same, it's the same:
 // so a change previewed, once made, is drawn as it was laid out ahead, and its Undo as the chart was before.
@@ -575,6 +653,9 @@ const looks = (wb, chart, view, day, opts = {}) => of(wb, chart, view, day, { ..
 // routes, again each time a gap is deepened for them, and the rest of it; then the page.
 function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
+  // A view that shows changes draws what's gone too, and says of each mark what's changed (see comparing).
+  if (!opts.looks && !opts.compared) { const c = comparing(wb, chart, view, day, opts); if (c) opts = { ...opts, state: c.state, compared: c }; }
+  const changes = opts.compared?.marks ? opts.compared : null;
   const rows = wb.rows(chart), read = readRows(rows, view), notesAre = `${view}|${read.notes}`;
   const shapeRows = read.shapes.get(view);
   const preview = !!(opts.keep || opts.reveal?.length || opts.seen?.size), drawnAs = `${chart}|${view}`;
@@ -585,7 +666,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const holding = JSON.stringify([boxesHeld, ...shapeRows.filter(r => r.geometry === 'legend').map(r => opts.holds?.get(r.shape) ?? r.kept ?? null)]);
   // (The scale it keeps, whether a change is about to write it or has: so what its change made was laid out ahead for, too.)
   const keeps = JSON.stringify(opts.holds?.page ?? wb.notes(chart).resolve('Scale', { id: view, kind: 'View' })?.value ?? null);
-  const from = [opts.state, notesAre, shapeRows.map(({ id, kept, ...r }) => JSON.stringify(r)).join(), [...said.values()].join('\n'), day, holding, keeps], whence = `${drawnAs}|${opts.paper ?? ''}`;
+  const from = [opts.state, notesAre, shapeRows.map(({ id, kept, ...r }) => JSON.stringify(r)).join(), [...said.values()].join('\n'), day, holding, keeps, changes ? JSON.stringify([changes.since, [...changes.was], [...changes.lost.keys()]]) : ''], whence = `${drawnAs}|${opts.paper ?? ''}`;
   if (!preview && !opts.looks) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
@@ -809,9 +890,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     m.texts = [];
     m.computed = !!state[m.record].computed;
     m.revealed = reveal.has(m.record) && !shownAlone(m);
+    if (changes?.marks.has(m.record)) m.change = changes.marks.get(m.record);
   }
   // Their looks alone (Scene.looks): what the notes give each box and line drawn, before anything is laid out.
-  if (opts.looks) {
+  if (opts.looks === true) {
     const ms = [...boxes, ...lines].map(m => ({ id: m.id, type: m.type, record: m.record, settings: m.settings }));
     return { chart, view, day, marks: ms, byId: new Map(ms.map(m => [m.id, m])), styles };
   }
@@ -874,7 +956,17 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     for (const label of TEXT_PROPS) settings[label] = label !== 'Format' && label in v ? { value: v[label], note: c.note } : h.settings[label];
     return text ? [{ id: `text@${h.id}`, type: 'text', settings, look: look(settings), text, free: { note: c.note.note, text: v.text }, computed: false, shownBy: c.note }] : [];
   }
-  for (const b of boxes) { blanksIn(b); b.texts = [...gather(b.texts), ...freeText(b)]; inkOn(b); }
+  // A text that says otherwise now than it did on the day compared with has what it said before it, struck, in the look of
+  // what's gone (see comparing): on a line, on the same line of its label, so "100% 85%" reads as one; one it no longer has,
+  // after the rest.
+  const goneLook = changes && N.formats({ out: { choice: 'Gone' }, args: [{ edge: CHANGES, loc: {} }] }, view);
+  const saidBefore = (it, text, inline = false) => {
+    const settings = { ...it.settings, Strike: { value: true, note: null } };
+    for (const label of TEXT_PROPS) if (goneLook[label]) settings[label] = goneLook[label];
+    return { ...it, id: `was:${it.id}`, text, settings, look: { ...it.look, ...look(settings) }, was: true, inline, computed: false, records: undefined, shownBy: null, free: undefined, listed: undefined };
+  };
+  const withWas = (m, texts) => !changes ? texts : [...texts.flatMap(it => changes.was.has(it.id) ? [saidBefore(it, changes.was.get(it.id), m.type === 'line'), it] : [it]), ...(changes.lost.get(m.id) ?? []).map(it => saidBefore(it, it.text))];
+  for (const b of boxes) { blanksIn(b); b.texts = withWas(b, [...gather(b.texts), ...freeText(b)]); inkOn(b); }
   // The key is of what the view draws: what's revealed for a while doesn't change it. While nothing is keyed, as on a
   // new chart's page, a Key isn't drawn, and the page is as it would be without it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
@@ -882,8 +974,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // sheet's own, as its title is.
   const footing = N.resolve('Footer', { id: view, kind: 'View' })?.value;
   const footRows = !footing ? [] : [...footing.text ? [{ id: '·footer', shape: '·footer', geometry: 'text', role: 'footer', text: footing.text }] : [],
-    ...footing.number ? [{ id: '·number', shape: '·number', geometry: 'text', role: 'number', text: String(1 + Object.keys(state).filter(id => Tree.isView(state[id]) && typeof N.value('Layout', { id, kind: 'View' }) !== 'object')
-      .sort((a, b) => (N.order({ id: a, kind: 'View' }) ?? Infinity) - (N.order({ id: b, kind: 'View' }) ?? Infinity) || (a < b ? -1 : 1)).indexOf(view)) }] : []];
+    ...footing.number ? [{ id: '·number', shape: '·number', geometry: 'text', role: 'number', text: String(1 + pagesOf(N, state).indexOf(view)) }] : []];
   for (const r of footRows) said.set(r.id, r.text);
   const onPage = [...shapeRows.filter(r => r.geometry !== 'legend' || legendRows.length), ...footRows];
 
@@ -899,7 +990,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     l.ranks = l.settings.Above.value !== 'none';
     const own = { id: l.record, type: 'text', settings: l.settings, look: { ...look(l.settings), Align: 'left' },
       text: keyed ? captioned.get(key(keyed.pattern)) : text, computed: l.computed };
-    l.texts = l.revealed ? [] : [own, ...l.texts, ...freeText(l)].filter(it => it.text);
+    l.texts = l.revealed ? [] : withWas(l, [own, ...l.texts, ...freeText(l)].filter(it => it.text));
     for (const it of l.texts) { it.look = { ...it.look, Align: 'left' }; it.lines = linesOf(it, 200); }
     // A line's Position is its label's, where it was dragged to (see Layout.pin).
     const pin = N.resolve('Position', t, view)?.value;
@@ -913,6 +1004,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     l.alike = ['Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'].map(k => JSON.stringify(l.settings[k].value)).join('|');
     l.straight = l.settings.Connector.value === 'straight';
   }
+  // What the comparison reads of the view as of another day: its marks and their texts, before anything is laid out.
+  if (opts.looks) return { byId: new Map([...boxes, ...lines].map(m => [m.id, m])) };
 
   // Positions: entered ones win, and those a change pending `holds` (where the boxes it doesn't place stand now,
   // as making it enters them: see the canvas). A loose position, where a box was made on the chart before it was
@@ -1014,7 +1107,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // Boxes a style fills alike, one row of the Key, are a class: peers the layout sets in one tier where it can.
   // Where the Key has fewer than two such rows, the fill tells nothing apart, and nothing is.
   const rowOf = new Map(legendRows.flatMap(r => r.outputs.map(o => [key(o), r.key])));
-  const classOf = new Map(boxes.map(b => { const n = b.settings.Fill.note; return [b.id, n && n.view === view && !idsIn(n.pattern).size ? rowOf.get(key(n.pattern)) ?? null : null]; }));
+  const classOf = new Map(boxes.map(b => { const n = b.settings.Fill.note; return [b.id, n && n.view === view && !idsIn(n.pattern).size && !isChange(n.pattern) ? rowOf.get(key(n.pattern)) ?? null : null]; }));
   if (new Set([...classOf.values()].filter(Boolean)).size < 2) classOf.clear();
   // The room the chart has on its sheet, as the layout fills it: within the margins, under the title and date;
   // and the Key's size there, which the page sets beside the title where it fits there, or else `under` the
@@ -1322,9 +1415,11 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
 
   // One order over everything drawn: by Layer, and within a layer frames under lines under boxes under free shapes.
   const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
+  // (What's gone under what's still there, and what's new or changed over it, where they share a run.)
+  const changeRank = l => l.change === 'Gone' ? 0 : l.change ? 2 : 1;
   const marksInOrder = [
     ...[...frames.values()].sort((a, b) => depthOf(frames, a) - depthOf(frames, b)),
-    ...lines.filter(l => !l.merged),
+    ...lines.filter(l => !l.merged).sort((a, b) => changeRank(a) - changeRank(b)),
     ...boxes,
     ...shapes,
   ].sort((a, b) => layer(a) - layer(b));
@@ -1332,7 +1427,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // their ids, its `kin`.
   for (const ls of groupBy(lines.filter(l => l.placing?.kin != null), l => l.placing.kin).values()) for (const l of ls) if (ls.length > 1 && l.labelAt) l.kin = ls.map(o => o.id);
   for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; delete m.base; delete m.placing; delete m.alike; delete m.stands; if (m.type !== 'shape') delete m.ends; }
-  const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, ms: now() - started };
+  const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, state, ms: now() - started, ...(changes && { since: changes.since }) };
   if (!preview) drawnFrom.set(whence, [{ from, scene, laid }, ...drawnFrom.get(whence) ?? []].slice(0, 3));
   return scene;
 }
@@ -1505,10 +1600,15 @@ function setText(b) {
 // the line's own name alone, which a trunk's lines can say once; `pin`ned where it was dragged to a place of its own
 // (see Layout.pin).
 function labelOf(l, shared = l.label?.shared ?? false, pin = l.label?.pin) {
-  let y = 0;
-  for (const it of l.texts) y = stack(it, 0, 0, y);
+  let y = 0, x = 0;
+  // (What a text said before it, struck, stands on its line, as "100% 85%" reads.)
+  for (const it of l.texts) {
+    const under = stack(it, x, 0, y);
+    if (it.inline) x = it.lines[0].w + measure(' ', it.look);
+    else { y = under; x = 0; }
+  }
   const lastLine = l.texts.at(-1)?.lines.at(-1);
-  l.label = l.texts.length ? { w: widest(l.texts), h: y, base: lastLine?.y ?? y, text: l.texts.map(it => it.text).join('\n'), shared, ...(pin && { pin }) } : null;
+  l.label = l.texts.length ? { w: l.texts.some(it => it.inline) ? Math.max(...l.texts.flatMap(it => it.lines.map(q => q.x + q.w))) : widest(l.texts), h: y, base: lastLine?.y ?? y, text: l.texts.map(it => it.text).join('\n'), shared, ...(pin && { pin }) } : null;
 }
 
 // The middle of the side of a box that faces a point.
@@ -2072,6 +2172,8 @@ const outputIn = (s, t) => { const m = outputs.get(t) ?? outputs.set(t, new Map(
 function reach(wb, chart, view, scene, markId, state) {
   const m = scene.byId.get(markId);
   if (!m || (m.type !== 'box' && m.type !== 'line')) return [];
+  // (What the scene was drawn from, where it says what's changed, whose records are in that too.)
+  if (scene.since) state = scene.state;
   const N = wb.notes(chart);
   let kept = reaches.get(scene);
   if (!kept || kept.state !== state || kept.N !== N || kept.view !== view) reaches.set(scene, kept = { state, N, view, by: new Map(), captions: new Map() });
@@ -2083,10 +2185,10 @@ function reach(wb, chart, view, scene, markId, state) {
   };
   const ids = [...(m.type === 'box' ? within(m.record) : Tree.dependents(state, [m.record]))].map(id => [id, treeOf(state, id)]).filter(([, t]) => t);
   const captioned = output => { const k = key(output); return kept.captions.get(k) ?? kept.captions.set(k, captionOf(N, output, view)).get(k); };
-  // A record fits only a pattern of its shape.
+  // A record fits only a pattern of its shape, or one leaving a location open.
   const out = [], byShape = groupBy(ids, ([, t]) => Tree.shapeOf(t));
   scene.styles.forEach((s, order) => {
-    for (const [id, t] of byShape.get(Tree.shapeOf(s.pattern)) ?? []) {
+    for (const [id, t] of Tree.isOpen(s.pattern) ? ids : byShape.get(Tree.shapeOf(s.pattern)) ?? []) {
       if (!Tree.narrower(t, s.pattern)) continue;
       const output = outputIn(s, t);
       if (!out.some(o => o.style === s.key && key(o.output) === key(output)))
@@ -2121,7 +2223,7 @@ function says(scene, name, paper) {
 
 return {
   of, looks, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
-  toSlide, fromSlide, says, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize,
+  toSlide, fromSlide, says, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };
 })();
