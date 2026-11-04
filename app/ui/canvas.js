@@ -165,15 +165,22 @@ function textMarkup(it, red, faint) {
   };
 }
 const paint = v => !v || v === 'none' ? 'none' : v;
-// A stroke's width on screen: a whole number of the screen's pixels, one at least, by the zoom (--dc-dz, the screen's pixels to one of the
-// page's), so strokes of one weight render alike at any zoom. On screen only: the PDF and the deck print the weight as it is.
-const crisp = w => `calc(max(1, round(${+w.toFixed(3)} * var(--dc-dz, 1), 1)) / var(--dc-dz, 1) * 1px)`;
+// A stroke's width on screen: a whole number of the screen's pixels, one at least, by the zoom, so strokes of one weight render alike at
+// any zoom. On screen only: the PDF and the deck print the weight as it is. A class for each weight, one rule each, rewritten as the zoom changes.
+const weights = new Map();
+let screenPerPage = 1;
+function writeWeights() {
+  const el = document.getElementById('dc-weights') ?? document.head.appendChild(Object.assign(document.createElement('style'), { id: 'dc-weights' }));
+  el.textContent = [...weights].map(([w, c]) => `.dc .${c}{stroke-width:${Math.max(1, Math.round(w * screenPerPage)) / screenPerPage}px}`).join('');
+}
+const crisp = w => { const k = +w.toFixed(3); let c = weights.get(k); if (!c) { weights.set(k, c = `dcw${weights.size}`); writeWeights(); } return c; };
+const zoomedTo = d => { if (d !== screenPerPage) { screenPerPage = d; writeWeights(); } };
 // A box's or shape's body: its shape (a rounded rectangle's corners as its Corner says), its fill as transparent
 // as its Transparency, its outline, and its Shadow.
 function bodyMarkup(shape, w, h, s, red, extra = {}) {
   const stroke = red === 'appear' ? BLUE : red === 'go' ? RED : paint(s.Outline), clear = Math.min(100, Math.max(0, s.Transparency ?? 0));
   return { tagName: 'path', selector: 'body', attrs: { d: Scene.path(shape, w, h, s.Corner), fill: paint(s.Fill), ...(clear && { 'fill-opacity': 1 - clear / 100 }),
-    stroke, 'stroke-width': px(s.Weight), style: `stroke-width:${crisp(px(s.Weight))}`, 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter',
+    stroke, 'stroke-width': px(s.Weight), class: crisp(px(s.Weight)), 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter',
     ...(Scene.shadowOf(s.Shadow) && { filter: `url(#${shadow(drawnAt, Scene.shadowOf(s.Shadow))})` }), ...extra } };
 }
 // PowerPoint's outer shadow, as a filter for a page drawn at a scale: its distance, blur and color, each the sheet's, as a
@@ -214,7 +221,7 @@ const marker = (on, w, leg = null, head = { type: 'triangle', size: 'small' }) =
 // that leg, never back past the turn (regress10 7).
 const widthOf = (ps, w, start, end) => {
   const leg = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]), least = Math.min(start ? leg(ps[0], ps[1] ?? ps[0]) : Infinity, end ? leg(ps.at(-1), ps.at(-2) ?? ps.at(-1)) : Infinity);
-  return { strokeWidth: least < w ? least / 2 : w, style: { strokeWidth: crisp(w) }, ...(ps.every((p, i) => !i || p[0] === ps[i - 1][0] || p[1] === ps[i - 1][1]) && { shapeRendering: 'crispEdges' }) };
+  return { strokeWidth: least < w ? least / 2 : w, class: crisp(w), ...(ps.every((p, i) => !i || p[0] === ps[i - 1][0] || p[1] === ps[i - 1][1]) && { shapeRendering: 'crispEdges' }) };
 };
 // How strongly a mark the view hides is drawn while it's asked about. A box keeps its fill, so no line
 // behind it shows through its name.
@@ -366,7 +373,7 @@ function mount(el) {
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
   // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
   const pageScale = () => scene?.page.scale ?? 1;
-  const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); root.style.setProperty('--dc-dz', graph.zoom() * (devicePixelRatio || 1)); };
+  const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); zoomedTo(graph.zoom() * (devicePixelRatio || 1)); };
   let cued = null; // the format bar's scope, lit (see cue)
   let pointing = false, hold = false;
   // The field selected, pointed at, lit from the inspector, and the box a row is dragged over (see Fields).
@@ -588,9 +595,10 @@ function mount(el) {
   // is what costs. A cell this view doesn't draw is
   // hidden while another view of the chart drew it last, for when that one is shown again, and otherwise goes.
   const drawn = new Map(), drewLast = new Map();
-  let chartDrawn = null;
+  let chartDrawn = null, drawnScene = null;
   function cellsTo(chart, view, cells) {
     const leaving = chart === chartDrawn && calmDraw ? takeOff(new Set(cells.map(c => c.id))) : (grounded(), null);
+    drawnScene = scene;
     if (chart !== chartDrawn) { drewLast.clear(); chartDrawn = chart; }
     const mine = new Set(cells.map(c => c.id));
     drewLast.set(view, mine);
@@ -609,7 +617,7 @@ function mount(el) {
       for (const c of cells) {
         const was = drawn.get(c.id), cell = was && graph.getCellById(c.id), now = partsOf(c);
         if (cell && cell.isEdge() === (c.shape === 'edge') && (was.what === now.what || cell.isNode() || was.form === now.form)) {
-          if (was.what !== now.what) { if (cell.isNode()) cell.setMarkup(c.markup); else cell.setAttrs(c.attrs); cell.setData(c.data, { overwrite: true }); }
+          if (was.what !== now.what) { if (cell.isNode()) { cell.setMarkup(c.markup); snapped.delete(c.id); } else cell.setAttrs(c.attrs); cell.setData(c.data, { overwrite: true }); }
           moveCell(cell, c, was.where);
           if (!cell.isVisible()) cell.setVisible(true);
         } else { if (cell) graph.removeCell(cell); c.shape === 'edge' ? graph.addEdge(c) : graph.addNode(c); }
@@ -621,23 +629,27 @@ function mount(el) {
   // ---- Crisp at any zoom (dendra.md, Part 3, Crisp): a stroke is a whole number of the screen's pixels (see crisp), a line square
   // to the screen drawn without anti-aliasing, so it falls on them; and a body's edges are set on them, by a hair's move and
   // stretch of its outline at this zoom and scroll, so they do too. The screen's alone: nothing's place changes. ----
-  let snapping = 0;
+  let snapping = 0, snapAt = '';
+  // (Each body set at this zoom and scroll, by what it's set from: only what's new or moved, or all of them at another zoom or scroll, is set again.)
+  const snapped = new Map();
   function snapBodies() {
     snapping = 0;
     if (!scene || !root.clientWidth) return;
-    const dpr = devicePixelRatio || 1, z = graph.zoom(), t = graph.translate(), d = z * dpr;
-    root.style.setProperty('--dc-dz', d);
+    const dpr = devicePixelRatio || 1, z = graph.zoom(), t = graph.translate(), d = z * dpr, at = `${z}|${t.tx}|${t.ty}|${dpr}`;
+    if (at !== snapAt) { snapped.clear(); snapAt = at; }
     // (The middle of a pixel for a stroke of an odd width; between two for an even.)
     const onPixel = (v, odd) => odd ? Math.floor(v) + 0.5 : Math.round(v);
     for (const m of scene.marks) {
       if (!(m.type === 'box' || m.type === 'frame' || (m.type === 'shape' && !m.rotate && m.geometry !== 'line' && m.geometry !== 'group'))) continue;
+      const weight = m.settings?.Weight?.value ?? m.look?.Weight ?? 0.75, key = `${m.x}|${m.y}|${m.w}|${m.h}|${weight}`;
+      if (snapped.get(m.id) === key) continue;
       const c = graph.getCellById(m.id), v = c && graph.findViewByCell(c), body = v?.container.firstElementChild;
       if (!body || !body.getAttribute('d') && body.tagName !== 'rect' || body.tagName === 'image') continue;
-      const w = Math.max(1, Math.round(px(m.settings?.Weight?.value ?? m.look?.Weight ?? 0.75) * d)), odd = w % 2 === 1;
+      const w = Math.max(1, Math.round(px(weight) * d)), odd = w % 2 === 1;
       const a = (m.x * z + t.tx) * dpr, b = ((m.x + m.w) * z + t.tx) * dpr, e = (m.y * z + t.ty) * dpr, f = ((m.y + m.h) * z + t.ty) * dpr;
       const A = onPixel(a, odd), B = onPixel(b, odd), E = onPixel(e, odd), F = onPixel(f, odd);
-      const to = `translate(${+((A - a) / d).toFixed(3)},${+((E - e) / d).toFixed(3)}) scale(${+((B - A) / Math.max(b - a, 0.01)).toFixed(4)},${+((F - E) / Math.max(f - e, 0.01)).toFixed(4)})`;
-      if (body.getAttribute('transform') !== to) body.setAttribute('transform', to);
+      body.setAttribute('transform', `translate(${+((A - a) / d).toFixed(3)},${+((E - e) / d).toFixed(3)}) scale(${+((B - A) / Math.max(b - a, 0.01)).toFixed(4)},${+((F - E) / Math.max(f - e, 0.01)).toFixed(4)})`);
+      snapped.set(m.id, key);
     }
   }
   const snapSoon = () => { if (!snapping) snapping = requestAnimationFrame(snapBodies); };
@@ -670,23 +682,34 @@ function mount(el) {
     root.classList.remove('flying');
     flight = null;
   }
-  // Where everything is on screen as a draw begins, in flight or not; and a copy of what's about to go, to fade out.
-  function takeOff(next) {
-    const cs = graph.getCells(), z = graph.zoom(), t = graph.translate();
-    if (reduced.matches || !screen.w || !root.clientWidth || cs.length > FLIGHT * 6) { grounded(); return null; }
-    const up = flown(), rects = new Map(), lines = new Map(), going = [];
-    for (const c of cs) {
-      if (!c.isVisible()) continue;
-      const v = graph.findViewByCell(c);
-      if (c.isEdge()) {
-        const was = up?.lines.get(c.id);
-        lines.set(c.id, was ? was[0].map((q, i) => [lerp(q[0], was[1][i][0], up.p), lerp(q[1], was[1][i][1], up.p)]) : pointsOf(c).map(([x, y]) => [x * z + t.tx, y * z + t.ty]));
-      } else {
-        const was = up?.rects.get(c.id), p = c.getPosition(), s = c.getSize();
-        rects.set(c.id, was ? { x: lerp(was[0].x, was[1].x, up.p), y: lerp(was[0].y, was[1].y, up.p), w: lerp(was[0].w, was[1].w, up.p), h: lerp(was[0].h, was[1].h, up.p) } : { x: p.x * z + t.tx, y: p.y * z + t.ty, w: s.width * z, h: s.height * z });
-      }
-      if (v && !next.has(c.id) && going.length < 64) { const copy = v.container.cloneNode(true); copy.removeAttribute('data-cell-id'); copy.querySelectorAll('[data-tour]').forEach(n => n.removeAttribute('data-tour')); going.push(copy); }
+  // A scene's cells, by what they're drawn from: `rect`, a box's, a frame's, a shape's and a line's label's; `route`, a line's.
+  function eachDrawn(sc, rect, route) {
+    for (const m of sc.marks) {
+      if (m.type === 'line' || m.geometry === 'line') {
+        route(m.id, m.points, m);
+        if (m.type === 'line' && m.texts?.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) rect(`${m.id}·label`, { x: m.labelAt.x, y: m.labelAt.y, w: m.label.w || 1, h: m.label.h || 1 }, m);
+      } else if (m.geometry !== 'group' && (m.type === 'box' || m.type === 'frame' || m.type === 'shape')) rect(m.id, { x: m.x, y: m.y, w: Math.max(1, m.w), h: Math.max(1, m.h) }, m);
     }
+  }
+  // Where everything is on screen as a draw begins, in flight or not; and a copy of what's about to go, to fade out. All from the scene
+  // drawn last, which costs nothing, but what a drag has left astray, which only the cell knows.
+  function takeOff(next) {
+    const sc = drawnScene, z = graph.zoom(), t = graph.translate();
+    if (reduced.matches || !screen.w || !root.clientWidth || !sc) { grounded(); return null; }
+    const up = flown(), rects = new Map(), lines = new Map(), going = [], stray = id => { const d = drawn.get(id); return d && !('zIndex' in d.where) ? graph.getCellById(id) : null; };
+    // (What goes is copied only where it's few: more than a frame could fade is simply gone.)
+    let toGo = 0;
+    eachDrawn(sc, id => { if (!next.has(id)) toGo++; }, id => { if (!next.has(id)) toGo++; });
+    const goes = id => { if (toGo > 64 || next.has(id)) return; const c = graph.getCellById(id), v = c?.isVisible() && graph.findViewByCell(c); if (!v) return; const copy = v.container.cloneNode(true); copy.removeAttribute('data-cell-id'); copy.querySelectorAll('[data-tour]').forEach(n => n.removeAttribute('data-tour')); going.push(copy); };
+    eachDrawn(sc, (id, rc) => {
+      const was = up?.rects.get(id), c = !was && stray(id), p = c ? { ...c.getPosition(), ...((({ width, height }) => ({ w: width, h: height }))(c.getSize())) } : rc;
+      rects.set(id, was ? { x: lerp(was[0].x, was[1].x, up.p), y: lerp(was[0].y, was[1].y, up.p), w: lerp(was[0].w, was[1].w, up.p), h: lerp(was[0].h, was[1].h, up.p) } : { x: p.x * z + t.tx, y: p.y * z + t.ty, w: p.w * z, h: p.h * z });
+      goes(id);
+    }, (id, points) => {
+      const was = up?.lines.get(id), c = !was && stray(id);
+      lines.set(id, was ? was[0].map((q, i) => [lerp(q[0], was[1][i][0], up.p), lerp(q[1], was[1][i][1], up.p)]) : (c ? pointsOf(c) : points).map(([x, y]) => [x * z + t.tx, y * z + t.ty]));
+      goes(id);
+    });
     const pw = +sheet.getAttribute('width') || 0, ph = +sheet.getAttribute('height') || 0;
     grounded();
     return { rects, lines, going, z, t, sheet: pw && { x: t.tx, y: t.ty, w: pw * z, h: ph * z } };
@@ -706,43 +729,50 @@ function mount(el) {
   function land(off) {
     const came = arrival;
     queueMicrotask(() => { if (arrival === came) arrival = null; });
-    if (!scene || !root.clientWidth || flight) return;
+    if (!scene || flight) return;
     const z = graph.zoom(), t = graph.translate(), todo = [], fades = [];
     const near = (a, b) => Math.abs(a - b) < 0.6;
     const seenNow = (x, y, w, h) => x + w > -AROUND && y + h > -AROUND && x < screen.w + AROUND && y < screen.h + AROUND;
-    const rects = new Map(), lines = new Map();
-    for (const c of graph.getCells()) {
-      if (!c.isVisible()) continue;
-      const v = graph.findViewByCell(c);
+    const rects = new Map(), lines = new Map(), viewOfCell = id => { const c = graph.getCellById(id); return c ? graph.findViewByCell(c) : null; };
+    // (What's moved is found from the scene, which costs nothing; only if it's few enough is it looked for among the cells.)
+    const moving = [], routing = [];
+    eachDrawn(scene, (id, rc, m) => {
+      const was = off.rects.get(id) ?? (m.type === 'box' ? arrival : null), r = { x: rc.x * z + t.tx, y: rc.y * z + t.ty, w: rc.w * z, h: rc.h * z };
+      if (!was) { if (seenNow(r.x, r.y, r.w, r.h)) fades.push(id); return; }
+      if ((near(was.x, r.x) && near(was.y, r.y) && near(was.w, r.w) && near(was.h, r.h)) || (!seenNow(r.x, r.y, r.w, r.h) && !seenNow(was.x, was.y, was.w, was.h))) return;
+      moving.push([id, was, r, rc, m]);
+    }, (id, points) => {
+      const was = off.lines.get(id), ps = points.map(([x, y]) => [x * z + t.tx, y * z + t.ty]);
+      if (!was) { fades.push(id); return; }
+      if (ps.length === was.length && ps.every((q, i) => near(q[0], was[i][0]) && near(q[1], was[i][1]))) return;
+      routing.push([id, was, ps]);
+    });
+    if (moving.length + routing.length + fades.length + off.going.length > FLIGHT) return;
+    for (const [id, was, r, rc, m] of moving) {
+      const v = viewOfCell(id);
       if (!v) continue;
-      const kind = c.getData()?.kind;
-      if (kind === 'page') continue;
-      if (c.isEdge()) {
-        const was = off.lines.get(c.id), ps = pointsOf(c).map(([x, y]) => [x * z + t.tx, y * z + t.ty]);
-        if (!was) { fades.push(v.container); continue; }
-        if (ps.length === was.length && ps.every((q, i) => near(q[0], was[i][0]) && near(q[1], was[i][1]))) continue;
-        const [a, b] = matched(was, ps), line = v.container.querySelector(':scope > path + path');
-        lines.set(c.id, [a, b]);
-        if (line) todo.push([line, 'd', a.map(([x, y]) => [(x - t.tx) / z, (y - t.ty) / z]), b.map(([x, y]) => [(x - t.tx) / z, (y - t.ty) / z])]);
-      } else {
-        const was = off.rects.get(c.id) ?? (kind === 'box' ? arrival : null), p = c.getPosition(), s = c.getSize(), r = { x: p.x * z + t.tx, y: p.y * z + t.ty, w: s.width * z, h: s.height * z };
-        if (!was) { if (seenNow(r.x, r.y, r.w, r.h)) fades.push(v.container); continue; }
-        if (near(was.x, r.x) && near(was.y, r.y) && near(was.w, r.w) && near(was.h, r.h)) continue;
-        if (!seenNow(r.x, r.y, r.w, r.h) && !seenNow(was.x, was.y, was.w, was.h)) continue;
-        rects.set(c.id, [was, r]);
-        const a = c.getAngle() || 0, turn = a ? ` translate(${s.width / 2}px, ${s.height / 2}px) rotate(${a}deg) translate(${-s.width / 2}px, ${-s.height / 2}px)` : '';
-        todo.push([v.container, 'transform', `translate(${(was.x - t.tx) / z}px, ${(was.y - t.ty) / z}px)${turn} scale(${was.w / Math.max(r.w, 0.01)}, ${was.h / Math.max(r.h, 0.01)})`, `translate(${p.x}px, ${p.y}px)${turn} scale(1, 1)`]);
-      }
+      rects.set(id, [was, r]);
+      const a = m.rotate || 0, turn = a ? ` translate(${rc.w / 2}px, ${rc.h / 2}px) rotate(${a}deg) translate(${-rc.w / 2}px, ${-rc.h / 2}px)` : '';
+      // (By one scale both ways, its middle where its middle was, so its words aren't drawn out of shape on the way.)
+      const k = Math.sqrt((was.w / Math.max(r.w, 0.01)) * (was.h / Math.max(r.h, 0.01))), x0 = was.x + was.w / 2 - r.w * k / 2, y0 = was.y + was.h / 2 - r.h * k / 2;
+      todo.push([v.container, 'transform', `translate(${(x0 - t.tx) / z}px, ${(y0 - t.ty) / z}px)${turn} scale(${k})`, `translate(${rc.x}px, ${rc.y}px)${turn} scale(1)`]);
+    }
+    for (const [id, was, ps] of routing) {
+      const line = viewOfCell(id)?.container.querySelector(':scope > path + path');
+      if (!line) continue;
+      const [a, b] = matched(was, ps);
+      lines.set(id, [a, b]);
+      todo.push([line, 'd', a.map(([x, y]) => [(x - t.tx) / z, (y - t.ty) / z]), b.map(([x, y]) => [(x - t.tx) / z, (y - t.ty) / z])]);
     }
     const toSheet = { x: t.tx, y: t.ty, w: (+sheet.getAttribute('width') || 0) * z, h: (+sheet.getAttribute('height') || 0) * z }, fromSheet = off.sheet;
     const sheetMoved = fromSheet && !(near(fromSheet.x, toSheet.x) && near(fromSheet.y, toSheet.y) && near(fromSheet.w, toSheet.w) && near(fromSheet.h, toSheet.h));
     // Past what a frame can paint, it's just there, as it always was.
-    if (todo.length + fades.length + off.going.length > FLIGHT || !(todo.length || fades.length || off.going.length || sheetMoved)) return;
+    if (!(todo.length || fades.length || off.going.length || sheetMoved)) return;
     const anims = [];
     if (sheetMoved) anims.push(sheet.animate([{ transform: `translate(${(fromSheet.x - t.tx) / z}px, ${(fromSheet.y - t.ty) / z}px) scale(${fromSheet.w / Math.max(toSheet.w, 1)}, ${fromSheet.h / Math.max(toSheet.h, 1)})` }, { transform: 'translate(0px, 0px) scale(1, 1)' }], TRAVEL));
     // (All on the page's own clock, box and line in step: a property only it can tween keeps a box's transform off the compositor's.)
     for (const [el, prop, a, b] of todo) anims.push(el.animate(prop === 'd' ? [{ d: pathOf(a) }, { d: pathOf(b) }] : [{ transform: a, outlineOffset: '0px' }, { transform: b, outlineOffset: '0px' }], TRAVEL));
-    for (const el of fades) anims.push(el.animate([{ opacity: 0 }, { opacity: 1 }], COMES));
+    for (const id of fades) { const el = viewOfCell(id)?.container; if (el) anims.push(el.animate([{ opacity: 0 }, { opacity: 1 }], COMES)); }
     if (off.going.length) {
       const g = ghosts.appendChild(document.createElementNS(NS, 'g')), k = off.z / z;
       g.setAttribute('transform', `translate(${(off.t.tx - t.tx) / z},${(off.t.ty - t.ty) / z}) scale(${k})`);

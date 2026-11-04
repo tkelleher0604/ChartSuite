@@ -97,7 +97,7 @@ async function run() {
     && !rowOf('EIN').classList.contains('chk') && rowOf('Last Renewed')?.style.getPropertyValue('--depth') === '1');
   const box = el => el.getBoundingClientRect(), over = r => box(r.querySelector(':scope > .v')).top >= box(r.querySelector(':scope > .k')).bottom - 1;
   const beside = r => { const k = box(r.querySelector(':scope > .k')), v = box(r.querySelector(':scope > .v')); return (v.left >= k.right || v.right <= k.left) && Math.abs(v.top - k.top) < 2; };
-  document.querySelector('.main').style.setProperty('--insp', '320px'); await tick(60);
+  document.querySelector('.main').style.setProperty('--insp', '280px'); await tick(60);
   check('narrow, a row sets its label over its value, and a tag stays a checkbox row', over(rowOf('EIN')) && over(rowOf('Formation Date')) && beside(rowOf('LEI Registered')));
   document.querySelector('.main').style.setProperty('--insp', '384px'); await tick(60);
   check('… and wide, beside it', beside(rowOf('EIN')) && beside(rowOf('Investment Company Status')));
@@ -108,7 +108,8 @@ async function run() {
     && Math.abs(box($$('.rows .row:not(.chk) > .v')[0]).left - box(document.querySelector('.inspector')).left - (20 + (384 - 40 - 12 + 12) * 0.42)) < 40);
   document.querySelector('.main').style.removeProperty('--insp'); await tick(60);
   const chev = rowOf('Vehicle Type').querySelector('.sel');
-  check('a choice’s chevron stands at its column’s end, one edge down the panel', getComputedStyle(chev, '::after').content !== 'none' && getComputedStyle(chev.querySelector('span'), '::after').content === 'none' && Math.abs(box(chev).right - box(rowOf('Vehicle Type').querySelector(':scope > .v')).right) < 10);
+  check('a choice’s chevron stands at its column’s end, one edge down the panel', getComputedStyle(chev, '::after').content !== 'none' && getComputedStyle(chev.querySelector('span'), '::after').content === 'none' && Math.abs(box(chev).right - box(rowOf('Vehicle Type').querySelector(':scope > .v')).right) < 10,
+    `${getComputedStyle(chev, '::after').content} ${getComputedStyle(chev.querySelector('span'), '::after').content} ${box(chev).right} ${box(rowOf('Vehicle Type').querySelector(':scope > .v')).right} ${chev.className}`);
   const title = $('.ih .cell'), changes = App.wb.changes().length;
   await type(title, '');
   check('clearing a record’s title keeps its Name, and puts the title back', st().fund_name?.value === 'Calder Ridge Capital Partners III, L.P.' && Tree.clean($('.ih .cell').value) === st().fund_name.value && App.wb.changes().length === changes,

@@ -108,7 +108,7 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
 .row.chk .btn.ver { right: 13px; }
 /* Narrow, every row of a label and its value sets the label over the value, so neither wraps but a long
    value. (A relative is a name and its role, as a list's row is.) */
-@container (max-width: 340px) {
+@container (max-width: 300px) {
   .insp .row:not(.chk, .out, .rel, .keyrow) { grid-template-columns: minmax(0, 1fr); }
   .row:not(.chk, .out, .rel, .src, .draft) > .k:not(.wide) { padding: 4px 0 0 calc(var(--depth, 0) * 16px); font: var(--t12); color: var(--ink-3); }
   .row:not(.chk, .out, .rel) > .v { padding-left: calc(var(--depth, 0) * 16px); }
@@ -158,7 +158,8 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .sel:disabled > span::after { visibility: hidden; }
 .sel.fx > span { font-style: italic; }
 /* In the panel, its chevron at its column's end, one straight edge down it, whatever each option says. */
-.insp .row > .v .sel.dd { display: flex; justify-content: space-between; gap: 8px; width: calc(100% + 14px); max-width: none; }
+.insp .row > .v .hug:has(> .sel.dd:not(:disabled)) { flex: 1; }
+.insp .row > .v .sel.dd { display: flex; justify-content: space-between; gap: 8px; flex: none; width: calc(100% + 14px); max-width: none; }
 .insp .row > .v .sel.dd > span::after { content: none; }
 .insp .row > .v .sel.dd::after { content: ""; flex: none; width: 10px; height: 6px; margin: 7px 8px 0 0; background: var(--chev) no-repeat center; }
 .insp .row > .v .sel:disabled::after { visibility: hidden; }

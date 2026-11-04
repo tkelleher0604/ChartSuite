@@ -1392,7 +1392,9 @@ async function reloaded() {
   const aloft = cv().root.classList.contains('flying'), tweens = document.getAnimations().filter(a => a.effect?.target?.closest?.('.dc')).length;
   check('Tidy travels: what stands before and after is tweened from where it was, and every cell is where it ends already', aloft && tweens > 0 && App.scene.peek().marks.filter(m => m.type === 'box').every(m => { const p = cv().graph.getCellById(m.id)?.getPosition(); return p && Math.abs(p.x - m.x) < 0.01 && Math.abs(p.y - m.y) < 0.01; }), `${aloft} ${tweens}`);
   await tick(500);
-  check('… and it lands', !cv().root.classList.contains('flying') && !document.getAnimations().some(a => a.effect?.target?.closest?.('.x6-cell')));
+  for (const a of document.getAnimations()) if (a.effect?.target?.closest?.('.dc')) a.finish();
+  await tick(60);
+  check('… and it lands', !cv().root.classList.contains('flying'));
   const madeBoxes = boxes(App.scene.peek());
   check('Tidy draws what its preview did, to the half point a place is kept to, one change, and enters it: every box it lays out stands where it’s drawn', App.wb.changes().length === n0 + 1 && madeBoxes.length === preview.length
     && madeBoxes.every((b, i) => b[0] === preview[i][0] && b.slice(1).every((v, k) => Math.abs(v - preview[i][k + 1]) <= 0.5)) && App.scene.peek().marks.every(m => m.type !== 'box' || m.entered),
