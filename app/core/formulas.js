@@ -3163,7 +3163,7 @@ function closeTo(word, among) {
 // what its rows give. What goes by the same name but isn't a choice somewhere says nothing, so isn't asked. And `spelled`,
 // the names the chart has, as they're written; and `kinds`.
 function namesOfChart(P, entered) {
-  const choices = new Map(), plain = new Set(), spelled = new Map(), kinds = new Set();
+  const choices = new Map(), plain = new Set(), spelled = new Map(), kinds = new Set(entered);
   const add = (label, o) => { const k = normal(label); let e = choices.get(k); if (!e) choices.set(k, e = { label, options: [] }); if (!e.options.some(x => same(x, o))) e.options.push(o); };
   const spell = x => { if (x && !spelled.has(normal(x))) spelled.set(normal(x), x); };
   for (const t of Object.values(P.schema ?? {})) {
@@ -3174,9 +3174,6 @@ function namesOfChart(P, entered) {
     if (!label) continue;
     if ('choice' in t.out) add(label, t.out.choice); else plain.add(normal(label));
   }
-  // (And what has records typed, which a rule that reads only itself can go on from.)
-  const typed = new Set();
-  for (const r of Object.values(entered ?? {})) { if (r.kind) kinds.add(r.kind); if (r.args?.length > 1) typed.add(r.args.map(a => normal(a.edge)).sort().join('|')); else if (r.edge) typed.add(normal(r.edge)); }
   for (const d of P.defs) if (!d.error) {
     spell(d.name);
     d.rows.forEach(row => spell(row.label));
@@ -3189,7 +3186,7 @@ function namesOfChart(P, entered) {
     for (const e of rel.edges ?? []) { const k = normal(e); (roles.get(k) ?? roles.set(k, new Set()).get(k)).add(rel.name); }
     for (const l of rel.lists.values()) { listed.add(normal(l)); spell(l); }
   }
-  return { choices, spelled, kinds, roles, listed, typed };
+  return { choices, spelled, kinds, roles, listed };
 }
 const typeOfSpec = t => 'choice' in t.out ? 'choice' : 'tag' in t.out ? 'tag' : 'field';
 // What `@` stands for in a definition's rows where no list has been opened: the entry it's located at, by its label.
@@ -3256,12 +3253,26 @@ function onlyThroughLoop(ast, group, reg, d) {
   return needs(ast);
 }
 // Every definition's flaws, by its id, and each that's a loop nothing can work out.
-function flawsOf(P) {
-  const out = {}, put = (id, f) => (out[id] ??= []).push(f);
-  for (const d of P.defs) {
-    if (d.error) put(d.id, { row: d.error.row, from: d.error.pos, to: d.error.pos + 1, code: '#SYNTAX', message: d.error.message });
-    else d.rows.forEach((row, i) => rowFlaws(P, d, row.ast).forEach(f => put(d.id, { ...f, row: i })));
+// What's wrong as it's written reads the definitions, the schema and what names and kinds there are, so an edit to a value
+// doesn't read it all again. (Not kept where a quoted value's at fault, known by its place in what was parsed: see badLits.)
+const writtenKept = new WeakMap();
+function flawsOf(P, definitions, entered) {
+  const seen = new Set();
+  for (const r of Object.values(entered ?? {})) if (r.kind) seen.add(r.kind);
+  const stamp = `${[...seen].sort().join('|')}§${P.known.values.size}§${P.known.lists.size}`, kept = writtenKept.get(definitions), again = !!kept && kept.schema === P.schema && kept.stamp === stamp;
+  // (And what has records typed, which a rule that reads only itself can go on from: asked of few, so worked out only then.)
+  let typedSet = null;
+  const typed = () => typedSet ??= new Set(Object.values(entered ?? {}).flatMap(r => r.args?.length > 1 ? [r.args.map(a => normal(a.edge)).sort().join('|')] : r.edge ? [normal(r.edge)] : []));
+  P.chart = { ...(again ? kept.chart : namesOfChart(P, seen)), typed };
+  const rows = again ? kept.rows : {}, each = (id, f) => (rows[id] ??= []).push(f);
+  if (!again) {
+    for (const d of P.defs) {
+      if (d.error) each(d.id, { row: d.error.row, from: d.error.pos, to: d.error.pos + 1, code: '#SYNTAX', message: d.error.message });
+      else d.rows.forEach((row, i) => rowFlaws(P, d, row.ast).forEach(f => each(d.id, { ...f, row: i })));
+    }
+    if (!Object.values(rows).flat().some(f => f.lit)) writtenKept.set(definitions, { schema: P.schema, stamp, chart: P.chart, rows });
   }
+  const out = { ...rows }, put = (id, f) => { out[id] = [...(out[id] ?? []), f]; };
   for (const g of P.groups) if (g.loops && !g.monotone) for (const d of g.defs) {
     const x = g.reads.find(r => r.def === d.id && !r.monotone) ?? g.reads.find(r => r.def === d.id);
     const names = g.defs.map(e => e.name), said = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
@@ -3269,8 +3280,8 @@ function flawsOf(P) {
   }
   // A monotone loop settles, but where every row of it gives something only through the loop, and nothing's typed for it to go on from,
   // it settles at nothing: a clean no everywhere, which is the rule's wrongness, not the chart's answer.
-  const seeded = d => P.chart.typed.has(d.isRelation ? d.edges.map(normal).sort().join('|') : normal(d.name));
-  for (const g of P.groups) if (g.loops && g.monotone && !g.defs.some(d => d.error || seeded(d) || !d.rows.every(row => onlyThroughLoop(row.ast, g.defs, P.reg, d)))) {
+  const seeded = d => P.chart.typed().has(d.isRelation ? d.edges.map(normal).sort().join('|') : normal(d.name));
+  for (const g of P.groups) if (g.loops && g.monotone && !g.defs.some(d => d.error || !d.rows.every(row => onlyThroughLoop(row.ast, g.defs, P.reg, d)) || seeded(d))) {
     const names = g.defs.map(e => e.name), said = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
     for (const d of g.defs) { const x = g.reads.find(r => r.def === d.id); put(d.id, { row: x?.row ?? 0, from: x?.from ?? 0, to: x?.to ?? 0, loop: true, code: '#CIRCULAR!', message: names.length > 1 ? `This depends on itself: ${said} hold only through each other, so none of them ever does.` : `This depends on itself: ${d.name} holds only where it already holds, so it never does.` }); }
   }
@@ -3645,8 +3656,7 @@ function computeState(entered, definitions, names, from) {
   for (const d of defs) d.cited = [...d.labels].some(l => dotted.has(l));
   P.known = knownNames(entered, defs, reg, names?.schema);
   P.groups = plan(defs, reg);
-  P.chart = namesOfChart(P, entered);
-  P.flaws = flawsOf(P);
+  P.flaws = flawsOf(P, definitions, entered);
   // A quoted value that's no option is an error wherever it's read (see evNode), not a comparison that's false.
   const bad = Object.values(P.flaws).flat().filter(f => f.lit);
   P.badLits = bad.length ? new Map(bad.map(f => [f.lit, err(f.code, f.message)])) : null;
