@@ -1132,9 +1132,13 @@ const App = (() => {
     const v = views.value.find(x => x.id === Shell.view.value);
     return v?.layout !== 'chart' ? null : Scene.of(shown.value, chart.value, v.id, day.value, { state: state.value, computed: result.value });
   });
-  // The words an exported file says its day in, the one place they're made: its name's, where that day isn't today ("as of
-  // Dec 31, 2026"), and an Excel sheet's first line.
-  const asOfWords = (d = day.peek()) => { const words = `as of ${Tree.formatDate(d, 'short')}`; return { name: d === Log.today() ? '' : words, line: `As of ${Tree.formatDate(d, 'short')}` }; };
+  // The words an exported file says what it shows in, the one place they're made: the day, or while the past is shown the
+  // moment. Its name's, where that isn't today ("as of Dec 31, 2026"; "as it stood on Dec 31, 2026, 3.15 PM", a file's name
+  // holding no colon), and an Excel sheet's first line.
+  const asOfWords = (d = day.peek()) => {
+    const m = shown.peek().moment, line = m ? Log.stoodText(m, 'short') : `As of ${Tree.formatDate(d, 'short')}`;
+    return { name: !m && d === Log.today() ? '' : (line[0].toLowerCase() + line.slice(1)).replace(':', '.'), line };
+  };
   // What a table's rows can be: each kind, each relation (its edges, every other label removed), and dates
   // and documents.
   const strip = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: strip(a.loc) })) } : {};

@@ -505,7 +505,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const rows = wb.rows(chart), read = readRows(rows, view), notesAre = `${view}|${read.notes}`;
   const shapeRows = read.shapes.get(view);
   const preview = !!(opts.keep || opts.reveal?.length), drawnAs = `${chart}|${view}`;
-  const said = new Map(shapeRows.map(r => [r.id, r.role === 'date' && wb.moment ? stoodText(wb.moment) : shapeText(r, opts.computed, day)]));
+  const said = new Map(shapeRows.map(r => [r.id, r.role === 'date' && wb.moment ? Log.stoodText(wb.moment) : shapeText(r, opts.computed, day)]));
   // (A Key kept where it's drawn is drawn there: the scene as it was, so what its change made was laid out ahead for.)
   const boxesHeld = opts.holds?.size ? [...opts.holds].filter(([id]) => !shapeRows.some(r => r.shape === id)) : [];
   const holding = boxesHeld.length ? JSON.stringify(boxesHeld) : '';
@@ -1713,8 +1713,6 @@ function freeShape(row, text, u = 1, k = 1) {
   }
   return m;
 }
-// A page's date line while the log is shown as it stood: the moment shown, on the page and in its export.
-const stoodText = moment => { const d = new Date(moment); return `As it stood on ${Tree.formatDate(Tree.isoOf(d))}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`; };
 // A free shape's text: what its row says, or a formula's value, @AsOf being the view's day.
 function shapeText(row, computed, day) {
   const text = row.text ?? '';

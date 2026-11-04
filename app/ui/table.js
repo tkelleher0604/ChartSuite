@@ -2316,13 +2316,13 @@ const Table = (() => {
   let sheetjs = null;
   const loadSheetJS = () => sheetjs ??= new Promise((ok, fail) => document.head.append(Object.assign(document.createElement('script'), {
     src: new URL('xlsx/xlsx.full.min.js', VENDOR).href, onload: () => ok(window.XLSX), onerror: () => { sheetjs = null; fail(new Error('Couldn’t load the Excel writer')); } })));
-  // (Named as a chart's file is, its as-of day in it where that's not today: "… - Tax - as of Feb 1, 2027.xlsx".)
+  // (Named as a chart's file is, its as-of day in it where that's not today, or the moment while the past is shown: "… - Tax - as of Feb 1, 2027.xlsx".)
   const fileName = ext => `${[App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name, viewOf(Shell.view.peek())?.name, App.asOfWords().name].filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '') || 'Table'}.${ext}`;
   // A day as Excel counts it, from December 30, 1899.
   const serial = iso => { const [y, m, d] = iso.split('-').map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5; };
   // A percentage as precise as the grid says it, to four places: 28.4% is 0.0%, 100% is 0%.
   const pct = v => { const s = String(+(v * 100).toFixed(4)), i = s.indexOf('.'); return `0${i < 0 ? '' : '.' + '0'.repeat(s.length - i - 1)}%`; };
-  // The sheet: a first line saying the day it's as of, the headings, then each row the grid shows, in its order, each value
+  // The sheet: a first line saying the day it's as of or the moment it stood, the headings, then each row the grid shows, in its order, each value
   // Excel's own kind of cell in the format the grid reads it in: a number a number, a percentage a percentage, an amount of
   // money money, a date a date; a link to a document a link, named as the grid names it; a tag Yes or No. Its columns as
   // wide as the grid's, with Excel's filter on its headings. A row a change pending would add isn't there yet, and a value it

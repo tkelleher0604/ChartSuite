@@ -701,6 +701,14 @@ async function run() {
       && day.v === (Date.UTC(...shown[withDay]['f:formation date'].split('-').map((x, i) => i === 1 ? x - 1 : +x)) - Date.UTC(1899, 11, 30)) / 864e5
       && at(tagged + 2, gs)?.v === 'Yes' && ws['!cols'].length === heads2.length && ws['!cols'][0].wpx === Math.round(column('Name').getWidth()) && !!ws['!autofilter'], JSON.stringify([day, at(tagged + 2, gs), ws['!cols']?.[0]]));
     check('… offered first in Export while a table shows, CSV beside it', Shell.parts.peek().export.map(x => x.name).join() === 'Excel,CSV', Shell.parts.peek().export.map(x => x.name).join());
+    // While the past is shown, its first line and its name say the moment.
+    {
+      const past = App.wb.changes().at(-1);
+      Shell.at({ stood: past.id, at: past.when }); await tick(300);
+      const then = await Table.workbook(), line = then.Sheets[then.SheetNames[0]].A1?.v, words = Log.stoodText(past.when, 'short');
+      Shell.at(null); await tick(300);
+      check('While the past is shown, an Excel workbook’s first line and its title say the moment', line === words && then.Props.Title.endsWith(` - ${words[0].toLowerCase()}${words.slice(1).replace(':', '.')}`), `${line} / ${then.Props.Title}`);
+    }
 
     // All of it undone, and the look let go.
     const made = N() - nStart - 2;   // all but the move and its Undo

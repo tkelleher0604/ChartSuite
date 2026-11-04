@@ -777,7 +777,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // layout, which places it beside its relatives, among what stands; and the page holds all the rest, the scale it keeps
   // falling as far as that needs, its note `fit` till the next change keeps it so.
   function fitToPage(id = Shell.view.peek()) {
-    if (App.readOnly.peek()) return Shell.toast('Can’t change the past');
+    if (App.readOnly.peek()) return Shell.toast(App.whyNot());
     const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), p = now.page, M = p.margin, boxes = now.marks.filter(m => m.type === 'box' && !m.revealed);
     if (boxes.every(b => b.x >= M - 1 && b.y >= M - 1 && b.x + b.w <= p.w - M + 1 && b.y + b.h <= p.h - M + 1)) return Shell.toast('The chart already fits its page');
     const away = b => { const x = b.x + b.w / 2, y = b.y + b.h / 2; return x < 0 || y < 0 || x > p.w || y > p.h; };
@@ -820,7 +820,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   }
   async function setup(view = Shell.view.peek()) {
     if (!charts().some(v => v.id === view)) return Shell.toast('Show a chart first');
-    if (App.readOnly.peek()) return Shell.toast('Can’t change the past');
+    if (App.readOnly.peek()) return Shell.toast(App.whyNot());
     const was = pageNow(view), f = footer(), choice = { paper: was.paper, portrait: was.portrait, text: f.text ?? '', number: !!f.number };
     const go = await Shell.dialog({ title: 'Page setup', width: 720, body: () => html`<${Setup} choice=${choice} view=${view} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }] });
@@ -838,7 +838,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   }
   api.setup = setup;
   api.fit = fitToPage;
-  const here = () => charts().some(v => v.id === Shell.view.peek()), free = () => here() && !App.readOnly.peek(), not = () => App.readOnly.peek() ? 'Can’t change the past' : 'Show a chart first';
+  const here = () => charts().some(v => v.id === Shell.view.peek()), free = () => here() && !App.readOnly.peek(), not = () => App.readOnly.peek() ? App.whyNot() : 'Show a chart first';
   Shell.register('action', { id: 'page.setup', name: 'Page setup…', names: ['Paper', 'Page size', 'Legal', 'Letter', 'Tabloid', 'A4', 'A3', 'Slide size', 'Landscape', 'Portrait', 'Orientation', 'Margins', 'Footer', 'Page number', 'Header and footer'], enabled: free, why: not, run: () => setup() });
   Shell.register('action', { id: 'page.fit', name: 'Fit to page', names: ['Fit chart', 'Scale to fit', 'Shrink to fit', 'Off the page'], enabled: free, why: not, run: () => fitToPage() });
   // The calendar's dates, by year, as the date's popover lists the chart's days; what's overdue red, as the
@@ -856,7 +856,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // table shows it, or every row, as it says.
   // The paper is each view's page, as Page setup has it; another chosen here is for this file alone, and says so, and the
   // format never changes it. What's amiss with a page is said over it: a size it can't hold, a box off it, with Fit to
-  // page beside that, and what overlaps.
+  // page beside that unless nothing can be changed (in Viewing, or the past shown, where exporting writes nothing), and
+  // what overlaps.
   function Choice({ choice, here, others }) {
     const [format, setFormat] = useState(choice.format), [ids, setIds] = useState(choice.views), [paper, setPaper] = useState(choice.paper);
     const [all, setAll] = useState(choice.all), [full, setFull] = useState(null), [fits, setFits] = useState(0);
@@ -887,7 +888,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       ${oneOff ? html`<p class="ex-says">${PAPERS[paper]} for this file only. ${stay.length === 1 && stay[0] ? `The page stays ${PAPERS[stay[0]]}.` : 'The pages stay as they are.'}</p>` : null}
       ${said.length ? html`<div class="ex-warns">
         ${said.filter(x => !x.off).slice(0, 4).map(x => html`<p class="ex-says">${named(x)}</p>`)}
-        ${said.filter(x => x.off).slice(0, 4).map(x => html`<p class="ex-says ex-off">${named(x)} <button type="button" class="btn" onClick=${() => { fitToPage(x.s.view); setFits(n => n + 1); }}>Fit to page</button></p>`)}
+        ${said.filter(x => x.off).slice(0, 4).map(x => html`<p class="ex-says ex-off">${named(x)} ${App.readOnly.peek() ? null : html`<button type="button" class="btn" onClick=${() => { fitToPage(x.s.view); setFits(n => n + 1); }}>Fit to page</button>`}</p>`)}
       </div>` : null}
       ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')} style=${`--said: ${(Math.min(4, said.filter(x => !x.off).length) + Math.min(4, said.filter(x => x.off).length) * 1.5 + (oneOff ? 1.5 : 0)) * 20}px`}>
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name} style=${`--a: ${pg.aspect}`}>
@@ -916,12 +917,12 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     if (!go) return;
     const x = choice.format.startsWith('x') ? others[+choice.format.slice(1)] : null;
     Shell.store.set(memo(), JSON.stringify({ format: x ? was.format : choice.format, table: x ? x.name : was.table, views: choice.views, all: choice.all }));
-    if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), chartName(), App.day.peek());
+    // A file of one view is named for it; of more, for the chart; each saying its as-of day, where that's not today, or
+    // the moment, while the past is shown (App.asOfWords). By whoever exports it, blank where no name is set.
+    const dated = App.asOfWords().name;
+    if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), [chartName(), dated].filter(Boolean).join(' - '), App.day.peek());
     if (x) return x.run({ all: choice.all });
-    // A file of one view is named for it; of more, for the chart; each saying its as-of day, where that's not today. By
-    // whoever exports it, blank where no name is set.
-    const one = choice.scenes.length === 1 ? list.find(v => v.id === choice.scenes[0].view) : null, day = choice.scenes[0]?.day;
-    const dated = day && choice.scenes.every(s => s.day === day) ? App.asOfWords(day).name : '';
+    const one = choice.scenes.length === 1 ? list.find(v => v.id === choice.scenes[0].view) : null;
     return write(choice.format, choice.scenes, one ? fileName(chartName(), one.name, dated) : fileName(chartName(), dated),
       { author: Store.who() ?? '', R: App.computed.peek(), N: App.notes.peek() }).catch(e => Shell.toast(e?.message || 'Couldn’t export'));
   }
