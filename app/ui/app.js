@@ -642,6 +642,11 @@ const App = (() => {
       for (const [k, { edge, n }] of m.has) if (n * 2 >= m.n && !own.has(k) && !required.has(`${id}|${k}`) && !skipped(id, edge)) out.push({ id, edge, ours: !notOurs(id, edge, st, N) });
       if (m.who && !responsible(id, st)) out.push({ id, edge: 'Responsible', list: true, ours: !notOurs(id, 'Responsible', st, N) });
     }
+    // (And whatever else has been said isn't ours, of whatever kind: what's said is read.)
+    for (const n of N.notes('Required')) {
+      const a = n.pattern.args?.[0], id = a?.loc?.id;
+      if (n.value === false && id && st[id]?.kind && !out.some(x => x.id === id && Tree.same(x.edge, a.edge)) && !(I.entries.get(id) ?? []).some(e => Tree.same(st[e].edge ?? '', a.edge))) out.push({ id, edge: a.edge, ours: false });
+    }
     return out;
   });
   // What a record was called before a day: each version of its Name that ended by then, the latest first, and the day it did.

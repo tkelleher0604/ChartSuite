@@ -351,6 +351,10 @@ async function historyChecks(ours, fund) {
   App.commit(); await tick(120);
   check('… said in History as what it is, and listed apart', App.notOurs(pine, 'Responsible') && /^Said Responsible of Northpine.* isn’t ours$/.test(Time.describe(last())) && App.blanksApart.peek().some(b => b.id === pine && b.edge === 'Responsible' && !b.ours) && App.needs.peek().filter(a => a.kind === 'blank').length === blanks0, Time.describe(last()));
   undo(); await tick(100);
+  App.sayNotOurs(pine, 'Short Name'); await tick(60); App.commit(); await tick(120);
+  check('… and any blank said not to be ours reads so, whether its kind mostly has it or not', App.blanksApart.peek().some(b => b.id === pine && b.edge === 'Short Name' && !b.ours), JSON.stringify(App.blanksApart.peek().filter(b => b.id === pine)));
+  undo(); await tick(100);
+  check('… till that’s taken back', !App.blanksApart.peek().some(b => b.id === pine && b.edge === 'Short Name'));
 }
 async function run() {
   // ---- The sheet tabs are the View objects, in their Order ----
