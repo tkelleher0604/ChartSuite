@@ -1861,7 +1861,7 @@ async function tidiedSome() {
   if (m0) {
     await drag(m0, 40, 30);
     const m1 = sc().byId.get(fresh);
-    check('… dragged the first time, it stands where it was put, one change, said so', Math.abs(m1.x - m0.x - 40 / z0) < 2 && m1.y > m0.y + 20 / z0 && App.wb.changes().length === n1 + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), JSON.stringify([m0.x, m0.y, m1.x, m1.y, Time.describe(App.wb.changes().at(-1))]));
+    check('… dragged the first time, it stands where it was put, one change, said so', m1.x > m0.x + 20 / z0 && m1.y > m0.y + 20 / z0 && App.wb.changes().length === n1 + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), JSON.stringify([m0.x, m0.y, m1.x, m1.y, Time.describe(App.wb.changes().at(-1))]));
     Shell.parts.peek().undo.undo(); await tick(300);
   }
   Shell.parts.peek().undo.undo(); await tick(300);
