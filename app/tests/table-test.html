@@ -91,11 +91,13 @@ function paste(text, target = Table.grid.rowManager.element) {
   return e;
 }
 const press = (key, el = document.activeElement || document.body) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
-// The dialog that asks what headings are, answered: each select set to the option with this label.
+// Import's dialog, answered: each column it has left out set to the option with this label, then Import.
 async function answer(...labels) {
-  const sels = $$('dialog.dlg select');
-  labels.forEach((l, i) => { const o = [...sels[i].options].find(x => x.textContent === l); sels[i].value = o.value; sels[i].dispatchEvent(new Event('change', { bubbles: true })); });
-  await tick();
+  for (const l of labels) {
+    const sel = $$('dialog.dlg .imp-grid select').find(s => !s.value), o = [...sel.options].find(x => x.textContent === l);
+    sel.value = o.value; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+  }
   $('dialog.dlg .btn.primary').click(); await tick(200);
 }
 const errors = [];
@@ -328,6 +330,7 @@ async function run() {
   // ---- The sheet tabs are the View objects, in their Order ----
   check('The tabs are the chart’s views, in their order', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control,Entities,Ownership,Dates,Documents', views().map(v => v.name).join());
   check('A view without a Layout note is a chart', views().slice(0, 4).every(v => v.layout === 'chart') && views().slice(4).every(v => v.layout === 'table'));
+  await tablesAsk();
   // In a narrow window the tabs run on past the edge, which fades, the wheel turns them across, and every view
   // is a click away in a list.
   const strip = () => $('.sheets'), start = Shell.view.peek();
@@ -448,8 +451,10 @@ async function run() {
     let i = await typeIn('Entity Type', 'Limited Pa');
     check('Typed in a choice, its options that begin with it are listed, the first lit', lit() === 'Limited Partnership' && $$('.float.pick .menu-item').at(-1)?.textContent === 'New option: Limited Pa', $$('.float.pick .menu-item').map(x => x.textContent).join());
     key(i, 'Tab'); await tick(150);
-    check('… and Tab takes the one lit, never what was typed, as one change', choiceOf('Entity Type') === 'Limited Partnership' && N() === n0 + 1 && !$('.float.pick')
+    check('… and Tab takes the one lit, never what was typed, waiting on the bar as it has history to keep, and the keys go on', App.pending.peek()?.typed?.length === 1 && N() === n0 && !$('.float.pick')
       && !offered('Entity Type').includes('Limited Pa') && Table.grid.modules.selectRange.getActiveCell()?.column.getDefinition().title === 'Jurisdiction', `${choiceOf('Entity Type')} ${N() - n0}`);
+    App.commit(); await tick(150);
+    check('… made, it’s the cell’s, as one change', choiceOf('Entity Type') === 'Limited Partnership' && N() === n0 + 1, `${choiceOf('Entity Type')} ${N() - n0}`);
     undo(); await tick(100);
     i = await typeIn('Vehicle Type', 'Exempted Co');
     key(i, 'Enter'); await tick(100);
@@ -457,8 +462,10 @@ async function run() {
       N() === n0 + 2 && i.isConnected && i.classList.contains('bad') && $('.float.pick .menu-none')?.textContent === 'Not an option' && !lit() && $('.float.pick .menu-item')?.textContent === 'New option: Exempted Co', `${N() - n0} ${i.className} ${$('.float.pick')?.textContent}`);
     const row0 = Table.grid.getRows('active').indexOf(rowOf(halvard));
     key(i, 'ArrowDown'); key(i, 'Enter'); await tick(150);
-    check('… chosen, the new option is the cell’s, and Enter goes down, as from text', choiceOf('Vehicle Type') === 'Exempted Co' && N() === n0 + 3
+    check('… chosen, the new option is the cell’s, redlined, and Enter goes down, as from text', App.pending.peek()?.typed?.[0]?.out.choice === 'Exempted Co' && N() === n0 + 2
       && Table.grid.getRows('active').indexOf(Table.grid.modules.selectRange.getActiveCell()?.row.getComponent()) === row0 + 1, `${choiceOf("Vehicle Type")} ${row0} ${Table.grid.getRows("active").indexOf(Table.grid.modules.selectRange.getActiveCell()?.row.getComponent())} ${Table.grid.modules.selectRange.getActiveCell()?.column.getDefinition().title}`);
+    App.commit(); await tick(150);
+    check('… and made, one change', choiceOf('Vehicle Type') === 'Exempted Co' && N() === n0 + 3, `${choiceOf('Vehicle Type')} ${N() - n0}`);
     undo(); await tick(100);
     i = await typeIn('Vehicle Type', 'Exempted Co');
     key(i, 'Escape'); await tick(100);
@@ -489,7 +496,7 @@ async function run() {
   check('A heading nothing matches is asked about, and nothing is pasted yet', $('dialog.dlg')?.textContent.includes('Fund Counsel') && N() === n0);
   await answer('New column'); await previewed();
   check('The paste is redlined first: its new row in blue, its new column, and a bar saying what it does', $$('.grid .tabulator-row.red-add').length === 1 && !!column('Fund Counsel')
-    && /^1 value·1 new entity/.test($('.pendbar .what')?.textContent) && N() === n0, $('.pendbar')?.textContent);
+    && /^1 value·new Entity Hollis Bay Holdings, LLC/.test($('.pendbar .what')?.textContent) && N() === n0, $('.pendbar')?.textContent);
   check('A pending paste can’t be edited over', !column('Name').getDefinition().editable(rowOf(halvard).getCells()[1]));
   press('Enter'); await tick(150);
   const blocker = named('Calder Ridge III Blocker, Inc.'), hollis = named('Hollis Bay Holdings, LLC');
@@ -504,7 +511,7 @@ async function run() {
   Table.paste('Name\tFormation Date\nHollis Bay Holdings, LLC\t3/2/2026\n', { file: 'entities.csv' }); await previewed();
   check('A file imported is redlined as a paste is, its bar’s verb Import', $$('.grid .tabulator-row.red-add').length === 1 && $('.pendbar .btn.primary')?.textContent === 'Import' && N() === n0, $('.pendbar')?.textContent);
   press('Enter'); await tick(150);
-  check('… and Enter makes it, said with the file’s name', !!named('Hollis Bay Holdings, LLC') && N() === n0 + 1 && $('.toast span')?.textContent === 'Imported 1 entity from entities.csv', $('.toast span')?.textContent);
+  check('… and Enter makes it, said with the file’s name', !!named('Hollis Bay Holdings, LLC') && N() === n0 + 1 && $('.toast span')?.textContent === 'Imported Hollis Bay Holdings, LLC from entities.csv', $('.toast span')?.textContent);
   undo(); await tick(150);
 
   // One cell pasted that only changes a value is made at once, as one typed is, with Undo.
@@ -1091,7 +1098,7 @@ async function run() {
   const rows0 = Table.grid.getRows().length;
   paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t67.3%\r\nOffshore Feeder\tFund III\t26.7%\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await previewed();
   const bar = $('.pendbar')?.textContent ?? '';
-  check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /^2 values·1 new ownership/.test(bar) && $$('.pendbar .what .add').length === 3 && /new Investor Group\s*Halcyon University Endowment/.test(bar)
+  check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /^2 values·new ownership Halcyon University Endowment → Fund III/.test(bar) && $$('.pendbar .what .add').length === 3 && /new Investor Group\s*Halcyon University Endowment/.test(bar)
     && /From$/.test($('.pendbar .from')?.textContent.trim()) && $('.pendbar .from input')?.value === 'Nov 2, 2026' && N() === n0, bar);
   check('A value it would change shows the old struck and the new in blue', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '67.3%'));
   check('… and its bar names no check it fails, Fund III’s owners still adding up', !$('.pendbar .fails'), $('.pendbar .fails')?.textContent);
@@ -1102,7 +1109,7 @@ async function run() {
   check('With a day shown, a value pasted takes effect from it', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-01') === 0.716);
   check('A row that’s new is added, with its new owner', pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.06 && Table.grid.getRows().length === rows0 + 1);
   check('A name finds an entity, never a view of that name', c.adds.some(r => r.args?.some(a => a.edge === 'Owned' && a.at === fund)));
-  check('The toast says what was done, with Undo', /^Pasted 2 values, added 1 ownership/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
+  check('The toast says what was done, naming what it added, with Undo', /^Pasted 2 values, added Halcyon University Endowment → Fund III/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
   check('History says it in the chart’s words', Time.describe(c) === 'Changed Percentage of U.S. Investors → Fund III to 67.3% from Nov 2, 2026, and 2 more', Time.describe(c));
   undo(); await tick(150);
   check('One Undo takes the whole paste back', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === 0.716 && pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', '2026-11-02') === null && Table.grid.getRows().length === rows0);
@@ -1139,14 +1146,14 @@ async function run() {
   undo(); await tick(150);
   // One row of a new ownership is said as one thing: its values are the row's, not counted again
   paste('Owner\tOwned\tPercentage\r\nSponsor Holdings\tFund III\t3%\r\n'); await previewed();
-  check('A row pasted that adds an ownership with its value is said as that one new ownership, in the redline’s blue', $('.pendbar .what')?.textContent === '1 new ownership' && !!$('.pendbar .what .add'), $('.pendbar .what')?.textContent);
+  check('A row pasted that adds an ownership with its value is said as that one new ownership, in the redline’s blue', $('.pendbar .what')?.textContent === 'new ownership Sponsor Holdings → Fund III' && !!$('.pendbar .what .add'), $('.pendbar .what')?.textContent);
   press('Escape'); await tick(150);
   // Without headings, cells fill the grid from the active cell.
   const us = Table.grid.getRows().find(r => r.getData()['f:@owner'] === 'U.S. Investors');
   Table.grid.addRange(us.getCells().find(x => x.getColumn().getDefinition().title === 'Percentage')); await tick(40);
   n0 = N();
   paste('70%'); await previewed();
-  press('Enter'); await tick(150);
+  App.commit(); await tick(150);
   check('Without headings, a paste fills from the active cell', pct('U.S. Investors', 'Calder Ridge Capital Partners III, L.P.', Log.today()) === 0.7 && N() === n0 + 1);
   undo(); await tick(100);
   // A schedule whose headings don't match is never pasted by place: it's asked about, and matched by name.
@@ -1228,22 +1235,24 @@ async function run() {
     const pendingIn = async () => { await until(() => App.pending.peek()?.verb === 'Import'); await previewed(); };
     Shell.show(views()[0].id); await tick(200);
     check('Import… can be run from a chart', shown().layout === 'chart' && act().enabled() && !act().why().includes('Not now'), act().why());
-    Table.importing('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners III L.P.\t4.5%\n', 'closing-investors.csv'); await pendingIn();
+    // Import shows what it read, as it'll read it; Import stages it.
+    const imported = async () => { await until(() => !!$('dialog.dlg .btn.primary')); await tick(60); $('dialog.dlg .btn.primary').click(); await pendingIn(); };
+    Table.importing('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners III L.P.\t4.5%\n', 'closing-investors.csv'); await imported();
     check('From a chart, a file headed Owner and Owned goes to Ownership, which opens with it staged', !!shown().rows?.args && App.notes.peek().name(shown().rows) === 'Ownership' && $$('.grid .tabulator-row.red-add').length === 1
       && $('.pendbar .btn.primary')?.textContent === 'Import', `${shown().name} ${$('.pendbar')?.textContent}`);
     press('Escape'); await tick(150);
     Shell.show(views()[0].id); await tick(200);
-    Table.importing('Name\tEIN\nHarbor Point Fund I, L.P.\t93-5550101\n', 'entities.csv'); await pendingIn();
+    Table.importing('Name\tEIN\nHarbor Point Fund I, L.P.\t93-5550101\n', 'entities.csv'); await imported();
     check('… and one headed Name to Entities', shown().rows?.kind === 'Entity' && $$('.grid .tabulator-row.red-add').length === 1, `${shown().name} ${$('.pendbar')?.textContent}`);
     press('Escape'); await tick(150);
     Shell.show(was); await tick(200);
-    Table.importing('Name\tEIN\nHarbor Point Fund I, L.P.\t93-5550101\n', 'entities.csv'); await pendingIn();
+    Table.importing('Name\tEIN\nHarbor Point Fund I, L.P.\t93-5550101\n', 'entities.csv'); await imported();
     check('From a table its headings don’t fit, it goes to the one they do', shown().rows?.kind === 'Entity' && shown().id !== was, shown().name);
     press('Escape'); await tick(150);
     Shell.show(views()[0].id); await tick(200);
     Table.importing('Color\tSize\nRed\t3\n', 'odd.csv'); await tick(150);
     const asked = $('dialog.dlg');
-    check('… and from a chart, fitting no table, it asks which', !!asked?.querySelector('select.import-to') && /Import odd\.csv into/.test(asked.textContent), asked?.textContent);
+    check('… and from a chart, fitting no table, it asks which, Into, with the rows shown', !!asked?.querySelector('select.import-to') && /odd\.csv/.test(asked.textContent) && /Color/.test(asked.querySelector('.imp-grid')?.textContent ?? ''), asked?.textContent);
     $$('dialog.dlg .btn').find(b => b.textContent === 'Cancel').click(); await tick(120);
     Shell.show(was); await tick(200);
   }
@@ -1666,7 +1675,7 @@ async function run() {
     Shell.show(was); await tick(200);
   }
   let got = await found('fund iii');
-  check('Find puts each kind under its head, the best first, and no answer says its kind', got[0] === '#Entities' && got[1] === 'Calder Ridge Capital Partners III, L.P.' && got.includes('#Views') && !got.some(x => x.includes(' |')), got.slice(0, 8).join(' / '));
+  check('Find puts each kind under its head, the best first, and no answer says its kind', got[0] === '#Entities' && got[1] === 'Calder Ridge Capital Partners III, L.P.' && got.includes('#Views') && !got.some(x => x.includes(' |') && !x.includes(' · ')), got.slice(0, 8).join(' / '));
   check('… a record before a view of the same name, so Enter goes to the record', got.indexOf('Calder Ridge Capital Partners III, L.P.') < got.indexOf('Fund III'), got.slice(0, 8).join(' / '));
   Shell.closeAll(); await tick();
   got = await found('calder iii');
@@ -2180,16 +2189,17 @@ async function tablesG3() {
   const typedTag = cell(fund3, 'Good Standing');
   if (typedTag) { const was = typedTag.getValue(); typedTag.getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(100);
     check('… and a tag nobody’s rule covers still ticks', N() === n + 1 && typedTag.getValue() !== was); undo(); await tick(150); }
-  // A box a rule that can only say yes has said nothing of is its No: nothing to tick by a click, and said so.
+  // A box a rule that can only say yes has said nothing of: nothing to tick by a click, and said so; and an unticked box reads
+  // the same everywhere, blank, with n/a apart.
   await toggle('Private Fund');
   { const quietBox = cell(corvane, 'Private Fund'); n = N();
     quietBox.getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(100);
     check('A blank a rule says no by its silence ticks nothing, and says so on hover', N() === n && quietBox.getElement().dataset.tip === 'No: worked out by a formula', `${N() - n} ${quietBox.getElement().dataset.tip}`);
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Private Fund');
-    check('… and it exports as No', ws[XLSX.utils.encode_cell({ r: Table.grid.getRows('active').findIndex(r => r.getData().id === corvane) + 2, c: j })]?.v === 'No');
+    check('… and it exports as every unticked box does, blank', ws[XLSX.utils.encode_cell({ r: Table.grid.getRows('active').findIndex(r => r.getData().id === corvane) + 2, c: j })]?.v === undefined);
     column('Private Fund').getElement().querySelector('.col-menu').click(); await tick();
     item('Filter…').click(); await tick(80);
-    check('… and its filter says Yes and No', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join() === 'Yes,No', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join());
+    check('… and its filter says Yes and Blank', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join() === 'Yes,Blank', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join());
     Shell.closeAll(); await tick(); }
   await toggle('Private Fund');
   // What the marks mean, on hover.
@@ -2311,6 +2321,192 @@ async function tablesG3() {
     mode().click(); await tick(60); item('Editing').click(); await tick(250);
     check('Back to Editing, the view’s columns are as they were', heads().join() === before, heads().join());
   }
+}
+
+// A table asks too (dendra.md, Time): the panel's one rule in a cell, the keys going on; rows stay under the cursor; the New
+// row and the lists by the keys; Import and paste; Find; headings; Excel; who's responsible.
+async function tablesAsk() {
+  Shell.at(null); await tick(100);
+  const show = async name => { Shell.show(views().find(v => v.name === name).id); await until(() => !!Table.grid && views().find(v => v.id === Shell.view.peek())?.name === name); await tick(300); };
+  const FUND = 'Calder Ridge Capital Partners III, L.P.', CORVANE = 'Corvane Specialty Chemicals Holdings, LLC', holder = () => Table.grid.rowManager.element, active = () => Table.grid.modules.selectRange.getActiveCell();
+  const stake = (owner, owned) => Table.grid.getRows().find(r => r.getData()['f:@owner'] === owner && r.getData()['f:@owned'] === owned);
+  const cellIn = (row, title) => row.getCells().find(c => c.getColumn().getDefinition().title === title);
+  const type = async (cell, text, key = 'Enter') => { Table.grid.addRange(cell); await tick(40); cell.edit(true); await tick(40); const i = cell.getElement().querySelector('input'); i.value = text; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })); await tick(150); };
+  const entry = (id, edge) => (Tree.index(st()).entries.get(id) ?? []).find(e => st()[e].edge === edge);
+  await show('Ownership');
+  const OWNER = 'Calder Ridge Partners Holdings, LLC', OWNED = 'Calder Ridge Capital BDC, Inc.', row8 = () => stake(OWNER, OWNED), n0 = N();
+  await type(cellIn(row8(), 'Percentage'), '55%'); await previewed();
+  check('A cell typed over a value with history to keep makes nothing: it stages the panel’s change, on the one bar', N() === n0 && App.pending.peek()?.typed?.length === 1 && /stake in the BDC is 55%/.test($('.pendbar .what')?.textContent) && $('.pendbar .btn.primary')?.textContent === 'Change', $('.pendbar')?.textContent);
+  check('… redlined in its row, old struck, new in blue', cellIn(row8(), 'Percentage').getElement().querySelector('.del')?.textContent === '3%' && cellIn(row8(), 'Percentage').getElement().querySelector('.add')?.textContent === '55%', cellIn(row8(), 'Percentage').getElement().innerHTML);
+  check('… and the keys go on: Enter went down, and the grid has them, not the day', active()?.row.getData().id !== row8().getData().id && $('.grid .cells').contains(document.activeElement), document.activeElement?.className);
+  const below = active().getComponent(), belowId = below.getRow().getData().id;
+  await type(below, '12%'); await previewed();
+  check('The next typed goes on the same bar, asked one day', N() === n0 && App.pending.peek()?.typed?.length === 2 && $$('.pendbar .when input').length === 1, $('.pendbar')?.textContent);
+  const third = active()?.row.getData().id;
+  press('Enter', holder()); await tick(120);
+  check('Enter in the cells goes down, as Excel’s, and makes nothing', N() === n0 && !!App.pending.peek() && active()?.row.getData().id !== third, N() - n0);
+  check('… the bar’s key shown while the cells have the keys', $('.pendbar .tokey')?.textContent === 'F6' && getComputedStyle($('.pendbar .tokey')).visibility === 'visible');
+  Shell.parts.peek().action.find(a => a.id === 'pane.next').run(); await tick(120);
+  const day = $('.pendbar .when input');
+  check('F6 goes from the cell to the bar’s day, selected', document.activeElement === day && day.selectionEnd - day.selectionStart === day.value.length, document.activeElement?.className);
+  day.value = 'March 3, 2037'; day.dispatchEvent(new Event('input', { bubbles: true })); await tick(120);
+  check('A later day leaves the redline in its row', cellIn(row8(), 'Percentage').getElement().querySelector('.add')?.textContent === '55%', cellIn(row8(), 'Percentage').getElement().innerHTML);
+  press('Enter', $('.pendbar .when input') ?? day); await tick(250);
+  check('Enter on the day makes them, as one change, from that day', N() === n0 + 1 && pct(OWNER, OWNED, '2037-03-03') === 0.55 && pct(OWNER, OWNED, '2037-03-02') === 0.03, `${N() - n0} ${pct(OWNER, OWNED, '2037-03-03')}`);
+  await tick(150);
+  check('… and the keys come back to the cells', $('.grid .cells').contains(document.activeElement), document.activeElement?.className);
+  undo(); await tick(200);
+  // Typed back, it goes; Esc from the cells drops it, with Redo.
+  const n1 = N();
+  await type(cellIn(row8(), 'Percentage'), '55%'); await previewed();
+  await type(cellIn(row8(), 'Percentage'), '3%'); await tick(120);
+  check('Typed back to what it was, it goes from the bar, and nothing’s made', !App.pending.peek() && N() === n1, N() - n1);
+  await type(cellIn(row8(), 'Percentage'), '55%'); await previewed();
+  press('Escape', holder()); await tick(150);
+  check('Esc from the cells drops it, as from the bar, and says so', !App.pending.peek() && N() === n1 && /^Discarded/.test($$('.toast span').at(-1)?.textContent ?? ''), $$('.toast span').at(-1)?.textContent);
+  // A fill and a paste by the same rule; a relation's side too.
+  const u = stake(FUND, CORVANE), v = stake(FUND, 'Northpine Software, LLC');
+  Table.grid.addRange(cellIn(v, 'Percentage'), cellIn(u, 'Percentage')); await tick(60);
+  holder().focus(); holder().dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true, cancelable: true })); await tick(150);
+  check('Ctrl+D over a value with history waits on the bar too', N() === n1 && !!App.pending.peek()?.typed, `${N() - n1} ${$('.pendbar')?.textContent}`);
+  App.discard(); await tick(120);
+  Table.grid.addRange(cellIn(row8(), 'Percentage')); await tick(60);
+  paste('55%'); await previewed();
+  check('One cell pasted over it goes as one typed goes', N() === n1 && App.pending.peek()?.typed?.length === 1, $('.pendbar')?.textContent);
+  App.discard(); await tick(120);
+  paste('Owner\tOwned\tPercentage\r\nCalder Ridge Capital Partners III, L.P.\tCorvane Specialty Chemicals Holdings, LLC\t55%\r\n'); await previewed();
+  check('… and a paste of rows over it asks from when', N() === n1 && App.pending.peek()?.asks === 'from' && !!$('.pendbar .when input'), $('.pendbar')?.textContent);
+  App.discard(); await tick(120);
+  await type(cellIn(row8(), 'Owner'), 'Calder Ridge Capital Partners III-A, L.P.'); await previewed();
+  check('A relation’s side typed over asks too, saying the relation as it would be', N() === n1 && !!App.pending.peek()?.typed?.[0].out.args && /Fund III-A → The BDC/.test($('.pendbar .what')?.textContent) && $('.pendbar .btn.primary')?.textContent === 'Change', $('.pendbar')?.textContent);
+  App.discard(); await tick(120);
+  // EIN, a first value, a date: at once, by the one rule, here and in the panel.
+  await show('Entities');
+  const fundId = named(FUND), halvard = named('Halvard Logistics Holdings, Inc.'), ein = entry(fundId, 'EIN'), n2 = N();
+  check('The rule is the panel’s: a Fixed note says what doesn’t ask, a stake does', !App.asksFrom(ein, { field: 'text', value: '92-0000001' }) && App.asksFrom(entry(stake0(), 'Percentage'), { field: 'percent', value: 0.5 }), ein);
+  await type(cellIn(Table.grid.getRow(fundId), 'EIN'), '92-0000001');
+  check('An EIN saves at once, with no bar, a correction', N() === n2 + 1 && !App.pending.peek() && st()[ein].value === '92-0000001' && !st()[ein].since, `${N() - n2} ${$('.pendbar')?.textContent}`);
+  undo(); await tick(150);
+  const n2b = N();
+  await type(cellIn(Table.grid.getRow(halvard), 'Short Name'), 'Halvard');
+  check('A first value saves at once', N() === n2b + 1 && !App.pending.peek() && st()[entry(halvard, 'Short Name')]?.value === 'Halvard', `${N() - n2b}`);
+  undo(); await tick(150);
+  const n3 = N(), typedTag = cellIn(Table.grid.getRow(fundId), 'Good Standing');
+  typedTag.getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await previewed();
+  check('A tag’s box with history asks as its panel’s does', N() === n3 && App.pending.peek()?.typed?.[0].out.tag === false, $('.pendbar')?.textContent);
+  App.discard(); await tick(150);
+  // Headings: a name another column shares says its parent, shown or not, in the grid and in Excel.
+  const fileCol = Table.model(Shell.view.peek()).cols.find(c => c.path?.join() === 'Jurisdiction,File Number'), regd = Table.model(Shell.view.peek()).cols.find(c => c.path?.join() === 'Regulation D Offering,File Number');
+  check('A column whose name another shares says its parent, though the other’s hidden', fileCol.head.join() === 'Jurisdiction,File Number' && !regd.shown, fileCol.head.join());
+  // Find: a column, shown and gone to at the record selected; a date, in its row.
+  const ents = Shell.view.peek(), n4 = N();
+  Shell.select([fundId]); await tick(100);
+  Shell.find('file number'); await tick(200);
+  check('Find reaches a column by its name', /Jurisdiction › File Number/.test($('.findpal .menu-item .label')?.textContent) && $('.findpal .menu-head')?.textContent === 'Columns', $('.findpal')?.textContent.slice(0, 120));
+  $('.findpal .menu-item').click(); await tick(500);
+  check('… Enter shows it, and goes to its cell at the record selected', !!column('File Number') && active()?.column.getDefinition().title === 'File Number' && active()?.row.getData().id === fundId && N() === n4 + 1, `${active()?.column.getDefinition().title} ${active()?.row.getData().id} ${N() - n4}`);
+  undo(); await tick(200);
+  Shell.find('annual tax fund iii blocker'); await tick(200);
+  const dated = $('.findpal .menu-item .label')?.textContent;
+  check('Find reaches a date by what it is and whose', /^Annual Tax .* · Fund III Blocker, tax year/.test(dated) && $('.findpal .menu-head')?.textContent === 'Dates', dated);
+  $('.findpal .menu-item').click(); await tick(500);
+  const shownNow = () => views().find(v => v.id === Shell.view.peek())?.name;
+  check('… Enter goes where it is, its row in Dates, not its owner’s page', shownNow() === 'Dates' && st()[Shell.selection.peek()[0]]?.field === 'date' && /^Annual Tax/.test(st()[Shell.selection.peek()[0]].edge), `${shownNow()} ${Shell.selection.peek()}`);
+  // Rows stay under the cursor: a date saved moves nothing till the grid's left, and no width changes under a preview.
+  await until(() => !!Table.grid.getRows('active').length);
+  const rowsNow = () => Table.grid.rowManager.getDisplayRows().filter(r => r.type === 'row').map(r => r.getData().id);
+  const dateRow = Table.grid.getRows('active').find(r => r.getData()['f:$entry'] === 'Annual Tax Paid'), dateId = dateRow.getData().id, was = rowsNow(), width = column('Date').getWidth(), group0 = dateRow.getData()._g, n5 = N();
+  FormulaBar.preview(App.would(tx => tx.update(dateId, { value: '2037-05-05' }))); await previewed();
+  check('Under a preview no row leaves its group, and no column its width', rowsNow().join() === was.join() && column('Date').getWidth() === width && Table.grid.getRow(dateId).getData()._g === group0, `${column('Date').getWidth()} ${width}`);
+  FormulaBar.preview(null); await tick(150);
+  await type(cellIn(Table.grid.getRow(dateId), 'Date'), 'May 5, 2037'); await tick(150);
+  const nextId = active()?.row.getData().id;
+  check('A date saved goes on its own row, which stays where it stood, in its group, and Enter goes to the next', N() === n5 + 1 && st()[dateId]?.value === '2037-05-05' && rowsNow().join() === was.join() && Table.grid.getRow(dateId).getData()._g === group0 && nextId === was[was.indexOf(dateId) + 1], `${N() - n5} ${rowsNow().indexOf(dateId)} ${was.indexOf(dateId)} ${nextId}`);
+  await show('Ownership'); await show('Dates');
+  check('… and once the grid’s been left, it’s in its month', Table.grid.getRow(dateId).getData()._g === '2037-05', Table.grid.getRow(dateId).getData()._g);
+  undo(); await tick(200);
+  // A change from a later day leaves today's chart as it was, and Dates lists it as it's made.
+  const n5b = Table.grid.getRows().length, later = entry(stake0(OWNER, OWNED), 'Percentage');
+  App.change(tx => tx.update(later, { value: 0.51 }), { dated: '2037-06-01' }); await tick(300);
+  check('A change from a later day comes into Dates as it’s made', Table.grid.getRows().length === n5b + 1 && Table.grid.getRows().some(r => /^Percentage changes to 51%/.test(r.getData()['f:$entry'] ?? '')), `${Table.grid.getRows().length} of ${n5b}`);
+  undo(); await tick(200);
+  // The New row by the keys, and a list's arrows.
+  await show('Entities');
+  const newRow = $('.nr-name'), lastId = Table.grid.rowManager.getDisplayRows().filter(r => r.type === 'row').at(-1).getData().id;
+  newRow.focus(); press('ArrowUp', newRow); await tick(120);
+  check('Up from the New row, nothing typed, goes to the row over it', active()?.row.getData().id === lastId && $('.grid .cells').contains(document.activeElement), `${active()?.row.getData().id} ${document.activeElement?.className}`);
+  press('ArrowDown', holder()); await tick(120);
+  check('… and Down from the last row back into it', document.activeElement === $('.nr-name'), document.activeElement?.className);
+  press('ArrowRight', $('.nr-name')); await tick(120);
+  check('… and Right to that row’s next cell', active()?.row.getData().id === lastId && active()?.column.getDefinition().title === 'Short Name', active()?.column.getDefinition().title);
+  $('.tbar [data-tool="columns"]').click(); await tick(120);
+  const find = $('.cols .col-find'), ticks = () => $$('.cols .cols-list input[type="checkbox"]:not(:disabled)');
+  find.focus(); press('ArrowDown', find); await tick(40);
+  check('In the Columns list, Down goes from its search to the first tick', document.activeElement === ticks()[0], document.activeElement?.className);
+  press('ArrowDown', document.activeElement); await tick(40);
+  check('… and on down', document.activeElement === ticks()[1]);
+  press('ArrowUp', document.activeElement); press('ArrowUp', document.activeElement); await tick(40);
+  check('… and Up back to the search', document.activeElement === $('.cols .col-find'));
+  Shell.closeAll(); await tick(80);
+  // An empty filter can't be applied.
+  column('Jurisdiction').getElement().querySelector('.col-menu').click(); await tick(60); item('Filter…').click(); await tick(100);
+  const showing = () => Table.grid.getRows('active').length, all = showing();
+  $('.tfilter .tf-row.all input').click(); await tick(100);
+  check('A filter with nothing ticked isn’t applied: the rows stay, and Done is grey', showing() === all && $('.tfilter .tf-foot .primary').disabled && !Table.look(Shell.view.peek()).filters, `${showing()} ${$('.tfilter .tf-foot .primary').disabled}`);
+  $('.tfilter .tf-row:not(.all) input').click(); await tick(150);
+  check('… one ticked, it is, and Done is back', showing() < all && !$('.tfilter .tf-foot .primary').disabled, `${showing()} of ${all}`);
+  $('.tfilter .tf-foot .btn').click(); await tick(100); Shell.closeAll(); await tick(150);
+  // Options in the order made.
+  const n6 = N();
+  App.change(tx => ['Low', 'Medium', 'High'].forEach(o => tx.add('spec', { tree: { out: { choice: o }, args: [{ edge: 'Risk Rating', loc: { kind: 'Entity' } }] } }))); await tick(200);
+  check('Options are listed in the order made', Table.model(Shell.view.peek()).cols.find(c => c.title === 'Risk Rating')?.options.join() === 'Low,Medium,High', Table.model(Shell.view.peek()).cols.find(c => c.title === 'Risk Rating')?.options.join());
+  undo(); await tick(200);
+  // Import: asked with the rows shown.
+  Table.importing('Lantern Midco, LLC\tDelaware\nBeacon Interco, Inc.\tDelaware\nCedar Feeder, L.P.\tCayman Islands\n', 'rows.csv'); await tick(200);
+  const sels = () => $$('dialog.dlg .imp-grid select').map(s => s.options[s.selectedIndex].textContent);
+  check('Rows with no heading row are asked about as data, each column by what it holds', $('dialog.dlg .imp-first').value === 'data' && sels().join() === 'Name,Jurisdiction' && $$('dialog.dlg .imp-grid tbody tr').length === 3, `${$('dialog.dlg .imp-first').value} ${sels().join()}`);
+  $('dialog.dlg .imp-first').value = 'head'; $('dialog.dlg .imp-first').dispatchEvent(new Event('change', { bubbles: true })); await tick(100);
+  check('… First row, Headings, reads the first as headings, shown', $$('dialog.dlg .imp-grid tbody tr').length === 2 && /Lantern Midco/.test($('dialog.dlg .heads')?.textContent), $('dialog.dlg .imp-grid')?.textContent.slice(0, 100));
+  $('dialog.dlg .imp-first').value = 'data'; $('dialog.dlg .imp-first').dispatchEvent(new Event('change', { bubbles: true })); await tick(100);
+  const n7 = N();
+  $('dialog.dlg .btn.primary').click(); await previewed();
+  check('Import stages it, the bar naming what it adds', N() === n7 && ['Lantern Midco, LLC', 'Beacon Interco, Inc.', 'Cedar Feeder, L.P.'].every(x => $('.pendbar .what')?.textContent.includes(x)) && $('.pendbar .btn.primary')?.textContent === 'Import', $('.pendbar')?.textContent);
+  check('… with the keys in the grid, so Enter makes it', $('.grid .cells').contains(document.activeElement), document.activeElement?.className);
+  press('Enter', holder()); await tick(250);
+  const lantern = named('Lantern Midco, LLC');
+  check('… made, it’s each row, its jurisdiction where it goes, its toast naming them', !!lantern && st()[entry(lantern, 'Jurisdiction')]?.choice === 'Delaware' && !entry(lantern, 'Short Name') && /Lantern Midco, LLC/.test($$('.toast span').at(-1)?.textContent ?? ''), $$('.toast span').at(-1)?.textContent);
+  undo(); await tick(200);
+  Table.importFile(); await tick(120);
+  const box = $('dialog.dlg textarea.imp-rows');
+  check('Import takes rows pasted, not only a file: it opens on a box for them', !!box && $('dialog.dlg .btn.primary').disabled, $('dialog.dlg')?.textContent.slice(0, 80));
+  box.value = 'Name\tJurisdiction\nHollis Bay, LLC\tDelaware\n'; box.dispatchEvent(new Event('input', { bubbles: true })); await tick(120);
+  check('… and rows in it are shown, read as they’ll be', $('dialog.dlg .imp-first').value === 'head' && sels().join() === 'Name,Jurisdiction' && !$('dialog.dlg .btn.primary').disabled, sels().join());
+  $$('dialog.dlg .btn').find(b => b.textContent === 'Cancel').click(); await tick(120);
+  paste('Lantern Midco, LLC\tDelaware\nBeacon Interco, Inc.\tDelaware\n', $('.nr-name')); await tick(150);
+  check('Rows pasted on the New row open in Import, not as one long name', !!$('dialog.dlg .imp-grid') && $('.nr-name').value === '', $('.nr-name').value);
+  $$('dialog.dlg .btn').find(b => b.textContent === 'Cancel').click(); await tick(120);
+  Table.grid.addRange(cellIn(Table.grid.getRows('active').at(-1), 'Name')); await tick(60);
+  const n8 = N();
+  paste('Lantern Midco, LLC\tDelaware\nBeacon Interco, Inc.\tDelaware\n'); await tick(200);
+  check('… and on the grid: rows that would make new rows are asked about, never by the place they land in', !!$('dialog.dlg .imp-grid') && N() === n8 && !App.pending.peek() && sels().join() === 'Name,Jurisdiction', sels().join());
+  $$('dialog.dlg .btn').find(b => b.textContent === 'Cancel').click(); await tick(120);
+  // Excel: bold headings, frozen panes, a page wide; its first line no trouble coming back.
+  const bytes = await Table.excelFile(), zip = XLSX.CFB.read(new Uint8Array(bytes), { type: 'array' }), xml = name => new TextDecoder().decode(XLSX.CFB.find(zip, `/${name}`).content), sheetXml = xml('xl/worksheets/sheet1.xml');
+  check('The Excel file has its headings bold, its panes frozen, and prints a page wide', /<font><b\/>/.test(xml('xl/styles.xml')) && /<c r="A2" s="\d+"/.test(sheetXml) && /state="frozen"/.test(sheetXml) && /ySplit="2"/.test(sheetXml) && /fitToPage="1"/.test(sheetXml) && /fitToWidth="1"/.test(sheetXml) && /orientation="landscape"/.test(sheetXml), sheetXml.slice(0, 400));
+  const backIn = XLSX.read(bytes, { type: 'array' });
+  check('… and still reads as a workbook, its day on its first line', /^As of /.test(backIn.Sheets[backIn.SheetNames[0]].A1?.v), backIn.Sheets[backIn.SheetNames[0]].A1?.v);
+  check('A file’s name doesn’t say a word twice', Tree.nameOfFile('NewCo post-sale structure', 'Structure') === 'NewCo post-sale structure' && Tree.nameOfFile('Calder Ridge', 'Structure') === 'Calder Ridge - Structure');
+  // Who's responsible, and Good Standing lost.
+  check('Good Standing lost is counted among the errors', App.needs.peek().some(a => a.kind === 'error' && st()[a.id]?.edge === 'Good Standing' && st()[a.id].tag === false));
+  await show('Dates');
+  check('With nothing saying who, Dates has no Responsible column', !column('Responsible'));
+  App.change(tx => tx.add('record', { at: named('Calder Ridge III Blocker, Inc.'), edge: 'Responsible', field: 'text', value: 'Priya N. Raman' }), { dated: false }); await tick(300);
+  const owed = Table.grid.getRows().find(r => /^Fund III Blocker/.test(r.getData()['f:$of']));
+  check('… with an entity’s Responsible, its dates say who', !!column('Responsible') && owed?.getData()['f:$resp'] === 'Priya N. Raman', `${!!column('Responsible')} ${owed?.getData()['f:$resp']}`);
+  undo(); await tick(200);
+  Shell.select([]); await tick(60);
+  Shell.show(views()[0].id); await tick(300);
+  function stake0(owner = FUND, owned = CORVANE) { const s = st(); return Object.keys(s).find(id => s[id].args && s[id].args.some(a => a.edge === 'Owner' && App.notes.peek().nameOf(s, Tree.objectOf(s, a.at)) === owner) && s[id].args.some(a => a.edge === 'Owned' && App.notes.peek().nameOf(s, a.at) === owned)); }
 }
 
 function report() {

@@ -225,6 +225,7 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .pendbar > .what { flex: 1 1 240px; min-width: 0; color: var(--ink-2); }
 .pendbar > .what > .sep { margin: 0 8px; color: var(--ink-3); }
 .pendbar > .when { margin-right: 8px; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
+.pendbar:focus-within > .tokey { visibility: hidden; }
 .pendbar .fails, .asking .fails { display: inline-flex; align-items: center; gap: 6px; margin: 0 8px 0 -4px; padding: 2px 4px; border: 0; border-radius: var(--r); background: none; color: var(--no); font: inherit; font-weight: 500; text-align: left; }
 .pendbar .fails:hover, .asking .fails:hover { background: var(--hover); }
 .pendbar .fails svg, .asking .fails svg { width: 16px; height: 16px; flex: none; }

@@ -658,6 +658,7 @@ const Time = (() => {
       case 'As Of': return gone ? `Stopped keeping a date in ${of}` : `Kept ${short(n.value)} in ${of}`;
       case 'Footer': return gone ? 'Took the footer off' : 'Set the footer';
       case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
+      case 'Fixed': return gone ? `Made ${of} change over time` : `Made ${of} one for all time`;
       // A field's look in a group's boxes, given beside its output (dendra.md, Fields): "Made Jurisdiction not bold in the
       // Cayman Islands boxes in Structure". A look one record kept of its own, cleared, as the format bar says it.
       default: if (n.param && Notes.FORMATS.has(n.label)) { const boxes = `in the ${grouped(N, n) ?? N.name(n.pattern)} boxes${inView}`;
@@ -725,7 +726,7 @@ const Time = (() => {
   const KINDS = [['all', 'All kinds'], ['records', 'Records'], ['rules', 'Rules'], ['looks', 'Looks and layout']];
   // Which kinds of change a change holds: records, what they are (a definition, a requirement, a name at no view) or how a
   // view draws them; what it keeps where it's drawn is none. The schema's own rows go with what they came with.
-  const RULES = new Set(['Formula', 'Required', 'Check', 'Start', 'End', 'Description', 'Name', 'Order']), kindsKept = new WeakMap();
+  const RULES = new Set(['Formula', 'Required', 'Fixed', 'Check', 'Start', 'End', 'Description', 'Name', 'Order']), kindsKept = new WeakMap();
   function kindsOf(c) {
     if (kindsKept.has(c)) return kindsKept.get(c);
     const { rows } = ever.peek(), out = new Set();
