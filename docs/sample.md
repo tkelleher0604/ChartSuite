@@ -30,7 +30,7 @@ Opened as of November 3, 2026, the chart has 1,016 entered records. The definiti
   Each moves to the business day before a weekend where the rule says "on or before".
 
   Each is owed only by an entity of the family: one whose Vehicle Type, which is required, is set and isn't Portfolio Company or Third Party, as the pension plan is. So a buyer, or an entity not yet typed, owes nothing tracked.
-- **Checks**, definitions whose every ruled-out record is a problem: **Formation Document on File** and **Governing Agreement on File** for each entity of the family, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag four: David R. Okafor's four signing authorities through GP III, which he doesn't manage.
+- **Checks**, definitions whose every ruled-out record is a problem: **Formation Document on File** and **Governing Agreement on File** for each entity of the family, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag four: David R. Okafor's four signing authorities through GP III, which he doesn't manage. **Good Standing** has a Check note too, at an entry typed by hand, so its "no" needs attention, in amber, and is counted as no error: AIV-1's. Any other typed "no" is a plain grey X.
 
 ## Views
 

@@ -332,7 +332,7 @@ async function run() {
   Shell.parts.value.undo.undo(); await tick(60);
   const rr = $$('.rr').filter(r => r.querySelector('.nm') && spoken(r.querySelector('.nm')) === 'Fund III Blocker is an owner of the BDC');
   check('… and behind Add a relation, what else could be entered, not what a formula works out', rr.length === 1 && $$('.rr .nm').some(x => / is an adviser to /.test(x.textContent))
-    && !$$('.rr .nm').some(x => / is a controller of /.test(x.textContent)), $$('.rr .nm').map(x => x.textContent).join(', '));
+    && !$$('.rr:not(.not) .nm').some(x => / is a controller of /.test(x.textContent)), $$('.rr .nm').map(x => x.textContent).join(', '));
   // First, what the chart would draw as the two stand, the box above on the side drawn on top, a solid line first; then what it records most.
   const yOf = id => App.scene.peek().byId.get(id).y, higher = yOf('blocker') < yOf('bdc') ? 'fund iii blocker' : 'the bdc';
   const firstOpen = $$('.rr[data-key*="|"]').find(r => r.querySelector('.nm'));   // what could be, keyed by its sides
@@ -1366,6 +1366,55 @@ async function saysWhen(C, keep) {
   check('… which opens Owners’ search on it', /Holdco/.test($('.ih .cell')?.value ?? '') && !!document.querySelector('.float .menu-find'), $('.ih')?.textContent);
   Shell.closeAll(); await tick(30);
   Shell.parts.value.undo.undo(); await tick(60);
+  // A merger: Dissolve…'s bar offers Merged into…, with a picker; History and the toast say it
+  const nMerge = App.wb.changes().length;
+  Shell.select(['northpine']); await tick(60);
+  App.deleting(['northpine'], N().nameOf(st(), 'northpine'), { auto: true }); await tick(60);
+  pb('.from .sel').click(); await tick();
+  const endsMenu = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
+  check('Dissolve…’s bar offers Merged into…', endsMenu === 'Dissolution Date,Merged Into…'.replace('Into', 'into') + ',Never held', endsMenu);
+  await pick('Merged into…'); await tick(60);
+  check('… which asks whom, its verb waiting on it', pb('.btn.primary')?.textContent === 'Merge' && pb('.btn.primary').disabled && /Merged into/.test(spoken(pb('.what'))) && !!document.querySelector('.float .menu-find'), pb()?.textContent);
+  await typeIn('Corvane'); await pick('Corvane Specialty Chemicals Holdings, LLC'); await tick(60);
+  await type(pb('.from input'), 'February 1, 2037'); await tick(80);
+  check('… and says it: Merged Northpine into Corvane on the day', App.wb.changes().length === nMerge + 1 && spoken(document.querySelector('.toast span')) === 'Merged Northpine Software, LLC into Corvane Specialty Chemicals Holdings, LLC on Feb 1, 2037'
+    && App.wb.asOf(C, '2037-01-31').northpine && !App.wb.asOf(C, '2037-02-01').northpine && Object.values(App.wb.asOf(C, '2037-01-31')).some(r => r.args?.some(a => a.edge === 'Merged' && a.at === 'northpine')), document.querySelector('.toast span')?.textContent);
+  check('… its head saying so', /Merged Feb 1, 2037/.test(spanned()), spanned());
+  Shell.parts.value.undo.undo(); await tick(60);
+  // Evidence: an ownership has a Documents section, with + picking a document or making one; the document's list names each row by
+  // the place rule, and is searched by those words; two records with no relation offer one
+  Shell.select([blocked]); await tick(60);
+  const docsOf = () => $$('section').find(s => s.dataset.title === 'Documents');
+  check('an ownership has a Documents section, with +', !!docsOf() && !!docsOf().querySelector('.sect .btn.icon'), $('.insp')?.textContent.slice(0, 200));
+  const nEv = App.wb.changes().length;
+  docsOf().querySelector('.sect .btn.icon').click(); await tick(); await typeIn('Blocker Stock'); await pick('New Document: Blocker Stock'); await tick(80);
+  check('… a new one named as it’s typed, the bar asking from when, whose side is named by place', /Blocker Stock/.test(spoken(pb('.what'))) && pb('.btn.primary')?.textContent === 'Add', pb()?.textContent);
+  key(document.body, 'Enter'); await tick(80);
+  const stockDoc = Object.keys(st()).find(k => st()[k].kind === 'Document' && N().nameOf(st(), k) === 'Blocker Stock');
+  check('… Enter making it, one change, with its evidence', App.wb.changes().length === nEv + 1 && !!stockDoc, stockDoc);
+  Shell.select([stockDoc]); await tick(60);
+  const evRow = $$('section').find(s => s.dataset.title === 'Evidences')?.querySelector('.row.rel .k .lk');
+  check('a document’s Evidences names each by the place rule', /Fund III → Fund III Blocker, 100%/.test(spoken(evRow ?? document.body)), evRow?.textContent);
+  $$('section').find(s => s.dataset.title === 'Evidences')?.querySelector('.sect .btn.icon')?.click(); await tick();
+  await typeIn('Chen'); await tick(30);
+  const pickerRows = [...document.querySelectorAll('.float .menu-item .label')].map(x => spoken(x));
+  check('… and its picker too, searched by those words', pickerRows.some(x => /Margaret A\. Chen → .*, Director/.test(x)) && !pickerRows.some(x => x === 'Position' || x === 'Signing Authority'), pickerRows.join(' | '));
+  Shell.closeAll(); await tick(30);
+  Shell.parts.value.undo.undo(); await tick(60);
+  // Relation… with two records with no relation: never "2 selected" and nothing else
+  Shell.select([blocked, 'mgmt']); await tick(60);
+  check('a relation and a record selected say what could be, or New relation, never “2 selected” alone', !!$('[data-tour="pair"]') && $$('.rr .add-entry').some(b => /relation/.test(b.textContent)) && !/2 selected/.test($('.ih')?.textContent ?? ''), $('.insp')?.textContent.slice(0, 200));
+  // Two records: what's between them, the chain written out, and why not
+  Shell.select(['fund', 'tessellate']); await tick(60);
+  const notLines = $$('.rr.not .nm').map(x => spoken(x));
+  check('two records say why not: Fund III has no look-through ownership of Tessellate', notLines.some(x => /^Fund III has no look-through ownership of Tessellate.*: none of its holdings reaches it\./.test(x)), notLines.join(' | '));
+  // A preview says the net: what's really lost in red, and in black who stays as they were
+  const halvardStake = Object.keys(st()).find(k => st()[k].args && N().nameOf(st(), k) === 'Ownership' && st()[k].args.some(a => a.at === 'blocker') && st()[k].args.some(a => a.at === 'halvard'));
+  Shell.select([halvardStake]); App.transferring(halvardStake); await tick(80);
+  await typeIn('Calder Ridge Capital Partners III'); await pick('Calder Ridge Capital Partners III, L.P.'); await tick(100);
+  const net = spoken(document.querySelector('.fx-delta .fx-net') ?? document.body);
+  check('an internal transfer’s preview says, in black, whose control is unchanged', /Margaret A\. Chen’s( and David R\. Okafor’s)? control is unchanged/.test(net) && !!document.querySelector('.fx-delta .take'), document.querySelector('.fx-delta')?.textContent);
+  key(pb(), 'Escape'); await tick(60);
   // A person added from a list, by a relation the view doesn't draw, stays off the page
   const here2 = Shell.view.peek();
   App.change(tx => tx.note('Shown', { args: [{ edge: 'Holder', loc: {} }, { edge: 'Company', loc: {} }] }, false, { view: here2 }), { dated: false }); await tick(60);

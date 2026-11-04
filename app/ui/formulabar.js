@@ -1727,7 +1727,9 @@ const FormulaBar = (() => {
   // a value, typed over to enter one. The amber corner where an entry overrides rows.
   const onward = e => { if (e.key !== 'Enter') return; e.preventDefault(); e.stopPropagation(); document.getElementById('view')?.focus(); };
   function Output({ m }) {
-    const o = m.out, point = usePoint(() => m.rec && !m.computed && preview(flipped(m), 'tag'), () => pending.peek()?.from === 'tag' && previewDraft());
+    // (Previewed as it will be made: from the day it asks, where it asks one.)
+    const asMade = () => { const out = { tag: !m.rec.tag }; return App.would(tx => App.putting(tx, m.id, m.rec, out), { dated: App.asksFrom(m.id, out) ? App.day.peek() : true }); };
+    const o = m.out, point = usePoint(() => m.rec && !m.computed && preview(asMade(), 'tag'), () => pending.peek()?.from === 'tag' && previewDraft());
     if (!o) return null;
     if (o.error) return html`<span class="fx-out err">${o.error.code}</span>`;
     const a = after(m);

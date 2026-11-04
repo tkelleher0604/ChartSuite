@@ -199,8 +199,8 @@ section.open > :last-child { margin-bottom: 8px; }
 .row.rel { grid-template-columns: minmax(0, 1fr) fit-content(50%); }
 .row.rel > .k { color: var(--ink); }
 /* Each says it's a link: a pointer and an underline; a tooltip says where. */
-.row.rel .lk { cursor: pointer; }
-.row.rel .lk:hover { text-decoration-color: currentColor; }
+.row.rel .lk, .doc .lk { cursor: pointer; }
+.row.rel .lk:hover, .doc .lk:hover { text-decoration-color: currentColor; }
 /* A box to tick each, for ending several at once: in the row's gutter, shown as it's pointed at or once one's ticked. */
 .row.rel > .tick { position: absolute; left: 3px; top: 7px; width: 13px; height: 13px; opacity: 0; }
 .row.rel:hover > .tick, .row.rel > .tick:focus-visible, section.ticking .row.rel > .tick { opacity: 1; }
@@ -283,6 +283,10 @@ label.row.keyrow { grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; 
 .rr.new > .add-entry { grid-column: 1 / -1; justify-self: start; }
 .rr.new:hover { background-image: none; }
 .relate + .relate { border-top: 1px solid var(--rule); }
+/* What doesn't hold between the two, and why not: quiet, each a sentence. */
+.rr.not > .nm { color: var(--ink-3); }
+.rr.not > .nm .lk { cursor: pointer; }
+.rr.not > .nm .lk:hover { color: var(--ink-2); }
 /* A relation being added that asks its day: redlined, its box ticked and its sentence in blue, the day it holds
    from asked in the bar under the view; one recorded from a later day, that day beneath it; one held being deleted,
    struck in red, its box empty. */

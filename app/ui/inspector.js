@@ -173,7 +173,7 @@ function relativesOf(id) {
     (lists.get(name) ?? lists.set(name, []).get(name)).push(item);
   }
   // Each by its short name, read once.
-  const shorts = new Map(), named = o => shorts.get(o) ?? shorts.set(o, shortOf(o)).get(o), by = (a, b) => named(a.obj).localeCompare(named(b.obj));
+  const shorts = new Map(), named = o => shorts.get(o) ?? shorts.set(o, r[o]?.args ? segment(o) : shortOf(o)).get(o), by = (a, b) => named(a.obj).localeCompare(named(b.obj));
   return { lists: [...lists].sort(([a], [b]) => a.localeCompare(b)).map(([name, items]) => [name, items.sort(by)]), docs: docs.sort(by), nots: nots.sort(by) };
 }
 
@@ -252,7 +252,7 @@ const naming = signal(null);    // a relation of a new name being typed in the t
 // or its start entry); Enter adds it with them, and the panel offers its entries. `key` names the panel's row; `out`, its
 // tick, role or value.
 function begin(a, b, key, out, rec) {
-  const st = { ...recs(), '': rec }, sides = N().placed(recs(), null, rec.args).map(s => s.join + s.text).join('');
+  const st = { ...recs(), '': rec }, sides = N().placed(recs(), null, rec.args).map(s => s.join + (recs()[s.id]?.args ? rowName(s.id) : s.text)).join('');
   App.relating(rec, { what: `${N().nameOf(st, '')}: ${sides}`, source: `relate ${a} ${b}`, relate: { a, b, key, out }, inline: true,
     needs: rec.args.map(x => x.at).filter(x => !fx(x)), make: tx => tx.add('record', enterAt(tx, rec)), say: c => Time.describe(c), done: () => { fresh.value = { a, b, key }; } });
 }
@@ -538,13 +538,14 @@ function addItems(at, anchor) {
 // The lists of relatives a record's kind can have, by their names (Owners, General Partners, Holdings), as its sections
 // name them once it has some: each the relations of the schema, entered not worked out, of two sides, one of which the
 // record (or a record in it) fits. → [{ name, ways }]
-function listsOf(id) {
+function listsOf(id, docs = false) {
   const n = N(), own = within(id), lists = new Map(), S = Object.values(App.schema.value);
-  // A document is linked by Document…, not listed here.
+  // A document is linked by Document…, not listed here; `docs`, those alone, for what's linked to by a relation of its own
+  // (Evidence, of an ownership).
   const doc = loc => !!loc.kind && S.some(s => s.out?.field === 'document' && s.args?.length === 1 && T.same(s.args[0].loc.kind ?? '', loc.kind));
   for (const s of S) if (s.args?.length === 2 && ('tag' in s.out || 'choice' in s.out) && !n.resolve('Formula', T.bare(s))) for (const sm of s.args) {
     const sl = s.args.find(a => a !== sm), at = own.find(x => T.narrower(tree(x), sm.loc));
-    if (!at || !sl || doc(sl.loc)) continue;
+    if (!at || !sl || doc(sl.loc) !== docs) continue;
     const name = n.listName(T.bare(s), sl.edge), was = lists.get(T.norm(name));
     if (!was) lists.set(T.norm(name), { name, ways: [{ s, sm, sl, at }] }); else if (!was.ways.some(w => T.key(w.sl.loc) === T.key(sl.loc) && T.same(w.sm.edge, sm.edge))) was.ways.push({ s, sm, sl, at });
   }
@@ -560,9 +561,9 @@ function whoFor(id, l, q) {
   const out = [], seen = new Set(relatives(id).lists.find(([name]) => T.same(name, l.name))?.[1].map(it => it.obj) ?? []), words = T.norm(q ?? '');
   for (const w of l.ways) for (const x of Object.keys(recs())) {
     const b = objectOf(x);
-    if (seen.has(b) || b === id || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {}) || !T.norm(nameOf(b)).includes(words)) continue;
+    if (seen.has(b) || b === id || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {}) || !T.norm(placeName(b)).includes(words)) continue;
     seen.add(b);
-    out.push({ label: nameOf(b), detail: recs()[b].kind, run: () => joinTo(id, b, w, x) });
+    out.push({ label: placeName(b), detail: recs()[b].kind ?? nameOf(b), run: () => joinTo(id, b, w, x) });
   }
   out.sort((a, b) => a.label.localeCompare(b.label));
   // The kinds a new one can be, those the chart draws most first, as Insert offers them.
@@ -579,7 +580,7 @@ function joinTo(id, b, w, lb, fresh = null) {
   // the same change, and where it isn't drawn, the toast says so, with Show.
   const v = viewShown(), chart = v?.layout === 'chart' ? v : null; let o = null;
   const make = tx => { o = tx.add('record', { kind: fresh.kind }); tx.add('record', { at: o, edge: 'Name', field: 'text', value: fresh.name }); if (chart && N().resolve('Shown', w.s, chart.id)?.value === false) tx.note('Shown', { id: o, kind: fresh.kind }, false, { view: chart.id }); return o; };
-  const off = () => !!chart && !!o && !App.scene.peek()?.byId.has(o), told = { go: () => (off() ? ['Show', () => showHere([o], chart)] : null) }, saying = `${fresh?.name} isn’t on ${chart?.name}`;
+  const off = () => !!chart && !!o && !linkOf(o) && !App.scene.peek()?.byId.has(o), told = { go: () => (off() ? ['Show', () => showHere([o], chart)] : null) }, saying = `${fresh?.name} isn’t on ${chart?.name}`;
   if ('choice' in w.s.out) { if (fresh) { if (!App.change(make, { ...told, say: () => (off() ? saying : null) })) return; b = o; } return select([id, b]); }
   const rec = other => ({ args: [{ edge: w.sm.edge, at: w.at }, { edge: w.sl.edge, at: other }], tag: true });
   if (!fresh) {
@@ -587,7 +588,7 @@ function joinTo(id, b, w, lb, fresh = null) {
     return select([id, b]);
   }
   // The new one, related as it's made. What it asks is asked of a stand-in of its kind.
-  const p = T.bare(w.s), first = T.same(N().edges(p)[0], w.sm.edge), what = `${N().name(p)}: ${first ? `${shortOf(id)} → ${fresh.name}` : `${fresh.name} → ${shortOf(id)}`}`;
+  const p = T.bare(w.s), first = T.same(N().edges(p)[0], w.sm.edge), here = rowName(id), what = `${N().name(w.s)}: ${first ? `${here} → ${fresh.name}` : `${fresh.name} → ${here}`}`;
   const made = tx => { const n = make(tx), r = tx.add('record', enterAt(tx, rec(n))); return r; };
   App.relating(rec('§new'), { what, source: `list ${id}`, needs: [id], make: made, ...told, say: c => (off() ? saying : Time.describe(c)) }, { ...recs(), '§new': { kind: fresh.kind } });
 }
@@ -603,7 +604,7 @@ function typedBy(anchor, id) {
   Shell.popover(anchor, close => html`<div class="typed">
     <p class="who">${by.who}</p><p class="meta">${whenTyped(by.when)}${by.since ? ` · from ${short(by.since)}` : ''}${by.before ? ` · until ${short(by.before)}` : ''}</p>
     ${by.note ? html`<p class="note">${by.note}</p>` : null}
-    <button class="btn ghost" onClick=${() => { close(); select([id]); Time.open('all'); }}>History</button></div>`, { placement: 'bottom-start' });
+    <button class="btn ghost" onClick=${() => { close(); select([id]); if (Time.of) Time.of([id]); else Time.open('all'); }}>History</button></div>`, { placement: 'bottom-start' });
 }
 function Label({ it, fx }) {
   const r = it.id && recs()[it.id];
@@ -864,8 +865,10 @@ function notText(it, held) {
     : `${says} ${termOf(it.obj)}${rest}${why ? `: ${lower(why.cite)}` : ''}`;
 }
 
-// A document linked to a record, from its Documents section's +.
-const docAdd = id => recs()[id].kind ? plus('Link a document', e => linkAdd(e.currentTarget, id)) : null;
+// A document linked to a record, from its Documents section's +: an object's by a link; a relation's (an ownership, a position)
+// by the relation it's evidenced by, one the chart has, or a new one named as it's typed, as a list's Add asks who.
+const docList = id => recs()[id].args ? listsOf(id, true)[0] ?? null : null;
+const docAdd = id => { const l = docList(id); return recs()[id].kind ? plus('Link a document', e => linkAdd(e.currentTarget, id)) : l ? plus('Add a document', e => addTo(e.currentTarget, id, l)) : null; };
 // How long a list a formula gives can be and stay open.
 const SHORT = 5;
 // Rows ticked in the panel's lists, the session's, till the selection moves on.
@@ -903,7 +906,7 @@ function Relatives({ id }) {
   // A document by its name, its first choice and date beneath, and a way to open it.
   const docRow = it => { const l = recs()[linkOf(it.obj)], s = slots(it.obj).filter(x => x.id).map(x => recs()[x.id]);
     const sub = [s.find(x => 'choice' in x)?.choice, s.find(x => x.field === 'date')].filter(Boolean).map(x => x.value ? short(x.value) : x);
-    return html`<div class="doc" key=${it.rid}><${Go} to=${it.obj}>${bound(nameOf(it.obj))}</${Go}>
+    return html`<div class="doc" key=${it.rid}><${Go} to=${it.obj} tip=${`Open ${nameOf(it.obj)}`}>${bound(nameOf(it.obj))}</${Go}>
       ${l ? html`<a class="btn icon open" href=${SharePoint.href(l.value)} target="_blank" rel="noopener" aria-label="Open" data-tip="Open">${OPEN}</a>` : null}
       ${sub.length ? html`<span class="meta">${sub.join(' · ')}</span>` : null}</div>`; };
   // Lists someone entered first; those a formula gave, folded, after; then documents, once there are any; and
@@ -921,7 +924,7 @@ function Relatives({ id }) {
   return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${counted(items)}
       cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} act=${html`${endRows(items)}${adds(name, items)}`}>${items.map(item)}
       ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t…</button></div>` : null}</${Section}>`)}
-    ${docs.length || typing ? html`<${Section} title="Documents" id="docs" n=${docs.length} act=${docAdd(id)}>
+    ${docs.length || typing || docList(id) ? html`<${Section} title="Documents" id="docs" n=${docs.length} act=${docAdd(id)}>
       ${docs.map(docRow)}
       ${typing ? html`<div class="row"><div class="k wide"><input class="cell" placeholder="Link" aria-label="Link" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
         onKeyDown=${e => { if (e.key === 'Enter') { const u = T.clean(e.target.value); if (T.isAddress(u)) { linking.value = null; link(id, u); } else e.target.setAttribute('aria-invalid', 'true'); } else if (e.key === 'Escape') { e.stopPropagation(); linking.value = null; } }}
@@ -1064,7 +1067,7 @@ function RecordView({ id }) {
         <${Field} r=${recs()[nameId]} id=${nameId} datatype="text" ph="Name" title held=${held ? held.value : null} put=${(out, o) => (out || out === false) && put(nameId, { at: id, edge: 'Name' }, out, o)}
           preview=${out => out && putChange(nameId, { at: id, edge: 'Name' }, out)} /></${Head}>`
     : html`<${Head} title=${name} span=${span} more=${r.args ? () => moreOf(id) : null} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
-        ${boxed(id) ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm">${name}</span></h2>` : null}</${Head}>`;
+        ${boxed(id) ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm lbl asks" onClick=${e => (fx(id) ? emit('why-open', id) : typedBy(e.currentTarget, id))}>${name}</span></h2>` : null}</${Head}>`;
   const sides = r.args ? N().sides(recs(), id) : [];
   // A deletion or a transfer of it pending is asked here too, atop its panel, as in the bar; a relation that can be
   // transferred says so quietly beside Add, as its line's menus do.
@@ -1317,11 +1320,17 @@ function RelateView({ a, b }) {
   }));
   const slotOf = x => { const got = x.rest.map(p => picks[x.key + p.edge]); return got.every(Boolean) ? { args: [{ edge: x.ea, at: x.la }, { edge: x.eb, at: x.lb }, ...x.rest.map((p, k) => ({ edge: p.edge, at: got[k] }))], options: x.options } : null; };
   const pick = (e, x, p) => menu(e.currentTarget, Object.keys(r).filter(y => !('field' in r[y]) && T.narrower(tree(y), p.loc)).map(y => ({ label: nameOf(objectOf(y)), run: () => setPicks({ ...picks, [x.key + p.edge]: y }) })), { search: true });
-  const side = (at, first) => first ? bound(shortOf(objectOf(at))) : termOf(at);
+  const side = (at, first) => r[at]?.args ? rowName(at) : first ? bound(shortOf(objectOf(at))) : termOf(at);
   // A role chosen in the sentence: its option in its place, or "…" till one is, a dropdown of the options.
   const role = (label, now, options, choose) => said => html`<button class=${'sel dd' + (now ? '' : ' ph')} aria-label=${`${label}: ${now ?? 'none'}`} aria-haspopup="menu"
     onClick=${e => menu(e.currentTarget, options.map(o => ({ label: o, checked: !!now && T.same(o, now), run: () => !(now && T.same(o, now)) && choose(o) })))}><span>${said}</span></button>`;
 
+  // What's between them, as the formula bar says it (FormulaBar.between): a figure's chain written out, and each relation a
+  // formula could give the two that doesn't hold, why not, in a sentence; clicked, the bar is on it. One ruled out by name is
+  // said among what holds.
+  const between = T.isObject(r[a]) && T.isObject(r[b]) ? FormulaBar.between?.(a, b) : null, chainOf = id => between?.holds.find(l => l.id === id)?.chain ?? null;
+  const notRow = l => html`<div class="rr not" key=${l.key}><span class="ctl"><span class="tag" aria-disabled="true" /></span>
+    <span class="nm"><button class="lk" onClick=${() => FormulaBar.pickLine?.(l.key)}>${l.sentence}</button></span></div>`;
   // What holds: its box first, ticked whatever its output (a tag a formula gives, or one ruled out, flips as a tag's
   // does; any other entered, unticked, goes, as a deletion does, its bar asking until when); the sentence, its role
   // a dropdown where it's entered (italic where a formula gives it, and why beneath, as the formula bar says it, its
@@ -1338,7 +1347,7 @@ function RelateView({ a, b }) {
         <span class="nm">${sentence(tree(x.id), n.placed(r, x.id).map(s => s.edge), (e, first) => side(at(e), first), { choice: rel.choice, not: rel.tag === false, role: chosen,
           wrap: words => html`<${Go} to=${x.id} cls=${f ? 'fx' : ''}>${words}</${Go}>` })}</span>
         <span class="val">${'field' in rel ? html`<${Output} id=${x.id} slot=${rel} label=${x.name} />` : null}</span>
-        ${why ? html`<span class="why" data-tip=${why.words || null}>${why.cite}</span>` : null}
+        ${why || chainOf(x.id) ? html`<span class="why" data-tip=${why?.words || null}>${[why?.cite, chainOf(x.id)].filter(Boolean).join(' · ')}</span>` : null}
         ${gone && p.needs.length === 1 ? ask(p) : null}
       </div>
       ${f ? null : html`<div class="rr-at" key=${x.id + '@'}><${Entries} at=${x.id} depth=${0} offer=${x.key === added} /></div>`}`; };
@@ -1415,13 +1424,14 @@ function RelateView({ a, b }) {
   for (const id of Object.keys(r)) if (r[id].args?.length > 1 && !fx(id)) { const k = T.norm(nameOf(id)); uses.set(k, (uses.get(k) ?? 0) + 1); }
   const used = x => uses.get(T.norm(x.name)) ?? 0;
   const holds = [...held.values()].sort(order), could = [...open.values()].sort((x, y) => named(x) - named(y) || filled(x) - filled(y) || fits(x) - fits(y) || used(y) - used(x) || x.name.localeCompare(y.name) || (y.la === a) - (x.la === a)), after = [...later.values()].sort((x, y) => x.since.localeCompare(y.since));
-  const name = x => html`<${Go} to=${x}>${bound(nameOf(objectOf(x)))}${x !== objectOf(x) ? html`<span class="muted"> › ${segment(x)}</span>` : null}</${Go}>`;
+  const name = x => html`<${Go} to=${x}>${r[x].args ? bound(`${nameOf(x)}: ${rowName(x)}`) : html`${bound(nameOf(objectOf(x)))}${x !== objectOf(x) ? html`<span class="muted"> › ${segment(x)}</span>` : null}`}</${Go}>`;
   // What else could hold, once asked for; at once where nothing did.
   const ghost = (label, run) => html`<div class="rr new"><button class="btn ghost add-entry" onClick=${run}>${icon('plus')}${label}</button></div>`;
   none.current ??= !holds.length;
   return html`<div class="insp" data-tour="pair">
     <header class="ih"><h2 class="ih-title">${name(a)} <span class="and">and</span> ${name(b)}</h2></header>
     ${holds.length || after.length ? html`<div class="relate">${holds.map(heldRow)}${after.map(laterRow)}</div>` : null}
+    ${between?.not.some(l => !held.has(l.id) && l.sentence) ? html`<div class="relate nots-of">${between.not.filter(l => !held.has(l.id) && l.sentence).map(notRow)}</div>` : null}
     ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
       ${form ? html`<div class=${'rr new' + (ours ? ' adding' : '')} onKeyDown=${formKeys}><span class="ctl"><span class=${'tag' + (ours ? ' yes' : '')} /></span><span class="form">
@@ -1579,7 +1589,8 @@ function chosen(sel) {
   const p = sel.length === 1 && Shell.pattern(sel[0]);
   if (!App.chart.value) return null;   // opening
   if (p) return html`<${GeneralView} key=${sel[0]} p=${p} />`;
-  if (sel.length === 2 && sel.every(k => T.isObject(recs()[k] ?? {}))) return html`<${RelateView} key=${sel.join()} a=${sel[0]} b=${sel[1]} />`;
+  // (Two records either of which may be a relation: an ownership and the certificate that evidences it.)
+  if (sel.length === 2 && sel.some(k => T.isObject(recs()[k] ?? {})) && sel.every(k => T.isObject(recs()[k] ?? {}) || recs()[k]?.args)) return html`<${RelateView} key=${sel.join()} a=${sel[0]} b=${sel[1]} />`;
   if (sel.length > 1) return html`<${Many} ids=${sel} />`;
   // A frame is drawn by a style: selecting it shows the entry the style is of, with its styles.
   const frame = sel.length === 1 && sel[0].startsWith('frame:') && App.scene.value?.byId.get(sel[0]);
@@ -1628,6 +1639,8 @@ Shell.register('action', { id: 'record.transfer', name: 'Transfer…', names: ['
 Shell.register('action', { id: 'record.interpose', name: 'Insert an entity between…', names: ['Insert', 'Interpose', 'Holdco', 'Between'],
   enabled: () => !App.readOnly.peek() && !!theOne() && !!App.interposable(theOne()), run: () => App.interposing(theOne()),
   why: notNow('Only an ownership takes one between', 'an ownership') });
+Shell.register('action', { id: 'record.merge', name: 'Merge into…', names: ['Merger', 'Merged into', 'Merge'],
+  enabled: () => !App.readOnly.peek() && !!theOne() && App.endsOf(theOne()).some(e => e.rel), run: () => App.merging(theOne()), why: notNow('Only what can merge merges', 'an entity') });
 Shell.register('action', { id: 'record.delete', get name() { return `${theOne() ? App.deleteVerb([theOne()]) : 'Delete'}…`; }, names: ['Delete', 'Remove', 'Dissolve', 'End'],
   enabled: () => !App.readOnly.peek() && !!theOne(), run: () => remove(theOne(), { auto: true, inline: true }), why: notNow('', 'what to delete') });
 // Renamed in its panel's title, its Name, which the keys go to.

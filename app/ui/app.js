@@ -387,7 +387,7 @@ const App = (() => {
   // the day selected, as it's shown. Esc puts back what was typed, keeping the keys there, as a value's does; left, a
   // day typed is set as a day. One after the day shown, once it's left, is a link to the chart then, where the change is
   // drawn, as the two-box panel's later relation is.
-  function From({ day, set, auto, asks, word: end }) {
+  function From({ day, set, auto, asks, word: end, alts }) {
     const { useState, useRef, useLayoutEffect } = preactHooks;
     const [text, setText] = useState(null), [typing, setTyping] = useState(false), input = useRef(), button = useRef(), keys = useRef(auto), was = useRef();
     // Shown with `auto`, or switched from its own menu (not another's showing the same, in the bar or where it was asked),
@@ -398,8 +398,9 @@ const App = (() => {
     }, [day === null]);
     const words = asks === 'until' ? [typeof end === 'string' ? end : 'Ends on', 'Never held'] : asks === 'on' ? ['On'] : [typeof end === 'string' ? end : 'From', 'All along'], always = day === null, word = words[always ? 1 : 0];
     const shown = Shell.time.value?.asOf ?? Log.today(), later = !!day && day > shown && !typing;
+    const back = () => { if (always) { keys.current = true; setText(null); set(shown); } };
     const pick = e => Shell.menu(e.currentTarget, [
-      { label: words[0], checked: !always, run: () => { if (always) { keys.current = true; setText(null); set(shown); } } },
+      ...(alts ? alts.map(a => ({ ...a, checked: a.checked && !always, run: () => { back(); a.run(); } })) : [{ label: words[0], checked: !always, run: back }]),
       { label: words[1], checked: always, run: () => { if (!always) keys.current = true; set(null); } }]);
     const key = e => {
       if (e.key !== 'Escape' || text === null) return;
@@ -514,9 +515,46 @@ const App = (() => {
   function deleting(ids, what, o = {}) {
     const recs = state.peek(), ends = ids.map(id => endOf(id, recs)), asks = ends.some(e => e !== false), words = [...new Set(ends.filter(e => typeof e === 'string'))];
     const end = (tx, d, id, e) => e === false ? tx.remove(id) : d && typeof e === 'string' ? ending(tx, entered.peek(), id, e, d) : tx.remove(id, d);
-    stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : Time.describe(c), ...o,
+    // One of a kind with more than one end says which (Dissolution Date, Merger Date), by its menu. An end named for a relation
+    // of what it ends (a merger) asks that relation's other side too, in its bar, and makes it.
+    const others = ids.length === 1 && typeof ends[0] === 'string' ? endsOf(ids[0], recs) : [];
+    const alts = others.length > 1 ? p => others.map(m => ({ label: m.say, checked: p.word === m.edge, run: () => amend(p, { word: m.edge, act: actOf(m.edge)?.[0] ?? p.verb, merge: m.rel ? { rel: m.rel, to: pending.peek()?.merge?.to ?? null } : null, Fill: m.rel ? Merging : null }) })) : null;
+    stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : Time.describe(c), ...o, alts, ready: p => !p.merge || p.day === null || !!p.merge.to,
       ...(asks && { asks: 'until', day: ids.every(madeLately) ? null : day.peek(), word: words.length === 1 && ends.every(e => e === words[0] || e === false) ? words[0] : true }),
-      make: (tx, d, p) => { ids.forEach((id, i) => end(tx, d, id, ends[i])); p?.too?.forEach(id => end(tx, d, id, endOf(id))); o.also?.(tx); } });
+      make: (tx, d, p) => {
+        ids.forEach((id, i) => end(tx, d, id, typeof p?.word === 'string' && others.length > 1 ? p.word : ends[i]));
+        p?.too?.forEach(id => end(tx, d, id, endOf(id)));
+        if (d && p?.merge?.to) tx.add('record', { args: [{ edge: p.merge.rel.edges[0], at: ids[0] }, { edge: p.merge.rel.edges[1], at: p.merge.to.at }], tag: true });
+        o.also?.(tx);
+      } });
+  }
+  // Each end entry of what a record is, with what its bar's menu calls it, and the relation it's named for, of two sides, the
+  // first the one ended, where it has one: Merger Date, by Merger ("Merged into…").
+  function endsOf(id, recs = state.peek()) {
+    const t = Tree.treeOf(recs, id), N = notes.peek(), edges = N.notes('End').map(n => n.pattern.args?.length === 1 && n.pattern.args[0].edge).filter(e => e && N.isEnd({ out: { field: 'date' }, args: [{ edge: e, loc: t }] }));
+    return [...new Set(edges)].map(edge => {
+      const noun = edge.replace(/\s+(date|day)$/i, ''), rel = relations.peek().find(r => Tree.same(r.name, noun) && r.edges?.length === 2), list = rel && rel.lists?.[rel.edges[0]]?.[rel.edges[1]];
+      return { edge, rel, say: list ? `${list[0]}${lowered(list.slice(1))}…` : edge };
+    });
+  }
+  // The other side of a merger, asked in its bar: a search of who can be there.
+  function Merging({ p, auto }) {
+    const { useRef, useLayoutEffect } = preactHooks, at = useRef(), recs = state.value, N = notes.value, m = p.merge;
+    if (!m) return null;
+    const side = Object.values(schema.value).filter(s => s.args?.length === 2 && Tree.same(N.name(Tree.bare(s)), m.rel.name)).map(s => s.args.find(a => Tree.same(a.edge, m.rel.edges[1]))).filter(Boolean);
+    const list = q => Object.keys(recs).filter(x => recs[x].kind !== undefined && !p.needs.includes(x) && side.some(a => Tree.narrower(Tree.treeOf(recs, x), a.loc)) && Tree.norm(N.nameOf(recs, x) + ' ' + N.shortOf(recs, x)).includes(Tree.norm(q ?? '')))
+      .sort((a, b) => N.nameOf(recs, a).localeCompare(N.nameOf(recs, b))).map(x => ({ label: N.nameOf(recs, x), checked: m.to?.at === x, run: () => { amend(p, { merge: { ...pending.peek().merge, to: { at: x } } }); setTimeout(() => at.current?.closest('.asking, .pendbar')?.querySelector('.when input')?.focus()); } }));
+    const choose = el => Shell.menu(el, list, { search: true });
+    useLayoutEffect(() => { if (!auto || m.to || !at.current) return; at.current.focus(); choose(at.current); }, []);
+    const word = m.rel.lists?.[m.rel.edges[0]]?.[m.rel.edges[1]] ?? m.rel.name;
+    return html`<span class="transfer"><span><span class="del">${p.what}</span> · ${word[0]}${lowered(word.slice(1))} <button ref=${at} type="button" class=${'sel dd' + (m.to ? '' : ' ph')} aria-haspopup="menu" aria-label=${word} onClick=${e => choose(e.currentTarget)}><span>${m.to ? bind(N.shortOf(recs, m.to.at)) : '…'}</span></button></span></span>`;
+  }
+  // Merge into…, as Find asks it: the deletion begun on the end that's a merger.
+  function merging(id) {
+    const m = endsOf(id).find(e => e.rel);
+    if (!m) return;
+    deleting([id], notes.peek().nameOf(state.peek(), id), { source: 'delete', auto: true, inline: true });
+    amend(pending.peek(), { word: m.edge, act: actOf(m.edge)?.[0] ?? 'Delete', merge: { rel: m.rel, to: null }, Fill: Merging, day: day.peek() });
   }
   // What a deletion pending breaks, ended with it (see failsOf). → nothing; its bar then says the two.
   function endToo(p, fails) {
@@ -837,7 +875,7 @@ const App = (() => {
     return html`${fails.length ? html`<button type="button" class="fails" title=${fails.length > 1 ? fails.map(f => f.text).join('\n') : null} onClick=${() => why(fails[0])}>${Shell.icon('alert')}<span>Fails ${fails[0].text}${fails.length > 1 ? ` and ${fails.length - 1} more` : ''}</span></button>` : null}
       ${endable.length ? html`<button type="button" class="btn too" onClick=${() => endToo(p, endable)}>${endable.length > 1 ? 'End those too' : 'End that too'}</button>` : null}
       ${p.value ? html`<span class="amt" onKeyDown=${enter}><${Amount} key=${p.n} p=${p} auto=${auto} /></span>` : null}
-      ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} set=${d => amend(p, { day: d })} /></span>`
+      ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} alts=${p.alts?.(p)} set=${d => amend(p, { day: d })} /></span>`
         : p.from ? html`<span class="when">From ${p.from > day.value ? dayLink(p.from) : Tree.formatDate(p.from, 'short')}</span>` : null}
       <span class="acts"><button class="btn" onClick=${() => discard()}>Discard</button>
       <button class="btn primary" disabled=${!ready(p)} onClick=${commit}>${actOn(p)}</button></span>`;
@@ -1176,7 +1214,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, change, keeping, would, asksDay, endOf, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
+    readOnly, change, keeping, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
     enterAt, putting, put, asksFrom, held: typedOut, overriding, noTone,
   };
 })();

@@ -183,9 +183,9 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .dlg-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px 20px; }
 
 /* ---- Toasts: a verb, an object and Undo ---- */
-.toasts { position: fixed; left: 50%; bottom: calc(var(--foot) + 16px); transform: translateX(-50%); display: grid; gap: 8px; justify-items: center; z-index: 50; pointer-events: none; }
-.toast { height: 36px; padding: 0 4px 0 16px; display: flex; align-items: center; gap: 12px; border-radius: var(--r-pop); background: var(--toast); color: var(--toast-ink); box-shadow: var(--shadow-pop); pointer-events: auto; animation: rise var(--calm) var(--ease); }
-.toast > button { height: var(--row); padding: 0 8px; border: 0; border-radius: var(--r); background: transparent; color: var(--toast-act); font-weight: 500; }
+.toasts { position: fixed; left: 50%; bottom: calc(var(--foot) + 16px); transform: translateX(-50%); display: grid; gap: 8px; justify-items: center; z-index: 50; pointer-events: none; width: max-content; max-width: 90vw; }
+.toast { min-height: 36px; padding: 4px 4px 4px 16px; display: flex; align-items: center; gap: 12px; border-radius: var(--r-pop); background: var(--toast); color: var(--toast-ink); box-shadow: var(--shadow-pop); pointer-events: auto; animation: rise var(--calm) var(--ease); }
+.toast > button { flex: none; height: var(--row); padding: 0 8px; border: 0; border-radius: var(--r); background: transparent; color: var(--toast-act); font-weight: 500; white-space: nowrap; }
 .toast > button:hover { background: rgb(255 255 255 / .08); }
 .toast > button.x { display: grid; place-items: center; width: var(--row); padding: 0; color: var(--toast-ink); opacity: .7; }
 .toast > button.x:hover { opacity: 1; }

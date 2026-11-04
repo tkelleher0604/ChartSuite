@@ -267,7 +267,7 @@ const Time = (() => {
     // brought back, by its name.
     const whole = all.find(i => i.type === 'chart' && !(i.was.length && i.now.length));
     if (whole) return !whole.now.length ?`Deleted the chart ${whole.was[0].name}` : back ? `Restored the chart ${whole.now[0].name}` : `Began the chart ${whole.now[0].name}`;
-    const moved_ = !back && (interposedIn(all, rec, recs, N) ?? transferIn(all, rec, recs, N));
+    const moved_ = !back && (mergedIn(all, rec, recs, N) ?? interposedIn(all, rec, recs, N) ?? transferIn(all, rec, recs, N));
     if (moved_) return moved_;
     const objects = all.filter(i => i.type === 'record' && Tree.isObject(rec(i)));
     const made = objects.filter(i => !i.was.length), gone = objects.filter(i => !i.now.length);
@@ -324,6 +324,16 @@ const Time = (() => {
   // side, added from that day, or its amount raised from it. Said as "Transferred 82% of Halvard Logistics Holdings, Inc.
   // from Fund III Blocker to Northwind Holdings LLC on Nov 1, 2026"; one without an amount, by its option or its name.
   const FIGURES = new Set(['number', 'percent', 'money']);
+  // A merger (dendra.md, Time), read back as a transfer is: an end entry at an object, and the relation it's named for, from
+  // that object, added with it. "Merged Northpine Software, LLC into Corvane on Feb 1, 2027".
+  function mergedIn(all, rec, recs, N) {
+    const end = all.find(i => { const r = rec(i); return i.type === 'record' && r.field === 'date' && i.now.length && !i.was.length && recs[r.at]?.kind !== undefined && (t => !!t && N.isEnd(t))(Tree.treeOf(recs, i.id)); });
+    if (!end) return null;
+    const r = rec(end), noun = r.edge.replace(/\s+(date|day)$/i, ''), rel = all.find(i => i.type === 'record' && rec(i).args?.length === 2 && rec(i).args.some(a => a.at === r.at) && !i.was.length && Tree.same(N.nameOf(recs, i.id), noun));
+    if (!rel) return null;
+    const other = rec(rel).args.find(a => a.at !== r.at)?.at, name = x => { const o = Tree.objectOf(recs, x), s = N.shortOf(recs, o); return s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s; };
+    return `${App.actOf(r.edge)?.[1] ?? 'Ended'} ${name(r.at)} into ${name(other)} on ${short(r.value)}`;
+  }
   // One inserted between (dendra.md, Time), read back as a transfer is: a relation of two sides ended on a day, and two of
   // its name added from that day, its holder over another and that other over what it held. "Inserted Holdco between Fund
   // III and Fund III Blocker on Jan 1, 2027".
