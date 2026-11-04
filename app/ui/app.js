@@ -711,7 +711,7 @@ const App = (() => {
       const looks = r => !given(r.pattern)
         && (r.label === 'Shown' ? field(r) || offPage(r) : ['Text', 'Order'].includes(r.label) || (Notes.FORMATS.has(r.label) && r.label !== 'Position'));
       const house = new Set(src.rows(from).filter(r => 'note' in r && r.view === like && looks(r))), styled = new Set([...house].map(r => Tree.key(r.pattern)));
-      const keeps = r => r.view !== like ? !(r.label === 'As Of' && r.pattern.id === like) : house.has(r) || (r.label === 'Caption' && styled.has(Tree.key(r.pattern)));
+      const keeps = r => r.view !== like ? !(['As Of', 'Scale'].includes(r.label) && r.pattern.id === like) : house.has(r) || (r.label === 'Caption' && styled.has(Tree.key(r.pattern)));
       for (const r of src.rows(from)) if ('note' in r && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && keeps(r))
         tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Structure' : r.value, { view: kept.get(r.view), param: r.param });
     }

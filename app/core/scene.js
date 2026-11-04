@@ -2,16 +2,19 @@
 // known by the note that decided it, each text broken into lines, on the view's page. It reads the computed
 // state and the view and nothing else, and the canvas, the PDF and PowerPoint each draw it and nothing else.
 // The only page it touches is a canvas, to measure text. Units are CSS pixels, 96 to the inch, as the browser
-// and X6 draw them; a Size or a Weight is in points, as Office gives them, each PT pixels.
+// and X6 draw them; a Size or a Weight a note gives is in points as printed, as Office gives them, each PT pixels of
+// the sheet.
 //
 // Scene.of(wb, chart, view, day, { state, computed?, reveal, keep, paper?, ahead?, holds? }) →
-//   { chart, view, day, page: { size, w, h, scale, margin, offset, placed, sheet }, marks, byId, styles, legend, ms }
+//   { chart, view, day, page: { size, w, h, scale, margin, offset, placed, sheet, short, away }, marks, byId, styles, legend, ms }
 // `state` is the computed state's records, and `computed` the engine's whole result, for a free shape whose
 // text is a formula. `reveal`, records the view hides, drawn for a while, and `keep`, a restyle's preview, keep the
-// view as it was last drawn (see the layout). `paper`, a size in PAGES, draws the view on that paper in place of its
-// own page (see the page). `ahead` lays out a state a change previewed would leave, so it's drawn at once when the
-// change is made, and isn't kept as how the view was drawn: a redline is that scene, inked by the canvas, as Enter
-// will draw it, `holds` keeping where they stand the boxes making it will keep so (record → place; see the layout).
+// view as it was last drawn (see the layout). `paper`, a size in PAGES, or one turned ("letter portrait"), draws the
+// view on that paper in place of its own page (see the page), and `refit` on its own page as if it were another, afresh, for
+// Fit to page. `ahead` lays out a state a change previewed would leave,
+// so it's drawn at once when the change is made, and isn't kept as how the view was drawn: a redline is that scene,
+// inked by the canvas, as Enter will draw it, `holds` keeping where they stand the boxes making it will keep so (record
+// → place; see the layout) and, by its `page`, the scale and offset making it will keep.
 // `marks` are in drawing order: frames, lines, boxes, then
 // free shapes, each by its Layer.
 // Scene.steps(…), with the same arguments, draws it a step at a time: `next()` takes a step, the last giving
@@ -29,17 +32,24 @@ const Scene = (() => {
 const { treeOf, idsIn, key, bare, isObject, isField, isTag, isChoice, argsOf, same } = Tree;
 
 // The page. A view is drawn on a sheet, a 13.33 × 7.5 in slide unless its Page note (or a paper it's exported
-// on) says otherwise, its chart `scale` times its own size: the largest twentieth at which it fits, so that its
-// points stay on PowerPoint's half points and change only in steps. The page is the sheet in the chart's own
-// pixels, the sheet's size over the scale. Its furniture is the sheet's, at the sheet's size: its title and
-// its date at its top left margin, the chart 24 pt under them, and its Key at the chart's foot where it sets least
-// far down, or beside the title, top right, where that draws the chart larger; nothing in the Key larger than the names.
+// on) says otherwise, its chart `scale` times its own size: a twentieth, the one the view keeps (its Scale note), or
+// the largest at which it fits, so that a size no note gives stays on PowerPoint's half points and changes only in
+// steps. The page is the sheet in the chart's own pixels, the sheet's size over the scale. A size a note gives is
+// printed as given, so in the page's pixels it's the note over the scale (see typedAt). Its furniture is the sheet's,
+// at the sheet's size: its title and its date at its top left margin, the chart 24 pt under them, its Key at the
+// chart's foot where it sets least far down, or beside the title, top right, where that draws the chart larger,
+// nothing in the Key larger than the names; and its footer in the margin at its foot.
 const PT = 4 / 3;
 const PAGES = { slide: [1280, 720], letter: [1056, 816], legal: [1344, 816], tabloid: [1632, 1056], a4: [1123, 794], a3: [1587, 1123] };
+const PAPERS = { slide: 'Slide 16:9', letter: 'Letter', legal: 'Legal', tabloid: 'Tabloid 11×17', a4: 'A4', a3: 'A3' };
 const MARGIN = 48;
 const SCALES = Array.from({ length: 20 }, (_, i) => (20 - i) / 20);
+// The least scale a chart is laid out for to hold a size typed: under it, its gaps are gone, and it's as near as it can be.
+const LEAST = 0.4;
 // A size on a page drawn at s, as the sheet's half point nearest it, or at or under it.
 const half = (v, s, under = false) => Math.max(1, under ? Math.floor(v * s * 2 + 1e-9) : Math.round(v * s * 2)) / 2 / s;
+// A text's points as a page drawn at s prints it: as typed, where it's laid out at s; else at the sheet's half point.
+const printed = (it, s) => (it.typedAt === s ? it.look.Size : half(it.look.Size, s)) * s;
 
 // Each sort of mark's properties, and their values where no note gives one. Notes calls every label that
 // isn't Name, Order and the like a format property, so a new one is only a word here, and its drawing. A box's
@@ -272,8 +282,9 @@ const blockHeight = items => items.reduce((h, it) => h + it.lines.length * lineH
 const valigned = (valign, top, bottom, tb, inset) => valign === 'top' ? top + inset : valign === 'bottom' ? bottom - inset - tb : top + (bottom - top - tb) / 2;
 const widest = items => Math.max(0, ...items.flatMap(it => it.lines.map(l => l.w)));
 // A text set again at the sheet's half point nearest its size (or `under` it), on a page drawn at s, its lines as
-// they broke.
+// they broke; but a size typed, on a page drawn at the scale it's laid out for, stands as typed (see typedAt).
 function snap(it, s, under = false) {
+  if (it.typedAt === s) return;
   it.look = { ...it.look, Size: half(it.look.Size, s, under) };
   for (const l of it.lines) l.w = measure(l.text, it.look);
 }
@@ -381,9 +392,10 @@ function units(para, t, most) {
 // comes off its word, by half at most where nobody sized it, and back to its size where its size is entered,
 // on another paper; and while it's taller than it's wide (a triangle, than nine tenths of it), to twice its
 // width at most, so that a long name never shrinks the whole chart. Triangles of one width are one size, the
-// tallest any of them needs (see level).
+// tallest any of them needs (see level). A box whose name's size is typed is `wider` as that needs (see typedAt): nobody
+// having sized it, as its name is larger than the chart's own, and sized, as it printed where it was sized.
 function size(b, squeeze, at = null, grow = 1) {
-  const shape = b.settings.Shape.value, own = b.pos?.w, base = (own ?? WIDTH[shape === 'triangle' ? 'triangle' : 'box'] * grow) * squeeze;
+  const shape = b.settings.Shape.value, own = b.pos?.w && b.pos.w * (b.wider?.own ?? 1), base = (own ?? WIDTH[shape === 'triangle' ? 'triangle' : 'box'] * grow * (b.wider?.free ?? 1)) * squeeze;
   const wide = { lines: own ?? base * 1.5, tall: base * 2 };
   let w = at ?? base, h;
   if (shape === 'triangle') {
@@ -476,7 +488,7 @@ function unmoved(scene, before, after, formatsOf) {
 const rowsRead = new WeakMap();
 function readRows(rows, view) {
   let r = rowsRead.get(rows);
-  if (!r) rowsRead.set(rows, r = { notes: rows.filter(x => 'note' in x).map(x => x.id).join(), shapes: new Map() });
+  if (!r) rowsRead.set(rows, r = { notes: rows.filter(x => 'note' in x && x.label !== 'Scale').map(x => x.id).join(), shapes: new Map() });
   if (!r.shapes.has(view)) r.shapes.set(view, rows.filter(x => 'shape' in x && x.view === view));
   return r;
 }
@@ -498,7 +510,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // (A Key kept where it's drawn is drawn there: the scene as it was, so what its change made was laid out ahead for.)
   const boxesHeld = opts.holds?.size ? [...opts.holds].filter(([id]) => !shapeRows.some(r => r.shape === id)) : [];
   const holding = boxesHeld.length ? JSON.stringify(boxesHeld) : '';
-  const from = [opts.state, notesAre, shapeRows.map(({ id, kept, ...r }) => JSON.stringify(r)).join(), [...said.values()].join('\n'), day, holding], whence = `${drawnAs}|${opts.paper ?? ''}`;
+  // (The scale it keeps, whether a change is about to write it or has: so what its change made was laid out ahead for, too.)
+  const keeps = JSON.stringify(opts.holds?.page ?? wb.notes(chart).resolve('Scale', { id: view, kind: 'View' })?.value ?? null);
+  const from = [opts.state, notesAre, shapeRows.map(({ id, kept, ...r }) => JSON.stringify(r)).join(), [...said.values()].join('\n'), day, holding, keeps], whence = `${drawnAs}|${opts.paper ?? ''}${opts.refit ? '|refit' : ''}`;
   if (!preview && !opts.looks) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
@@ -791,7 +805,14 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // The key is of what the view draws: what's revealed for a while doesn't change it. While nothing is keyed, as on a
   // new chart's page, a Key isn't drawn, and the page is as it would be without it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
-  const onPage = shapeRows.filter(r => r.geometry !== 'legend' || legendRows.length);
+  // The footer, the chart's, at no view (dendra.md, The page), and its number, a view's place among the chart's views: the
+  // sheet's own, as its title is.
+  const footing = N.resolve('Footer', { id: view, kind: 'View' })?.value;
+  const footRows = !footing ? [] : [...footing.text ? [{ id: '·footer', shape: '·footer', geometry: 'text', role: 'footer', text: footing.text }] : [],
+    ...footing.number ? [{ id: '·number', shape: '·number', geometry: 'text', role: 'number', text: String(1 + Object.keys(state).filter(id => Tree.isView(state[id]) && typeof N.value('Layout', { id, kind: 'View' }) !== 'object')
+      .sort((a, b) => (N.order({ id: a, kind: 'View' }) ?? Infinity) - (N.order({ id: b, kind: 'View' }) ?? Infinity) || (a < b ? -1 : 1)).indexOf(view)) }] : []];
+  for (const r of footRows) said.set(r.id, r.text);
+  const onPage = [...shapeRows.filter(r => r.geometry !== 'legend' || legendRows.length), ...footRows];
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
   // order gives, where no note says. Its label is its own text, then the texts drawn on it; a line revealed
@@ -841,6 +862,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     b.pos = p && !(p.pos.loose && givesWay(b)) ? p.pos : null;
     b.entered = !!b.pos;
     b.placed = b.stands = !!b.pos && !(b.pos.loose && ranking.has(b.id));
+    // (Where a hand put it, not where a change kept it: the page never moves or rescales the chart for it; see furnish.)
+    b.hand = b.entered && !b.pos.kept;
     if (b.pos) positions.set(b.id, b.pos);
     else if (p) hints.set(b.id, p.pos);
   }
@@ -878,14 +901,17 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // A frame's caption heads a group of names, so it's set as they are, bold and dark grey, at its top left (a
   // bracket's over its middle). A frame round one box alone would outline it twice: it's `lone`, its caption
   // alone.
-  for (const f of frames.values()) {
-    f.settings = { Frame: { value: f.kind, note: f.note } };
-    const name = inFrame(frames, f).map(id => drawnBoxes.get(id)?.texts[0]?.look).filter(Boolean).sort((a, b) => b.Size - a.Size)[0] ?? TEXT;
-    const t = { ...TEXT, Font: name.Font, Size: name.Size, Bold: true, Color: '#404040', Align: f.kind === 'bracket' ? 'center' : 'left' };
-    f.caption = { id: f.id, type: 'text', look: t, text: f.text };
-    delete f.text;
+  const headed = f => {
+    const name = inFrame(frames, f).map(id => drawnBoxes.get(id)?.texts[0]).filter(Boolean).sort((a, b) => b.look.Size - a.look.Size)[0], at = name?.look ?? TEXT;
+    const t = { ...TEXT, Font: at.Font, Size: at.Size, Bold: true, Color: '#404040', Align: f.kind === 'bracket' ? 'center' : 'left' };
+    f.caption = { id: f.id, type: 'text', look: t, text: f.caption?.text ?? f.text, ...(name?.typedAt && { typedAt: name.typedAt }) };
     f.caption.lines = breakLines(f.caption.text, t, 400);
     f.label = f.caption.lines.length * lineHeight(t);
+  };
+  for (const f of frames.values()) {
+    f.settings = { Frame: { value: f.kind, note: f.note } };
+    headed(f);
+    delete f.text;
     f.lone = f.kind !== 'bracket' && f.members.length === 1 && !f.frames.length;
   }
 
@@ -900,7 +926,11 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // (The place of a box not drawn yet is where it will stand: as far down as the room for the lanes over them has moved what stands at its height.)
   const lowered = y => last.lowered.filter(([at]) => at <= y + 4).reduce((a, b) => b[0] > a[0] ? b : a, [-Infinity, 0])[1];
   if (last) for (const m of [positions, hints]) for (const [id, p] of m) m.set(id, { ...p, x: p.x + last.page.offset.x, y: p.y + last.page.offset.y + (last.at.has(id) ? 0 : lowered(p.y)) });
-  const placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && sheet.size !== pageOf(N, view).size;
+  const ownSheet = pageOf(N, view), placedBy = r => r.x == null || r.y == null, onPaper = !!opts.refit || (!!opts.paper && (sheet.w !== ownSheet.w || sheet.h !== ownSheet.h));
+  // What the page keeps as the view is edited: the scale it's drawn at, and how far it moved the chart to hold it (a
+  // change writes them, with the places it keeps, as making it will: see the canvas). So the scale falls only to hold
+  // what the layout places, and never grows on its own. On another paper, it's that paper's.
+  const held = last || onPaper ? null : opts.holds?.page ?? N.resolve('Scale', { id: view, kind: 'View' })?.value ?? null;
   // Boxes a style fills alike, one row of the Key, are a class: peers the layout sets in one tier where it can.
   // Where the Key has fewer than two such rows, the fill tells nothing apart, and nothing is.
   const rowOf = new Map(legendRows.flatMap(r => r.outputs.map(o => [key(o), r.key])));
@@ -922,9 +952,25 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   let pageSizes = null;
   // The room a line's label needs between the two boxes it joins side by side: its width and 3 pt either side, and
   // its arrowhead, where it has one (see Layout's labels).
-  const roomFor = new Map();
-  for (const l of lines) if (l.label && !l.revealed) for (const k of [`${l.from}|${l.to}`, `${l.to}|${l.from}`]) roomFor.set(k, Math.max(roomFor.get(k) ?? 0, l.label.w + 8 + (l.settings.Arrow.value === 'none' ? 0 : 10.7)));
+  const roomFor = new Map(), makeRoom = () => { roomFor.clear();
+    for (const l of lines) if (l.label && !l.revealed) for (const k of [`${l.from}|${l.to}`, `${l.to}|${l.from}`]) roomFor.set(k, Math.max(roomFor.get(k) ?? 0, l.label.w + 8 + (l.settings.Arrow.value === 'none' ? 0 : 10.7))); };
+  makeRoom();
   const beside = (a, b) => roomFor.get(`${a.id}|${b.id}`) ?? 0;
+  // A size a note gives prints as given: in the page's pixels, the note over the scale the chart is laid out for, its
+  // lines broken and its box sized at that (see settled). A size no note gives is the page's, and scales with the chart.
+  // So that a box prints as wide whatever the scale, and its name breaks the same, and only the gaps print smaller as the
+  // scale falls, a box whose name's size is typed is sized by it: nobody having sized it, its width goes as its name's size
+  // does, as a size no note gives keeps to the chart's; sized, as wide as it printed at the scale that sized it (`widthsAt`:
+  // what the view keeps, or its own page's on another paper, or else what the page first drew it at).
+  const typedTexts = [...boxes, ...lines].flatMap(m => m.texts).filter(it => it.settings?.Size?.note && Number.isFinite(it.settings.Size.value));
+  let widthsAt = null;
+  function typedAt(s) {
+    for (const it of typedTexts) { it.look = { ...it.look, Size: it.settings.Size.value / s }; it.typedAt = s; }
+    for (const b of boxes) { const name = b.texts[0]; b.wider = name?.typedAt === s ? { free: name.look.Size / TEXT.Size, own: (widthsAt ?? s) / s } : null; }
+    for (const l of lines) if (l.texts.some(it => it.typedAt === s)) { for (const it of l.texts) it.lines = linesOf(it, 200); labelOf(l); }
+    makeRoom();
+    for (const f of frames.values()) headed(f);
+  }
   // The boxes a box's lines run to.
   const ends = groupBy(lines.flatMap(l => [[l.from, l.to], [l.to, l.from]]), ([id]) => id), linked = id => (ends.get(id) ?? []).map(([, o]) => o);
   // A layout's faults: routes with no way round what's drawn, or none from and to the sides they'd have, or none but
@@ -949,7 +995,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
   });
-  function* lay(squeeze, grow = 1) {
+  function* lay(squeeze, grow, ceil, whole = false) {
     sizes(boxes, squeeze, grow);
     yield;
     const placed = Layout.arrange({
@@ -991,6 +1037,11 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const framing = id => [...frames.values()].filter(f => inFrame(frames, f).includes(id)).map(f => f.id).join();
     clearTops(boxes, lines.filter(l => l.ranks && framing(l.from) === framing(l.to)), given);
     frameBounds(frames, boxes);
+    // (Sizes typed, and the boxes alone too big for the scale they're laid out for: no need to route them to know.)
+    if (typedTexts.length && !last && !whole) {
+      const B = bounds(held ? boxes.filter(b => !b.hand) : boxes), most = Math.min((room.w + 1) / Math.max(1, B.w), (room.h + 1) / Math.max(1, B.h));
+      if (most < ceil - 1e-9) return { s: most, ceil, faults: Infinity, bent: Infinity, around: Infinity };
+    }
     const stand = !!last || boxes.some(b => b.entered), tops = boxes.map(b => b.y);
     let rs = routes(boxes, lines, frames, stand);
     rs.forEach((r, i) => Object.assign(lines[i], r));
@@ -1021,9 +1072,35 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     yield;
     if (last) still(last, boxes, lines, frames);
-    const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? keyRow.kept ?? null });
-    return { ...laid, around: lines.filter(l => l.around).length };
+    const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? keyRow.kept ?? null, ceil, held, own: ownPage });
+    return { ...laid, around: lines.filter(l => l.around).length, ceil };
   }
+  // The chart laid out for a scale, from `from` down, and the page's scale for it. With no size typed, once. With some,
+  // the sizes it's laid out for are those at the scale it's to be drawn at, so one pass where it fits there, as it does
+  // at the scale the view keeps; else again at the scale it would be drawn at, as a typed text prints the same and only
+  // the gaps print smaller, and so on down, a few passes at most. Where no scale holds them it's the pass that
+  // prints them nearest: the text alone is wider than the sheet, and the page says which fall short (`short`). A pass
+  // that's already smaller than `floor`, a layout it's to better, goes no further: it won't.
+  const scaleAtFirst = last ? last.page.scale : held?.scale ?? 1;
+  function* settled(squeeze, grow = 1, from = scaleAtFirst, floor = 0) {
+    if (!typedTexts.length) return yield* lay(squeeze, grow, from);
+    widthsAt ??= last?.page.scale ?? held?.scale ?? ownPage?.scale ?? null;
+    let s = from, near = null;
+    for (let n = 0; n < 8; n++) {
+      typedAt(s);
+      const laid = yield* lay(squeeze, grow, s);
+      widthsAt ??= laid.s;
+      if (laid.s >= s - 1e-9 || laid.s < floor - 1e-9) return laid;
+      // (Nearer by enough to draw the chart smaller for it.)
+      if (!near || laid.s / s > near.k * 1.05) near = { k: laid.s / s, s };
+      s = SCALES.find(x => x <= laid.s + 1e-9);
+      if (s === undefined || s < LEAST) break;
+    }
+    typedAt(near.s);
+    return yield* lay(squeeze, grow, near.s, true);
+  }
+  // (A layout chosen that was only a pass, its sizes not yet those of the scale it's drawn at.)
+  const unsettled = laid => typedTexts.length > 0 && laid.s < laid.ceil - 1e-9;
   // A layout just laid, with its faults, and on another paper its lines bent that drop straight on the view's own page
   // (`straight`); and a layout laid again, as it was judged.
   let straight = null, largest = Infinity;
@@ -1035,22 +1112,27 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const better = (a, b) => { const [p, q] = [a.s, b.s].map(s => Math.min(s, largest));
     return a.faults !== b.faults ? a.faults < b.faults : p !== q ? p > q : a.bent !== b.bent ? a.bent < b.bent : a.around < b.around; };
   yield;
-  let at = yield* lay(1), grow = 1;
+  // (A free shape on another paper stands as it stands on the view's own page: see furnish.)
+  const ownScene = onPaper ? yield* drawing(wb, chart, view, day, { ...opts, paper: null, refit: false }) : null, ownPage = ownScene?.page ?? null;
+  const rough = g => Math.min(1, Layout.fit({ ...ranked(sizes(boxes.map(b => ({ ...b, texts: b.texts.map(it => ({ ...it })) })), 1, g)), room }));
+  // (Typed sizes are laid out for where the chart will be drawn, as near as can be said at first: as the page keeps it; or
+  // on a paper smaller than its own page, as its own page draws it; so a pass or two, not many.)
+  const begin = onPaper && (sheet.w < ownSheet.w || sheet.h < ownSheet.h) ? ownPage.scale : scaleAtFirst;
+  let at = yield* settled(1, 1, begin), grow = 1;
   // Boxes nobody sized are as wide as draws the chart largest, of their own width and a sixth and a third more:
   // where the chart is tall for its page, its names then take fewer lines. A width is laid out only where its rows
   // are drawn larger, roughly (see Layout.fit), than at every width before it; and of those laid out, the best.
   if (!last && boxes.some(b => !b.pos?.w)) {
-    const rough = g => Math.min(1, Layout.fit({ ...ranked(sizes(boxes.map(b => ({ ...b, texts: b.texts.map(it => ({ ...it })) })), 1, g)), room }));
     let tried = 1, most = rough(1);
     for (const g of [7 / 6, 4 / 3]) {
       const r = rough(g);
       if (r <= most) continue;
       most = r;
       at = judged(at);
-      const next = judged(yield* lay(1, tried = g));
+      const next = judged(yield* settled(1, tried = g, begin, at.s));
       if (better(next, at)) [at, grow] = [next, g];
     }
-    if (tried !== grow) at = again(yield* lay(1, grow), at);
+    if (tried !== grow || unsettled(at)) at = again(yield* settled(1, grow, unsettled(at) ? at.s : at.ceil), at);
   }
   pageSizes = new Map(boxes.map(b => [b.id, { w: b.w, h: b.h }]));
   // On another paper the page places the chart; on one narrower than its page, it's drawn narrower, its boxes
@@ -1058,17 +1140,16 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // never so close that a line can't pass or a label has no place; and of those as large, the one with the fewest
   // lines bent that drop straight on its own page.
   if (onPaper && boxes.length) {
-    const own = yield* drawing(wb, chart, view, day, { ...opts, paper: null });
-    largest = own.page.scale;
-    straight = new Set(own.marks.filter(m => m.type === 'line' && m.points?.length === 2).map(m => m.id));
+    largest = ownPage.scale;
+    straight = new Set(ownScene.marks.filter(m => m.type === 'line' && m.points?.length === 2).map(m => m.id));
     at = { ...judged(at), bent: bent() };
     let best = 1, tried = 1;
     for (const f of [0.95, 0.9, 0.85, 0.8, 0.75, 0.7]) {
       if (at.s >= largest && !at.faults && !at.bent) break;
-      const next = judged(yield* lay(tried = f, grow));
+      const next = judged(yield* settled(tried = f, grow, Math.max(at.s, largest), at.s));
       if (better(next, at)) [at, best] = [next, f];
     }
-    if (tried !== best) at = again(yield* lay(best, grow), at);
+    if (tried !== best || unsettled(at)) at = again(yield* settled(best, grow, unsettled(at) ? at.s : at.ceil), at);
   }
   const s = at.s;
   // The chart sits on its page where the page puts it, by its `offset`, which a place written from the page
@@ -1076,7 +1157,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // hold it (see furnish).
   if (at.dx || at.dy) for (const m of [...boxes, ...frames.values(), ...lines]) move(m, at.dx, at.dy);
   const offset = last ? last.page.offset : { x: at.dx, y: at.dy }, placed = last ? last.page.placed : !!at.placed;
-  const page = { size: sheet.size, w: sheet.w / s, h: sheet.h / s, scale: s, margin: MARGIN / s, offset, placed, sheet: { w: sheet.w, h: sheet.h } };
+  const page = { size: sheet.size, w: sheet.w / s, h: sheet.h / s, scale: s, margin: MARGIN / s, offset, placed, sheet: { w: sheet.w, h: sheet.h }, short: [], ...(onPaper && { paper: true }), ...(sheet.portrait && { portrait: true }) };
 
   // Arrow Auto: an arrowhead where the line doesn't run down from its Above side.
   for (const l of lines) if (l.settings.Arrow.value === 'auto') l.settings.Arrow = { value: l.down ? 'none' : 'end', note: l.settings.Arrow.note };
@@ -1090,9 +1171,14 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const m of [...boxes, ...lines]) m.settings.Weight = { ...m.settings.Weight, value: m.settings.Weight.value / s };
   for (const f of frames.values()) f.settings.Weight = { value: DEFAULTS.box.Weight / s, note: null };
   // Every text at the sheet's half point nearest its size, placed again where it was; a line's label at the one at or
-  // under its size, so it takes no more room than the layout made for it.
-  for (const b of boxes) { b.texts.forEach(it => snap(it, s)); setText(b); }
+  // under its size, so it takes no more room than the layout made for it. A size typed stands as typed; but where
+  // the chart can't hold it at any scale, at the half point at or under it, and the page says so.
+  for (const b of boxes) { b.texts.forEach(it => snap(it, s, it.typedAt !== undefined)); setText(b); }
   for (const l of lines) { l.texts.forEach(it => snap(it, s, true)); labelOf(l); }
+  for (const [k, its] of groupBy(typedTexts.filter(it => it.typedAt !== s && !it.blank && it.lines?.length), it => `${state[it.id]?.edge ?? ''}|${it.settings.Size.value}`)) {
+    const at = Math.min(...its.map(it => it.look.Size * s)), edge = k.split('|')[0];
+    if (at < its[0].settings.Size.value - 0.01) page.short.push({ what: Tree.plural(edge || 'Label'), typed: its[0].settings.Size.value, printed: at });
+  }
   for (const f of frames.values()) { snap(f.caption, s); f.label = f.caption.lines.length * lineHeight(f.caption.look); caption(f); }
   if (!last) relabel(boxes, lines, frames, null, s);
 
@@ -1124,7 +1210,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   }
   for (const g of shapes.filter(m => m.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
 
-  const laid = !preview && !opts.paper ? {
+  const laid = !preview && !opts.paper && !opts.refit ? {
     at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])), lowered: boxes.filter(b => b.laid).map(b => [b.laid.y, b.y - page.offset.y - b.laid.y]),
     frames: new Map([...frames.values()].map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }])),
     routes: new Map(lines.map(l => [l.id, { from: l.from, to: l.to, points: l.points, labelAt: l.labelAt, down: l.down, landed: l.landed }])),
@@ -1581,20 +1667,20 @@ function legend(N, view, marks) {
 // ---- Free shapes ----
 
 // A free shape, from its row and its text as worked out: its geometry, place, formats and text. Its sizes are
-// the sheet's where its row doesn't give them, `u` pixels of the page to one of the sheet: a text box's 12 pt,
-// a title's 20, a date's 11 and a Key's 8 are those on the slide, however much the chart is drawn smaller; a Key's, `k` times that.
-// A size its row gives is the page's, as the format bar writes it; a weight is always the sheet's (see the scene).
+// the sheet's, `u` pixels of the page to one of the sheet: a text box's 12 pt, a title's 20, a date's 11 and a Key's 8
+// are those on the slide, however much the chart is drawn smaller; a Key's, `k` times that. A size or weight its row
+// gives is printed as given.
 const SHAPE_DEFAULTS = { Fill: '#ffffff', Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Layer: 0, ...TEXT };
 const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12, Valign: 'top' };
-// The page's own texts: its title, and its date.
-const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' } };
+// The page's own texts: its title, its date, its footer and its number.
+const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' } };
 function freeShape(row, text, u = 1, k = 1) {
   const { id, shape, format = {} } = row;
   const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
     ...(row.geometry === 'frame' && { Fill: 'none', Outline: '#595959', Dash: 'dashed', Size: 9, Italic: true, Align: 'left', Valign: 'top' }),
     ...(row.geometry === 'line' && { Arrow: 'none' }) };
-  const t = { ...base, Size: base.Size * u, ...format, Weight: (format.Weight ?? base.Weight) * u };
-  t.Size = half(t.Size, 1 / u);
+  const t = { ...base, ...format, Size: (format.Size ?? base.Size) * u, Weight: (format.Weight ?? base.Weight) * u };
+  if (format.Size == null) t.Size = half(t.Size, 1 / u, k < 1);
   const m = { id: shape, type: 'shape', row: id, geometry: row.geometry ?? 'rect', x: row.x ?? 0, y: row.y ?? 0, w: row.w ?? 200 * u, h: row.h ?? 52 * u,
     look: t, settings: Object.fromEntries(Object.entries(t).map(([k, v]) => [k, { value: v, note: null }])), texts: [], ...(row.role && { role: row.role }) };
   if (m.geometry === 'line') {
@@ -1668,14 +1754,17 @@ function layoutLegend(m, rows, sheet = 1, k = 1) {
 
 // The Key's size, as a share of the sheet's: none larger than the names it explains, as a page drawn at s prints them,
 // the least of them, its 8 pt where they're as large.
-const keyAt = (boxes, s) => Math.min(1, ...boxes.filter(b => b.texts?.[0]?.look).map(b => half(b.texts[0].look.Size, s) * s / 8));
-// A view's sheet: its Page note at the View object, a named size or { w, h }; a slide where none says. On a
-// paper, that paper's size, turned as the view's own is.
+const keyAt = (boxes, s) => Math.min(1, ...boxes.filter(b => b.texts?.[0]?.look).map(b => printed(b.texts[0], s) / 8));
+// A view's sheet: its Page note at the View object, a named size or { w, h }, or a named size turned, { size, portrait };
+// a slide where none says. On a paper, that paper's size, turned as the view's own is, or as `paper` says ("letter
+// portrait", "letter landscape").
 function pageOf(N, view, paper) {
-  const v = N.resolve('Page', { id: view, kind: 'View' })?.value ?? 'slide';
-  let [w, h] = typeof v === 'object' ? [v.w, v.h] : PAGES[v] ?? PAGES.slide, size = typeof v === 'object' ? 'custom' : v in PAGES ? v : 'slide';
-  if (PAGES[paper] && paper !== size) { const [a, b] = PAGES[paper], [L, S] = [Math.max(a, b), Math.min(a, b)]; [w, h] = w >= h ? [L, S] : [S, L]; size = paper; }
-  return { size, w, h, margin: MARGIN };
+  const v = N.resolve('Page', { id: view, kind: 'View' })?.value ?? 'slide', named = typeof v === 'object' ? v.size : v;
+  let [w, h] = typeof v === 'object' && !PAGES[named] ? [v.w, v.h] : PAGES[named] ?? PAGES.slide, size = PAGES[named] ? named : typeof v === 'object' ? 'custom' : 'slide';
+  if (v?.portrait) [w, h] = [h, w];
+  const [to, turned] = String(paper ?? '').split(' ');
+  if (PAGES[to] && (to !== size || turned)) { const [a, b] = PAGES[to], [L, S] = [Math.max(a, b), Math.min(a, b)]; [w, h] = (turned ? turned === 'landscape' : w >= h) ? [L, S] : [S, L]; size = to; }
+  return { size, w, h, margin: MARGIN, portrait: h > w };
 }
 // What a box placed among entered ones keeps clear of: the free shapes placed by hand, where they are on the page
 // (see furnish), which a chart placed stands on as it was put, where the page needn't move it.
@@ -1687,28 +1776,44 @@ const obstaclesOf = rows => rows.filter(r => r.x != null && r.y != null && !['li
 // chart, as a whole, only as far as holds it within its margins and 24 pt under the date. One the layout alone
 // places is set across the middle, 24 pt under the date. Its boxes placed by hand are placed so; the page adds `dx`
 // and `dy` to set it there. A free shape placed by hand is the page's, where it was put, no part of the chart: the
-// Key keeps clear of it where it can. The scale is the largest twentieth at which the chart
-// fits the sheet within its margins, with the Key beside the title, clear of the title and the date by 24 pt and of
-// the chart by 16; or, where the layout places the chart, beside the title with the chart starting 24 pt under it;
-// or else at the chart's foot, 24 pt under what's over it there and 16 pt beside what isn't, where that sets it least
-// far down, right-aligned to the chart where that's as high; failing all of them, what fits the chart. The Key beside
-// the title takes the room there, its captions wrapping. A preview keeps the page as it was. → { s, dx, dy, shapes,
-// places: rowId → { x, y }, placed }, in the page's pixels.
-function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placed = false, keptAt = null }) {
-  const W = sheet.w, H = sheet.h, M = MARGIN;
-  // What the chart draws, each as a rect.
-  const rects = [...boxes, ...[...frames.values()].map(f => f.lone ? { x: f.x, y: f.y, w: Math.max(f.w, widest([f.caption])), h: f.h } : f)].map(m => ({ x: m.x, y: m.y, w: m.w, h: m.h }));
+// Key keeps clear of it where it can; on another paper (`ownPage`, the view's own) it stands as on its own, as large as
+// it printed there and as far from the nearest corner of the sheet. The scale is the largest twentieth, up to `ceil`,
+// at which the chart fits the sheet within its margins, with the Key beside the title, clear of the title and the date
+// by 24 pt and of the chart by 16; or, where the layout places the chart, beside the title with the chart starting 24
+// pt under it; or else at the chart's foot, 24 pt under what's over it there and 16 pt beside what isn't, where that
+// sets it least far down, right-aligned to the chart where that's as high; failing all of them, what fits the chart.
+// The Key beside the title takes the room there, its captions wrapping. Where the view keeps its scale and offset
+// (`held`, { scale, x, y }), only what the layout places holds the page to it: a box where a hand put it beyond the
+// margins, a line to one a hand put and a frame round one stay there, over the margin or off the sheet, and neither move
+// nor rescale the chart, and the Key goes over them rather than rescale it. A preview keeps the page as it was.
+// → { s, dx, dy, shapes, places: rowId → { x, y }, placed }, in the page's pixels.
+function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placed = false, keptAt = null, ceil = 1, held = null, own: ownPage = null }) {
+  const W = sheet.w, H = sheet.h, M = MARGIN, hands = new Set(boxes.filter(b => b.hand).map(b => b.id));
+  // What the chart draws, each as a rect, those of what a hand put `hand`.
+  const rects = [...boxes.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h, hand: hands.has(b.id) })),
+    ...[...frames.values()].map(f => ({ x: f.x, y: f.y, w: f.lone ? Math.max(f.w, widest([f.caption])) : f.w, h: f.h, hand: inFrame(frames, f).some(id => hands.has(id)) }))];
   for (const l of lines) if (!l.merged && l.points) {
-    l.points.slice(1).forEach((p, i) => { const q = l.points[i]; rects.push({ x: Math.min(p[0], q[0]), y: Math.min(p[1], q[1]), w: Math.abs(p[0] - q[0]), h: Math.abs(p[1] - q[1]) }); });
-    if (l.labelAt && l.label) rects.push({ x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h });
+    const hand = hands.has(l.from) || hands.has(l.to);
+    l.points.slice(1).forEach((p, i) => { const q = l.points[i]; rects.push({ x: Math.min(p[0], q[0]), y: Math.min(p[1], q[1]), w: Math.abs(p[0] - q[0]), h: Math.abs(p[1] - q[1]), hand }); });
+    if (l.labelAt && l.label) rects.push({ x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h, hand });
   }
   const meets = (a, b, pad = 0) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
   const fits = r => r.x >= M - 0.5 && r.y >= M - 0.5 && r.x + r.w <= W - M + 0.5 && r.y + r.h <= H - M + 0.5;
-  const at = (s, force, footed = false) => {
+  // What holds the page to it: all of it, where the view keeps no scale; else what the layout places.
+  const hx = held?.x ?? 0, hy = held?.y ?? 0, mine = held ? rects.filter(r => !r.hand) : rects, some = mine.length > 0, E = bounds(mine);
+  const at = (s, force, footed = false, over = false) => {
     // (The Key, as wide as `w` where that's given, set no larger than the names it explains: see keyAt.)
     const u = 1 / s, k = r => r.geometry === 'legend' && r.format?.Size == null ? keyAt(boxes, s) : 1;
     const keyed = (r, w) => { const m = freeShape(w == null ? r : { ...r, w }, said.get(r.id), u, k(r)); layoutLegend(m, legendRows, u, k(r)); return m; };
-    const shapes = rows.map(r => r.geometry === 'legend' ? keyed(r) : freeShape(r, said.get(r.id), u)), places = new Map();
+    // (On another paper, one a hand put as large as it printed on its own page, and as far from the nearest corner.)
+    const shapeOn = r => {
+      if (!ownPage || placedBy(r)) return r.geometry === 'legend' ? keyed(r) : freeShape(r, said.get(r.id), u);
+      const f = ownPage.scale / s, row = { ...r, x: r.x * f, y: r.y * f, ...(r.w != null && { w: r.w * f }), ...(r.h != null && { h: r.h * f }), ...(r.points && { points: r.points.map(([x, y]) => [x * f, y * f]) }) };
+      const m = r.geometry === 'legend' ? keyed(row) : freeShape(row, said.get(r.id), u), mw = m.w * s, mh = m.h * s, ox = m.x * s, oy = m.y * s, right = ownPage.sheet.w - ox - mw, foot = ownPage.sheet.h - oy - mh;
+      move(m, (right < ox ? W - right - mw - ox : 0) / s, (foot < oy ? H - foot - mh - oy : 0) / s);
+      return m;
+    };
+    const shapes = rows.map(shapeOn), places = new Map();
     const byPage = m => !!m && placedBy(rows.find(r => r.id === m.row));
     let title = shapes.find(m => m.role === 'title' && byPage(m)), key = shapes.find(m => m.geometry === 'legend' && byPage(m));
     const date = shapes.find(m => m.role === 'date' && byPage(m));
@@ -1720,17 +1825,27 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     // In the sheet's pixels: the title at the top left margin, its text at it, and the date under the title.
     let y = M - INSET;
     for (const m of [title, date].filter(Boolean)) { places.set(m.row, { x: M - INSET, y }); y += m.h * s; }
+    // The footer in the margin at the sheet's foot, on one line where it fits, and its number at the right, each as the
+    // title's text sits on its margin.
+    const number = shapes.find(m => m.role === 'number');
+    let footer = shapes.find(m => m.role === 'footer');
+    if (footer) {
+      const most = W - 2 * M + 2 * INSET - (number ? 48 : 0), row = rows.find(r => r.id === footer.row);
+      if (footer.w * s > most) shapes[shapes.indexOf(footer)] = footer = freeShape({ ...row, w: most * u }, said.get(row.id), u);
+      places.set(footer.row, { x: M - INSET, y: H - M + PAD });
+    }
+    if (number) places.set(number.row, { x: W - M + INSET - number.w * s, y: H - M + PAD });
     // The chart's top on the sheet: 24 pt under the date, or, placed, where it stands, if that's lower.
     let top = title || date ? y - PAD + 32 : M, alongside = null;
     // The chart as rects on the sheet: placed, where it stands, moved right as far as keeps it off the left margin; else
     // across the middle. A shape placed by hand is the page's, where it was put (see Free shapes): no part of the chart,
     // which it never moves, but what the Key keeps clear of, on the sheet.
-    const drawn = rects, E = bounds(drawn), free = shapes.filter(m => !byPage(m) && m.geometry !== 'group').map(m => ({ x: m.x * s, y: m.y * s, w: m.w * s, h: m.h * s }));
-    let dx = !boxes.length ? 0 : placed ? Math.max(0, M / s - E.x) : (W - E.w * s) / 2 / s - E.x;
-    if (placed && boxes.length) top = Math.max(top, E.y * s);
+    const drawn = over ? mine : rects, free = shapes.filter(m => !byPage(m) && m.geometry !== 'group').map(m => ({ x: m.x * s, y: m.y * s, w: m.w * s, h: m.h * s }));
+    let dx = !boxes.length ? 0 : !placed ? (W - E.w * s) / 2 / s - E.x : some ? Math.max(hx, M / s - E.x) : hx;
+    if (placed && boxes.length) top = some ? Math.max(top, (E.y + hy) * s) : hy * s;
     const set = t => drawn.map(r => ({ x: (r.x + dx) * s, y: (r.y + t / s - E.y) * s, w: r.w * s, h: r.h * s }));
     const R = t => ({ x: (E.x + dx) * s, y: t, w: E.w * s, h: E.h * s }), clearOfFree = r => !free.some(q => meets(q, r, 21));
-    if (!force && boxes.length && !fits(R(top))) return null;
+    if (!force && boxes.length && some && !fits(R(top))) return null;
     if (key) {
       // Beside the title, its captions wrapping to the room there, where the chart is clear of it; or, where the
       // layout places the chart, moved toward the left as far as it must be, or starting under it; unless it goes at
@@ -1762,7 +1877,9 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         // least far down, right-aligned to the chart where that's as high, its captions wrapping to a narrower Key where
         // that's what lets it fit; or 24 pt beside it, the chart moved left as far as that needs. Clear of what's placed
         // by hand, where that fits.
-        const c = R(top), row = rows.find(r => r.id === key.row), least = key.columns * (30 + 8 + 80 + 16) + 24, own = set(top), withFree = [...own, ...free];
+        // (Under what's within the margins, where a hand may have put a box beyond them.)
+        const own = set(top), within = bounds(own.filter(q => q.x < W - M && q.y < H - M && q.x + q.w > M && q.y + q.h > M)), x0 = Math.max(M, within.x);
+        const c = held ? { x: x0, y: within.y, w: Math.min(W - M, within.x + within.w) - x0, h: within.h } : R(top), row = rows.find(r => r.id === key.row), least = key.columns * (30 + 8 + 80 + 16) + 24, withFree = [...own, ...free];
         let chart = withFree;
         const underOf = k => {
           const kw = k.w * s, kh = k.h * s, x0 = Math.max(M, c.x), x1 = Math.max(x0, c.x + c.w - kw);
@@ -1779,6 +1896,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         const kw = key.w * s, kh = key.h * s, by = Math.max(0, c.x + c.w + 32 + kw - (W - M)), beside = { x: c.x - by + c.w + 32, y: c.y + c.h - kh, w: kw, h: kh };
         if (fits(under) || force) places.set(key.row, under);
         else if (kh <= c.h && c.x - by >= M - 0.5 && (!placed || !by) && fits(beside)) { dx -= by / s; places.set(key.row, beside); }
+        else if (over) places.set(key.row, keptAt ? { ...keptAt, w: kw, h: kh } : r);
         else return null;
         alongside = places.get(key.row);
       }
@@ -1794,11 +1912,14 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     return { ...kept, dx: 0, dy: 0 };
   }
   // No larger than the chart alone would fit at.
-  const E = bounds(rects), most = !boxes.length ? 1 : Math.min((W - 2 * M + 0.5) / Math.max(1, E.w), (H - 2 * M + 0.5) / Math.max(1, E.h));
+  const most = !boxes.length ? 1 : Math.min((W - 2 * M + 0.5) / Math.max(1, E.w), (H - 2 * M + 0.5) / Math.max(1, E.h));
   // The Key at the chart's foot, as one block with it, where the chart is drawn as large so; or else beside the title.
   // A chart placed keeps its Key beside the title while it's clear of it there, so the Key moves to the foot only as the
   // chart takes its room, and back only as it gives it up.
-  for (const s of SCALES.filter(s => s <= most + 1e-9)) { const f = at(s); if (f) return f.titled && !placed ? at(s, false, true) ?? f : f; }
+  for (const s of [ceil, ...SCALES.filter(s => s < ceil - 1e-9)].filter(s => s <= most + 1e-9)) {
+    const f = at(s) ?? (held ? at(s, false, false, true) : null);
+    if (f) return f.titled && !placed ? at(s, false, true) ?? f : f;
+  }
   // Too big for any of them: as large as the chart fits.
   return at(Math.max(0.005, Math.min(0.05, most)), true);
 }
@@ -1854,37 +1975,24 @@ const styleName = (N, p) => p.args ? N.name(p) : 'Type';
 // A size or place on a page as it is on its sheet, the page drawn smaller by its scale: the number the slide
 // has, which is the one shown; and back, for one typed.
 const toSlide = (page, v) => v * (page?.scale ?? 1), fromSlide = (page, v) => v / (page?.scale ?? 1);
-// The page's size for one picked in the slide's points. Held at the chart's scale `s`, as v over s, it prints as
-// picked wherever the chart keeps its scale with it. Where the box needs the chart drawn smaller, of the sizes
-// that would print v at a twentieth from s (or, for a smaller pick, from the scale it then has) down to the scale
-// holding it draws the chart at, the one that prints nearest v at no smaller a scale than that, the larger scale
-// where two are as near; and then of the sizes that print as near, at a twentieth from s down, the one at the
-// largest scale that keeps it, the least of them first, to the hundredth the format bar writes, as the half point it
-// prints at takes in a quarter of a point under: so a pick prints as picked wherever the chart can keep a scale for it, as near as
-// the page allows otherwise, and never shrinks the chart more than printing as near needs. The scale isn't
-// monotone in the size, as a triangle's lines break anew, so this looks rather than iterates. `scaleAt(t)` is the
-// chart's scale with the page's size t.
-function toPage(v, s, scaleAt) {
-  const held = scaleAt(v / s), printed = (t, at) => half(t, at) * at;
-  let best = { t: v / s, off: Math.abs(v * held / s - v), at: held };
-  for (const k of SCALES) {
-    if (best.off < 1e-9) break;
-    if (k > Math.max(s, held) + 1e-9 || k < held - 1e-9 || Math.abs(k - s) < 1e-9) continue;
-    const t = v / k, at = scaleAt(t), off = Math.abs(t * at - v);
-    if (at >= held - 1e-9 && (off < best.off - 1e-9 || (Math.abs(off - best.off) < 1e-9 && at > best.at))) best = { t, off, at };
-  }
-  const p = printed(best.t, best.at);
-  for (const k of SCALES) {
-    if (k > Math.max(s, held) + 1e-9 || k <= best.at + 1e-9) continue;
-    const least = Math.ceil((p - 0.25) / k * 100 - 1e-6) / 100;
-    for (const t of [...(printed(least, k) === p ? [least] : []), p / k]) if (scaleAt(t) >= k - 1e-9) return t;
-  }
-  return best.t;
+// What's amiss with a page, in words, each said once: a typed size it can't hold, by what it's the size of; a box off the
+// sheet; a Key, a shape or a footer over a box, and on another paper a box over a box. `name(box)` is what to call a box
+// (its short name), `paper` this paper's name. Boxes that overlap on the view's own page, or a shape sent behind them, were put so.
+function says(scene, name, paper) {
+  const p = scene.page, boxes = scene.marks.filter(m => m.type === 'box' && !m.revealed), called = b => name?.(b) ?? b.texts[0]?.text ?? 'A box', out = [], W = p.w, H = p.h;
+  for (const f of p.short ?? []) out.push(`${f.what} print at ${+f.printed.toFixed(2)} pt${paper ? ` on ${paper}` : ''}: the chart doesn't fit at ${f.typed}`);
+  for (const b of boxes) if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > W + 0.5 || b.y + b.h > H + 0.5) out.push(`${called(b)} runs off the page`);
+  const over = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
+  const WHAT = { legend: 'The Key', picture: 'The picture', title: 'The title', date: 'The date', footer: 'The footer', number: 'The page number' };
+  for (const m of scene.marks) if (m.type === 'shape' && !['line', 'group', 'frame'].includes(m.geometry) && (m.look?.Layer ?? 0) >= 0)
+    for (const b of boxes) if (over(m, b)) out.push(`${WHAT[m.role] ?? WHAT[m.geometry] ?? `“${m.texts[0]?.text ?? 'A shape'}”`} overlaps ${called(b)}`);
+  if (p.paper) boxes.forEach((a, i) => boxes.slice(i + 1).forEach(b => { if (over(a, b)) out.push(`${called(a)} overlaps ${called(b)}`); }));
+  return out;
 }
 
 return {
   of, looks, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
-  toSlide, fromSlide, toPage, DEFAULTS, GEOMETRIES, PAGES, PT, CORNER, lineHeight, baseline, fontClass,
+  toSlide, fromSlide, says, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, lineHeight, baseline, fontClass,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };
 })();
