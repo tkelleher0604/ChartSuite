@@ -3566,7 +3566,7 @@ function attention(R, N, day, within = 30) {
   const by = Tree.isoOf(soon), checks = N.notes('Check').length > 0;
   const required = N.notes('Required').filter(n => !n.view && n.pattern.args?.length === 1).map(n => n.pattern.args[0]);
   const edges = new Map(), anyone = new Set();
-  for (const r of Object.values(recs)) if (r.at) { let s = edges.get(r.at); if (!s) edges.set(r.at, s = new Set()); s.add(normal(r.edge)); anyone.add(normal(r.edge)); }
+  for (const r of Object.values(recs)) if (r.at) { let s = edges.get(r.at); if (!s) edges.set(r.at, s = new Set()); const e = normal(r.edge); s.add(e); anyone.add(e); }
   for (const [id, r] of Object.entries(recs)) {
     if ('field' in r) {
       if (r.field === 'date' && (R.computed[id] || R.covered[id]) && r.value <= by) items.push({ kind: r.value < day ? 'overdue' : 'soon', id });

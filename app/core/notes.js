@@ -89,7 +89,8 @@ function index(rows) {
     for (const n of rows) if (n.view === view && !n.param) {
       const p = n.pattern;
       if (n.label === 'Order') { order.set(key(p), n.value); group(p); }
-      else if ((FORMATS.has(n.label) || n.label === 'Caption') && p.id === undefined && !(p.out && 'value' in p.out)) {
+      // (A line's own look, at its relation's tree with its sides in it, is as much its own as a box's is.)
+      else if ((FORMATS.has(n.label) || n.label === 'Caption') && !Tree.idsIn(p).size && !(p.out && 'value' in p.out)) {
         const outs = group(bare(p)).outputs, k = key(p);
         if (!outs.has(k)) outs.set(k, { pattern: p, formats: {} });
         outs.get(k).formats[n.label] = n.value;

@@ -2180,6 +2180,13 @@ async function format() {
   const sideways = sc().marks.find(m => m.type === 'line' && m.settings.Arrow.value === 'end' && m.settings.Arrow.note?.value === 'auto');
   Shell.select([sideways.id]); await tick(200);
   check('a line’s arrow its style leaves Auto is said so in its panel', $$('.insp .row').some(r => /Arrow/.test(txt(r.querySelector('.k'))) && /Auto/.test(txt(r.querySelector('.v')))), $$('.insp .row').map(r => txt(r)).join(' | ').slice(0, 300));
+  // A line's own look is its own, as a box's is: no row of its own in Styles, and its row says it keeps it.
+  const rowsWere = Scene.groupsOf(App.notes.peek(), stE.id).length;
+  FormatBar.apply('Arrow', 'none'); await tick(300);
+  const rowsNow = Scene.groupsOf(App.notes.peek(), stE.id);
+  check('a line’s own arrow makes no row of its own in Styles', rowsNow.length === rowsWere, rowsNow.map(g => g.caption).join());
+  Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([sideways.id]); await tick(200);
   // A Key row selected reads what its marks print at.
   Shell.select([`${keyE().id}#${keyE().rows.find(r => r.caption.text === 'Individual').key}`]); await tick(250);
   check('a Key row selected reads what its marks print at, not its swatch', txt($('[data-fb="font"]')) === 'Georgia', txt($('[data-fb="font"]')));

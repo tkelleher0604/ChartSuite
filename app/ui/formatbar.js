@@ -1148,6 +1148,23 @@ function selectDiffers() {
     { label: all.length === 1 ? 'Reset it' : `Reset them all`, disabled: App.readOnly.peek(), run: () => App.change(tx => all.forEach(x => x.notes.forEach(n => tx.remove(n.note))), { dated: false, say: `Reset ${all.length === 1 ? `${all[0].name}’s own look` : `${all.length} marks’ own looks`} in ${view}` }) }], { placement: 'bottom-start' }));
 }
 
+// What a Styles row reaches drawn, how many of those keep their own look, and what another style decides of them all, for
+// its row in the panel; read from the scene's settings, and kept with it, as the panel asks of every row as it's drawn.
+const rowsReach = new WeakMap();
+function reachOfRow(g) {
+  const sc = Canvas.active.peek()?.scene();
+  if (!sc) return { marks: 0, own: 0, masked: [] };
+  const kept = rowsReach.get(sc) ?? rowsReach.set(sc, new Map()).get(sc);
+  if (kept.has(g.key)) return kept.get(g.key);
+  const marks = [...marksOf(sc, g)].map(id => sc.byId.get(id)).filter(Boolean), keys = new Set(g.outputs.map(p => Tree.key(p))), given = g.swatch?.kind === 'box' ? givenTo(sc.view, g) : [], N = App.notes.peek();
+  const own = marks.filter(m => Object.entries(m.settings ?? {}).some(([l, s]) => s?.note?.view === sc.view && ONE_OFF.has(l) && Tree.idsIn(s.note.pattern).size)).length;
+  const masked = !marks.length ? [] : ['Fill', 'Shape', 'Outline'].filter(l => given.includes(l) && marks.every(m => { const n = m.settings?.[l]?.note; return !!n && !keys.has(Tree.key(n.pattern)) && !Tree.idsIn(n.pattern).size; }))
+    .map(l => [l, Scene.styleName(N, Tree.bare(marks[0].settings[l].note.pattern))]);
+  const out = { marks: marks.length, own, masked };
+  kept.set(g.key, out);
+  return out;
+}
+
 // ---- What a house style holds, shown as words and swatches ----
 
 const paperSaid = p => { const size = typeof p === 'string' ? p : p?.size; return `${Scene.PAPERS[size] ?? (p?.w ? `${Math.round(p.w / 96 * 100) / 100} × ${Math.round(p.h / 96 * 100) / 100} in` : 'Slide 16:9')}${p?.portrait ? ', portrait' : ''}`; };
@@ -1307,7 +1324,7 @@ function Bar() {
         onClick=${e => Shell.menu(e.currentTarget, scopes(), { placement: 'bottom-end', onClose: () => cue() })} />` : null}
     </div>
     <span class="sep" />
-    <button class="btn dd font" data-fb="font" ...${writes(root ? 'All text' : null, !texty && !root)} onClick=${e => opener.font(e.currentTarget)}><span>${font}</span></button>
+    <button class="btn dd font" data-fb="font" ...${writes(root ? 'All text' : lineOnly ? 'The text on these lines' : null, !texty && !root)} onClick=${e => opener.font(e.currentTarget)}><span>${font}</span></button>
     <${SizeBox} v=${size} disabled=${ro || (!texty && !root)} why=${why} />
     <button class="btn icon" data-fb="grow" aria-label="Increase font size" data-keys="Ctrl+Shift+>" ...${writes('Increase font size', !texty && !(root && size !== ''))} onClick=${() => resize(grown)}>${Shell.icon('grow')}</button>
     <button class="btn icon" data-fb="shrink" aria-label="Decrease font size" data-keys="Ctrl+Shift+<" ...${writes('Decrease font size', !texty && !(root && size !== ''))} onClick=${() => resize(shrunk)}>${Shell.icon('shrink')}</button>
@@ -1448,10 +1465,5 @@ function open(what, at) {
 Shell.register('formatbar', { mount, relist: () => listHouses() });
 return { apply, value, colorName, shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
   copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim, aimedAt, selectDiffers,
-  // What a Styles row reaches drawn, and which of those keep their own, for its row in the panel.
-  reachOf: g => { const c = Canvas.active.peek(), sc = c?.scene(); if (!sc) return { marks: 0, own: 0, masked: [] };
-    const marks = marksOf(sc, g), keys = new Set(g.outputs.map(p => Tree.key(p))), given = givenTo(sc.view, g), N = App.notes.peek();
-    const masked = g.swatch?.kind === 'box' && marks.size ? ['Fill', 'Shape', 'Outline'].filter(l => given.includes(l) && [...marks].every(id => { const n = sc.byId.get(id)?.settings?.[l]?.note; return !!n && !keys.has(Tree.key(n.pattern)) && !Tree.idsIn(n.pattern).size; }))
-      .map(l => [l, (id => Scene.styleName(N, Tree.bare(sc.byId.get(id).settings[l].note.pattern)))([...marks][0])]) : [];
-    return { marks: marks.size, own: keeping(c, { ...g, marks }, [...ONE_OFF]).length, masked }; } };
+  reachOf: reachOfRow };
 })();
