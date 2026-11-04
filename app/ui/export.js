@@ -67,7 +67,7 @@ function save(blob, name, also = '', stays = false) {
 // A text's block within its mark: its first line's top and its last line's foot, from the scene's baselines.
 const lh = t => Scene.lineHeight(t);
 const top = it => it.lines[0].y - Scene.baseline(it.look);
-const block = items => ({ top: top(items[0]), bottom: top(items[0]) + items.reduce((h, it) => h + it.lines.length * lh(it.look), 0) });
+const block = items => ({ top: top(items[0]), bottom: top(items[0]) + items.reduce((h, it) => it.inline ? h : h + it.lines.length * lh(it.look), 0) });
 // How much of a line lies before its x, by its alignment.
 const BEFORE = { left: 0, center: 0.5, right: 1 };
 
@@ -388,8 +388,8 @@ const E = v => Math.round(v * 914400);                 // inches as EMU
 // A deck: a slide for each scene, each written in its XML where PptxGenJS can't write it as PowerPoint does
 // (see slide). The slides' layout is PowerPoint's Title Only, its title where the first slide's is and in its
 // look, and the file's properties are what PowerPoint would write: no subject, and the fonts and titles the
-// slides hold. `say(relations, caption, entries?)` names lines' relations as one, and with `entries` says those
-// at them too (see sentence).
+// slides hold. `say(scene, relations, caption, entries?)` names a slide's lines' relations as one, and with `entries`
+// says those at them too (see sentence).
 async function pptx(scenes, title, author, say) {
   await LIBS.pptx();
   const p = new PptxGenJS();
@@ -406,7 +406,7 @@ async function pptx(scenes, title, author, say) {
   const footAt = (m, { k, ox, oy }) => ({ x: (ox + m.x * k) / 96, y: (oy + m.y * k) / 96, w: m.w * k / 96, h: m.h * k / 96 });
   const feet = {};
   for (const s of scenes) for (const m of s.marks) if (FOOT[m.role] && !feet[m.role]) feet[m.role] = { m, ...placed(s), r: footAt(m, placed(s)), look: m.texts[0].look };
-  const finish = scenes.map(s => slide(p, s, placed(s), say, feet));
+  const finish = scenes.map(s => slide(p, s, placed(s), (...a) => say(s, ...a), feet));
   const zip = await JSZip.loadAsync(await p.write({ outputType: 'arraybuffer' }));
   const edit = async (f, change) => zip.file(f, change(await zip.file(f).async('string')));
   const slides = await Promise.all(finish.map((done, i) => zip.file(`ppt/slides/slide${i + 1}.xml`).async('string').then(done)));
@@ -467,6 +467,8 @@ function typed(it) {
 // paragraph for each line it was typed on; its spaces plain, as typed, so that PowerPoint's Find finds them. Its margins are `inset` inches
 // all round, or PowerPoint's own where that's null.
 function txBody(items, k, anchor, inset) {
+  // (What a text said before it, struck, is a run of the paragraph it stands on: see Scene's labelOf.)
+  let before = '';
   const ps = items.flatMap(it => {
     const t = it.look, sz = Math.max(100, Math.round(t.Size * k * 100)), font = esc(t.Font);
     const attrs = `lang="en-US" sz="${sz}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"`;
@@ -474,7 +476,10 @@ function txBody(items, k, anchor, inset) {
     const hang = it.hang ? ` marL="${E(it.hang * k / 96)}" indent="${-E(it.hang * k / 96)}"` : '';
     // A blank field keeps its lines' room, each an empty paragraph. A paragraph's mark is in its text's look, so PowerPoint's
     // font box shows the font, and what's typed there matches.
-    return (it.blank ? it.lines.map(() => []) : typed(it)).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${hang}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc></a:pPr>`
+    if (it.inline) { before = `<a:r>${rPr}<a:t>${esc(it.text)}</a:t></a:r><a:r><a:rPr lang="en-US" sz="${sz}" dirty="0"/><a:t> </a:t></a:r>`; return []; }
+    const runsBefore = before;
+    before = '';
+    return (it.blank ? it.lines.map(() => []) : typed(it)).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${hang}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc></a:pPr>${runsBefore}`
       + ls.map(l => `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`) + `<a:endParaRPr ${attrs}>${face}</a:endParaRPr></a:p>`);
   });
   const margins = inset === null ? '' : ['l', 't', 'r', 'b'].map(side => ` ${side}Ins="${E(inset)}"`).join('');
@@ -545,7 +550,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
   // Texts on their own, their lines placed from (x0, y0): a text box at the side they're aligned to, from
   // their first line's top, its margins round them. → its rect.
   const textBox = (items, x0, y0, inset) => {
-    const first = items[0], w = Math.max(...items.flatMap(it => it.lines.map(l => l.w))), { top, bottom } = block(items), [mx, my] = inset === PAGE ? [0.1, 0.05] : [inset, inset];
+    const first = items[0], w = Math.max(...items.flatMap(it => it.lines.map(l => it.inline ? 0 : items[items.indexOf(it) - 1]?.inline ? l.x + l.w : l.w))), { top, bottom } = block(items), [mx, my] = inset === PAGE ? [0.1, 0.05] : [inset, inset];
     const r = { x: X(x0 + first.lines[0].x - w * (BEFORE[first.look.Align] ?? 0.5)) - mx, y: Y(y0 + top) - my, w: L(w) + 2 * mx, h: L(bottom - top) + 2 * my };
     shape(r, 'rect', { Fill: 'none' }, first.text, { items, anchor: 't', inset, box: true });
     return r;
@@ -712,11 +717,12 @@ const numbered = scenes => scenes.map((s, i) => !s.marks.some(m => m.role === 'n
 // A file of one page is titled as its page is; of more, by `name`, the chart's.
 // A PDF's fonts are this computer's, asked for at once, while the click that asked for the file still lets them be;
 // any it couldn't embed are said as it's saved: "with Garamond printed as Times". A size the chart can't hold is said too.
-async function write(format, sheets, name, { author = '', R = null, N = null } = {}) {
-  const scenes = numbered(sheets), title = scenes.length === 1 ? titleOf(scenes[0]) || name : name;
+async function write(format, sheets, name, { title: called = name, author = '', R = null, N = null } = {}) {
+  const scenes = numbered(sheets), title = scenes.length === 1 ? titleOf(scenes[0]) || called : called;
   const local = format === 'pdf' ? installed() : null;
   const fonts = format === 'pdf' ? await LIBS.pdf().then(async () => fontsOf(scenes, await local)) : PLAIN;
-  const blob = format === 'pdf' ? await pdf(scenes, title, author, fonts) : await pptx(scenes, title, author, (rels, caption, entries) => R && N ? sentence(R.records, N, rels, caption, entries) : null);
+  // (A line's words are of its own page's day, what's gone among them.)
+  const blob = format === 'pdf' ? await pdf(scenes, title, author, fonts) : await pptx(scenes, title, author, (scene, rels, caption, entries) => R && N ? sentence(scene.state ?? R.records, N, rels, caption, entries) : null);
   const short = [...new Set(scenes.flatMap(s => (s.page.short ?? []).map(f => `${f.what} print at ${+f.printed.toFixed(2)} pt: the chart doesn't fit at ${f.typed}`)))];
   // Never silently another font: said by name, with what to do, and it stays till it's read.
   save(blob, `${fileName(name)}.${format}`, `${fonts.missed.length ? `. ${fontsSaid(fonts.missed)}` : ''}${short.length ? `. ${short.join('; ')}` : ''}`, fonts.missed.length > 0);
@@ -826,12 +832,16 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // A view's page, as its Page note has it: its paper (null for a size of its own) and which way it's turned.
   const pageNow = id => { const p = App.notes.peek().resolve('Page', viewAt(id))?.value ?? 'slide', named = typeof p === 'object' ? p.size : p; return { paper: PAPERS[named] ? named : null, portrait: !!p?.portrait }; };
   const OWN = 'own';
-  const scene = (id, paper) => Scene.of(App.shown.peek(), App.chart.peek(), id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), seen: App.seenIn(id), ...(paper && { paper }) });
-  // The chart views, in tab order, each as its scene is on that paper, or on its own page: the one shown is App's there.
+  // A page as of its own day (Time.pageDay): the day it keeps, or else the day of the pages that keep none.
+  const scene = (id, paper) => { const d = Time.pageDay(id), R = App.workAt(d); return Scene.of(App.shown.peek(), App.chart.peek(), id, d, { state: R.records, computed: R, seen: App.seenIn(id), ...(paper && { paper }) }); };
+  // The chart views, in tab order, each as its scene is on that paper, or on its own page: the one shown is App's there,
+  // but for a look at another day than it keeps.
   const views = paper => charts().map(v => {
     const shown = App.scene.peek(), own = paper === OWN || paper === pageNow(v.id).paper;
-    return { ...(own && shown?.view === v.id ? shown : scene(v.id, own ? null : paper)), name: v.name };
+    return { ...(own && shown?.view === v.id && shown.day === Time.pageDay(v.id) ? shown : scene(v.id, own ? null : paper)), name: v.name };
   });
+  // A page's day, as its caption says it, or the moment while the past is shown.
+  const whenOf = s => App.shown.peek().moment ? App.asOfWords(s.day).line : Tree.formatDate(s.day, 'short');
   const chartName = () => App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name ?? 'Chart';
   const uri = s => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(s)}`;
   // The pages the file will have: a deck's on its one slide size, a document's each its own, in the faces it will
@@ -839,10 +849,10 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   let readable = false;
   const sheets = (format, scenes) => {
     const frame = { w: Math.max(...scenes.map(s => s.page.sheet.w)), h: Math.max(...scenes.map(s => s.page.sheet.h)) };
-    return numbered(scenes).map(s => { const f = format === 'pdf' ? s.page.sheet : frame; return { name: s.name, src: uri(svg(s, { pdf: format === 'pdf' && (readable ? ASKED : PLAIN), frame: f })), aspect: f.w / f.h }; });
+    return numbered(scenes).map(s => { const f = format === 'pdf' ? s.page.sheet : frame; return { name: s.name, when: whenOf(s), src: uri(svg(s, { pdf: format === 'pdf' && (readable ? ASKED : PLAIN), frame: f })), aspect: f.w / f.h }; });
   };
-  // What to call a box on a page's warnings: its short name.
-  const called = b => App.notes.peek().shortOf(App.state.peek(), b.record);
+  // What to call a box on a page's warnings: its short name, as of that page's day.
+  const called = s => b => App.notes.peek().shortOf(s.state ?? App.state.peek(), b.record);
   // A view placed as a scene `on` a page places it, as a change: its boxes, kept as they were kept, a hand's still a hand's;
   // the scale there; and its free shapes where they stand there.
   function placing(tx, on, view) {
@@ -888,7 +898,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     Object.assign(choice, { paper, portrait, number });
     const was = pageNow(view), same = paper === was.paper && portrait === was.portrait;
     const sc = useMemo(() => Scene.of(footed(App.shown.peek(), asFooter(text, number)), App.chart.peek(), view, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), ...(!same && { paper: turned(paper ?? 'slide', portrait) }) }), [paper, portrait, text, number]);
-    const page = sheets('pdf', [{ ...sc, name: '' }])[0], says = Scene.says(sc, called, PAPERS[paper] ?? null);
+    const page = sheets('pdf', [{ ...sc, name: '' }])[0], says = Scene.says(sc, called(sc), PAPERS[paper] ?? null);
     return html`<div class="ex">
       <div class="ex-pick">
         <select aria-label="Paper" value=${paper ?? ''} onChange=${e => setPaper(e.target.value)}>
@@ -902,7 +912,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         <label><input type="checkbox" checked=${number} onChange=${e => setNumber(e.target.checked)} />Page numbers</label>
       </div>
       ${says.length ? html`<div class="ex-warns">${says.slice(0, 4).map(t => html`<p class="ex-says">${t}</p>`)}</div>` : null}
-      <div class="ex-well" style=${`--said: ${Math.min(4, says.length) * 20}px`}><figure class="ex-page" style=${`--a: ${page.aspect}`}><img src=${page.src} alt="" /></figure></div>
+      <div class="ex-well"><figure class="ex-page" style=${`--a: ${page.aspect}`}><img src=${page.src} alt="" /></figure></div>
     </div>`;
   }
   async function setup(view = Shell.view.peek()) {
@@ -957,9 +967,9 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const tick = (id, on) => { setFull(null); setIds(now => charts().map(v => v.id).filter(x => x === id ? on : now.includes(x))); };
     const papers = charts().map(v => pageNow(v.id).paper), differ = new Set(papers).size > 1 || papers.includes(null), stay = [...new Set(chosen.map(s => pageNow(s.view).paper))];
     const oneOff = drawn && paper !== OWN && stay.some(p => p !== paper);
-    const said = chosen.flatMap(s => Scene.says(s, called, paper === OWN ? PAPERS[pageNow(s.view).paper] : PAPERS[paper]).map(t => ({ t, s, off: !s.page.paper && (t.endsWith(' runs off the page') || t.endsWith(' a printer prints')) })));
+    const said = chosen.flatMap(s => Scene.says(s, called(s), paper === OWN ? PAPERS[pageNow(s.view).paper] : PAPERS[paper]).map(t => ({ t, s, off: !s.page.paper && (t.endsWith(' runs off the page') || t.endsWith(' a printer prints')) })));
     // (A line with more bends than a connector takes is a drawing in the deck.)
-    if (format === 'pptx') said.push(...chosen.flatMap(s => s.marks.filter(m => m.type === 'line' && m.points.length > 6).map(m => ({ t: `The line from ${called(s.byId.get(m.from))} to ${called(s.byId.get(m.to))} has more bends than a PowerPoint connector: in the deck it stays where it’s drawn`, s }))));
+    if (format === 'pptx') said.push(...chosen.flatMap(s => s.marks.filter(m => m.type === 'line' && m.points.length > 6).map(m => ({ t: `The line from ${called(s)(s.byId.get(m.from))} to ${called(s)(s.byId.get(m.to))} has more bends than a PowerPoint connector: in the deck it stays where it’s drawn`, s }))));
     const named = x => chosen.length > 1 ? `${x.s.name}: ${x.t}` : x.t;
     // What's wrong with the chart is said before it goes out, a click from each: what's overdue, in error or blank.
     const open = Shell.problems().filter(c => c.kind !== 'soon');
@@ -983,10 +993,10 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         ${said.filter(x => !x.off).slice(0, 4).map(x => html`<p class="ex-says">${named(x)}</p>`)}
         ${said.filter(x => x.off).slice(0, 4).map(x => html`<p class="ex-says ex-off">${named(x)} ${App.readOnly.peek() ? null : html`<button type="button" class="btn" onClick=${() => { fitToPage(x.s.view); setFits(n => n + 1); }}>Fit to page</button>`}</p>`)}
       </div>` : null}
-      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')} style=${`--said: ${(Math.min(4, said.filter(x => !x.off).length) + Math.min(4, said.filter(x => x.off).length) * 1.5 + (oneOff ? 1.5 : 0) + (open.length ? 1.5 : 0)) * 20}px`}>
+      ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')}>
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name} style=${`--a: ${pg.aspect}`}>
-          <button type="button" aria-label=${pg.name} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><img src=${pg.src} alt="" /></button>
-          ${pages.length > 1 && !one ? html`<figcaption>${pg.name}</figcaption>` : null}</figure>`)}
+          <figcaption>${pg.name} <span>${pg.when}</span></figcaption>
+          <button type="button" aria-label=${`${pg.name}, ${pg.when}`} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><img src=${pg.src} alt="" /></button></figure>`)}
       </div>` : format === 'ics' ? html`<div class="ex-well"><${Dates} /></div>` : null}
     </div>`;
   }
@@ -1003,21 +1013,25 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const usable = f => !!f && (f === 'ics' || (!!here && (f === 'pptx' || f === 'pdf')));
     const tableShown = !list.some(v => v.id === shown) && others.length;
     const first = asked ?? (tableShown ? other(was.table) ?? 'x0' : usable(was.format) ? was.format : here ? 'pptx' : 'ics');
-    const kept = (was.views ?? []).filter(id => list.some(v => v.id === id)), views0 = kept.length ? kept : here ? [here.id] : [], onPages = new Set(views0.map(id => pageNow(id).paper));
+    // What was last exported from the chart, where the tab you're on was among them; or else that tab alone.
+    const kept = (was.views ?? []).filter(id => list.some(v => v.id === id)), on = list.some(v => v.id === shown) ? shown : null;
+    const views0 = on ? (kept.includes(on) ? kept : [on]) : kept.length ? kept : here ? [here.id] : [], onPages = new Set(views0.map(id => pageNow(id).paper));
     const choice = { format: first, views: views0, all: !!was.all, paper: onPages.size === 1 && [...onPages][0] ? [...onPages][0] : list.length ? OWN : 'slide' };
     const go = await Shell.dialog({ title: 'Export', width: 720, body: settle => html`<${Choice} choice=${choice} here=${here} others=${others} close=${settle} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'Export', value: true, primary: true }] });
     if (!go) return;
     const x = choice.format.startsWith('x') ? others[+choice.format.slice(1)] : null;
     Shell.store.set(memo(), JSON.stringify({ format: x ? was.format : choice.format, table: x ? x.name : was.table, views: choice.views, all: choice.all }));
-    // A file of one view is named for it; of more, for the chart; each saying its as-of day, where that's not today, or
-    // the moment, while the past is shown (App.asOfWords). By whoever exports it, blank where no name is set.
-    const dated = App.asOfWords().name;
-    if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), [chartName(), dated].filter(Boolean).join(' - '), App.day.peek());
+    // A file of one view is named for it, but where the chart's name says it already; of more, for the chart and what's
+    // in it. Each says its as-of day, where every page shares it and it's not today, or the moment, while the past is shown
+    // (App.asOfWords). By whoever exports it, blank where no name is set.
+    if (choice.format === 'ics') return calendar(App.computed.peek(), App.notes.peek(), App.chart.peek(), [chartName(), App.asOfWords().name].filter(Boolean).join(' - '), App.day.peek());
     if (x) return x.run({ all: choice.all });
-    const one = choice.scenes.length === 1 ? list.find(v => v.id === choice.scenes[0].view) : null;
-    return write(choice.format, choice.scenes, one ? fileName(chartName(), one.name, dated) : fileName(chartName(), dated),
-      { author: Store.who() ?? '', R: App.computed.peek(), N: App.notes.peek() }).catch(e => Shell.toast(e?.message || 'Couldn’t export'));
+    const pages = choice.scenes, names = pages.map(s => s.name), days = [...new Set(pages.map(s => s.day))], chart = chartName();
+    const inIt = names.length === 1 ? (Tree.norm(chart).includes(Tree.norm(names[0])) ? '' : names[0])
+      : names.length === 2 ? names.join(' and ') : names.length === 3 ? `${names[0]}, ${names[1]} and ${names[2]}` : `${names[0]} to ${names.at(-1)}`;
+    return write(choice.format, pages, fileName(chart, inIt, days.length === 1 || App.shown.peek().moment ? App.asOfWords(days[0]).name : ''),
+      { title: chart, author: Store.who() ?? '', R: App.computed.peek(), N: App.notes.peek() }).catch(e => Shell.toast(e?.message || 'Couldn’t export'));
   }
   api.open = open;
 }

@@ -224,6 +224,8 @@ function named(c, s) {
 // group of one is the only one: "The only name", "The only one with Jurisdiction Delaware".
 function allOf(s, n) {
   const caption = s.caption ?? '', ps = s.outputs ?? [], words = caption.split(' '), all = n === 1 ? 'The only one' : `All ${n}`;
+  // What's changed is said as a state: "All 3 new or changed", "The only one gone".
+  if (ps.length && ps.every(Scene.isChange)) return `${all} ${caption[0].toLowerCase()}${caption.slice(1)}`;
   // An option named as it is (Delaware) or a tag goes by its entry: "with Jurisdiction Delaware".
   const option = ps.length && ps.every(p => p.out?.choice !== undefined && Tree.same(p.out.choice, caption) && p.args?.length === 1);
   if (option) return `${all} with ${ps[0].args[0].edge} ${caption}`;

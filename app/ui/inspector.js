@@ -1248,7 +1248,7 @@ function Styles({ v, only }) {
   };
   // A style that is its one group is that row alone: Names, not Name over Names.
   return html`${parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
-    ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname"><${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}></div></div>${rows.map(g => output(g, null, part, s))}`}
+    ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname">${Scene.isChange(s.pattern) ? rows[0].name : html`<${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}>`}</div></div>${rows.map(g => output(g, null, part, s))}`}
   </div>`))}
   ${off.length ? html`<div class="row styles-off"><button type="button" class="lk" aria-expanded=${offOpen} onClick=${() => setOffOpen(x => !x)}>Not on this page (${off.length})</button></div>
     ${offOpen ? off.map(g => { const s = styleAt.get(g.style); return html`<div class="ent style lone" key=${g.key}>${output(g, null, [], s)}</div>`; }) : null}` : null}`;
@@ -1299,6 +1299,11 @@ function ViewPanel() {
         put=${out => layout(out.choice === 'Table' ? { rows: v.rows } : undefined)} /></div></div>
       ${v.layout === 'table' ? html`<div class="row in"><div class="k">Rows</div><div class="v ctl"><${Choice} fixed label="Rows" r=${rowsName ? { choice: rowsName } : null} options=${all.map(l => l.name)}
         put=${out => layout({ rows: all.find(l => l.name === out.choice).rows })} /></div></div>` : null}
+      ${v.layout === 'chart' ? html`<div class="row"><div class="k">Changes</div><div class="v ctl"><${Choice} fixed label="Changes" r=${{ choice: !v.changes ? 'None' : v.changes.since ? 'Since a date' : 'Since the page before' }} options=${['None', 'Since the page before', 'Since a date']}
+        put=${out => Time.showChanges(v.id, out.choice === 'None' ? null : out.choice === 'Since a date' ? { since: v.changes?.since ?? Time.dayBefore(App.day.peek()) } : { page: true })} /></div></div>
+        ${v.changes?.since ? html`<div class="row in"><div class="k">Since</div><div class="v ctl"><${Field} r=${{ field: 'date', value: v.changes.since }} datatype="date" label="Since" put=${out => out && Time.showChanges(v.id, { since: out.value })} /></div></div>` : null}` : null}
+      ${v.plan ? html`<div class="row"><div class="k">Places</div><div class="v ctl"><${Choice} fixed label="Places" r=${{ choice: 'Shared by the plan' }} options=${['Shared by the plan', 'This page’s own']}
+        put=${out => { if (out.choice !== 'Shared by the plan') App.change(tx => tx.note('Plan', t, undefined), { dated: false, say: `Gave ${v.name} places of its own` }); }} /></div></div>` : null}
     </div>
     ${hiddenFirst ? html`<${HiddenList} key=${v.id} v=${v} />` : null}
     ${v.layout === 'chart' && stylesOf(v.id).length ? html`<${Section} title="Styles"><div class="styles"><${Styles} v=${v.id} /></div></${Section}>` : null}
@@ -1656,9 +1661,12 @@ function GeneralView({ p, style }) {
   const addFormula = () => { if (App.change(tx => tx.note('Formula', p, [{ label: '', formula: type === 'tag' ? '← ' : '= ' }]))) FormulaBar.focus('r0', { write: true }); };
   const v = viewShown()?.layout === 'chart' ? Shell.view.value : null, described = !law?.any && (describing || !!n.description(p));
   const adds = still ? [] : [...(law?.any || described ? [] : [{ label: 'Description', run: () => setDescribing(true) }]), ...(def || kind ? [] : [{ label: 'Formula', run: addFormula }])];
+  // As of a day past, today's rule is what's read: where it's changed since, it says so.
+  const since = def && typeof Time !== 'undefined' ? Time.ruleSince(def.pattern) : null;
   return html`<div class="insp">
     <${Head} title=${name} path=${style ? [{ label: 'Style' }] : kind || rel ? [] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Tag') }]}>
       <${Field} r=${{ field: 'text', value: name }} datatype="text" label="Name" title put=${out => out && setName(out.value)} /></${Head}>
+    ${since ? html`<div class="later"><span>Today’s rule: changed ${since.day} by ${since.who}</span>${since.stand ? html`<button class="btn" onClick=${since.stand}>As it stood</button>` : null}</div>` : null}
     <div class="rows">
       ${described ? html`<div class="row"><div class="k">Description</div><div class="v ctl"><${Prose} text=${n.description(p) ?? ''} label="Description" auto=${describing}
         put=${text => { setDescribing(false); App.change(tx => tx.note('Description', p, text || undefined)); }} done=${() => setDescribing(false)} /></div></div>` : null}
@@ -1698,8 +1706,9 @@ function Inspector() {
   const sel = Shell.selection.value, key = sel.join();
   useLayoutEffect(() => {
     const s = host?.closest('.inspector'), top = backTo?.key === key ? backTo.top : null;
-    // (Again once it's drawn, as its strip takes its room only then.)
-    if (s && top !== null) { s.scrollTop = top; requestAnimationFrame(() => { s.scrollTop = top; }); }
+    // (Again once it's drawn, as its strip takes its room only then; and the browser's scroll anchoring off till it has, which
+    // would otherwise move it on by that room where a busy window draws it late.)
+    if (s && top !== null) { s.style.overflowAnchor = 'none'; s.scrollTop = top; requestAnimationFrame(() => { s.scrollTop = top; }); setTimeout(() => { s.style.overflowAnchor = ''; }, 400); }
     else if (s && aimed !== key) s.scrollTop = 0;
     aimed = null; backTo = null;
   }, [key]);

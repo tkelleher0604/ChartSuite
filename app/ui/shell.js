@@ -24,8 +24,9 @@
 //                  the chart menu, and the chart's name in the title bar, renamed there (app.js)
 //   'undo'       { undo(), redo(), canUndo(), canRedo(), steps() → the words of what Undo takes back, the latest first,
 //                undoTo(n) }                                                                 (app.js)
-//   'time'       { When({ close }), Ruler(), Band(), today() }   the date's popover, the ruler under the view, the band
-//                across it as it stood, and back to today from another day or the past       (time.js)
+//   'time'       { When({ close }), Ruler(), Band(), away(), today(), newSinceToday() }   the date's popover, the ruler under the
+//                view, the band across it as it stood or on a look, what the date's × goes back to, going back, and what's new
+//                on the status lists as of a day to come       (time.js)
 //   'evaluate'   (text, selection) → { value } | { items } | { error }   Find's "="            (formulabar.js)
 // Any number of: 'action' { id, name, run, keys?, inputs?, enabled?, menu?: 'chart', order?, names? } (the chart
 // menu by order: files 1–4, History 10, Settings 20, Light and Dark 30, Tour 40), its keys bound in the
@@ -708,8 +709,8 @@ const Shell = (() => {
         ref=${el => { if (el && refocus) { refocus = false; el.focus(); } }} onClick=${e => menu(e.currentTarget, chartMenu)} onDblClick=${nameChart}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button>`}${part('keeping')?.render()}</div>
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
       <div class="right">
-        ${part('time') ? html`<span class=${'asof' + (t ? ' past' : '')}><button class="btn ghost dd" aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>${t
-          ? html`<button class="btn icon" aria-label="Today" data-tip="Today" onClick=${() => part('time').today()}>${icon('x')}</button>` : null}</span>` : null}
+        ${part('time') ? html`<span class=${'asof' + (t ? ' past' : '')}><button class="btn ghost dd" aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>${part('time').away()
+          ? html`<button class="btn icon" aria-label=${part('time').away()} data-tip=${part('time').away()} onClick=${() => part('time').today()}>${icon('x')}</button>` : null}</span>` : null}
         <span class="sep" />
         <button class="btn icon" aria-label=${away.value ? 'Show panel' : 'Hide panel'} data-tip=${away.value ? 'Show panel' : 'Hide panel'} data-keys=${keyLabel('$mod+Backslash')}
           aria-pressed=${!away.value} onClick=${() => wide.peek() ? narrow() : setShut(!away.peek())}>${icon('panel')}</button>
@@ -826,7 +827,7 @@ const Shell = (() => {
             onKeyDown=${e => { if (e.key === 'Enter') commit(v, e.target.value); else if (e.key === 'Escape') { e.stopPropagation(); editing.value = null; } }}
             onBlur=${e => commit(v, e.target.value)} /></div>`
         : html`<button key=${v.id} id=${'tab-' + v.id} class="sheet" role="tab" aria-selected=${v.id === view.value} aria-controls="view" tabindex=${v.id === view.value ? 0 : -1} data-tour=${v.id === view.value ? null : 'sheet'}
-            onPointerDown=${e => down(e, v)} onDblClick=${() => name(v)} onContextMenu=${e => tabMenu(e, v)}>${v.name}</button>`)}
+            onPointerDown=${e => down(e, v)} onDblClick=${() => name(v)} onContextMenu=${e => tabMenu(e, v)}>${v.name}${v.keeps ? html`<span class="keeps">${Tree.formatDate(v.keeps, 'short').replace(`, ${Log.today().slice(0, 4)}`, '')}</span>` : null}</button>`)}
     </div>${over ? html`<button class="btn icon views" aria-haspopup="menu" aria-label="All views" data-tip="All views" onClick=${all}>${icon('chevron')}</button>` : null}<button class="btn icon" aria-label="New view" data-tip=${App.readOnly.value ? App.whyNot() : 'New view'} aria-disabled=${App.readOnly.value ? 'true' : null} onClick=${add}>${icon('plus')}</button>`;
   }
 
@@ -855,7 +856,7 @@ const Shell = (() => {
     const dated = it => App.state.peek()[it.id]?.value ?? '';
     const of = () => (kind === 'soon' && within.value !== 30 ? many('attention').flatMap(a => a.within?.(within.value) ?? []) : needs().filter(it => it.kind === kind)).sort((a, b) => kind === 'soon' || kind === 'overdue' ? String(dated(a)).localeCompare(String(dated(b))) : 0).map(it => {
       const w = say?.(it) ?? { what: '', where: '', figure: '' };
-      return { w, label: [w.what, w.where].filter(Boolean).join(' · '), detail: w.figure || null, names: w.figure ? [w.figure] : [], run: it.go };
+      return { it, w, label: [w.what, w.where].filter(Boolean).join(' · '), detail: w.figure || null, names: w.figure ? [w.figure] : [], run: it.go };
     });
     const grouped = xs => {
       const heads = new Map();
@@ -863,7 +864,14 @@ const Shell = (() => {
       return [...heads.values()].flatMap(g => g.length < 2 ? g : [{ head: `${g[0].w.what} · ${g[0].w.who} (${g.length})` }, ...g.map(x => ({ ...x, label: x.w.where }))]);
     };
     const days = () => kind === 'soon' ? [{ seg: [30, 90].map(n => ({ label: `Next ${n} days`, pressed: within.value === n, run: () => { within.value = n; } })) }] : [];
-    menu(anchor, q => q ? rank(of(), q) : [...days(), ...grouped(of())], { search: true, cls: 'needs', placement: 'top-end' });
+    // As of another day than today, what's new against today's lists comes first and says so: the question a plan asks.
+    const isNew = part('time')?.newSinceToday?.();
+    const told = xs => {
+      if (!isNew) return grouped(xs);
+      const fresh = xs.filter(x => isNew(x.it)), old = xs.filter(x => !isNew(x.it));
+      return [{ head: fresh.length ? `New since today (${fresh.length})` : 'Nothing new since today' }, ...grouped(fresh), ...(old.length ? [{ head: 'On today’s lists too' }, ...grouped(old)] : [])];
+    };
+    menu(anchor, q => q ? rank(of(), q) : [...days(), ...told(of())], { search: true, cls: 'needs', placement: 'top-end' });
   }
   const countButton = kind => document.querySelector(`.status .counts > .${kind}`);
   const counts = () => { const items = needs(); return KINDS.map(([k, say, names, tip]) => ({ k, say, names, tip, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
@@ -919,7 +927,7 @@ const Shell = (() => {
     { id: 'view.prev', name: 'Previous view', keys: '$mod+Shift+PageUp', run: () => stepView(-1) },
     { id: 'view.next', name: 'Next view', keys: '$mod+Shift+PageDown', run: () => stepView(1) },
     // The day the chart is shown as of, as the title bar's date opens it.
-    { id: 'asof', name: 'Show as of a day…', names: ['As of', 'Date', 'Go to date', 'Past'], enabled: () => !!part('time'), run: () => {
+    { id: 'asof', name: 'Show as of a day…', names: ['As of', 'Date', 'Go to date', 'Past', 'Keep', 'Keep a date', 'Keep this day', 'Freeze date'], enabled: () => !!part('time'), run: () => {
       const b = document.querySelector('.titlebar .asof > button');
       if (b) popover(b, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' });
     } },

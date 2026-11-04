@@ -811,7 +811,8 @@ function mount(el) {
 
   // ---- Gestures, each one change ----
   const viewOf = () => scene.view;
-  const treeOf = id => Tree.treeOf(App.state.peek(), id);
+  // (Or what the page draws of what's gone, which stands where it stood.)
+  const treeOf = id => Tree.treeOf(App.state.peek(), id) ?? (scene?.since ? Tree.treeOf(scene.state, id) : null);
   // Places for marks, written: a box's Position at its record in this view, where it is on the page less what the page
   // moved a chart placed so to hold it (Scene's furnish), as a chart the layout alone placed is placed once anything is,
   // `hand`, so it stands exactly there, as large as it's made; a free shape's own place, where it is on the page, kept on
@@ -1034,6 +1035,8 @@ function mount(el) {
     const [id, rowKey] = keyParts(key);
     const m = scene.byId.get(id);
     if (!m || still()) return;
+    // (What's gone by the day shown has nothing to type over.)
+    if (m.change === 'Gone') return Shell.toast(`Not in the chart as of ${Tree.formatDate(scene.day, 'short')}`);
     // What's typed over: a record's value as entered, not as the chart reads it; a shape's text as written.
     let it = null, rect, save, raw, escaped = null;
     const view = viewOf(), N = App.notes.peek();
