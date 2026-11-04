@@ -2225,6 +2225,19 @@ async function tablesG3() {
   check('An italic says it’s computed, on hover', getComputedStyle(fxCell).fontStyle === 'italic' && fxCell.dataset.tip === 'Worked out by a formula', fxCell.dataset.tip);
   const overCell = cell(named('Calder Ridge Capital BDC, Inc.'), 'Tax Classification').getElement();
   check('… and a corner triangle that it’s typed over what’s worked out, saying what that is', overCell.classList.contains('over') && overCell.dataset.tip === 'Typed over what’s worked out, which is C Corporation', overCell.dataset.tip);
+  // Its way back is on its cell's menu; cleared, it asks why as that does; out in Excel, its note says what the rule says.
+  {
+    const kept = cell(named('Calder Ridge Capital BDC, Inc.'), 'Tax Classification'), n1 = N(), grid = Table.grid.rowManager.element;
+    kept.getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 })); await tick();
+    check('A cell typed over a rule has Back to the rule… on its menu', $$('.float .menu-item').some(x => x.textContent.trim() === 'Back to the rule…'), $$('.float .menu-item').map(x => x.textContent.trim()).join());
+    Shell.closeAll(); await tick();
+    Table.grid.modules.selectRange.clearRanges(); Table.grid.addRange(kept); await tick(60);
+    press('Delete', grid); await tick(150);
+    check('… and Delete there asks why, as that does, clearing nothing yet', N() === n1 && $('.pendbar .btn.primary')?.textContent === 'Back to the rule' && /back to the rule, which says C Corporation/.test($('.pendbar')?.textContent ?? ''), $('.pendbar')?.textContent);
+    press('Escape', grid); await tick(100);
+    const file = XLSX.CFB.read(new Uint8Array(await Table.excelFile()), { type: 'array' }), note = new TextDecoder().decode(XLSX.CFB.find(file, '/xl/comments1.xml')?.content ?? new Uint8Array());
+    check('… and in Excel its note says what the rule says, in words', /Typed over: the rule says C Corporation\./.test(note) && !note.includes('[object'), note.slice(0, 300));
+  }
 
   // A row typed stays where it's typed, under the rest, till it's left; Esc goes back to it, selected, the grid where it was.
   {

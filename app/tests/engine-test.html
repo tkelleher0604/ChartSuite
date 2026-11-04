@@ -317,10 +317,10 @@ function theSample() {
     && !Object.keys(R.computed).some(id => R.records[id].tag === false && R.computed[id].def === 'def_remote' && N.check(Tree.treeOf(R.records, id))), failing.map(id => R.computed[id].def).join());
   // What needs attention, as the status bar counts it: those 4 and a typed Good Standing: No its errors, its deadlines worked out, its blanks required.
   const needs = Formulas.attention(R, N, DAY), count = k => needs.filter(a => a.kind === k).length, heeded = Object.keys(R.records).filter(id => R.records[id].tag === false && !R.computed[id] && N.heeds(Tree.treeOf(R.records, id)));
-  check('What needs attention: 2 overdue, 5 errors (the checks failed, and a typed no a Check note heeds), 2 due soon and 1 blank, each where it is', count('overdue') === 2 && count('soon') === 2 && count('blank') === 1 && heeded.length === 1
+  check('What needs attention: 2 overdue, 5 errors (the checks failed, and a typed no a Check note heeds), 2 due soon, 1 blank and 1 typed over, each where it is', count('overdue') === 2 && count('soon') === 2 && count('blank') === 1 && count('overrides') === 1 && heeded.length === 1
     && needs.filter(a => a.kind === 'error').map(a => a.id).sort().join() === [...failing, ...heeded].sort().join()
-    && needs.every(a => a.kind === 'blank' ? !Object.values(R.records).some(r => r.at === a.id && Tree.same(r.edge, a.edge)) : a.kind === 'error' || (R.records[a.id].field === 'date' && (a.kind === 'overdue') === R.records[a.id].value < DAY)),
-    ['overdue', 'error', 'soon', 'blank'].map(k => `${count(k)} ${k}`).join(', '));
+    && needs.every(a => a.kind === 'blank' ? !Object.values(R.records).some(r => r.at === a.id && Tree.same(r.edge, a.edge)) : a.kind === 'error' || a.kind === 'overrides' || (R.records[a.id].field === 'date' && (a.kind === 'overdue') === R.records[a.id].value < DAY)),
+    ['overdue', 'error', 'soon', 'blank', 'overrides'].map(k => `${count(k)} ${k}`).join(', '));
   // What's required at a record is kept with its tree while the notes stand: asked again, it says the same; asked with
   // other notes, it asks them, and with no Required note there's no blank.
   const again = Formulas.attention(R, N, DAY), unrequired = Notes.index(WB.rows(CHART).filter(r => 'note' in r && r.label !== 'Required'));
@@ -700,8 +700,12 @@ function ruleInError() {
   check('a rule that depends on itself says so', self.b.roots[0]?.code === '#CIRCULAR!' && /^This depends on itself: what Private Fund gives would change what it reads/.test(self.b.roots[0].problems[0]), JSON.stringify(self.b.roots));
   const empty = ruled('Private Fund', one('← [Private Fund]'));
   check('… and one that holds only where it already holds, where nothing’s typed to go on from, says it never does: not a clean no', empty.b.roots[0]?.problems[0] === 'This depends on itself: Private Fund holds only where it already holds, so it never does.', JSON.stringify(empty.b.roots));
-  check('… which attention lists as the rule’s, showing at no record', Formulas.attention(empty.R, empty.N, DAY).some(a => a.id === `rule:${empty.def}` && a.kind === 'error'), Formulas.attention(empty.R, empty.N, DAY).filter(a => a.kind === 'error').map(a => a.id).join());
-  check('a #VALUE! is no rule in error: a rule waiting on a fact', !ruled('Private Fund', one('= [Formation Date] > 2')).b.roots.length);
+  check('… which attention lists as a rule broken, showing at no record, apart from who fails', Formulas.attention(empty.R, empty.N, DAY).some(a => a.id === `rule:${empty.def}` && a.kind === 'broken') && !Formulas.attention(empty.R, empty.N, DAY).some(a => a.id === `rule:${empty.def}` && a.kind === 'error'), Formulas.attention(empty.R, empty.N, DAY).filter(a => a.kind === 'broken').map(a => a.id).join());
+  const wrong = ruled('Private Fund', one('= [Formation Date] > 2')), wf = wrong.R.flaws[wrong.def]?.[0];
+  check('a date against a number is caught where the kinds are known, in words: no answer, however few it can’t be worked out at', wf?.code === '#VALUE!' && /Formation Date is a date and 2 is a number: they can’t be put in order/.test(wf.message) && wrong.b.roots.length === 1, JSON.stringify(wf));
+  const never = ruled('Private Fund', one('= [Formation Date] = "soon"'));
+  check('… and text against a date, that it’s never equal', /is a date and “soon” is text: they’re never equal/.test(never.R.flaws[never.def]?.[0]?.message ?? ''), JSON.stringify(never.R.flaws[never.def]));
+  check('… and a list where one value is wanted, a #VALUE! the kinds don’t tell, is still a rule that can’t be worked out, a rule broken', Formulas.attention(ruled('Private Fund', one('= [Formation Date] > Holdings')).R, before.state.P.schema ? ruled('Private Fund', one('= 1')).N : null, DAY).filter(a => a.kind === 'broken').every(a => a.error.error.code !== '#N/A'));
   const chart = before.state.P.chart, role = [...chart.roles].find(([n, of]) => of.size > 1 && !chart.listed.has(n));
   const reads = role && ruled('Private Fund', one(`= COUNT([${[...role[1]].length && role[0]}]) > 0`));
   check('a role two relations share is said as such where it’s written, and isn’t an error, for it may be what’s meant', !!reads && reads.R.flaws[reads.def]?.some(f => f.warn && /so this reads both/.test(f.message)) && !reads.b.roots.length, role?.[0]);
@@ -714,8 +718,93 @@ function ruleInError() {
   check('no suggestion follows a number', !Formulas.suggest('= 2', 3, { computed: before, def: 'def_control' }).list.length && Formulas.suggest('= [R', 4, { computed: before, def: 'def_control' }).list.length > 0);
 }
 
+// A rule you can rely on (dendra.md, Definitions): not knowing never reads as fine.
+function ruleYouCanRelyOn() {
+  const C = 'calder-ridge', DAY = '2037-10-26', on = (wb, day = DAY) => { const N = wb.notes(C), S = wb.schema(C); return Formulas.computeState(wb.asOf(C, day), N.definitions(S), { relations: N.relations(S), schema: S, day, named: wb.named(C) }); };
+  // A check at individuals of a director of the BDC, reading a date a hand types.
+  const build = (formula, dates = {}, opts = {}) => {
+    const wb = Log.open(SAMPLE), tx = wb.edit({ chart: C, who: 'Dana Jordan' }), loc = { kind: 'Individual' }, spec = { out: { field: 'date' }, args: [{ edge: 'Questionnaire', loc }] }, chk = { out: { tag: true }, args: [{ edge: 'Current', loc }] };
+    tx.add('spec', { tree: spec }); tx.add('spec', { tree: chk });
+    if (opts.recurs) tx.note('Fixed', Tree.bare(spec), false);
+    tx.note('Check', Tree.bare(chk), true);
+    tx.note('Formula', Tree.bare(chk), [{ label: '', formula }]);
+    for (const [at, value] of Object.entries(dates)) tx.add('record', { at, edge: 'Questionnaire', field: 'date', value });
+    const c = tx.commit();
+    if (typeof c === 'string') throw new Error(c);
+    const R = on(wb, opts.day), def = R.state.P.defs.find(d => d.name === 'Current').id, N = wb.notes(C);
+    return { wb, R, def, N, row: at => R.rows[def].find(x => x.at === at), cov: Formulas.coverage(R, def), needs: Formulas.attention(R, N, opts.day ?? DAY) };
+  };
+  const person = (R, name) => Object.keys(R.records).find(id => R.records[id].kind === 'Individual' && Tree.same(R.state.P.ever ? wbName(R, id) : '', name));
+  const wbName = (R, id) => Object.values(R.records).find(x => x.at === id && Tree.same(x.edge, 'Name'))?.value ?? '';
+  const IS = '= IF(ANY(Positions, @.Position = "Director" AND @ = [Calder Ridge Capital BDC, Inc.]), Questionnaire >= EDATE(TODAY(), -12))';
+  const A = build(IS), chen = person(A.R, 'Margaret A. Chen'), raman = person(A.R, 'Priya N. Raman'), okafor = person(A.R, 'David R. Okafor');
+
+  // Can't say: a blank in a test.
+  check('a rule that applies, and what it reads blank: it can’t say, in a state of its own, saying what it wants', A.row(chen)?.error?.code === '#N/A' && A.row(chen).error.msg === 'Needs Questionnaire.' && A.row(raman)?.error?.code === '#N/A', JSON.stringify(A.row(chen)));
+  check('… n/a is what it doesn’t apply to, still', !A.row(okafor) && Formulas.silence(A.N, A.wb.schema(C), A.R.records, okafor, 'Current') === 'untested', okafor);
+  check('… counted once under blank, with the field named at whose it is, not as an error', A.needs.some(a => a.kind === 'blank' && a.id === chen && a.edge === 'Questionnaire' && a.by?.def === A.def) && !A.needs.some(a => a.kind === 'error' && a.error?.def === A.def) && !A.needs.some(a => a.kind === 'broken'), A.needs.filter(a => a.kind !== 'overdue' && a.kind !== 'soon').map(a => `${a.kind}:${a.edge ?? a.id}`).join());
+  const B = build(IS, { [chen]: '2037-01-01', [raman]: '2020-01-01' });
+  check('… typed, it answers: within the year holds, past it fails, and no blank is left', B.R.records[B.row(chen).id]?.tag === true && B.R.records[B.row(raman).id]?.tag === false && !B.needs.some(a => a.kind === 'blank' && a.edge === 'Questionnaire'), JSON.stringify(B.row(raman)));
+  const D = build('= IF(ANY(Positions, @.Position = "Director" AND @ = [Calder Ridge Capital BDC, Inc.]), NOT(ISBLANK(Questionnaire)) AND Questionnaire >= EDATE(TODAY(), -12))');
+  check('… a rule that says blank fails, says so: AND’s no beats what can’t be said', D.R.records[D.row(chen).id]?.tag === false, JSON.stringify(D.row(chen)));
+  const notIt = build('= NOT(Questionnaire < DATE(2030, 1, 1))');
+  check('… and NOT of what can’t be told is no pass', notIt.row(chen)?.error?.code === '#N/A', JSON.stringify(notIt.row(chen)));
+  const orIt = build('= (Questionnaire < DATE(2030, 1, 1)) OR (1 = 1)');
+  check('… and OR’s yes beats it', orIt.R.records[orIt.row(chen).id]?.tag === true, JSON.stringify(orIt.row(chen)));
+  const onlyNo = build('= IF(Questionnaire < DATE(2030, 1, 1), FALSE)');
+  check('… a rule that can only say no doesn’t pass what it can’t read', onlyNo.row(chen)?.error?.code === '#N/A', JSON.stringify(onlyNo.row(chen)));
+  const given = ruled0 => ruled0;
+  check('a list with nothing in it, or what a rule gives nothing of, isn’t a blank to type', !Object.keys(on(Log.open(SAMPLE)).errors).length);
+
+  // What a rule covers.
+  const cov = B.cov;
+  check('a rule’s panel counts what it covers: holds, fails, can’t say, and of the rest what its silence means', cov.holds.length === 1 && cov.fails.length === 1 && cov.cant.length === 0 && cov.silent === 'untested' && cov.quiet.includes(okafor) && !cov.quiet.includes(chen) && cov.says === 2, JSON.stringify({ h: cov.holds.length, f: cov.fails.length, q: cov.quiet.length }));
+  const none = build('= IF(ANY(Positions, @.Position = "Director" AND @ = [Margaret A. Chen]), Questionnaire >= EDATE(TODAY(), -12))');
+  check('… a rule that applies to no one says nothing of anyone, and its silence is n/a, never fine', none.cov.says === 0 && none.cov.quiet.length > 0 && none.cov.silent === 'untested', JSON.stringify(none.cov.says));
+
+  // Today is the day shown.
+  const T = '= Questionnaire >= EDATE(TODAY(), -12)';
+  const near = build(T, { [chen]: '2037-06-01' }, { day: '2037-10-26' }), far = build(T, { [chen]: '2037-06-01' }, { day: '2039-01-01' }), past = build(T, { [chen]: '2036-01-01' }, { day: '2036-06-01' });
+  check('TODAY() is the day shown: within a year of it, it holds, and past it, it doesn’t, whatever the clock says', near.R.records[near.row(chen).id]?.tag === true && far.R.records[far.row(chen).id]?.tag === false && past.R.records[past.row(chen).id]?.tag === true, JSON.stringify([near.row(chen), far.row(chen), past.row(chen)]));
+  const today = Formulas.computeState(near.wb.asOf(C, '2039-01-01'), near.N.definitions(near.wb.schema(C)), { relations: near.N.relations(near.wb.schema(C)), schema: near.wb.schema(C), day: '2039-01-01' }, near.R);
+  check('… and worked out again from another day’s, it’s that day’s, not the other’s', today.records[today.rows[near.def].find(x => x.at === chen).id]?.tag === false);
+
+  // A rule can point at a record.
+  const named = near.R.state.P.named;
+  check('a record by its name or its short name: what the chart calls it is a name the rule can read', A.R.state.P.named.has(Tree.norm('Calder Ridge Capital BDC, Inc.')) && A.R.state.P.named.has(Tree.norm('The BDC')) && !A.R.flaws[A.def]?.length, JSON.stringify(A.R.flaws[A.def]));
+  const short = build('= IF(ANY(Positions, @.Position = "Director" AND @ = [The BDC]), Questionnaire >= EDATE(TODAY(), -12))');
+  check('… by its short name too', short.row(chen)?.error?.code === '#N/A');
+  const typo = build('= IF(ANY(Positions, @ = [Calder Ridge BDC, Inc.]), Questionnaire >= TODAY())');
+  check('… one nothing is called is a flaw, with the mend', typo.R.flaws[typo.def]?.[0]?.code === '#NAME?' && typo.R.flaws[typo.def][0].fix === '[Calder Ridge Capital BDC, Inc.]', JSON.stringify(typo.R.flaws[typo.def]));
+  const offer = Formulas.suggest('= IF(ANY(Positions, @ = [Calder Ridge Capital B', 47, { computed: A.R, def: A.def });
+  check('… and suggestions offer it', offer.list.some(x => x.kind === 'record' && x.text === '[Calder Ridge Capital BDC, Inc.]'), offer.list.map(x => x.text).join());
+  const inList = Formulas.suggest('= IF(ANY(Positions, @.Pos', 25, { computed: A.R, def: A.def }), bare = Formulas.suggest('= IF(ANY(Positions, @.', 22, { computed: A.R, def: A.def });
+  check('inside ANY(Positions, @. suggestions list what’s on a position', inList.list.some(x => x.name === 'Position') && !inList.list.some(x => x.name === 'Positions') && !bare.list.some(x => x.name === 'Email') && bare.list.some(x => x.name === 'Position'), [...inList.list, ...bare.list].map(x => x.name).join());
+  const nothing = t => !Formulas.suggest(t, t.length, { computed: A.R, def: A.def }).list.length;
+  check('after a value there’s nothing to offer, nor in the midst of words in quotes', nothing('= [Name] = "Margaret') && nothing('= [Name] = "Margaret Chen"') && nothing('= [Name] ') && nothing('= ABS(2) ') && !nothing('= [Name] = '), '');
+  // Renamed, the rule goes with it, on every day.
+  const wb2 = A.wb, nameId = Object.keys(A.R.records).find(id => A.R.records[id].edge === 'Name' && A.R.records[id].value === 'Calder Ridge Capital BDC, Inc.'), tx2 = wb2.edit({ chart: C, who: 'Dana Jordan', day: '2037-01-01' });
+  tx2.reword('Calder Ridge Capital BDC, Inc.', 'Halyard BDC, Inc.'); tx2.set(nameId, { ...A.R.records[nameId], value: 'Halyard BDC, Inc.' });
+  const made = tx2.commit(), after = on(wb2), then = on(wb2, '2036-06-01'), newRow = after.state.P.defs.find(d => d.name === 'Current').rows[0].text;
+  check('renaming the record keeps the rule right: its words follow, as a relation’s rename does, and it holds before the rename as after', typeof made !== 'string' && newRow.includes('[Halyard BDC, Inc.]') && after.rows[A.def].find(x => x.at === chen)?.error?.code === '#N/A' && then.rows[A.def].find(x => x.at === chen)?.error?.code === '#N/A' && !after.flaws[A.def]?.length, newRow);
+
+  // A word compared as text.
+  const text = build('= IF(ANY(Positions, @.Position = "Director" AND @.Name = "Calder Ridge BDC, Inc."), Questionnaire >= TODAY())'), tf = text.R.flaws[text.def]?.[0];
+  check('a name compared as text that nothing has is a rule in error, said as a misspelled option is, with the mend: never a clean no', tf?.code === '#OPTION?' && tf.message === 'Nothing is called “Calder Ridge BDC, Inc.”.' && tf.fix === '"Calder Ridge Capital BDC, Inc."' && Formulas.broken(text.R).roots.some(r => r.def === text.def), JSON.stringify(tf));
+  const textOk = build('= IF(ANY(Positions, @.Position = "Director" AND @.Name = "Calder Ridge Capital BDC, Inc."), Questionnaire >= TODAY())');
+  check('… one it has is none of that', !textOk.R.flaws[textOk.def]?.length && textOk.row(chen)?.error?.code === '#N/A', JSON.stringify(textOk.R.flaws[textOk.def]));
+  const email = build('= Email = "nobody@example.invalid"');
+  check('… and other free words may yet be typed, so they’re said, and stop nothing', email.R.flaws[email.def]?.[0]?.warn === true && /No Email says/.test(email.R.flaws[email.def][0].message) && !Formulas.broken(email.R).roots.some(r => r.def === email.def), JSON.stringify(email.R.flaws[email.def]));
+
+  // Typed over.
+  const over = build(IS, { [chen]: '2020-01-01' }), tx3 = over.wb.edit({ chart: C, who: 'Dana Jordan', day: '2037-10-01' });
+  tx3.add('record', { at: chen, edge: 'Current', tag: true, before: '2038-01-01' }); tx3.commit();
+  const held = on(over.wb), lapsed = on(over.wb, '2038-02-01'), N3 = over.wb.notes(C);
+  check('what’s typed over a rule, with an Until, stands till then and is counted apart; past it, the rule says again', Formulas.attention(held, N3, DAY).some(a => a.kind === 'overrides' && held.records[a.id]?.at === chen) && !Formulas.attention(held, N3, DAY).some(a => a.kind === 'error' && held.records[a.id]?.at === chen) && lapsed.records[lapsed.rows[over.def].find(x => x.at === chen).id]?.tag === false, JSON.stringify(lapsed.rows[over.def].find(x => x.at === chen)));
+}
+
 function runAll() {
-  for (const f of [theSample, semantics, grounds, apis, testDefinitions, enteredAtComputed, orderDoesNotMatter, listedFirst, workedOutAgain, renaming, ruleInError]) {
+  for (const f of [theSample, semantics, grounds, apis, testDefinitions, enteredAtComputed, orderDoesNotMatter, listedFirst, workedOutAgain, renaming, ruleInError, ruleYouCanRelyOn]) {
     try { f(); } catch (e) { check(`${f.name} stopped`, false, `${e.message} ${e.stack.split('\n')[1]}`); }
   }
   const failed = out.filter(x => !x.ok).length;
