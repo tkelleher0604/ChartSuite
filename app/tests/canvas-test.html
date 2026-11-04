@@ -1447,9 +1447,9 @@ async function bendable() {
   if (!line) return;
   Shell.select([line.id]); await tick(250);
   const grips = () => $$('.dc-bend'), n0 = App.wb.changes().length, was = line.points.map(p => [...p]), z = cv().graph.zoom();
-  check('a line selected alone shows a yellow grip on each leg that can move', grips().length === line.points.length - 3 && getComputedStyle(grips()[0]).fill.includes('255'), `${grips().length} on ${line.points.length} points`);
-  const r = grips()[0].getBoundingClientRect(), [x, y] = [r.left + r.width / 2, r.top + r.height / 2], pointer = (t, yy, on) => on.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: yy, button: 0, buttons: t === 'pointerup' ? 0 : 1, pointerId: 1, isPrimary: true, view: window }));
-  pointer('pointerdown', y, grips()[0]);
+  check('a line selected alone shows a yellow grip on each of its legs, its first and last among them', grips().length === line.points.length - 1 && getComputedStyle(grips()[0]).fill.includes('255'), `${grips().length} on ${line.points.length} points`);
+  const r = grips()[1].getBoundingClientRect(), [x, y] = [r.left + r.width / 2, r.top + r.height / 2], pointer = (t, yy, on) => on.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: yy, button: 0, buttons: t === 'pointerup' ? 0 : 1, pointerId: 1, isPrimary: true, view: window }));
+  pointer('pointerdown', y, grips()[1]);
   for (let i = 1; i <= 6; i++) { pointer('pointermove', y + i * 2, window); await tick(16); }
   pointer('pointerup', y + 12, window); await tick(450);
   const m = () => sc().byId.get(line.id), note = () => App.notes.peek().resolve('Bend', Tree.treeOf(App.state.peek(), line.record), sc().view);
@@ -1465,6 +1465,48 @@ async function bendable() {
   reset?.click(); await tick(400);
   check('Reset clears it, and the line’s back on its route', !!reset && !note() && JSON.stringify(m().points) === JSON.stringify(was), JSON.stringify([!!reset, m().points, was]));
   Shell.parts.peek().undo.undo(); await tick(300); Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([]); await tick(150);
+  // A straight line, which is its first leg and its last: along its box's edge it stays one leg; past it, it adds a jog, and its ends hold.
+  const down = sc().marks.find(m => m.type === 'line' && m.points.length === 2 && Math.abs(m.points[0][0] - m.points[1][0]) < 0.5 && sc().byId.get(m.to)?.shape === 'triangle' && sc().byId.get(m.from)?.w > 60);
+  check('(a straight line into an apex to take aside)', !!down, '');
+  if (!down) return;
+  const drag1 = async by => { const g = grips()[0], q = g.getBoundingClientRect(), [gx, gy] = [q.left + q.width / 2, q.top + q.height / 2], go = (t, xx, on) => on.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, clientX: xx, clientY: gy, button: 0, buttons: t === 'pointerup' ? 0 : 1, pointerId: 1, isPrimary: true, view: window }));
+    go('pointerdown', gx, g); for (let i = 1; i <= 6; i++) { go('pointermove', gx + by * i / 6, window); await tick(16); } go('pointerup', gx + by, window); await tick(450); };
+  Shell.select([down.id]); await tick(250);
+  const st = down.points.map(p => [...p]), box = sc().byId.get(down.from), o1 = () => sc().byId.get(down.id), zz = cv().graph.zoom(), n1 = App.wb.changes().length;
+  check('a straight line has its one grip', grips().length === 1, `${grips().length}`);
+  await drag1(20 * zz);
+  const near = o1().points;
+  check('… dragged along its box’s edge, it leaves the box there and comes back to the apex: its end holds', Math.abs(near[0][0] - st[0][0] - 20) < 1.5 && Math.abs(near.at(-1)[0] - st[1][0]) < 0.5 && near.length === 4 && App.wb.changes().length === n1 + 1, JSON.stringify(near));
+  Shell.parts.peek().undo.undo(); await tick(300); Shell.select([down.id]); await tick(250);
+  await drag1((box.x + box.w + 30 - st[0][0]) * zz);
+  const far = o1().points;
+  check('… dragged past its box, it adds a jog at that end too, a leg across from the edge, five legs in all, square', far.length === 6 && far[0][0] < box.x + box.w && far.slice(1).every((p, i) => Math.abs(p[0] - far[i][0]) < 0.5 || Math.abs(p[1] - far[i][1]) < 0.5) && far.some(p => Math.abs(p[0] - box.x - box.w - 30) < 1.5), JSON.stringify(far));
+  check('… a grip then on every leg', grips().length === 5, `${grips().length}`);
+  Shell.parts.peek().undo.undo(); await tick(300);
+  // Find has it, and a line's menu from its grip.
+  const acts = Shell.parts.peek().action.filter(a => a.id === 'chart.route' || a.id === 'chart.unbend');
+  check('Find has its route, by Bend and Route', acts.length === 2 && acts.every(a => (a.names ?? []).includes('Bend') || a.name === 'Route…'), acts.map(a => a.name).join());
+  Shell.select([]); await tick(150);
+  // ---- Adding is on the box: its right-click's Add owner… and Add holding…, and a note beside what's selected ----
+  check('a box’s right-click adds to its stakes: its owner, its holding', Shell.parts.peek().inspector.adds('blocker').map(x => x.label).join() === 'Add owner…,Add holding…', Shell.parts.peek().inspector.adds('blocker').map(x => x.label).join());
+  Shell.select(['blocker']); await tick(250);
+  const b0 = sc().byId.get('blocker'), made = cv().insert('text', { text: 'Formed for ECI' }); await tick(300);
+  const memo = sc().marks.find(m => m.type === 'shape' && m.texts?.[0]?.text === 'Formed for ECI'), gapTo = memo && Math.hypot(Math.max(0, b0.x - memo.x - memo.w, memo.x - b0.x - b0.w), Math.max(0, b0.y - memo.y - memo.h, memo.y - b0.y - b0.h));
+  check('a note made with a box selected lands in the free room nearest beside it', !!made && !!memo && gapTo < 60 / sc().page.scale, `${gapTo}`);
+  // A place typed in pixels is read as points; a text box's Height holds its text, and says so; what's no measure is said.
+  Shell.select([memo.id]); await tick(250);
+  const typed = async (k, text) => { const f = $(`.insp [data-place="${k}"] input`); f.focus(); f.value = text; f.dispatchEvent(new Event('input', { bubbles: true })); f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(350); };
+  const pts = (k, m = sc().byId.get(memo.id)) => Scene.toSlide(sc().page, m[k] / Scene.PT);
+  await typed('x', '100 px');
+  check('“100 px” in Position is 75 pt', Math.abs(pts('x') - 75) < 0.2, `${pts('x')}`);
+  await typed('h', '2');
+  check('a text box’s Height typed under what its text needs stays, and says why', pts('h') > 2 && /Height stays .* its text needs that/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  await typed('y', 'abc');
+  check('what’s no measure is said', /isn’t a measure/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  const esc = $(`.insp [data-place="y"] input`); esc.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await tick(100); esc.blur(); await tick(100);
+  check('Position comes before Look, so a look given moves no field', !$$('.insp section').some((s, i, all) => s.dataset.title === 'Look' && all.slice(i).some(x => x.dataset.title === 'Position')));
+  for (let i = 0; i < 3; i++) { Shell.parts.peek().undo.undo(); await tick(250); }
   Shell.select([]); await tick(150);
 }
 
@@ -1798,7 +1840,10 @@ async function tidiedSome() {
   Shell.select([]); await tick(150);
   const button = () => txt($('[data-fb="tidy"]')), named = button();
   const own = m => [m.x - sc().page.offset.x, m.y - sc().page.offset.y], boxAt = () => new Map(sc().marks.filter(m => m.type === 'box').map(m => [m.id, own(m)]));
+  const barAt = () => ['font', 'bold', 'outline', 'arrange', 'tidy', 'zoom'].map(k => $(`[data-fb="${k}"]`).getBoundingClientRect().left), bar0 = barAt();
   Shell.select(['tessellate', 'northpine']); await tick(200);
+  const fb = $('.fb'), bar1 = barAt();
+  check('Tidy saying what it tidies moves nothing in the bar, and nothing in the bar goes off it', bar0.every((x, i) => Math.abs(x - bar1[i]) < 0.5) && fb.scrollWidth <= fb.clientWidth + 1 && $('[data-fb="zoom"]').getBoundingClientRect().right <= fb.getBoundingClientRect().right + 0.5, JSON.stringify([bar0, bar1, fb.scrollWidth, fb.clientWidth]));
   const name = button(), was = boxAt(), n0 = App.wb.changes().length;
   cv().tidy(); await tick(500);
   const toastSaid = txt($$('.toast').at(-1)), said = Time.describe(App.wb.changes().at(-1)), now = boxAt();
@@ -1808,6 +1853,18 @@ async function tidiedSome() {
   Shell.parts.peek().undo.undo(); await tick(400);
   const back = boxAt(), diff = [...was].filter(([id, p]) => !back.get(id) || Math.abs(back.get(id)[0] - p[0]) > 0.75 || Math.abs(back.get(id)[1] - p[1]) > 0.75);
   check('… and Undo puts them back', !diff.length, JSON.stringify(diff));
+  Shell.select([]); await tick(150);
+  // A box only the layout has placed, no change having kept it yet, dragged the first time, stands where it's put.
+  let fresh; App.change(tx => { fresh = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: fresh, edge: 'Name', field: 'text', value: 'First Drag LLC' }); }); await tick(400);
+  const m0 = sc().byId.get(fresh), z0 = cv().graph.zoom(), n1 = App.wb.changes().length;
+  check('(a box the layout placed)', !!m0 && !m0.placed, JSON.stringify(m0 && [m0.x, m0.placed]));
+  if (m0) {
+    await drag(m0, 40, 30);
+    const m1 = sc().byId.get(fresh);
+    check('… dragged the first time, it stands where it was put, one change, said so', m1.x > m0.x + 20 / z0 && m1.y > m0.y + 20 / z0 && App.wb.changes().length === n1 + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), JSON.stringify([m0.x, m0.y, m1.x, m1.y, Time.describe(App.wb.changes().at(-1))]));
+    Shell.parts.peek().undo.undo(); await tick(300);
+  }
+  Shell.parts.peek().undo.undo(); await tick(300);
   Shell.select([]); await tick(150);
 }
 

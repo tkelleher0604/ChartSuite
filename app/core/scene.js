@@ -1164,10 +1164,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     if (last) still(last, boxes, lines, frames);
     const furnished = () => furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? keyRow.kept ?? null, ceil, held, own: ownPage });
     let laid = furnished();
-    // A Key a hand put on the page: no line runs under it where the router has another way.
-    const dropped = !last && laid.shapes.find(m => m.geometry === 'legend' && !laid.places.has(m.row));
+    // The Key, wherever it stands, by a hand or the page's where the page has no other room for it: no line runs under it where the router has another way.
+    const dropped = !last && laid.shapes.find(m => m.geometry === 'legend');
     if (dropped) {
-      const q = { x: dropped.x - laid.dx, y: dropped.y - laid.dy, w: dropped.w, h: dropped.h }, under = l => l.points?.some((p, i) => i && Math.max(p[0], l.points[i - 1][0]) > q.x && Math.min(p[0], l.points[i - 1][0]) < q.x + q.w && Math.max(p[1], l.points[i - 1][1]) > q.y && Math.min(p[1], l.points[i - 1][1]) < q.y + q.h);
+      const on = laid.places.get(dropped.row) ?? dropped, q = { x: on.x - laid.dx, y: on.y - laid.dy, w: dropped.w, h: dropped.h }, under = l => l.points?.some((p, i) => i && Math.max(p[0], l.points[i - 1][0]) > q.x && Math.min(p[0], l.points[i - 1][0]) < q.x + q.w && Math.max(p[1], l.points[i - 1][1]) > q.y && Math.min(p[1], l.points[i - 1][1]) < q.y + q.h);
       const long = ps => ps.slice(1).reduce((s, p, k) => s + Math.hypot(p[0] - ps[k][0], p[1] - ps[k][1]), 0), runUnder = lines.filter(under);
       // (A way that isn't twice as long, and a little: a Key dropped in the chart's midst leaves its lines be, rather than send them round the page.)
       if (runUnder.length) {
@@ -1317,7 +1317,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])), lowered: boxes.filter(b => b.laid).map(b => [b.laid.y, b.y - page.offset.y - b.laid.y]),
     frames: new Map([...frames.values()].map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }])),
     routes: new Map(lines.map(l => [l.id, { from: l.from, to: l.to, points: l.points, labelAt: l.labelAt, down: l.down, landed: l.landed }])),
-    page, places: at.places,
+    page, places: at.places, key: (m => m && { x: m.x, y: m.y, w: m.w, h: m.h })(shapes.find(m => m.geometry === 'legend')),
   } : null;
   if (laid && !opts.ahead) laidOut.set(drawnAs, laid);
 
@@ -1628,10 +1628,11 @@ function still(last, boxes, lines, frames) {
     const flat = Math.abs(a[1] - b[1]) < 0.5 && Math.abs(c[1] - d[1]) < 0.5 && Math.abs(a[1] - c[1]) < 0.5, up = Math.abs(a[0] - b[0]) < 0.5 && Math.abs(c[0] - d[0]) < 0.5 && Math.abs(a[0] - c[0]) < 0.5, k = flat ? 0 : 1;
     return (flat || up) && Math.min(Math.max(a[k], b[k]), Math.max(c[k], d[k])) - Math.max(Math.min(a[k], b[k]), Math.min(c[k], d[k])) > 0.5;
   };
-  const free = l => !!l.points && !l.blocked && !kept.some(o => o.from !== l.from && o.to !== l.to && o.from !== l.to && o.to !== l.from && legs(l).some(s => legs(o).some(t => along(s, t))));
+  const q = last.key, underKey = l => !!q && legs(l).some(([a, b]) => Math.max(a[0], b[0]) > q.x && Math.min(a[0], b[0]) < q.x + q.w && Math.max(a[1], b[1]) > q.y && Math.min(a[1], b[1]) < q.y + q.h);
+  const free = l => !!l.points && !l.blocked && !underKey(l) && !kept.some(o => o.from !== l.from && o.to !== l.to && o.from !== l.to && o.to !== l.from && legs(l).some(s => legs(o).some(t => along(s, t))));
   for (const l of added) {
     if (free(l)) continue;
-    const way = { avoid: [...labels, ...cs], segs, page: last.page }, ps = Layout.around(geo, l.from, l.to, way) ?? Layout.around(geo, l.from, l.to, { ...way, strict: false });
+    const way = { avoid: [...labels, ...cs, ...(q ? [q] : [])], segs, page: last.page }, ps = Layout.around(geo, l.from, l.to, way) ?? Layout.around(geo, l.from, l.to, { ...way, strict: false });
     if (ps) Object.assign(l, { points: ps, down: ps.at(-1)[1] > ps[0][1] + 1, landed: undefined });
   }
   const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, points: l.points, label: l.label, arrow: l.settings.Arrow.value, down: l.down }));
@@ -1700,11 +1701,22 @@ function frameBounds(frames, boxes) {
       if (!boxes.some(b => !mine.has(b.id) && !b.revealed && b.x < right && b.x + b.w > left && b.y < f.y + f.h && b.y + b.h > f.y)) Object.assign(f, { x: left, w: right - left });
     }
   }
+  // No heading overprints another's: a frame drawn across another (boxes put by hand can draw one so) says its heading along from the other's.
+  const headed = [];
+  for (const f of [...frames.values()].filter(f => f.kind !== 'bracket' && !f.lone).sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const w = Math.max(0, ...(f.caption.lines ?? []).map(l => l.w)), h = f.label;
+    let from = f.x + 6;
+    for (const o of headed) if (Math.abs(o.y - f.y) < h && from < o.to + 8 && o.from < from + w + 8) from = o.to + 12;
+    const was = f.headAt;
+    if (from !== f.x + 6) f.headAt = from - f.x; else delete f.headAt;
+    if (f.headAt !== was) caption(f);
+    headed.push({ y: f.y, from, to: from + w });
+  }
 }
 // A frame's caption in it: at its top left, inside it; a bracket's over its middle; a lone frame's at its top.
 function caption(f) {
   const bracket = f.kind === 'bracket';
-  stack(f.caption, bracket || f.lone ? 0 : 6, bracket ? f.w : 0, bracket || f.lone ? 0 : 4);
+  stack(f.caption, bracket || f.lone ? 0 : f.headAt ?? 6, bracket ? f.w : 0, bracket || f.lone ? 0 : 4);
 }
 
 // What a style's output is called on the chart: its Caption, or its own name.
@@ -2096,8 +2108,11 @@ const toSlide = (page, v) => v * (page?.scale ?? 1), fromSlide = (page, v) => v 
 function says(scene, name, paper) {
   const p = scene.page, boxes = scene.marks.filter(m => m.type === 'box' && !m.revealed), called = b => name?.(b) ?? b.texts[0]?.text ?? 'A box', out = [], W = p.w, H = p.h;
   for (const f of p.short ?? []) out.push(`${f.what} print at ${+f.printed.toFixed(2)} pt${paper ? ` on ${paper}` : ''}: the chart doesn't fit at ${f.typed}`);
+  // (A quarter inch all round is what a printer leaves unprinted.)
+  const edge = fromSlide(p, 18 * PT);
   for (const b of boxes) if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > W + 0.5 || b.y + b.h > H + 0.5) out.push(`${called(b)} runs off the page`);
-  const over = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
+    else if (b.x < edge || b.y < edge || b.x + b.w > W - edge || b.y + b.h > H - edge) out.push(`${called(b)} is nearer the edge than a printer prints`);
+  const over =(a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
   const WHAT = { legend: 'The Key', picture: 'The picture', title: 'The title', date: 'The date', footer: 'The footer', number: 'The page number' };
   for (const m of scene.marks) if (m.type === 'shape' && !['line', 'group', 'frame'].includes(m.geometry) && (m.look?.Layer ?? 0) >= 0)
     for (const b of boxes) if (over(m, b)) out.push(`${WHAT[m.role] ?? WHAT[m.geometry] ?? `“${m.texts[0]?.text ?? 'A shape'}”`} overlaps ${called(b)}`);
