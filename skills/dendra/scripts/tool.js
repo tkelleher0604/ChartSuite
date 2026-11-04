@@ -92,11 +92,11 @@ function words(S, N) {
       const formula = g.specs.map(x => worked.get(T.paramKey(x))).find(Boolean) ?? null;
       const order = N.order(p);
       return { ...g, takes, options, formula, order: typeof order === 'number' ? order : Infinity,
-        required: N.required(p), check: N.check(p), start: N.isStart(s), end: N.isEnd(s), description: N.description(p) ?? null };
+        required: g.specs.some(x => N.required(T.bare(x))), check: N.check(p), start: N.isStart(s), end: N.isEnd(s), description: N.description(p) ?? null };
     }).sort((a, b) => (T.same(a.edge, 'Name') ? -1 : T.same(b.edge, 'Name') ? 1 : 0) || a.order - b.order || a.edge.localeCompare(b.edge));
   }
   const kinds = [...new Set(specs.filter(s => s.kind && s.kind !== 'View').map(s => s.kind))];
-  // A relation named in more than one place (Evidence, of a position and of a signing authority) is one.
+  // A relation of several shapes (Evidence, of an ownership, a position or a signing authority) is one, by its name.
   const byName = new Map();
   for (const r of N.relations(S)) {
     const id = `${T.norm(r.name)}|${r.edges.map(T.norm).sort()}`;
@@ -115,7 +115,7 @@ function words(S, N) {
 // (an Entity whose Entity Type is Limited Partnership).
 function placeWords(loc, N) {
   if (loc.kind) return loc.kind;
-  if (loc.args?.length > 1) return `a ${N.name(T.bare(loc))}${loc.out?.choice ? ` (${loc.out.choice})` : ''}`;
+  if (loc.args?.length > 1) { const name = N.name(T.bare(loc)); return `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}${loc.out?.choice ? ` (${loc.out.choice})` : ''}`; }
   const a = loc.args?.[0];
   if (!a) return 'anything';
   const v = loc.out?.choice ?? (loc.out?.tag === true ? 'checked' : loc.out?.tag === false ? 'unchecked' : null);

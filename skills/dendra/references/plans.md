@@ -87,7 +87,7 @@ A plan is a JSON file of records to put in a chart, written in the chart's own w
   - an Annual Tax's Taxpayer, at its Jurisdiction (Delaware).
 
   Name the object all the same; the tool places the side. If the object hasn't the entry the relation needs (a general partner of an LLC, say), the tool refuses and says what each side is.
-- **A side that is itself a relation**, as what a document evidences (a Position, a Signing Authority), is given by id: `"Evidenced": { "id": "mvq…" }`.
+- **A side that is itself a relation**, as what a document evidences (an Ownership, a Position, a Signing Authority), is given by id: `"Evidenced": { "id": "mvq…" }`.
 
 ## A record by its id
 
