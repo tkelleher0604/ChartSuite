@@ -296,9 +296,9 @@ const Time = (() => {
     // brought back, by its name.
     const begun = all.find(i => i.type === 'chart' && !(i.was.length && i.now.length));
     if (begun) return whole(!begun.now.length ? `Deleted the chart ${begun.was[0].name}` : back ? `Restored the chart ${begun.now[0].name}` : `Began the chart ${begun.now[0].name}`);
-    // (A merger, an insertion or a transfer is one act, read from all it writes, whichever part of it's asked about.)
-    const transferred = !back && (mergedIn(held, rec, recs, N) ?? interposedIn(held, rec, recs, N) ?? transferIn(held, rec, recs, N));
-    if (transferred) return whole(transferred);
+    // (A merger, an insertion and a transfer are each one act, read from all it writes, whichever part of it's asked about.)
+    const act = !back && (mergedIn(held, rec, recs, N) ?? interposedIn(held, rec, recs, N) ?? transferIn(held, rec, recs, N));
+    if (act) return whole(act);
     const objects = all.filter(i => i.type === 'record' && Tree.isObject(rec(i)));
     const made = objects.filter(i => !i.was.length), gone = objects.filter(i => !i.now.length);
     const moved = new Set([...made, ...gone].map(i => i.id));
@@ -798,7 +798,7 @@ const Time = (() => {
     worked.value;
     const { recs } = E, N = notesNow(), of = (focus.value ?? []).filter(id => recs[id]);
     const near = of.length ? Tree.dependents(recs, of) : null;
-    const nameOf = id => { const [what, whose] = said(recs, id, N); return recs[id].args ? `${what}: ${whose}` : whose || what; };
+    const nameOf = id => { const [what, whose] = said(recs, id, N); return recs[id].args ? `${what}: ${whose}` : Tree.isObject(recs[id]) || !whose ? whose || what : `${what} of ${whose}`; };
     const touches = c => [...c.adds, ...c.removes.map(id => E.rows.get(id)).filter(Boolean)]
       .some(r => near.has(r.record) || ('note' in r && [...Tree.idsIn(r.pattern)].some(id => near.has(id))));
     const linesOf = c => near ? read(c, near) : reading(c);

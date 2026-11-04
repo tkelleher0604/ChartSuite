@@ -607,7 +607,7 @@ function typedBy(anchor, id) {
   Shell.popover(anchor, close => html`<div class="typed">
     <p class="who">${by.who}</p><p class="meta">${whenTyped(by.when)}${by.since ? ` · from ${short(by.since)}` : ''}${by.before ? ` · until ${short(by.before)}` : ''}</p>
     ${by.note ? html`<p class="note">${by.note}</p>` : null}
-    <button class="btn ghost" onClick=${() => { close(); select([id]); if (Time.of) Time.of([id]); else Time.open('all'); }}>History</button></div>`, { placement: 'bottom-start' });
+    <button class="btn ghost" onClick=${() => { close(); select([id]); Time.of([id]); }}>History</button></div>`, { placement: 'bottom-start' });
 }
 function Label({ it, fx }) {
   const r = it.id && recs()[it.id];
