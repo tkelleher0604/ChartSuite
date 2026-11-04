@@ -151,7 +151,8 @@ function unentered(at) {
 // A document is an object with a link among its entries.
 const linkOf = id => entriesAt(id).find(e => recs()[e].field === 'document');
 // A kind whose records can have a link: a document, whether or not this one has it yet.
-const docKind = k => !!k && Object.values(App.schema.value).some(s => s.out?.field === 'document' && s.args?.length === 1 && T.same(s.args[0].loc.kind ?? '', k));
+const docKinds = computed(() => new Set(Object.values(App.schema.value).filter(s => s.out?.field === 'document' && s.args?.length === 1 && s.args[0].loc.kind).map(s => T.norm(s.args[0].loc.kind))));
+const docKind = k => !!k && docKinds.value.has(T.norm(k));
 // A record's relatives by list (Owners, Holdings), and its documents. A relation located anywhere in it
 // lists its other sides under the name of their list, the first side by its edges' order and the rest beside.
 // A relation ruled out makes no relative: it's said once, as a "not", on the side its edges name first.
@@ -1222,8 +1223,8 @@ function RecordView({ id }) {
         <div class="v ctl"><${Output} id=${id} slot=${r} label=${name} /></div></div>`}
       ${'field' in r ? null : html`<${Entries} at=${id} depth=${0} /><${AddRow} at=${id} also=${moving} />`}
     </div>
-    <${Relatives} id=${id} />
     <${MergedIn} id=${id} />
+    <${Relatives} id=${id} />
     <${HiddenHere} id=${id} />
     ${(r.kind || r.args) && App.scene.value?.byId.has(id) ? html`<${Look} id=${id} />` : null}
   </div>`;
