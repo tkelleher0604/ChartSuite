@@ -952,8 +952,11 @@ const Shell = (() => {
   // ---- The status bar: what needs attention, counted, the worst first; F8 steps through it in that order ----
   // Each kind as the bar says it, what it means on hover where its name doesn't say, and the words Find reaches it by
   // besides: a deadline is settled by Paid… or Filed… (inspector.js).
-  const KINDS = [['overdue', n => `${n} overdue`, ['Paid', 'Filed']], ['error', n => n === 1 ? '1 error' : `${n} errors`, []],
-    ['soon', n => `${n} due soon`, ['Paid', 'Filed'], 'Due within 30 days'], ['blank', n => `${n} blank`, []]];
+  // A rule that can't be worked out is apart from who fails what a rule says, each rule counted once however many records it can't say of; and what's typed
+  // over a rule is kept in the open, a decision and not a problem.
+  const KINDS = [['broken', n => n === 1 ? '1 rule broken' : `${n} rules broken`, ['Broken rule', 'Doesn’t work'], 'What it gives can’t be relied on'], ['overdue', n => `${n} overdue`, ['Paid', 'Filed']], ['error', n => n === 1 ? '1 error' : `${n} errors`, []],
+    ['soon', n => `${n} due soon`, ['Paid', 'Filed'], 'Due within 30 days'], ['blank', n => `${n} blank`, []], ['overrides', n => `${n} typed over`, ['Override', 'Overrides', 'Waiver', 'Waivers', 'Exception'], 'What’s typed over what a rule says']];
+  const counted_ = (k, items) => { const of = items.filter(it => it.kind === k); return k === 'broken' ? new Set(of.map(it => it.error?.def ?? it.id)).size : of.length; };
   const worst = it => KINDS.findIndex(([k]) => k === it.kind);
   const needs = () => many('attention').flatMap(a => a.items());
   // F8 goes on from wherever it is through them all.
@@ -994,7 +997,7 @@ const Shell = (() => {
     menu(anchor, q => q ? rank(of(), q) : [...days(), ...told(of())], { search: true, cls: 'needs', placement: 'top-end' });
   }
   const countButton = kind => document.querySelector(`.status .counts > .${kind}`);
-  const counts = () => { const items = needs(); return KINDS.map(([k, say, names, tip]) => ({ k, say, names, tip, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
+  const counts = () => { const items = needs(); return KINDS.map(([k, say, names, tip]) => ({ k, say, names, tip, n: counted_(k, items) })).filter(c => c.n); };
   // In Find, each count opens its list, as the bar's does.
   const counted = () => counts().map(c => ({ label: c.say(c.n), names: c.names, detail: 'Problem', run: () => setTimeout(() => listOf(c.k, countButton(c.k))) }));
   // The bar counts once the window has drawn what changed, as Excel's catches up, for on a big chart counting takes
