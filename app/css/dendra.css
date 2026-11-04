@@ -37,7 +37,7 @@
   --hover: rgb(27 30 29 / .05); --press: rgb(27 30 29 / .09);
   --selected: #e3e9f2;
   --accent: #2c4c7c; --accent-ink: #2c4c7c; --on-accent: #ffffff; --focus: #2c4c7c;
-  --yes: #2e7d4f; --no: #c2372b; --due: #9a6300;
+  --yes: #2e7d4f; --no: #c2372b; --due: #915e00;
   --scrim: rgb(27 30 29 / .30); --backdrop: rgb(27 30 29 / .18);
   --toast: #1b1e1d; --toast-ink: #f7f6f3; --toast-act: #b9cdea;
   --shadow-pop: 0 1px 2px rgb(27 30 29 / .06), 0 8px 24px -4px rgb(27 30 29 / .16);
