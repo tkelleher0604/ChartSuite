@@ -1328,7 +1328,7 @@ function Bar() {
     <span class="sep" />
     <div class=${'scope' + (scope?.own ? ' own' : '') + (none && !root ? ' off' : '')} role="group" aria-label="Format" data-fb="scope" onPointerEnter=${wake}>
       ${root ? html`<button class="dd root" data-fb="all" aria-haspopup="menu" data-tip="Every text on this page that nothing narrower sets; or what its list aims at"
-        onClick=${e => Shell.menu(e.currentTarget, [{ label: 'All text', checked: true, run: () => {} }, ...Scene.groupsOf(App.notes.peek(), c.scene().view).filter(g => !g.off).flatMap((g, i, all) => [...g.name && g.name !== all[i - 1]?.name ? [{ head: g.name }] : [], { label: g.caption, run: () => aim(g) }])], { placement: 'bottom-start' })}><span>All text</span></button>` : none ? html`<button disabled><span>Nothing selected</span></button>` : null}
+        onClick=${e => Shell.menu(e.currentTarget, [{ label: 'All text', checked: true, run: () => {} }, ...Scene.groupsOf(App.notes.peek(), c.scene().view).filter(g => !g.off).flatMap((g, i, all) => [...g.name ? (g.name !== all[i - 1]?.name ? [{ head: g.name }] : []) : all[i - 1]?.name ? ['-'] : [], { label: g.caption, run: () => aim(g) }])], { placement: 'bottom-start' })}><span>All text</span></button>` : none ? html`<button disabled><span>Nothing selected</span></button>` : null}
       ${ownPart ? html`<button aria-pressed=${!!scope?.own} data-fb="own" data-tip=${like ? 'Just the selection' : null} data-keys=${like ? 'Ctrl+Shift+A' : null}
         onClick=${() => choose(ownPart)}><span>${ownPart.label}</span></button>` : null}
       ${like ? html`<button aria-pressed=${!scope?.own} data-fb="like" data-tour="like" data-keys=${ownPart ? 'Ctrl+Shift+A' : null} onPointerOver=${whole}
