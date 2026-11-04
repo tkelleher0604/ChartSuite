@@ -77,7 +77,7 @@ Entity
       Registered On: date
   Dissolution Date: date · ends it
   ERISA Plan Assets: a checkbox · worked out (ERISA Plan Assets)
-    A fund’s assets are plan assets where benefit plan investors hold 25% or more of it, unless it’s an operating company, a venture capital operating company on the opinion of counsel.
+    Whether a fund’s assets are plan assets: benefit plan investors hold 25% or more of it, and it isn’t an operating company, a venture capital operating company on the opinion of counsel.
   Investment Company: a checkbox · worked out (Investment Company)
     An investment company under the Investment Company Act; here, a business development company.
   Investment Company Status: one of “3(c)(7) Fund”, “Business Development Company” or “Unit Investment Trust”
@@ -183,7 +183,7 @@ Position · one of “Director”, “Officer” or “Employee”
   Company: Entity
   End Date: date · ends it
   Start Date: date · required · starts it
-  Title: text
+  Title: text · required
 
 Investment Adviser
   Adviser: Entity
