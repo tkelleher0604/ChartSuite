@@ -14,7 +14,7 @@ A **dated record** is a record together with a nonempty period, its **validity**
 
 A record of a timeline **holds** on a day d if it is valid on d and each of its locations holds on d. The records that hold on d are **the chart as of d**. Sanity check: the chart as of d is a state. It is closed under locations by the definition of holding, and two of its records with one argumentation would both be valid on d.
 
-A kind or relation may name a date entry at it as its **start** and another as its **end** (see Notes): an Entity's are Formation Date and Dissolution Date, a General Partner's Admission Date and Withdrawal Date. A record's validity is then its own period narrowed to the days from its start, if it has one, and before its end. So Formation Date stays an ordinary field, and a fund is in the chart as of a day only once it's formed.
+A kind or relation may name a date entry at it as its **start** and another as its **end** (see Notes): an Entity's are Formation Date and Dissolution Date, a General Partner's Admission Date and Withdrawal Date. A record's validity is then its own period narrowed to the days from its start, if it has one, and before its end. So Formation Date stays an ordinary field, and a fund is in the chart as of a day only once it's formed. A kind may name more than one end, each its own act: an Entity's Merger Date ends it as its Dissolution Date does, by a merger, a relation of the entity merged and its survivor (Merged Into, from the entity merged), which takes one entity, as a check says. Like all that's at the entity, the relation holds until the day it ends.
 
 So a record added holds from its start, whenever it's recorded: a fund added today is in the chart from its Formation Date, and an object with no start, a person, is in it all along. A relation with none, an ownership or a membership, has only its own period, so the day it begins is said as it's added: the day it began, or none, for what was always so.
 
@@ -32,7 +32,7 @@ A tax owed **year by year** is a relation of what owes it and a year, an object 
 
 An **item** is anything in a workbook with an identity: a chart, a specification of its schema (so a kind or an option can exist before any record has it), a record, a note or a free shape. A **row** is a version of an item; a dated record's row carries its validity.
 
-A **change** removes some rows and adds others, and says who made it and when. A **log** is a set of changes in which every row removed was added by a change in the log. A row is **live** if it was added and not removed. **A workbook is its log**: its timeline, notes, views and charts are its live rows.
+A **change** removes some rows and adds others, and says who made it and when, and may say why, in a **note** of its own that History shows beside it. A **log** is a set of changes in which every row removed was added by a change in the log. A row is **live** if it was added and not removed. **A workbook is its log**: its timeline, notes, views and charts are its live rows.
 
 The **reverse** of a change removes the rows it added and adds fresh copies of the rows it removed; it can be made while every row the change added is live. **Undo** reverses your latest change not yet reversed, and **Redo** your latest undo, if you have made no change since. An item is **deleted** when it has rows in the log and none live. **Restoring** it adds fresh copies of what the change that deleted it removed of it and of what was at it, and nothing else that change did; it can be made while what the item is at is live.
 
@@ -54,7 +54,7 @@ A **note** is an entry located at a pattern, and optionally also at a view, labe
 | --- | --- |
 | Name, Description | what a kind, entry or relation is called and means; on a parameter, the name of its list of relatives (Owners, Holdings) |
 | Order | where an entry sits among its location's entries |
-| Required | that a blank one needs attention |
+| Required | that a blank one needs attention; a narrower note can say it doesn't, as a Director's Title, the position saying it |
 | Check | that one ruled out needs attention: on a definition, that it checks something |
 | Start, End | which entries are the start and end of what they're at |
 | Formula | how its records are worked out (see Definitions) |

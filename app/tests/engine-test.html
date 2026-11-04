@@ -68,15 +68,15 @@ const rebuttal = { x_rebut: { args: [{ edge: 'Controller', at: 'okafor' }, { edg
 function theSample() {
   const R = workOut();
   const { definitions } = SAMPLE_INPUTS;
-  check('Notes gives the sample’s 29 definitions, each with what it covers and its rows', definitions.length === 29 && definitions.every(d => d.covers.length && d.rows.length && d.type));
+  check('Notes gives the sample’s 32 definitions, each with what it covers and its rows', definitions.length === 32 && definitions.every(d => d.covers.length && d.rows.length && d.type));
   check('…and none has a problem', !Object.keys(R.defErrors).length, JSON.stringify(R.defErrors));
   const problems = definitions.flatMap(d => d.rows.flatMap(r => Formulas.check(r.formula, { computed: R, def: d.id }).problems.map(p => `${d.id}: ${p.message}`)));
   check('…nor any of their rows, names included', !problems.length, problems.slice(0, 3).join(' | '));
   const counts = {};
   for (const c of Object.values(R.computed)) counts[c.def] = (counts[c.def] ?? 0) + 1;
   const total = Object.keys(R.computed).length;
-  check(`The sample works out 600 computed records, with no errors: the 577 before, and the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate})`,
-    total === 600 && !R.errors.length && counts.def_bdc_affiliate === 23 && total - counts.def_bdc_affiliate === 577, `${total} computed, ${R.errors.length} errors`);
+  check(`The sample works out 610 computed records, with no errors: the 577 before, the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate}), and each private fund’s Benefit Plan Percentage and ERISA Plan Assets`,
+    total === 610 && !R.errors.length && counts.def_bdc_affiliate === 23 && counts.def_benefit_plan === 5 && counts.def_erisa === 5 && total - counts.def_bdc_affiliate - counts.def_benefit_plan - counts.def_erisa === 577, `${total} computed, ${R.errors.length} errors`);
   // Control 66 → 51: the feeder, the Cayman GP and the holding company no longer control the fund and what it
   // controls (15), since a limited partnership interest carries no vote. 3(c)(1) Count 5 → 0: every fund is 3(c)(7).
   // The Delaware tax 7 → 10: the AIV owes tax years 2025 and 2026, and the two blockers their franchise tax for
@@ -88,7 +88,7 @@ function theSample() {
   const want = { def_control: 51, def_affiliated: 289, def_close: 21, def_remote: 22, def_look_through: 51, def_adds_up: 11, def_tax: 6,
     def_private_fund: 5, def_investment_company: 1, def_annual_tax: 10, def_annual_tax_amount: 22, def_annual_tax_owed: 10, def_annual_return: 2,
     def_form_adv: 1, def_form_pf: 1, def_cima_fee: 1, def_cima_accounts: 1, def_crs: 1, def_fatca: 1, def_form_d: 2, def_cftc: 3, def_lei: 4,
-    def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13 };
+    def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13, def_benefit_plan: 5, def_erisa: 5 };
   const off = Object.keys({ ...want, ...counts }).filter(d => want[d] !== counts[d]);
   check('…by definition: Control 51, Affiliated Person 289, Close Affiliate 21, Remote Affiliate 22, Look-Through Ownership 51, and the rest', !off.length,
     off.map(d => `${d} ${counts[d]} (want ${want[d]})`).join(', '));
@@ -130,7 +130,7 @@ function theSample() {
   check('Tax Classification agrees with the entered classifications of the fund, the GP, the manager and the blocker', ['fund_tax', 'gp_tax', 'mgmt_tax', 'blocker_tax'].every(id => R.covered[id]?.agrees === true));
   check('Tax Classification gives the feeder, an exempted limited partnership, nothing', !entryRow(R, 'def_tax', 'feeder'));
 
-  for (const [a, b, want] of [['inv_nonus', 'fund', 0.284], ['inv_nonus', 'northpine', 0.18176], ['inv_us', 'halvard', 0.58712], ['coinv', 'corvane', 0.125]]) {
+  for (const [a, b, want] of [['inv_nonus', 'fund', 0.284], ['inv_nonus', 'northpine', 0.18176], ['inv_us', 'halvard', 0.58712], ['coinv', 'corvane', 0.08]]) {
     const got = pairRow(R, 'def_look_through', a, b)?.value;
     check(`Look-through ${a} → ${b} is ${+(want * 100).toFixed(3)}%`, Math.abs(got - want) < 1e-12, got);
   }
@@ -317,7 +317,7 @@ function theSample() {
     && !Object.keys(R.computed).some(id => R.records[id].tag === false && R.computed[id].def === 'def_remote' && N.check(Tree.treeOf(R.records, id))), failing.map(id => R.computed[id].def).join());
   // What needs attention, as the status bar counts it: those 4 its errors, its deadlines worked out, its blanks required.
   const needs = Formulas.attention(R, N, DAY), count = k => needs.filter(a => a.kind === k).length;
-  check('What needs attention: 2 overdue, 4 errors (the checks failed), 2 due soon and 5 blank, each where it is', count('overdue') === 2 && count('soon') === 2 && count('blank') === 5
+  check('What needs attention: 2 overdue, 4 errors (the checks failed), 2 due soon and 1 blank, each where it is', count('overdue') === 2 && count('soon') === 2 && count('blank') === 1
     && needs.filter(a => a.kind === 'error').map(a => a.id).sort().join() === failing.sort().join()
     && needs.every(a => a.kind === 'blank' ? !Object.values(R.records).some(r => r.at === a.id && Tree.same(r.edge, a.edge)) : a.kind === 'error' || (R.records[a.id].field === 'date' && (a.kind === 'overdue') === R.records[a.id].value < DAY)),
     ['overdue', 'error', 'soon', 'blank'].map(k => `${count(k)} ${k}`).join(', '));
@@ -325,7 +325,7 @@ function theSample() {
   // other notes, it asks them, and with no Required note there's no blank.
   const again = Formulas.attention(R, N, DAY), unrequired = Notes.index(WB.rows(CHART).filter(r => 'note' in r && r.label !== 'Required'));
   check('… the same asked again, and asked afresh of other notes: with none required, none blank', JSON.stringify(again) === JSON.stringify(needs)
-    && !Formulas.attention(R, unrequired, DAY).some(a => a.kind === 'blank') && Formulas.attention(R, N, DAY).filter(a => a.kind === 'blank').length === 5);
+    && !Formulas.attention(R, unrequired, DAY).some(a => a.kind === 'blank') && Formulas.attention(R, N, DAY).filter(a => a.kind === 'blank').length === 1);
 }
 
 // ---- The semantics ----

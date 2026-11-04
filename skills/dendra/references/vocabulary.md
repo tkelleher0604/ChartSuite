@@ -65,6 +65,8 @@ Entity
       Last Affirmed: date
   BDC Affiliate: a checkbox · worked out (BDC Affiliate)
     A person that is the BDC, or a close or remote affiliate of it.
+  Benefit Plan Percentage: percent · worked out (Benefit Plan Percentage)
+    How much of a private fund benefit plan investors hold, by each investor group’s look-through ownership of it.
   CIMA Registered: a checkbox
     at checked:
       Annual Fee Due: date · worked out (Annual Fee Due)
@@ -74,12 +76,14 @@ Entity
       Last Paid: date
       Registered On: date
   Dissolution Date: date · ends it
-  ERISA Plan Assets: a checkbox
+  ERISA Plan Assets: a checkbox · worked out (ERISA Plan Assets)
+    A fund’s assets are plan assets where benefit plan investors hold 25% or more of it, unless it’s an operating company, a venture capital operating company on the opinion of counsel.
   Investment Company: a checkbox · worked out (Investment Company)
     An investment company under the Investment Company Act; here, a business development company.
   Investment Company Status: one of “3(c)(7) Fund”, “Business Development Company” or “Unit Investment Trust”
     at “Business Development Company”:
       1940 Act File Number: text
+  Merger Date: date · ends it
   Ownership Adds Up: a checkbox · worked out (Ownership Adds Up) · a check
     Whether the owners charted hold 100% of the entity.
   Private Fund: a checkbox · worked out (Private Fund)
@@ -125,12 +129,14 @@ Investor Group
   Name: text
   Beneficial Owners: number · required
     How many beneficial owners the group stands for, as section 3(c)(1) counts them.
+  Benefit Plan Investors: percent
+    How much of the group is benefit plan investors, as the plan asset rule’s 25% test counts them.
   Ownership Adds Up: a checkbox · worked out (Ownership Adds Up) · a check
     Whether the owners charted hold 100% of the entity.
 
 Document
   Name: text
-  Document Type: one of “Advisory Agreement”, “Articles of Incorporation”, “Bylaws”, “Certificate of Formation”, “Certificate of Incorporation”, “Certificate of Limited Partnership”, “Certificate of Registration”, “Compliance Analysis”, “Consent”, “Correspondence”, “Exemptive Relief”, “Incumbency Certificate”, “Limited Partnership Agreement”, “Memorandum and Articles”, “Minutes”, “Operating Agreement”, “Policy”, “Regulatory Filing”, “Resolution”, “Side Letter” or “Tax Document” · required
+  Document Type: one of “Advisory Agreement”, “Articles of Incorporation”, “Bylaws”, “Certificate of Formation”, “Certificate of Incorporation”, “Certificate of Limited Partnership”, “Certificate of Registration”, “Compliance Analysis”, “Consent”, “Correspondence”, “Exemptive Relief”, “Incumbency Certificate”, “Limited Partnership Agreement”, “Memorandum and Articles”, “Minutes”, “Operating Agreement”, “Policy”, “Regulatory Filing”, “Resolution”, “Side Letter”, “Stock Certificate”, “Tax Document” or “VCOC Opinion” · required
   Document Date: date · required
   Status: one of “Draft”, “Final”, “Executed”, “Filed” or “Superseded” · required
   Version: text
@@ -146,10 +152,6 @@ Service Provider
 
 
 RELATIONS (each a line or a list; its sides by their edges)
-
-Evidence
-  Document: Document
-  Evidenced: a Signing Authority, a Position (Officer) or a Position (Director)
 
 Annual Tax · worked out (Annual Tax)
   Taxpayer: Entity whose Jurisdiction is Delaware
@@ -181,7 +183,7 @@ Position · one of “Director”, “Officer” or “Employee”
   Company: Entity
   End Date: date · ends it
   Start Date: date · required · starts it
-  Title: text · required
+  Title: text
 
 Investment Adviser
   Adviser: Entity
@@ -194,6 +196,10 @@ Concerns
 Registered Agent
   Agent: Service Provider
   Principal: Entity whose Jurisdiction is Cayman Islands or Entity whose Jurisdiction is Delaware
+
+Evidence
+  Document: Document
+  Evidenced: a Signing Authority, an Ownership, a Position (Director), a Position (Officer) or a Position (Employee)
 
 Control · worked out (Control)
   Controller: Entity or Individual
@@ -219,6 +225,13 @@ Remote Affiliate · worked out (Remote Affiliate)
   Remote Affiliate: Entity or Individual
   BDC: Entity whose Investment Company Status is Business Development Company
   Section 57(e): The provisions of subsection (d) shall apply to the following persons:
+
+Merger
+  Merged: Entity
+  Survivor: Entity
+  An entity merged into its survivor, on its Merger Date.
+  One Survivor: a checkbox · worked out (One Survivor) · a check
+    Whether the entity merged has one survivor.
 
 Ownership
   Owner: Investor Group, Entity or Individual
