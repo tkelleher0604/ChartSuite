@@ -1266,7 +1266,7 @@ const FormulaBar = (() => {
     if (v === null || v === undefined) return '—';
     if (Array.isArray(v)) return !v.length ? '—' : v.slice(0, 5).map(x => show(x, pct)).join(', ') + (v.length > 5 ? `, +${v.length - 5}` : '');
     if (v?.t === 'err') return v.code;
-    if (v?.t === 'date') return Tree.formatDate(v.iso);
+    if (v?.t === 'date') return Tree.formatDate(v.known ?? v.iso);
     if (v?.t === 'rec') { const r = v.id && Rv.records[v.id]; return !r ? '—' : isObj(r) ? nameOf(Rv, v.id) : Tree.outputText(r); }
     if (v === true || v === false) return v ? 'TRUE' : 'FALSE';
     if (typeof v === 'number') return Tree.format(pct ? 'percent' : 'number', v);
@@ -2154,7 +2154,7 @@ const FormulaBar = (() => {
     if (!r.cited || !m.covered || m.covered.agrees || v === null || v === undefined) return null;
     if (Formulas.isError(v)) return html`<span class="err">${v.code}</span>`;
     if ('tag' in m.rec) return html`<span class=${'tag fx ' + (v ? 'yes' : 'no')} />`;
-    return html`<span class="fx">${v?.t === 'date' ? Tree.formatDate(v.iso) : typeof v === 'number' ? Tree.format(m.rec.field, v) : String(v)}</span>`;
+    return html`<span class="fx">${v?.t === 'date' ? Tree.formatDate(v.known ?? v.iso) : typeof v === 'number' ? Tree.format(m.rec.field, v) : String(v)}</span>`;
   }
   // A new row, at the end, with the cursor in it.
   let fresh = null;
@@ -2283,11 +2283,11 @@ const FormulaBar = (() => {
     const st = App.state.peek(), n = N(), words = norm(q).split(' ').filter(Boolean);
     if (words.length < 2) return [];
     const related = Tree.index(st).relations;
-    const objects = Object.keys(st).filter(id => isObj(st[id]) && !Tree.isView(st[id])).map(id => ({ id, ties: related.get(id)?.length ?? 0, names: [n.shortOf(st, id), n.nameOf(st, id)].map(x => norm(x).replace(/^the /, '')) }));
+    const objects = Object.keys(st).filter(id => isObj(st[id]) && !Tree.isView(st[id])).map(id => ({ id, ties: related.get(id)?.length ?? 0, names: [n.shortOf(st, id), n.nameOf(st, id), ...App.formerNames(id, App.day.peek(), st).map(f => f.name)].map(x => norm(x).replace(/^the /, '').replace(/[,.]/g, '')) }));
     // Its name, what its name begins with, or words its name has; between equals, the one with the most relations.
     const best = part => { const t = part.join(' '), w = ` ${t} `, score = ({ names }) => names.includes(t) ? 0 : names.some(x => x.startsWith(`${t} `)) ? 1 : names.some(x => ` ${x} `.includes(w)) ? 2 : 3;
       return objects.map(o => [score(o), o.ties, o]).filter(x => x[0] < 3).sort((a, b) => a[0] - b[0] || b[1] - a[1])[0]; };
-    if ((best(words)?.[0] ?? 3) < 2) return [];   // one name, already
+    if ((best(words)?.[0] ?? 3) < 3) return [];   // one name, already
     let pair = null;
     for (let i = 1; i < words.length; i++) {
       const a = best(words.slice(0, i)), b = best(words.slice(i));

@@ -211,8 +211,15 @@ async function historyChecks(ours, fund) {
   // ---- A rename says from when ----
   const fundName = Object.keys(st()).find(id => st()[id].at === fund && st()[id].edge === 'Name');
   Shell.at({ asOf: '2037-03-01' }); await tick(80);
-  const renamed = App.change(tx => tx.update(fundName, { value: 'Calder Ridge Fund III, L.P.' })); await tick(80);
+  const fundWas = st()[fundName].value, renamed = App.change(tx => tx.update(fundName, { value: 'Calder Ridge Fund III, L.P.' })); await tick(80);
   check('A rename says from when', / to Calder Ridge Fund III, L\.P\. from Mar 1, 2037$/.test(Time.describe(renamed)), Time.describe(renamed));
+  // What's typed before names it as it was then; and it says what it was called, as of a day after.
+  const earlier = App.wb.changes().filter(c => c.when < renamed.when && c.chart === App.chart.peek()).map(c => Time.describe(c));
+  const shortId = Tree.entryAt(st(), fund, 'Short Name'), shortened = App.change(tx => tx.update(shortId, { value: 'Fund Three' })); await tick(80);
+  const saying = App.wb.changes().filter(c => c.when < renamed.when && c.chart === App.chart.peek()).map(c => Time.describe(c));
+  check('An entry names a record as it was named then, whatever it’s been renamed since', saying.some(x => /\bFund III\b/.test(x)) && !saying.some(x => /Fund Three/.test(x)) && !earlier.some(x => x.includes('Calder Ridge Fund III, L.P.')), saying.filter(x => /Fund (III|Three)\b/.test(x)).slice(0, 2).join(' / '));
+  undo(); await tick(60);
+  check('… and a record says what it was called, and until when', App.formerNames(fund, '2037-06-01')[0]?.name === fundWas && App.formerNames(fund, '2037-06-01')[0]?.until === '2037-03-01' && !App.formerNames(fund, '2037-01-01', App.wb.asOf(App.chart.peek(), '2037-01-01')).length, JSON.stringify(App.formerNames(fund, '2037-06-01')));
   undo(); await tick(60);
   Shell.at(null); await tick(80);
 
@@ -326,10 +333,28 @@ async function historyChecks(ours, fund) {
   // ---- The status list: what's one problem is one ----
   Shell.closeAll(); await tick(40);
   $('.status .counts .error')?.click(); await tick(100);
-  const heads = $$('.float .menu.needs .menu-head').map(x => x.textContent);
+  const heads = $$('.openlist .ol-head').map(x => x.textContent);
   check('The status list groups failures of one rule by one person, under a head', heads.some(x => /^Capacity Held · David R\. Okafor \(\d+\)$/.test(x)), heads.join(' / '));
-  check('… each under it where it is, with what’s wrong', $$('.float .menu.needs .menu-item').some(x => /David R\. Okafor for Fund III, via GP III/.test(x.textContent) && /not a managing member/.test(x.textContent)), $$('.float .menu.needs .menu-item')[0]?.textContent);
-  Shell.closeAll(); await tick(40);
+  check('… each under it where it is, with what’s wrong', $$('.openlist .ol-row').some(x => /David R\. Okafor for Fund III, via GP III/.test(x.textContent) && /not a managing member/.test(x.textContent)), $$('.openlist .ol-row')[0]?.textContent);
+  const stay = $$('.openlist .ol-row')[0]; stay?.click(); await tick(60);
+  check('… which stays open as its rows are clicked', !!$('.openlist') && $$('.openlist .ol-row').length > 1);
+  $('.openlist .ol-tabs button')?.click(); await tick(60);
+  check('… All lists every kind, each under its head', $$('.openlist .ol-head').some(x => /errors?$/.test(x.textContent)), $$('.openlist .ol-head').map(x => x.textContent).join(' / '));
+  $('.openlist .btn.icon')?.click(); await tick(40);
+  check('… and it closes', !$('.openlist'));
+
+  // Blank by choice.
+  const pine = Object.keys(st()).find(id => st()[id].kind === 'Entity' && App.notes.peek().nameOf(st(), id).startsWith('Northpine')), blanks0 = App.needs.peek().filter(a => a.kind === 'blank').length;
+  check('What’s blank that others of its kind have stands apart from what’s required', App.blanksApart.peek().some(b => b.id === pine && b.edge === 'Responsible' && b.ours), JSON.stringify(App.blanksApart.peek().filter(b => b.id === pine)));
+  App.sayNotOurs(pine, 'Responsible'); await tick(60);
+  check('A blank can be said not to be ours: a change pending, with room for why', $('.pendbar .btn.primary')?.textContent === 'Not ours' && !!$('.pendbar'), $('.pendbar')?.textContent);
+  App.commit(); await tick(120);
+  check('… said in History as what it is, and listed apart', App.notOurs(pine, 'Responsible') && /^Said Responsible of Northpine.* isn’t ours$/.test(Time.describe(last())) && App.blanksApart.peek().some(b => b.id === pine && b.edge === 'Responsible' && !b.ours) && App.needs.peek().filter(a => a.kind === 'blank').length === blanks0, Time.describe(last()));
+  undo(); await tick(100);
+  App.sayNotOurs(pine, 'Short Name'); await tick(60); App.commit(); await tick(120);
+  check('… and any blank said not to be ours reads so, whether its kind mostly has it or not', App.blanksApart.peek().some(b => b.id === pine && b.edge === 'Short Name' && !b.ours), JSON.stringify(App.blanksApart.peek().filter(b => b.id === pine)));
+  undo(); await tick(100);
+  check('… till that’s taken back', !App.blanksApart.peek().some(b => b.id === pine && b.edge === 'Short Name'));
 }
 async function run() {
   // ---- The sheet tabs are the View objects, in their Order ----
@@ -373,7 +398,8 @@ async function run() {
     check('A new table opens with Name and a few, in the one change that makes it', heads().join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction' && last().adds.filter(r => r.label === 'Shown' && r.view === ent && r.value === false).length > 5, heads().join());
     check('… and says it made the table, not what it hid', Time.describe(last()).includes('Entities 2') && !Time.describe(last()).includes('Hid'), Time.describe(last()));
     $$('.tbar .btn').find(b => b.textContent === 'Columns').click(); await tick(60);
-    check('Opened, the Columns list has those ticked first', rows().slice(0, 5).every(r => r.querySelector('input').checked) && !rows()[5].querySelector('input').checked && rows()[4].textContent.trim() === 'Jurisdiction', rows().slice(0, 6).map(r => r.textContent.trim()).join());
+    const opened1 = rows().map(r => r.textContent.trim()).join();
+    check('Opened, the Columns list is in the table’s own order, those ticked among the rest', rows()[0].querySelector('input').checked && rows().some(r => !r.querySelector('input').checked) && /Name,Short Name/.test(opened1), opened1.slice(0, 80));
     Shell.closeAll(); await tick();
     const hidden = App.notes.peek().notes('Shown').filter(n => n.view === ent && n.value === false);
     App.change(tx => hidden.forEach(n => tx.note('Shown', n.pattern, undefined, { view: ent, param: n.param })), { dated: false }); await tick(200);
@@ -441,6 +467,8 @@ async function run() {
   later38.update(fd38, { value: '2039-05-05' });
   later38.commit(); await tick(150);
   check('What’s coming shows in its cell, beside the value it’ll replace', fdCell() === `${fd0} May 5, 2039 from Mar 1, 2038`, fdCell());
+  const fdEl = () => rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Formation Date').getElement();
+  check('… on its one line, taking only the room the date leaves', fdEl().classList.contains('coming') && fdEl().offsetHeight < 40, `${fdEl().className} ${fdEl().offsetHeight}`);
   App.wb.reverse(last().id, last().who); await tick(150);
   check('… and goes when what said it is undone', fdCell() === fd0, fdCell());
   n0 += 2;
@@ -526,6 +554,23 @@ async function run() {
   check('A file imported is redlined as a paste is, its bar’s verb Import', $$('.grid .tabulator-row.red-add').length === 1 && $('.pendbar .btn.primary')?.textContent === 'Import' && N() === n0, $('.pendbar')?.textContent);
   press('Enter'); await tick(150);
   check('… and Enter makes it, said with the file’s name', !!named('Hollis Bay Holdings, LLC') && N() === n0 + 1 && $('.toast span')?.textContent === 'Imported Hollis Bay Holdings, LLC from entities.csv', $('.toast span')?.textContent);
+  undo(); await tick(150);
+  // Nothing's taken on trust: a row with too many values is held back, with its mend; a value that isn't one is said; each column guessed by what it holds.
+  n0 = N();
+  Table.importing('Northwind Opco\tInc.\tDelaware\tCorporation\t6/2/2019\nHarbor Point GP Ltd\tCayman Islands\tExempted Company\t9/28/2022\nHarbor Point Partners, L.P.\tCayman Islands\tLimited Partnership\t9/30/2022\nNorthwind Europe B.V.\tNetherlands\tLimited Liability Company\t1/15/2021\nSaltmarsh Logistics LLC\tDelaware\tLimited Liability Company\t2021\nAcme Holdings LLC\tDelaware\tCorporation\tsomeday\n', 'messy.csv'); await tick(250);
+  const impFlags = () => $$('.imp-grid tr.flag').map(x => x.textContent.replace(/\s+/g, ' ').trim()), impSays = () => $('.imp-says')?.textContent ?? '', impTo = () => $$('.imp-grid tr.to select').map(s => s.selectedOptions[0]?.textContent.trim());
+  check('Import flags a row with more values than the rows have columns, and what doesn’t read, before anything’s made', impFlags().some(x => /^5 values, where the rows have 4: held back/.test(x) && /Read as “Northwind Opco, Inc\.”/.test(x)) && impFlags().some(x => /“someday” isn’t a date: left out/.test(x)) && /1 row held back/.test(impSays()) && /1 value left out/.test(impSays()) && N() === n0, `${impFlags().join(' | ')} / ${impSays()}`);
+  check('… each column guessed by what most of it holds', impTo().slice(0, 4).join() === 'Name,Jurisdiction,Entity Type,Formation Date', impTo().join());
+  $('.imp-grid tr.flag .lk').click(); await tick(120);
+  check('… the mend reads the row as it should be, and it’s no longer held', !/held back/.test(impSays()) && !impFlags().some(x => /held back/.test(x)) && $$('.imp-grid tbody td').some(x => x.textContent === 'Northwind Opco, Inc.'), impSays());
+  const yearCell = $$('.imp-grid tbody td').find(x => x.textContent === 'someday');
+  yearCell.click(); await tick(60);
+  const impIn = $('.imp-grid td.typing input'); impIn.value = 'Mar 2022'; impIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(120);
+  check('… a cell can be fixed there, and a date reads as it’s known', !impFlags().length && $$('.imp-grid tbody td').some(x => x.textContent === 'Mar 2022') && $$('.imp-grid tbody td').some(x => x.textContent === '2021'), impFlags().join());
+  $('.imp-foot .btn.primary').click(); await previewed(); await tick(100);
+  $('.pendbar .btn.primary').click(); await tick(250);
+  const salt = named('Saltmarsh Logistics LLC'), acme = named('Acme Holdings LLC');
+  check('… and it’s all made as it was mended, a date kept as known', !!named('Northwind Opco, Inc.') && at(salt, 'Formation Date')?.value === '2021' && at(acme, 'Formation Date')?.value === '2022-03' && N() === n0 + 1, `${at(salt, 'Formation Date')?.value} ${at(acme, 'Formation Date')?.value}`);
   undo(); await tick(150);
 
   // One cell pasted that only changes a value is made at once, as one typed is, with Undo.
@@ -640,6 +685,14 @@ async function run() {
     check('A column filtered as Excel filters it, Select all off and Cayman Islands on, shows just its rows; its heading shows a funnel, and the bar says so, with Clear filters, and how many of how many',
       JSON.stringify(Table.look(ent).filters) === '{"jurisdiction":["Cayman Islands"]}' && cayman > 0 && active() === cayman && column('Jurisdiction').getElement().classList.contains('filtered')
       && !!tool('Filtered by Jurisdiction') && !!tool('Clear filters') && $('.tbar .tcount').textContent.startsWith(`${cayman} of `), `${JSON.stringify(Table.look(ent).filters)} ${active()} ${$('.tbar').textContent}`);
+    // A file said to be filtered holds what the filter leaves as things now stand, though a row kept under the cursor stays on the screen.
+    {
+      const data = Table.grid.getRows('active')[0].getData(), juris = data['f:jurisdiction'];
+      data['f:jurisdiction'] = 'Maryland';
+      const wbK = await Table.workbook(), rowsK = XLSX.utils.sheet_to_json(wbK.Sheets[wbK.SheetNames[0]], { header: 1, blankrows: false });
+      check('A row that no longer passes its filter stays on the screen and isn’t in the file, its first line counting it out', active() === cayman && rowsK.length === cayman + 1 && !rowsK.some(r => r.includes('Maryland')) && new RegExp(`\\b${cayman - 1} of `).test(String(rowsK[0][0])), `${cayman} ${rowsK.length} ${rowsK[0][0]}`);
+      data['f:jurisdiction'] = juris;
+    }
     await again();
     check('… kept, and so after the grid is built again', active() === cayman && column('Jurisdiction').getElement().classList.contains('filtered'), active());
     tool('Clear filters').click(); await tick(100);
@@ -767,10 +820,10 @@ async function run() {
     const fd = heads2.indexOf('Formation Date'), shown = Table.grid.getRows('active').map(r => r.getData()), withDay = shown.findIndex(d => d['f:formation date']);
     const day = at(withDay + 2, fd), gs = heads2.indexOf('Good Standing'), tagged = shown.findIndex(d => d['f:good standing'] === true);
     check('Export to Excel: a first line saying its day, its sheet named for the view, its headings in the grid’s order, a date an Excel date in the grid’s format, a tag Yes, its columns as wide as the grid’s, with a filter on its headings',
-      at(0, 0)?.v === `As of ${Tree.formatDate(App.day.peek(), 'short')}` && ws['!autofilter']?.ref.startsWith('A2:')
+      at(0, 0)?.v.startsWith(`As of ${Tree.formatDate(App.day.peek(), 'short')} · `) && ws['!autofilter']?.ref.startsWith('A2:')
       && wb.SheetNames[0] === views().find(v => v.id === ent).name && heads2.every((h, j) => at(1, j)?.v === h) && day?.t === 'n' && day.z === 'mmm d, yyyy'
       && day.v === (Date.UTC(...shown[withDay]['f:formation date'].split('-').map((x, i) => i === 1 ? x - 1 : +x)) - Date.UTC(1899, 11, 30)) / 864e5
-      && at(tagged + 2, gs)?.v === 'Yes' && ws['!cols'].length === heads2.length && ws['!cols'][0].wpx === Math.round(column('Name').getWidth()) && !!ws['!autofilter'], JSON.stringify([day, at(tagged + 2, gs), ws['!cols']?.[0]]));
+      && at(tagged + 2, gs)?.v === 'Yes' && ws['!cols'].length >= heads2.length && ws['!cols'][0].wpx === Math.round(column('Name').getWidth()) && !!ws['!autofilter'], JSON.stringify([day, at(tagged + 2, gs), ws['!cols']?.[0]]));
     check('… offered first in Export while a table shows, CSV beside it', Shell.parts.peek().export.map(x => x.name).join() === 'Excel,CSV', Shell.parts.peek().export.map(x => x.name).join());
     // While the past is shown, its first line and its name say the moment.
     {
@@ -778,7 +831,7 @@ async function run() {
       Shell.at({ stood: past.id, at: past.when }); await tick(300);
       const then = await Table.workbook(), line = then.Sheets[then.SheetNames[0]].A1?.v, words = Log.stoodText(past.when, 'short');
       Shell.at(null); await tick(300);
-      check('While the past is shown, an Excel workbook’s first line and its title say the moment', line === words && then.Props.Title.endsWith(` - ${words[0].toLowerCase()}${words.slice(1).replace(':', '.')}`), `${line} / ${then.Props.Title}`);
+      check('While the past is shown, an Excel workbook’s first line and its title say the moment', line.startsWith(`${words} · `) && then.Props.Title.endsWith(` - ${words[0].toLowerCase()}${words.slice(1).replace(':', '.')}`), `${line} / ${then.Props.Title}`);
     }
 
     // All of it undone, and the look let go.
@@ -788,6 +841,20 @@ async function run() {
     check('Undone, the columns and the rows are as they were', titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date' && !titlesOf().includes('Process Agent') && !named('Harbor Point Holdings, LLC'), titlesOf().join());
   }
 
+  // What's ended isn't silently left out: a table says how many, with a way to include them, read as of their last day.
+  {
+    const h = named('Halvard Logistics Holdings, Inc.');
+    App.change(tx => tx.add('record', { at: h, edge: 'Dissolution Date', field: 'date', value: '2037-06-01' }), { dated: false }); await tick(120);
+    Shell.at({ asOf: '2038-01-01' }); await tick(250);
+    check('A table as of a day says what it leaves out as ended', /\d+ ended left out/.test($('.tbar .tout.ended')?.textContent ?? '') && !Table.grid.getRows().some(r => r.getData().id === h), $('.tbar')?.textContent);
+    $('.tbar .tout.ended .lk').click(); await tick(300);
+    const kept = Table.grid.getRows().map(r => r.getData()).find(d => d.id === h);
+    check('… and Include reads it, as of its last day, not to be typed in', kept?._ended === '2037-06-01' && /With \d+ ended/.test($('.tbar .tout.ended')?.textContent ?? '') && !!Table.grid.getRow(h)?.getElement().classList.contains('ended'), $('.tbar')?.textContent);
+    $('.tbar .tout.ended .lk').click(); await tick(250);
+    Shell.at(null); await tick(200);
+    undo(); await tick(150);
+    Shell.show(views()[0].id); await tick(100); Shell.show(ent); await until(() => !!Table.grid && $$('.grid .tabulator-row').length > 0); await tick(300);
+  }
   // ---- A list of relatives as a column: Registered Agents, each cell the other side's names; typed into, it relates, as a
   // paste does; cleared, it ends what it held, as Delete… asks ----
   {
@@ -1134,14 +1201,16 @@ async function run() {
   const failsSaid = $('.pendbar .fails')?.textContent, n3 = N();
   press('Escape', document.body); await tick(150);
   check('A change that would leave a check failing says so in its bar, before it’s made, with its figure', failsSaid?.replace(/\s/g, ' ') ==='Fails Ownership Adds Up at Fund III (103.4%, not 100%)' && N() === n3 && !App.pending.peek(), failsSaid);
-  // As of today, a row added that asks its day, an ownership, holds from the day its bar says: today, typed over,
-  // or all along; never on a past day by default.
+  // As of today, a row added that asks its day, an ownership, says so in its bar: all along, till a day is said, today being
+  // no evidence of when it began; from the day shown, typed over, from its menu.
   Shell.at(null); await tick(100);
   const halcyon = day => pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', day), fromIn = () => $('.pendbar .from input');
   const addHalcyon = async () => { paste('Owner\tOwned\tPercentage\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await previewed(); };
   n0 = N();
   await addHalcyon();
-  check('As of today, a row pasted that asks its day asks it in its bar, from today', fromIn()?.value === Tree.formatDate(Log.today(), 'short') && N() === n0, $('.pendbar')?.textContent);
+  check('As of today, a row pasted that asks its day asks it in its bar, all along till a day is said', $('.pendbar .from')?.textContent.trim() === 'All along' && !fromIn() && N() === n0, $('.pendbar')?.textContent);
+  $('.pendbar .from .sel').click(); await tick(); item('From').click(); await tick(60);
+  check('… From, from its menu, is the day shown, typed over', fromIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
   fromIn().value = 'someday'; fromIn().dispatchEvent(new Event('input', { bubbles: true })); await tick();
   press('Enter', fromIn()); await tick(100);
   check('… and isn’t made while what’s typed there isn’t a day', N() === n0 && !!$('.pendbar') && $('.pendbar .btn.primary').disabled);
@@ -1151,12 +1220,12 @@ async function run() {
     `${halcyon(Log.today())} ${halcyon('2026-03-03')} ${halcyon('2026-03-02')}`);
   undo(); await tick(150);
   await addHalcyon();
+  $('.pendbar .from .sel').click(); await tick(); item('From').click(); await tick(60);
   press('Enter', Table.grid.rowManager.element); await tick(150);
-  check('… Enter in the grid makes it from today', N() === n0 + 3 && halcyon(Log.today()) === 0.06 && halcyon('2023-12-31') === null, `${N() - n0} ${halcyon('2023-12-31')}`);
+  check('… Enter in the grid makes it from today, where that’s what was picked', N() === n0 + 3 && halcyon(Log.today()) === 0.06 && halcyon('2023-12-31') === null, `${N() - n0} ${halcyon('2023-12-31')}`);
   undo(); await tick(150);
   await addHalcyon();
-  $('.pendbar .from .sel').click(); await tick(); item('All along').click(); await tick(60);
-  check('… or all along, chosen in its bar', $('.pendbar .from')?.textContent.trim() === 'All along' && !fromIn());
+  check('… or all along, as it began', $('.pendbar .from')?.textContent.trim() === 'All along' && !fromIn());
   press('Enter', Table.grid.rowManager.element); await tick(150);
   check('… which holds on every day, 2023 too', halcyon('2023-12-31') === 0.06 && halcyon(Log.today()) === 0.06, halcyon('2023-12-31'));
   undo(); await tick(150);
@@ -1452,6 +1521,11 @@ async function run() {
     check('Dates are grouped by month till grouped by whose, or what falls due', ways[0] === 'Month' && ways.includes('Whose') && ways.includes('What') && !!tool('Grouped by Whose') && heads.length > 1 && !heads.includes('Overdue'), `${ways.join()} / ${heads.slice(0, 4).join()}`);
     tool('Grouped by Whose').click(); await tick(); item('Month').click(); await tick(300);
     check('… and Month groups them by month again', !Table.look(dv).group && Table.model(dv).groups[0] === 'overdue' && !!tool('Grouped by month'), Table.model(dv).groups.slice(0, 3).join());
+    // What's marked stays marked; and a date's filter keeps what's overdue with what's coming.
+    {
+      const wbD = await Table.workbook(), wsD = wbD.Sheets[wbD.SheetNames[0]], rowsD = XLSX.utils.sheet_to_json(wsD, { header: 1, blankrows: false }), headD = rowsD[1], st_ = headD.indexOf('Status'), marksD = wsD['!marks'];
+      check('Excel carries what’s overdue and due soon, as a fill and a Status column', st_ >= 0 && rowsD.some(r => r[st_] === 'Overdue') && [...marksD.values()].includes('overdue'), headD.join());
+    }
   }
   // Another day shown with a row selected, however it's scrolled, the rows are drawn where the grid stands.
   {
@@ -1625,21 +1699,22 @@ async function run() {
   check('“Due soon” says on hover what soon is', soonCount?.dataset.tip === 'Due within 30 days', soonCount?.dataset.tip);
   $$('.status .counts .btn').find(b => b.textContent === '2 blank').click(); await tick(120);
   const R0 = App.computed.peek().records, whoseOf = id => Time.whose(R0, id, App.notes.peek());
-  const needsListed = $$('.float .menu.needs .menu-item').map(e => txt(e.querySelector('.label')));
-  check('A count clicked opens its items, each in its words and where: the entry blank, and whose', JSON.stringify(needsListed) === JSON.stringify([`EIN · ${whoseOf(fund)}`, `Fiscal Year End · ${whoseOf(halvard)}`])
-    && !!$('.float .menu.needs .menu-find'), needsListed.join(' / '));
-  $$('.float .menu.needs .menu-item')[1]?.click(); await tick(80);
-  check('… and choosing one goes there, nothing else stepped', visits.join() === 'blank3' && !$('.float .menu.needs'), visits.join());
+  const olRow = e => ['.what', '.where', '.who'].map(s => txt(e.querySelector(s))).filter(Boolean).join(' · ');
+  const needsListed = $$('.openlist .ol-row').map(e => ['.what', '.where'].map(s => txt(e.querySelector(s))).filter(Boolean).join(' · '));
+  check('A count clicked opens its items, each in its words and where: the entry blank, and whose', needsListed.join() === [`EIN · ${whoseOf(fund)}`, `Fiscal Year End · ${whoseOf(halvard)}`].join() && !!$('.openlist .ol-find'), needsListed.join(' / '));
+  $$('.openlist .ol-row')[1]?.click(); await tick(80);
+  check('… and choosing one goes there, nothing else stepped, the list staying open', visits.join() === 'blank3' && !!$('.openlist'), visits.join());
   visits.length = 0;
+  check('… which says what else there is: a tab for each count, and All', $$('.openlist .ol-tabs button').map(b => b.textContent).join() === ['All', ...$$('.status .counts .btn').map(b => b.textContent)].join(), $$('.openlist .ol-tabs button').map(b => b.textContent).join());
   $$('.status .counts .btn').find(b => b.textContent === '1 overdue').click(); await tick(120);
-  const due = $('.float .menu.needs .menu-item'), dueRec = R0[dueIds[1]];
-  check('… a date by what falls due and whose, and who’s on the hook for it, its day at its end', txt(due?.querySelector('.label')) === [App.notes.peek().nameOf(R0, dueIds[1]), whoseOf(dueRec.at), App.responsible(dueIds[1])?.name].filter(Boolean).join(' · ')
-    && txt(due?.querySelector('.detail')) === Tree.formatDate(dueRec.value, 'short'), `${txt(due?.querySelector('.label'))} | ${txt(due?.querySelector('.detail'))}`);
-  Shell.closeAll(); await tick(60);
+  const due = $('.openlist .ol-row'), dueRec = R0[dueIds[1]];
+  check('… a date by what falls due and whose, and who’s on the hook for it, its day beside it', olRow(due) === [App.notes.peek().nameOf(R0, dueIds[1]), whoseOf(dueRec.at), App.responsible(dueIds[1])?.name].filter(Boolean).join(' · ')
+    && txt(due?.querySelector('.fig')) === Tree.formatDate(dueRec.value, 'short'), `${olRow(due)} | ${txt(due?.querySelector('.fig'))}`);
+  $('.openlist .btn.icon')?.click(); await tick(60);
   $$('.status .counts .btn').find(b => b.textContent === '1 due soon').click(); await tick(60);
   Shell.parts.peek().action.find(a => a.id === 'attend').run();
   check('A count clicked steps nothing; F8 goes on in the whole list', visits.join() === 'overdue2', visits.join());
-  Shell.closeAll(); await tick(60);
+  $('.openlist .btn.icon')?.click(); await tick(60);
   visits.length = 0;
   // Find reaches them by the bar's words, and a deadline by what settles it.
   const problems = async q => { Shell.find(q); await tick(120); const got = $$('.findpal .menu-head, .findpal .menu-item').map(e => e.classList.contains('menu-head') ? `#${e.textContent}` : e.querySelector('.label').textContent); Shell.closeAll(); await tick(); return got; };
@@ -1650,8 +1725,8 @@ async function run() {
   visits.length = 0;
   Shell.find('overdue'); await tick(120);
   press('Enter', $('.findpal .menu-find')); await tick(120);
-  const opened = !!$('.float .menu.needs');
-  $('.float .menu.needs .menu-item')?.click(); await tick(80);
+  const opened = !!$('.openlist');
+  $('.openlist .ol-row')?.click(); await tick(80);
   check('… choosing one opens its list, as the status bar’s count does, and an item there goes to it', opened && visits.join() === 'overdue2', `${opened} ${visits.join()}`);
   // A blank F8 went to leaves the keys in its field, and F8 goes on from there.
   const field = document.createElement('input');

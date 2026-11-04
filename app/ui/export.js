@@ -1006,7 +1006,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         <input type="checkbox" checked=${ids.includes(v.id)} disabled=${ids.length === 1 && ids[0] === v.id} onChange=${e => tick(v.id, e.target.checked)} />${v.name}</label>`)}</div>` : null}
       ${table?.says ? html`<p class="ex-says">${table.says(all)}</p>` : null}
       ${broke ? html`<p class="ex-says ex-broken" role="alert">${broke}</p>` : null}
-      ${open.length ? html`<p class="ex-says ex-off">Still open on this chart: ${open.map(c => c.said).join(', ')} <button type="button" class="btn" onClick=${() => { close(false); setTimeout(() => Shell.listProblems(open[0].kind)); }}>See them</button></p>` : null}
+      ${open.length ? html`<p class="ex-says ex-off"><span>Still open on this chart: ${open.map((c, i) => html`${i ? ', ' : ''}<span class=${'said-' + c.kind}>${c.said}</span>`)}</span> <button type="button" class="btn" onClick=${() => { close(false); setTimeout(() => Shell.listProblems(open[0].kind)); }}>See them</button></p>` : null}
       ${drawn ? ids.map(narrowed).filter(Boolean).map(t => html`<p class="ex-says ex-off">${t}</p>`) : null}
       ${oneOff ? html`<p class="ex-says">${PAPERS[paper]} for this file only. ${stay.length === 1 && stay[0] ? `The page stays ${PAPERS[stay[0]]}.` : 'The pages stay as they are.'}</p>` : null}
       ${said.length ? html`<div class="ex-warns">
