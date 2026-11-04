@@ -208,7 +208,7 @@ section.open > :last-child { margin-bottom: 8px; }
 .sect > .n > .no { color: var(--no); }
 .row.rel.going > .k, .row.rel.going > .v, .row.rel.going > .facts { color: var(--no); text-decoration: line-through; }
 .row.rel.going .lk { color: inherit; }
-.row.rel > .v { position: relative; display: flex; align-items: baseline; justify-content: flex-end; gap: 4px; text-align: right; font-variant-numeric: tabular-nums; }
+.row.rel > .v { position: relative; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; gap: 4px; text-align: right; font-variant-numeric: tabular-nums; }
 .row.rel > .v:empty { display: none; }
 .row.rel > .v > .lk { flex: 0 1 auto; min-width: 0; color: var(--ink-2); }
 .row.rel > .v > .lk:hover { color: var(--ink); }
