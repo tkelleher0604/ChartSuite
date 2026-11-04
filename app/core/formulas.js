@@ -3730,7 +3730,8 @@ function text(R, v) {
 
 // What needs attention in a working-out on a day (ISO), as the status bar counts it: a date a formula gives, or an
 // entry one covers, that's past (overdue) or within 30 days (soon); a blank where a Required note asks for an
-// entry; and as errors, a record ruled out where a Check note says that's a problem, and every error. Each item is
+// entry; and as errors, a record ruled out where a Check note says that's a problem, by a formula or typed (Good Standing:
+// No), and every error. Each item is
 // { kind: 'overdue' | 'soon' | 'blank' | 'error', id, edge?, error? }: a blank names its record and edge, and an
 // error from the rows carries itself, as R.errors has it.
 // Whether an entry of a label is required at a record's tree: kept for the tree while the notes stand, as a tree stands
@@ -3754,7 +3755,7 @@ function attention(R, N, day, within = 30) {
     }
     const t = (checks || required.length) && Tree.treeOf(recs, id);
     if (!t) continue;
-    if (r.tag === false && checks && N.check(t)) items.push({ kind: 'error', id });
+    if (r.tag === false && checks && (N.check(t) || N.heeds(t))) items.push({ kind: 'error', id });
     const has = edges.get(id), blank = new Set();
     for (const a of required) {
       const e = normal(a.edge);

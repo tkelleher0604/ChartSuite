@@ -30,7 +30,8 @@ Opened as of November 3, 2026, the chart has 1,016 entered records. The definiti
   Each moves to the business day before a weekend where the rule says "on or before".
 
   Each is owed only by an entity of the family: one whose Vehicle Type, which is required, is set and isn't Portfolio Company or Third Party, as the pension plan is. So a buyer, or an entity not yet typed, owes nothing tracked.
-- **Checks**, definitions whose every ruled-out record is a problem: **Formation Document on File** and **Governing Agreement on File** for each entity of the family, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag four: David R. Okafor's four signing authorities through GP III, which he doesn't manage. **Good Standing** has a Check note too, at an entry typed by hand, so its "no" needs attention, in amber, and is counted as no error: AIV-1's. Any other typed "no" is a plain grey X.
+- **Checks**, definitions whose every ruled-out record is a problem: **Formation Document on File** and **Governing Agreement on File** for each entity of the family, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag four: David R. Okafor's four signing authorities through GP III, which he doesn't manage. **Good Standing** has a Check note too, at an entry typed by hand, so its "no" needs attention, in amber, and is counted among the errors: AIV-1's. Any other typed "no" is a plain grey X.
+- **What doesn't change over time:** EIN, File Number, Fiscal Year End and LEI have Fixed notes, so typing over one corrects it, asking no day.
 
 ## Views
 
@@ -46,7 +47,7 @@ Each chart view has a title, an as-of line and a Key on a 16:9 page.
 
 ## What to look at first
 
-- **The status bar:** 2 overdue (AIV-1's Delaware tax, Fund III-A's LEI), 4 errors (David R. Okafor signs where he holds no capacity), 2 due soon, and 1 blank where something is required: the date of the email Okafor's presidency of the Manager rests on, which is kept blank to be found.
+- **The status bar:** 2 overdue (AIV-1's Delaware tax, Fund III-A's LEI), 5 errors (David R. Okafor signs where he holds no capacity, four times; AIV-1 isn't in good standing), 2 due soon, and 1 blank where something is required: the date of the email Okafor's presidency of the Manager rests on, which is kept blank to be found.
 - **Why it holds:**
   1. On 40 Act, select the dashed Close Affiliate line into the BDC from the portfolio companies and blockers. It is all of theirs, drawn as one.
   2. In the inspector, pick Fund III Blocker's.

@@ -113,21 +113,24 @@ async function run() {
 
   // Typing over a value with history to keep asks from when, in the window's one bar, the keys there; Enter makes it
   const keep = async () => { pb('.btn.primary')?.click(); await tick(60); };
-  const day0 = Tree.formatDate(Log.today(), 'short'), nEin = App.wb.changes().length;
-  await type(rowOf('EIN').querySelector('.cell'), '92-4810338');
-  check('typing over a value with history asks from when, in the bar, the day shown till another’s typed, the keys there, nothing yet made', st().fund_ein?.value !== '92-4810338' && App.wb.changes().length === nEin
-    && pb('.from .sel')?.textContent === 'From' && pb('.from input')?.value === day0 && document.activeElement === pb('.from input') && pb('.btn.primary')?.textContent === 'Change' && spoken(pb('.what')) === 'Fund III’s EIN is 92-4810338',
+  const day0 = Tree.formatDate(Log.today(), 'short'), nEin = App.wb.changes().length, target = () => st().fund_target?.value, targetCell = () => rowOf('Target Commitments').querySelector('.cell'), target0 = target();
+  await type(targetCell(), '$800,000,000');
+  check('typing over a value with history asks from when, in the bar, the day shown till another’s typed, the keys there, nothing yet made', target() === target0 && App.wb.changes().length === nEin
+    && pb('.from .sel')?.textContent === 'From' && pb('.from input')?.value === day0 && document.activeElement === pb('.from input') && pb('.btn.primary')?.textContent === 'Change' && /^Fund III’s target commitments is \$800,000,000$/.test(spoken(pb('.what'))),
     `${pb()?.textContent} ${document.activeElement?.outerHTML.slice(0, 80)}`);
-  check('… its row showing what it said struck, and what’s typed in blue', rowOf('EIN').querySelector('s.del')?.textContent === '92-4810337' && rowOf('EIN').querySelector('.cell').value === '92-4810338' && rowOf('EIN').querySelector('.cell').classList.contains('add'), rowOf('EIN')?.innerHTML.slice(0, 200));
+  check('… its row showing what it said struck, and what’s typed in blue', !!rowOf('Target Commitments').querySelector('s.del') && targetCell().value === '$800,000,000' && targetCell().classList.contains('add'), rowOf('Target Commitments')?.innerHTML.slice(0, 200));
   pb('.from .sel').click(); await tick();
   const typedMenu = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
   await pick('All along');
   key(document.activeElement, 'Enter'); await tick(60);
-  check('… or All along, from its menu, which corrects it, as History says', typedMenu === 'From,All along' && st().fund_ein?.value === '92-4810338' && !App.wb.item(C, 'fund_ein').some(r => r.since || r.before)
-    && /^Corrected EIN of .* to 92-4810338$/.test(Time.describe(last())), `${typedMenu} ${Time.describe(last())}`);
-  await type(rowOf('EIN').querySelector('.cell'), '92-4810339');
-  check('… and a value typed lately, as a slip is, is corrected at once, with nothing asked', st().fund_ein?.value === '92-4810339' && !pb(), pb()?.textContent);
+  check('… or All along, from its menu, which corrects it, as History says', typedMenu === 'From,All along' && target() === 800000000 && !App.wb.item(C, 'fund_target').some(r => r.since || r.before)
+    && /^Corrected Target Commitments of .* to \$800,000,000$/.test(Time.describe(last())), `${typedMenu} ${Time.describe(last())}`);
+  await type(targetCell(), '$810,000,000');
+  check('… and a value typed lately, as a slip is, is corrected at once, with nothing asked', target() === 810000000 && !pb(), pb()?.textContent);
+  await type(targetCell(), '$750,000,000');
+  // … and what a Fixed note says doesn't change over time asks nothing, here as in a table's cell
   await type(rowOf('EIN').querySelector('.cell'), '92-4810338');
+  check('… nor does an EIN, which doesn’t change over time: corrected at once, as History says', st().fund_ein?.value === '92-4810338' && !pb() && !App.wb.item(C, 'fund_ein').some(r => r.since || r.before) && /^Corrected EIN of /.test(Time.describe(last())), `${pb()?.textContent} ${Time.describe(last())}`);
   // … and a value where there was none has nothing to keep
   $('.add-entry').click(); await tick(); await pick('New value'); await type($('.draft input'), 'Side Note'); await type($('.draft .v textarea, .draft .v input'), 'First');
   check('… nor one where there was none', Object.values(st()).some(r => r.at === 'fund' && r.edge === 'Side Note' && r.value === 'First') && !pb(), pb()?.textContent);
@@ -828,11 +831,13 @@ async function run() {
 
   // Time: with a day shown, an edit takes effect from it
   Shell.select(['fund']); Shell.at({ asOf: '2026-01-01' }); await tick();
-  await type(rowOf('EIN').querySelector('.cell'), '92-0000001');
+  await type(rowOf('Target Commitments').querySelector('.cell'), '$900,000,000');
   check('with a day shown, a value typed lately asks from when too, the day being another than it was typed for', pb('.from input')?.value === 'Jan 1, 2026', pb()?.textContent);
   await keep();
-  check('with a day shown, an edit takes effect from it', last().adds.some(r => r.record === 'fund_ein' && r.since === '2026-01-01'));
-  check('a record with other values counts them (“1 earlier”)', rowOf('EIN').querySelector('.ver')?.textContent === '1 earlier', App.wb.item(C, 'fund_ein').length + ' rows; ' + rowOf('EIN').querySelector('.v').innerHTML);
+  check('with a day shown, an edit takes effect from it', last().adds.some(r => r.record === 'fund_target' && r.since === '2026-01-01'));
+  check('a record with other values counts them (“1 earlier”)', rowOf('Target Commitments').querySelector('.ver')?.textContent === '1 earlier', App.wb.item(C, 'fund_target').length + ' rows; ' + rowOf('Target Commitments').querySelector('.v').innerHTML);
+  await type(rowOf('EIN').querySelector('.cell'), '92-0000001');
+  check('… but what doesn’t change over time is corrected for all time, whatever the day shown', !pb() && st().fund_ein.value === '92-0000001' && !App.wb.item(C, 'fund_ein').some(r => r.since || r.before), `${pb()?.textContent} ${App.wb.item(C, 'fund_ein').length}`);
   Shell.at(null); await tick();
 
   // Required, and attention
@@ -1315,8 +1320,8 @@ async function saysWhen(C, keep) {
   // Red means failing: a typed no is plain, one that needs attention amber, a failed check red; only that one is counted
   Shell.select(['aiv']); await tick(60);
   const standing = rowOf('Good Standing');
-  check('Good Standing: No is amber, as it needs attention, and counts as no error', standing?.classList.contains('heeds') && standing.querySelector('.tag').classList.contains('heeds')
-    && !App.needs.peek().some(a => a.kind === 'error' && st()[a.id]?.edge === 'Good Standing'), standing?.outerHTML.slice(0, 200));
+  check('Good Standing: No is amber, as it needs attention, and counts among the errors', standing?.classList.contains('heeds') && standing.querySelector('.tag').classList.contains('heeds')
+    && App.needs.peek().some(a => a.kind === 'error' && st()[a.id]?.edge === 'Good Standing'), standing?.outerHTML.slice(0, 200));
   // A name's Enter stays on the head, not selecting the next field to be typed over
   const titled = $('.ih .cell'), nTitle = App.wb.changes().length;
   await type(titled, 'Calder Ridge AIV-1, L.P.');
@@ -1331,6 +1336,7 @@ async function saysWhen(C, keep) {
   const posId = Shell.selection.peek()[0];
   $('.ih .more').click(); await tick(); await pick('End…'); await tick(60);
   key($('.asking .from input') ?? pb('.from input'), 'Enter'); await tick(120);
+  await new Promise(requestAnimationFrame);   // (The panel sets its place again on the next frame, once its strip has its room.)
   check('ending a row gone to from a person’s panel comes back to the person, the list where it was', Shell.selection.peek().join() === 'chen' && Math.abs(posTop() - topWas) < 1 && !st()[posId], `${Shell.selection.peek()} ${posTop()} ${topWas} ${pane.scrollTop} ${document.activeElement?.outerHTML.slice(0, 100)}`);
   Shell.parts.value.undo.undo(); await tick(60);
   // Several rows of a list end together, the panel staying on the record; what they break is said in words, with End that too

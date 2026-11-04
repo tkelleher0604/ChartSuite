@@ -357,8 +357,13 @@ function named(p) {
     ?? (p.sharing ? `${WORDS[p.kind]} in ${SYSTEMS[p.system]}` : p.folder ? p.folder.split('/').pop() : p.library ?? p.host ?? p.link);
   return p;
 }
+// A file's name from its parts, each after " - ", in what a file's name can hold; but a part the one before it already ends
+// in, as a chart's "… post-sale structure" its page's "Structure", isn't said twice.
+const nameOfFile = (...parts) => parts.filter(Boolean).filter((p, i, all) => { const a = String(all[i - 1] ?? '').toLowerCase(), b = String(p).toLowerCase(); return a !== b && !a.endsWith(` ${b}`); })
+  .join(' - ').replace(/[\\/:*?"<>|]+/g, '').trim();
 
 return {
+  nameOfFile,
   clean, norm, same,
   isObject, isField, isTag, isChoice, isRelation, isView, typeOf, argsOf, rootLabel,
   treeOf, index, dependents, pathOf, objectOf, entryAt,
