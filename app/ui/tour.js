@@ -144,8 +144,18 @@ const Tour = (() => {
         h.classList.toggle('none', !r);
         Object.assign(h.style, r ? { left: r.left - 4 + 'px', top: r.top - 4 + 'px', width: r.width + 8 + 'px', height: r.height + 8 + 'px' } : { left: '50%', top: '50%', width: 0, height: 0 });
         if (el) {
-          computePosition(el, c, { strategy: 'fixed', placement: sideOf(el), middleware: [offset(16), flip({ padding: 12 }), shift({ padding: 12 })] })
-            .then(({ x, y }) => { c.style.left = x + 'px'; c.style.top = y + 'px'; });
+          // (Never on what it points at: where the side it's on has no room for it clear of that, whichever side has.)
+          computePosition(el, c, { strategy: 'fixed', placement: sideOf(el), middleware: [offset(20), flip({ padding: 12 }), shift({ padding: 12 })] })
+            .then(({ x, y }) => {
+              const w = c.offsetWidth, ht = c.offsetHeight, G = 20, on = (a, b) => a < r.right + G - 1 && a + w > r.left - G + 1 && b < r.bottom + G - 1 && b + ht > r.top - G + 1;
+              if (on(x, y)) {
+                const fits = (a, b) => a >= 12 && b >= 12 && a + w <= innerWidth - 12 && b + ht <= innerHeight - 12;
+                const near = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+                const spot = [[r.right + G, near(r.top, 12, innerHeight - ht - 12)], [r.left - G - w, near(r.top, 12, innerHeight - ht - 12)], [near(r.left, 12, innerWidth - w - 12), r.bottom + G], [near(r.left, 12, innerWidth - w - 12), r.top - G - ht]].find(([a, b]) => fits(a, b));
+                if (spot) [x, y] = spot;
+              }
+              c.style.left = x + 'px'; c.style.top = y + 'px';
+            });
         } else { c.style.left = (innerWidth - c.offsetWidth) / 2 + 'px'; c.style.top = innerHeight - c.offsetHeight - 72 + 'px'; }
       };
       tick();
@@ -162,9 +172,9 @@ const Tour = (() => {
       ${step ? html`<div class="tour-card" ref=${card} role="dialog" aria-label="Tour" aria-live="polite" onKeyDown=${e => { if (e.key === 'Escape') { e.preventDefault(); end(); } }}>
           <div class="step">${i + 1} / ${STEPS.length}</div>
           <p><b>${act}</b> ${keysNow && step.saysKeys || step.say}</p>
-          <div class="acts"><button class="skip" onClick=${skip}>Skip</button></div>
+          <div class="acts"><button class="btn ghost skip" onClick=${skip}>Skip</button></div>
         </div>`
-      : html`<form class="tour-card" ref=${card} role="dialog" aria-modal="true" aria-label="Tour" data-trap
+      : html`<div class="tour-scrim" /><form class="tour-card" ref=${card} role="dialog" aria-modal="true" aria-label="Tour" data-trap
           onSubmit=${e => { e.preventDefault(); finish(false); }} onKeyDown=${e => { if (e.key === 'Escape') finish(false); }}>
           <p><b>${Shell.keyLabel('$mod+KeyZ')}</b> undoes anything, and History keeps every change, signed with your name.</p>
           ${keysNow ? html`<p><b>${Shell.keyLabel('$mod+KeyK')}</b> finds anything, <b>F6</b> goes from pane to pane, and <b>F1</b> says why, or lists every key.</p>` : null}

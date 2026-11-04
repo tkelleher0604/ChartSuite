@@ -165,12 +165,22 @@ function textMarkup(it, red, faint) {
   };
 }
 const paint = v => !v || v === 'none' ? 'none' : v;
+// A stroke's width on screen: a whole number of the screen's pixels, one at least, by the zoom, so strokes of one weight render alike at
+// any zoom. On screen only: the PDF and the deck print the weight as it is. A class for each weight, one rule each, rewritten as the zoom changes.
+const weights = new Map();
+let screenPerPage = 1;
+function writeWeights() {
+  const el = document.getElementById('dc-weights') ?? document.head.appendChild(Object.assign(document.createElement('style'), { id: 'dc-weights' }));
+  el.textContent = [...weights].map(([w, c]) => `.dc .${c}{stroke-width:${Math.max(1, Math.round(w * screenPerPage)) / screenPerPage}px}`).join('');
+}
+const crisp = w => { const k = +w.toFixed(3); let c = weights.get(k); if (!c) { weights.set(k, c = `dcw${weights.size}`); writeWeights(); } return c; };
+const zoomedTo = d => { if (d !== screenPerPage) { screenPerPage = d; writeWeights(); } };
 // A box's or shape's body: its shape (a rounded rectangle's corners as its Corner says), its fill as transparent
 // as its Transparency, its outline, and its Shadow.
 function bodyMarkup(shape, w, h, s, red, extra = {}) {
   const stroke = red === 'appear' ? BLUE : red === 'go' ? RED : paint(s.Outline), clear = Math.min(100, Math.max(0, s.Transparency ?? 0));
   return { tagName: 'path', selector: 'body', attrs: { d: Scene.path(shape, w, h, s.Corner), fill: paint(s.Fill), ...(clear && { 'fill-opacity': 1 - clear / 100 }),
-    stroke, 'stroke-width': px(s.Weight), 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter',
+    stroke, 'stroke-width': px(s.Weight), class: crisp(px(s.Weight)), 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter',
     ...(Scene.shadowOf(s.Shadow) && { filter: `url(#${shadow(drawnAt, Scene.shadowOf(s.Shadow))})` }), ...extra } };
 }
 // PowerPoint's outer shadow, as a filter for a page drawn at a scale: its distance, blur and color, each the sheet's, as a
@@ -211,7 +221,7 @@ const marker = (on, w, leg = null, head = { type: 'triangle', size: 'small' }) =
 // that leg, never back past the turn (regress10 7).
 const widthOf = (ps, w, start, end) => {
   const leg = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]), least = Math.min(start ? leg(ps[0], ps[1] ?? ps[0]) : Infinity, end ? leg(ps.at(-1), ps.at(-2) ?? ps.at(-1)) : Infinity);
-  return least < w ? { strokeWidth: least / 2, style: { strokeWidth: w } } : { strokeWidth: w };
+  return { strokeWidth: least < w ? least / 2 : w, class: crisp(w), ...(ps.every((p, i) => !i || p[0] === ps[i - 1][0] || p[1] === ps[i - 1][1]) && { shapeRendering: 'crispEdges' }) };
 };
 // How strongly a mark the view hides is drawn while it's asked about. A box keeps its fill, so no line
 // behind it shows through its name.
@@ -362,7 +372,7 @@ function mount(el) {
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
   // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
   const pageScale = () => scene?.page.scale ?? 1;
-  const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); };
+  const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); zoomedTo(graph.zoom() * (devicePixelRatio || 1)); };
   let cued = null; // the format bar's scope, lit (see cue)
   let pointing = false, hold = false;
   // The field selected, pointed at, lit from the inspector, and the box a row is dragged over (see Fields).
@@ -453,10 +463,25 @@ function mount(el) {
       // A triangle has no grip at its apex or off its slopes, where its relate handles and nothing of it are: its corners
       // and its base resize it (see showHandles).
       w.container?.classList.toggle('triangular', scene?.byId.get(cell.id)?.shape === 'triangle');
+      // No grip sits on a line's label: what it would cover is what's read (a corner still takes the hand).
+      const { x, y } = cell.getPosition(), labels = scene?.marks.filter(l => l.type === 'line' && l.labelAt && l.label) ?? [], r = 5 / z;
+      for (const g of w.container?.querySelectorAll('.x6-widget-transform-resize') ?? []) {
+        const at = g.dataset.position ?? '', gx = x + (at.includes('left') ? 0 : at.includes('right') ? s.width : s.width / 2), gy = y + (at.includes('top') ? 0 : at.includes('bottom') ? s.height : s.height / 2);
+        g.classList.toggle('on-label', labels.some(l => gx > l.labelAt.x - r && gx < l.labelAt.x + l.label.w + r && gy > l.labelAt.y - r && gy < l.labelAt.y + l.label.h + r));
+      }
     }
     // (The relate handles keep clear of them, from the click that selects it.)
     if (near) showHandles(near);
   };
+  // The grips of what's selected show as the pointer nears it; at rest, its one quiet outline.
+  function gripsNear(e) {
+    let on = false;
+    if (transform.widgets.size) {
+      const p = graph.clientToLocal(e.clientX, e.clientY), r = 22 / graph.zoom();
+      for (const [cell] of transform.widgets) { const q = cell.getPosition(), s = cell.getSize(); if (p.x > q.x - r && p.x < q.x + s.width + r && p.y > q.y - r && p.y < q.y + s.height + r) on = true; }
+    }
+    root.classList.toggle('near-grips', on);
+  }
   graph.use(new Snapline({ enabled: true, sharp: true, tolerance: 5, resizing: true, filter: c => c.isVisible() }));
 
   // The page: a sheet under everything, and a node no one sees, so guides find its edges and middle.
@@ -510,7 +535,7 @@ function mount(el) {
   // label on the side it will be; Tidy's afresh. Neither is kept as how the view was drawn. A redline is the scene the
   // change, made, draws, with its ink (see inked).
   // The page drawn last.
-  let pageWas = null;
+  let pageWas = null, lookWas = false;
   function draw() {
     const base = App.scene.peek();
     if (!base) return;
@@ -523,6 +548,9 @@ function mount(el) {
     ink = r ? inked(r, scene, base) : null;
     tidyLabel.hidden = !s?.wb.tidy;
     if (s?.wb.tidy) tidyLabel.textContent = `${s.wb.tidy} preview`;
+    // (A look pointed at, or let go of, changes as fast as the pointer moves, and is just there; Tidy's, which is rested on, travels.)
+    calmDraw = !(s && !s.wb.tidy) && !lookWas;
+    lookWas = !!s && !s.wb.tidy;
     cellsTo(App.chart.peek(), view, [...cellsOf(scene, ink), ...(ink?.cells ?? []), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
       data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
     sheet.setAttribute('width', scene.page.w);
@@ -552,6 +580,7 @@ function mount(el) {
     paintStates();
     paintAids();
     seek();
+    snapSoon();
     // A field's name said on hover goes as the chart is drawn again, which may have moved it.
     tipFor(null);
     // (What's over a mark goes where it's drawn, a preview's or the chart's: the rounding handle, see FormatBar.)
@@ -565,8 +594,10 @@ function mount(el) {
   // is what costs. A cell this view doesn't draw is
   // hidden while another view of the chart drew it last, for when that one is shown again, and otherwise goes.
   const drawn = new Map(), drewLast = new Map();
-  let chartDrawn = null;
+  let chartDrawn = null, drawnScene = null;
   function cellsTo(chart, view, cells) {
+    const leaving = chart === chartDrawn && calmDraw ? takeOff(new Set(cells.map(c => c.id))) : (grounded(), null);
+    drawnScene = scene;
     if (chart !== chartDrawn) { drewLast.clear(); chartDrawn = chart; }
     const mine = new Set(cells.map(c => c.id));
     drewLast.set(view, mine);
@@ -575,6 +606,7 @@ function mount(el) {
     syncing = true;
     if (!screen.w || !screen.h) seen();
     onScreen();
+    if (leaving) { landing = true; queueMicrotask(() => { landing = false; land(leaving); }); }
     graph.batchUpdate(() => {
       for (const c of graph.getCells()) {
         if (mine.has(c.id)) continue;
@@ -584,7 +616,7 @@ function mount(el) {
       for (const c of cells) {
         const was = drawn.get(c.id), cell = was && graph.getCellById(c.id), now = partsOf(c);
         if (cell && cell.isEdge() === (c.shape === 'edge') && (was.what === now.what || cell.isNode() || was.form === now.form)) {
-          if (was.what !== now.what) { if (cell.isNode()) cell.setMarkup(c.markup); else cell.setAttrs(c.attrs); cell.setData(c.data, { overwrite: true }); }
+          if (was.what !== now.what) { if (cell.isNode()) { cell.setMarkup(c.markup); snapped.delete(c.id); } else cell.setAttrs(c.attrs); cell.setData(c.data, { overwrite: true }); }
           moveCell(cell, c, was.where);
           if (!cell.isVisible()) cell.setVisible(true);
         } else { if (cell) graph.removeCell(cell); c.shape === 'edge' ? graph.addEdge(c) : graph.addNode(c); }
@@ -593,6 +625,178 @@ function mount(el) {
     });
     syncing = false;
   }
+  // ---- Crisp at any zoom (dendra.md, Part 3, Crisp): a stroke is a whole number of the screen's pixels (see crisp), a line square
+  // to the screen drawn without anti-aliasing, so it falls on them; and a body's edges are set on them, by a hair's move and
+  // stretch of its outline at this zoom and scroll, so they do too. The screen's alone: nothing's place changes. ----
+  let snapping = 0, snapAt = '';
+  // (Each body set at this zoom and scroll, by what it's set from: only what's new or moved, or all of them at another zoom or scroll, is set again.)
+  const snapped = new Map();
+  function snapBodies() {
+    snapping = 0;
+    if (!scene || root.closest('[hidden]')) return;
+    const dpr = devicePixelRatio || 1, z = graph.zoom(), t = graph.translate(), d = z * dpr, at = `${z}|${t.tx}|${t.ty}|${dpr}`;
+    if (at !== snapAt) { snapped.clear(); snapAt = at; }
+    // (The middle of a pixel for a stroke of an odd width; between two for an even.)
+    const onPixel = (v, odd) => odd ? Math.floor(v) + 0.5 : Math.round(v);
+    for (const m of scene.marks) {
+      if (!(m.type === 'box' || m.type === 'frame' || (m.type === 'shape' && !m.rotate && m.geometry !== 'line' && m.geometry !== 'group'))) continue;
+      const weight = m.settings?.Weight?.value ?? m.look?.Weight ?? 0.75, key = `${m.x}|${m.y}|${m.w}|${m.h}|${weight}`;
+      if (snapped.get(m.id) === key) continue;
+      const c = graph.getCellById(m.id), v = c && graph.findViewByCell(c), body = v?.container.firstElementChild;
+      if (!body || !body.getAttribute('d') && body.tagName !== 'rect' || body.tagName === 'image') continue;
+      const w = Math.max(1, Math.round(px(weight) * d)), odd = w % 2 === 1;
+      const a = (m.x * z + t.tx) * dpr, b = ((m.x + m.w) * z + t.tx) * dpr, e = (m.y * z + t.ty) * dpr, f = ((m.y + m.h) * z + t.ty) * dpr;
+      const A = onPixel(a, odd), B = onPixel(b, odd), E = onPixel(e, odd), F = onPixel(f, odd);
+      body.setAttribute('transform', `translate(${+((A - a) / d).toFixed(3)},${+((E - e) / d).toFixed(3)}) scale(${+((B - A) / Math.max(b - a, 0.01)).toFixed(4)},${+((F - E) / Math.max(f - e, 0.01)).toFixed(4)})`);
+      snapped.set(m.id, key);
+    }
+  }
+  const snapSoon = () => { if (!snapping) snapping = requestAnimationFrame(snapBodies); };
+
+  // ---- Travel (dendra.md, Part 3, Motion): what stands in both goes from where it was on screen to where it now is, its lines
+  // following; what's new comes up, what's gone goes down. The cells are drawn where they end at once, as ever: only what the
+  // eye sees travels, a transition over them, so nothing reads or writes a place that isn't so, and the next act lands at once.
+  // Never with reduced motion, nor where it would cost a frame: past FLIGHT cells on screen it's skipped, and a window that
+  // can't keep up lands where it's going, then skips what's as large from there on.
+  const TRAVEL = { duration: 200, easing: 'cubic-bezier(.2, 0, 0, 1)', fill: 'none' }, COMES = { duration: 150, delay: 50, easing: 'ease-out', fill: 'backwards' }, GOES = { duration: 120, easing: 'ease-in' };
+  let FLIGHT = 360;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  // Whether this draw travels: not a look pointed at, which changes as fast as the pointer moves (Tidy's preview does, which is rested on).
+  let calmDraw = false, flight = null, landing = false;
+  // (A hand on the chart lands it, so what's taken hold of is where it's drawn.)
+  gEl.addEventListener('pointerdown', () => grounded(), true);
+  const ghosts = document.createElementNS(NS, 'g');
+  ghosts.setAttribute('class', 'dc-ghosts');
+  viewport.insertBefore(ghosts, marks);
+  const pointsOf = c => { const s = c.getSource(), t = c.getTarget(), vs = c.getVertices(); return [[s.x, s.y], ...vs.map(v => [v.x, v.y]), [t.x, t.y]]; };
+  const lerp = (a, b, p) => a + (b - a) * p;
+  // Where a cell in flight is on screen just now, by how far along the flight is.
+  function flown() {
+    const p = flight?.anims[0]?.effect?.getComputedTiming().progress;
+    return p == null ? null : { p, rects: flight.rects, lines: flight.lines };
+  }
+  function grounded() {
+    if (!flight) return;
+    for (const a of flight.anims) a.cancel();
+    root.classList.remove('flying');
+    flight = null;
+  }
+  // A scene's cells, by what they're drawn from: `rect`, a box's, a frame's, a shape's and a line's label's; `route`, a line's.
+  function eachDrawn(sc, rect, route) {
+    for (const m of sc.marks) {
+      if (m.type === 'line' || m.geometry === 'line') {
+        route(m.id, m.points, m);
+        if (m.type === 'line' && m.texts?.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) rect(`${m.id}·label`, { x: m.labelAt.x, y: m.labelAt.y, w: m.label.w || 1, h: m.label.h || 1 }, m);
+      } else if (m.geometry !== 'group' && (m.type === 'box' || m.type === 'frame' || m.type === 'shape')) rect(m.id, { x: m.x, y: m.y, w: Math.max(1, m.w), h: Math.max(1, m.h) }, m);
+    }
+  }
+  // Where everything is on screen as a draw begins, in flight or not; and a copy of what's about to go, to fade out. All from the scene
+  // drawn last, which costs nothing, but what a drag has left astray, which only the cell knows.
+  function takeOff(next) {
+    const sc = drawnScene, z = graph.zoom(), t = graph.translate();
+    // (Whether it can be seen, by what hides it: asking the window its width here would lay it out, and again once it's drawn.)
+    if (reduced.matches || !screen.w || root.closest('[hidden]') || !sc) { grounded(); return null; }
+    const up = flown(), rects = new Map(), lines = new Map(), going = [], stray = id => { const d = drawn.get(id); return d && !('zIndex' in d.where) ? graph.getCellById(id) : null; };
+    // (What goes is copied only where it's few: more than a frame could fade is simply gone.)
+    let toGo = 0;
+    eachDrawn(sc, id => { if (!next.has(id)) toGo++; }, id => { if (!next.has(id)) toGo++; });
+    const goes = id => { if (toGo > 64 || next.has(id)) return; const c = graph.getCellById(id), v = c?.isVisible() && graph.findViewByCell(c); if (!v) return; const copy = v.container.cloneNode(true); copy.removeAttribute('data-cell-id'); copy.querySelectorAll('[data-tour]').forEach(n => n.removeAttribute('data-tour')); going.push(copy); };
+    eachDrawn(sc, (id, rc) => {
+      const was = up?.rects.get(id), c = !was && stray(id), p = c ? { ...c.getPosition(), ...((({ width, height }) => ({ w: width, h: height }))(c.getSize())) } : rc;
+      rects.set(id, was ? { x: lerp(was[0].x, was[1].x, up.p), y: lerp(was[0].y, was[1].y, up.p), w: lerp(was[0].w, was[1].w, up.p), h: lerp(was[0].h, was[1].h, up.p) } : { x: p.x * z + t.tx, y: p.y * z + t.ty, w: p.w * z, h: p.h * z });
+      goes(id);
+    }, (id, points) => {
+      const was = up?.lines.get(id), c = !was && stray(id);
+      lines.set(id, was ? was[0].map((q, i) => [lerp(q[0], was[1][i][0], up.p), lerp(q[1], was[1][i][1], up.p)]) : (c ? pointsOf(c) : points).map(([x, y]) => [x * z + t.tx, y * z + t.ty]));
+      goes(id);
+    });
+    const pw = +sheet.getAttribute('width') || 0, ph = +sheet.getAttribute('height') || 0;
+    grounded();
+    return { rects, lines, going, z, t, sheet: pw && { x: t.tx, y: t.ty, w: pw * z, h: ph * z } };
+  }
+  // Two routes, point for point: as they stand where they've as many, or else each at every share of its length the other turns at.
+  function matched(a, b) {
+    if (a.length === b.length) return [a, b];
+    const shares = ps => { const ds = [0]; ps.slice(1).forEach((q, i) => ds.push(ds[i] + Math.hypot(q[0] - ps[i][0], q[1] - ps[i][1]))); const all = ds.at(-1) || 1; return ds.map(d => d / all); };
+    const sa = shares(a), sb = shares(b), all = [...new Set([...sa, ...sb])].sort((x, y) => x - y);
+    const at = (ps, ss, u) => { let i = 1; while (i < ss.length - 1 && ss[i] < u) i++; const f = (u - ss[i - 1]) / ((ss[i] - ss[i - 1]) || 1); return [lerp(ps[i - 1][0], ps[i][0], f), lerp(ps[i - 1][1], ps[i][1], f)]; };
+    return [all.map(u => at(a, sa, u)), all.map(u => at(b, sb, u))];
+  }
+  const pathOf = ps => `path("${ps.map(([x, y], i) => `${i ? 'L' : 'M'} ${+x.toFixed(2)} ${+y.toFixed(2)}`).join(' ')}")`;
+  // What's stood in both, flown; what's new, faded up; what's gone, faded down: each by the transform or path the browser
+  // tweens, so a frame costs only painting it.
+  let arrival = null;
+  function land(off) {
+    const came = arrival;
+    queueMicrotask(() => { if (arrival === came) arrival = null; });
+    if (!scene || flight) return;
+    const z = graph.zoom(), t = graph.translate(), todo = [], fades = [];
+    const near = (a, b) => Math.abs(a - b) < 0.6;
+    const seenNow = (x, y, w, h) => x + w > -AROUND && y + h > -AROUND && x < screen.w + AROUND && y < screen.h + AROUND;
+    const rects = new Map(), lines = new Map(), viewOfCell = id => { const c = graph.getCellById(id); return c ? graph.findViewByCell(c) : null; };
+    // (What's moved is found from the scene, which costs nothing; only if it's few enough is it looked for among the cells.)
+    const moving = [], routing = [];
+    eachDrawn(scene, (id, rc, m) => {
+      const was = off.rects.get(id) ?? (m.type === 'box' ? arrival : null), r = { x: rc.x * z + t.tx, y: rc.y * z + t.ty, w: rc.w * z, h: rc.h * z };
+      if (!was) { if (seenNow(r.x, r.y, r.w, r.h)) fades.push(id); return; }
+      if ((near(was.x, r.x) && near(was.y, r.y) && near(was.w, r.w) && near(was.h, r.h)) || (!seenNow(r.x, r.y, r.w, r.h) && !seenNow(was.x, was.y, was.w, was.h))) return;
+      moving.push([id, was, r, rc, m]);
+    }, (id, points) => {
+      const was = off.lines.get(id), ps = points.map(([x, y]) => [x * z + t.tx, y * z + t.ty]);
+      if (!was) { fades.push(id); return; }
+      if (ps.length === was.length && ps.every((q, i) => near(q[0], was[i][0]) && near(q[1], was[i][1]))) return;
+      routing.push([id, was, ps]);
+    });
+    if (moving.length + routing.length + fades.length + off.going.length > FLIGHT) return;
+    for (const [id, was, r, rc, m] of moving) {
+      const v = viewOfCell(id);
+      if (!v) continue;
+      rects.set(id, [was, r]);
+      const a = m.rotate || 0, turn = a ? ` translate(${rc.w / 2}px, ${rc.h / 2}px) rotate(${a}deg) translate(${-rc.w / 2}px, ${-rc.h / 2}px)` : '';
+      // (By one scale both ways, its middle where its middle was, so its words aren't drawn out of shape on the way.)
+      const k = Math.sqrt((was.w / Math.max(r.w, 0.01)) * (was.h / Math.max(r.h, 0.01))), x0 = was.x + was.w / 2 - r.w * k / 2, y0 = was.y + was.h / 2 - r.h * k / 2;
+      todo.push([v.container, 'transform', `translate(${(x0 - t.tx) / z}px, ${(y0 - t.ty) / z}px)${turn} scale(${k})`, `translate(${rc.x}px, ${rc.y}px)${turn} scale(1)`]);
+    }
+    for (const [id, was, ps] of routing) {
+      const line = viewOfCell(id)?.container.querySelector(':scope > path + path');
+      if (!line) continue;
+      const [a, b] = matched(was, ps);
+      lines.set(id, [a, b]);
+      todo.push([line, 'd', a.map(([x, y]) => [(x - t.tx) / z, (y - t.ty) / z]), b.map(([x, y]) => [(x - t.tx) / z, (y - t.ty) / z])]);
+    }
+    const toSheet = { x: t.tx, y: t.ty, w: (+sheet.getAttribute('width') || 0) * z, h: (+sheet.getAttribute('height') || 0) * z }, fromSheet = off.sheet;
+    const sheetMoved = fromSheet && !(near(fromSheet.x, toSheet.x) && near(fromSheet.y, toSheet.y) && near(fromSheet.w, toSheet.w) && near(fromSheet.h, toSheet.h));
+    // Past what a frame can paint, it's just there, as it always was.
+    if (!(todo.length || fades.length || off.going.length || sheetMoved)) return;
+    const anims = [];
+    if (sheetMoved) anims.push(sheet.animate([{ transform: `translate(${(fromSheet.x - t.tx) / z}px, ${(fromSheet.y - t.ty) / z}px) scale(${fromSheet.w / Math.max(toSheet.w, 1)}, ${fromSheet.h / Math.max(toSheet.h, 1)})` }, { transform: 'translate(0px, 0px) scale(1, 1)' }], TRAVEL));
+    // (All on the page's own clock, box and line in step: a property only it can tween keeps a box's transform off the compositor's.)
+    for (const [el, prop, a, b] of todo) anims.push(el.animate(prop === 'd' ? [{ d: pathOf(a) }, { d: pathOf(b) }] : [{ transform: a, outlineOffset: '0px' }, { transform: b, outlineOffset: '0px' }], TRAVEL));
+    for (const id of fades) { const el = viewOfCell(id)?.container; if (el) anims.push(el.animate([{ opacity: 0 }, { opacity: 1 }], COMES)); }
+    if (off.going.length) {
+      const g = ghosts.appendChild(document.createElementNS(NS, 'g')), k = off.z / z;
+      g.setAttribute('transform', `translate(${(off.t.tx - t.tx) / z},${(off.t.ty - t.ty) / z}) scale(${k})`);
+      g.setAttribute('pointer-events', 'none');
+      g.append(...off.going);
+      g.animate([{ opacity: 1 }, { opacity: 0 }], GOES).finished.finally(() => g.remove());
+    }
+    if (!anims.length) return;
+    const mine = flight = { anims, rects, lines };
+    root.classList.add('flying');
+    showHandles(null);
+    const done = () => { if (flight === mine) { flight = null; root.classList.remove('flying'); } };
+    anims[0].finished.then(done, () => {});
+    // A window that can't keep up lands where it's going, and no flight as large goes from there on.
+    let last = performance.now(), slow = 0;
+    const watch = now => {
+      if (flight !== mine) return;
+      if (now - last > 34 && ++slow >= 2) { FLIGHT = Math.max(24, Math.min(FLIGHT, Math.floor(anims.length * 0.75))); for (const a of anims) a.finish(); return done(); }
+      last = now;
+      requestAnimationFrame(watch);
+    };
+    requestAnimationFrame(watch);
+  }
+
   // The cells stacked in the scene's order, bottom first, as their z. A cell drawn before keeps its z wherever
   // that's still in order, the most of them that can (the longest run of them in order), and the rest go
   // between their neighbours: a change restacks only what it moves in the stack, as X6 sorts every cell again
@@ -884,6 +1088,14 @@ function mount(el) {
     const old = App.notes.peek().position(treeOf(m.record), viewOf()), [x, y] = own(m.x, m.y);
     App.change(tx => tx.note('Position', treeOf(m.record), { ...old, x: old?.x ?? x, y: old?.y ?? y, w: old?.w ?? round(m.w), ...(on ? { lock: true, h: old?.h ?? round(m.h) } : { lock: undefined }), hand: true }, { view: viewOf() }), { dated: false, say: `${on ? 'Locked' : 'Unlocked'} the proportions of ${called(m)}` });
   }
+  // A box with its middle level with a row of its like joins it, its top on theirs, so it shares their height; but one on
+  // another stays just where it is. → the top it takes, or null. So what's let go goes where the drag has already shown it.
+  function rowJoined(m, x, y) {
+    if (m?.type !== 'box') return null;
+    const tri = m.shape === 'triangle', row = scene.marks.filter(b => b.type === 'box' && b.id !== m.id && (b.shape === 'triangle') === tri && y + m.h / 2 > b.y && y + m.h / 2 < b.y + b.h && Math.abs(b.y - y) <= m.h / 2);
+    const near = row.sort((a, b) => Math.abs(a.x + a.w / 2 - x - m.w / 2) - Math.abs(b.x + b.w / 2 - x - m.w / 2))[0];
+    return near && !row.some(b => x < b.x + b.w && b.x < x + m.w) ? near.y : null;
+  }
   function moved(ids) {
     const places = new Map();
     for (const id of ids) {
@@ -905,13 +1117,9 @@ function mount(el) {
         if (dw || dh || Math.abs(p.x - m.x) > 0.01 || Math.abs(p.y - m.y) > 0.01) places.set(id, { x: p.x, y: p.y, ...(dw && { w: sz.width }), ...(dh && { h: sz.height }) });
       }
     }
-    // A box dropped with its middle level with a row of its like joins it, its top on theirs, so it shares their height;
-    // but one dropped on another stays just where it was dropped.
     if (places.size === 1) {
-      const [[id, p]] = places, m = scene.byId.get(id), tri = m?.shape === 'triangle';
-      const row = m?.type === 'box' && p.w === undefined && p.h === undefined ? scene.marks.filter(b => b.type === 'box' && b.id !== id && (b.shape === 'triangle') === tri && p.y + m.h / 2 > b.y && p.y + m.h / 2 < b.y + b.h && Math.abs(b.y - p.y) <= m.h / 2) : [];
-      const near = row.sort((a, b) => Math.abs(a.x + a.w / 2 - p.x - m.w / 2) - Math.abs(b.x + b.w / 2 - p.x - m.w / 2))[0];
-      if (near && !row.some(b => p.x < b.x + b.w && b.x < p.x + m.w)) { p.y = near.y; p.joins = true; }
+      const [[id, p]] = places, m = scene.byId.get(id);
+      if (p.w === undefined && p.h === undefined) { const y = rowJoined(m, p.x, p.y); if (y !== null) { p.y = y; p.joins = true; } }
     }
     // With Snap to grid, what's dropped lands on the grid; a group by its first, so it stays as it is.
     if (aids.peek().snap && places.size) {
@@ -930,8 +1138,8 @@ function mount(el) {
     const at = Layout.pin(m.points, { x: p.x, y: p.y, w: m.label.w, h: m.label.h });
     App.change(tx => tx.note('Position', treeOf(m.record), at, { view: viewOf() }), { dated: false, say: `Moved the label of ${called(m)}` });
   }
-  graph.on('node:moved', ({ node }) => { dragging = null; if (node.getData()?.kind === 'label') return movedLabel(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
-  graph.on('node:resized', ({ node }) => { dragging = null; moved([node.id]); });
+  graph.on('node:moved', ({ node }) => { dragging = null; root.classList.remove('dragging'); if (node.getData()?.kind === 'label') return movedLabel(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
+  graph.on('node:resized', ({ node }) => { dragging = null; root.classList.remove('dragging'); moved([node.id]); });
   graph.on('node:rotating', ({ node }) => { dragging = node.id; showHandles(null); astray(node.id); });
   graph.on('node:rotated', ({ node }) => { dragging = null; turn(node.id, node.getAngle()); });
   graph.on('edge:mouseup', ({ edge }) => { if (scene.byId.get(edge.id)?.geometry === 'line') moved([edge.id]); });
@@ -979,8 +1187,16 @@ function mount(el) {
       paintStates();
     });
   }
-  graph.on('node:moving', ({ node }) => { dragging = node.id; showHandles(null); if (node.getData()?.kind === 'label') astray(node.id); else follow(node); });
-  graph.on('node:resizing', ({ node }) => { dragging = node.id; showHandles(null); follow(node); });
+  // The snap shows as it's dragged, not as it's let go: a row a box would join, and the grid.
+  function snapMoving(node) {
+    if (sel.getSelectedCells().length > 1) return;
+    const p = node.getPosition();
+    let x = p.x, y = rowJoined(scene.byId.get(node.id), p.x, p.y) ?? p.y;
+    if (aids.peek().snap) { const step = gridStep(); x = Math.round(x / step) * step; y = Math.round(y / step) * step; }
+    if (Math.abs(y - p.y) > 0.01 || Math.abs(x - p.x) > 0.01) node.setPosition(x, y);
+  }
+  graph.on('node:moving', ({ node }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); if (node.getData()?.kind === 'label') astray(node.id); else { snapMoving(node); follow(node); } });
+  graph.on('node:resizing', ({ node }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); follow(node); });
 
   // ---- Double-click to type: a box's text edits its record, a shape's its own ----
   function textAt(m, target) {
@@ -1303,12 +1519,13 @@ function mount(el) {
   tip.setAttribute('role', 'tooltip');
   tip.hidden = true;
   over.appendChild(tip);
-  let tipTimer = 0;
+  let tipTimer = 0, tipQuiet = null;
   function tipFor(f) {
     clearTimeout(tipTimer);
     tip.hidden = true;
     if (!f?.it) return;
     tipTimer = setTimeout(() => {
+      if (tipQuiet) return;
       tip.textContent = f.it.blank ? `${fieldName(f.it)}, blank` : fieldName(f.it);
       tip.style.visibility = 'hidden'; tip.hidden = false;
       // It covers nothing that's read: over what it names, or under it, or beside it, the first place clear of every box,
@@ -1320,11 +1537,12 @@ function mount(el) {
       if (!at) { tip.hidden = true; tip.style.visibility = ''; return; }
       const a = graph.localToGraph(at[0], at[1]);
       Object.assign(tip.style, { left: `${a.x}px`, top: `${a.y}px`, visibility: '' });
-    }, 450);
+    }, 600);
   }
   // The pointer says what a click does: the text pointer over a field, move over a selected box's room.
   function hover(f) {
     const was = hovered;
+    if (tipQuiet && pointerAt && Math.hypot(pointerAt.x - tipQuiet.x, pointerAt.y - tipQuiet.y) > 4) tipQuiet = null;
     hovered = f?.it && !dragging ? { box: f.m.id, id: f.it.id } : null;
     root.classList.toggle('on-field', !!hovered);
     root.classList.toggle('on-body', !!f && !f.it && f.m.type === 'box' && sel.isSelected(graph.getCellById(f.m.id) ?? {}));
@@ -1469,7 +1687,9 @@ function mount(el) {
   function create(kind, at, { relate, guide, typed = '' } = {}) {
     if (still() || !scene || !kind) return guide?.remove();
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
-    const w = 200, h = 44, p = freeSpot(scene, w, h, at, { last: true }), view = viewOf(), [x, y] = own(p.x, p.y), last = Shell.store.get('kind');
+    // (Its placeholder is the size it will be: a box of its kind's on this chart, the middle one, or else what a short name makes.)
+    const alike = scene.marks.filter(m => m.type === 'box' && m.shape !== 'triangle' && App.state.peek()[m.record]?.kind === kind).sort((a, b) => a.w - b.w), mid = alike[alike.length >> 1];
+    const w = mid?.w ?? 138, h = mid?.h ?? 44, p = freeSpot(scene, w, h, at, { last: true }), view = viewOf(), [x, y] = own(p.x, p.y), last = Shell.store.get('kind');
     const ks = kinds(), choice = [...new Set([kind, ...ks.filter(k => k === last), ...ks])];
     let now = kind;
     guide?.setAttribute('d', guide.getAttribute('d').replace(/L[^L]*$/, `L${p.x + w / 2},${p.y + h / 2}`));
@@ -1478,6 +1698,9 @@ function mount(el) {
       name = Tree.clean(name);
       if (!name) return;
       let id = null;
+      // (It goes from the placeholder to the box it makes.)
+      const g = graph.localToGraph(p.x, p.y), z = graph.zoom();
+      arrival = { x: g.x, y: g.y, w: w * z, h: h * z };
       if (!App.change(tx => {
         id = tx.add('record', { kind: now });
         tx.add('record', { at: id, edge: 'Name', field: 'text', value: name });
@@ -1495,7 +1718,7 @@ function mount(el) {
   // points are: at the middle of each side (a triangle's apex, slopes and base), or off it along the side as far
   // as keeps them clear of the lines there, of the box's grips and of each other, so a click by a box on a line
   // takes the line. A side with no such place has none.
-  let near = null, placed = null;
+  let near = null, placed = null, pointerAt = null;
   const handles = ['n', 'e', 's', 'w'].map(side => {
     const h = document.createElement('div');
     h.className = `dc-handle ${side}`;
@@ -1546,7 +1769,10 @@ function mount(el) {
       .map(fy => [m.x + m.w * fx, m.y + m.h * fy]));
     // (And a free shape's selected beside it, whose grips are its own to drag.)
     for (const [c] of transform.widgets) if (c !== cell && c.getData()?.kind === 'shape') { const q = c.getPosition(), s = c.getSize(); for (const fx of [0, 0.5, 1]) for (const fy of [0, 0.5, 1]) if (fx !== 0.5 || fy !== 0.5) dots.push([q.x + s.width * fx, q.y + s.height * fy]); }
-    const clear = p => segs.every(([a, b]) => toSegment(p, a, b) * z >= CLEAR) && dots.every(d => Math.hypot(p[0] - d[0], p[1] - d[1]) * z >= CLEAR);
+    // (Nor on a line's label, what it would cover being what's read.)
+    const nearLabels = scene.marks.filter(k => k.type === 'line' && k.labelAt && k.label && k.labelAt.x < m.x + m.w + r && k.labelAt.x + k.label.w > m.x - r && k.labelAt.y < m.y + m.h + r && k.labelAt.y + k.label.h > m.y - r);
+    const offLabels = p => { const g = 8 / z; return nearLabels.every(k => p[0] < k.labelAt.x - g || p[0] > k.labelAt.x + k.label.w + g || p[1] < k.labelAt.y - g || p[1] > k.labelAt.y + k.label.h + g); };
+    const clear = p => offLabels(p) && segs.every(([a, b]) => toSegment(p, a, b) * z >= CLEAR) && dots.every(d => Math.hypot(p[0] - d[0], p[1] - d[1]) * z >= CLEAR);
     for (const h of handles) {
       const side = h.classList[1], p = ALONG.map(f => sidePoint(m, side, f)).find(p => p && clear(p));
       h.at = p ?? null;
@@ -1568,6 +1794,8 @@ function mount(el) {
   }
   // Pointing at a box shows its handles, as Lucidchart's do, and at a field, that it's one (see Fields).
   root.addEventListener('pointermove', e => {
+    pointerAt = { x: e.clientX, y: e.clientY };
+    if (scene) { gripsNear(e); dotsNear(e); }
     if (!scene || e.target.closest?.('.dc-handle, .dc-edit, .dc-complete')) return;
     // A free shape is no box: on one, or on its grips, there's nothing to relate, whatever box is under or beside it.
     if (e.target.closest?.('.x6-widget-transform') || graph.getCellById(e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id') ?? '')?.getData()?.kind === 'shape') { showHandles(null); return hover(null); }
@@ -1575,8 +1803,19 @@ function mount(el) {
     showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' ? f.m : null));
     hover(f);
   });
-  root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); } });
-  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); if (aids.peek().rulers) paintAids(); zoomRead(); });
+  root.addEventListener('pointerleave', e => { root.classList.remove('near-grips'); if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); } });
+  // The dot the pointer is coming to stands up as it nears: the rest stay small, so a box pointed at isn't buried.
+  function dotsNear(e) {
+    const b = root.getBoundingClientRect();
+    for (const h of handles) if (h.at) { const g = graph.localToGraph(h.at[0], h.at[1]); h.classList.toggle('close', Math.hypot(e.clientX - b.left - g.x, e.clientY - b.top - g.y) < 20); }
+  }
+  // What a press lands on: no name said of it, no frame round its words and no grips or dots, till the pointer has moved on.
+  root.addEventListener('pointerdown', e => {
+    tipFor(null); tipQuiet = { x: e.clientX, y: e.clientY };
+    if (e.target.closest?.('.dc-handle, .x6-widget-transform, .dc-edit')) return;
+    root.classList.remove('near-grips'); showHandles(null); hover(null);
+  }, true);
+  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); if (aids.peek().rulers) paintAids(); zoomRead(); snapSoon(); });
 
   // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
   // or from the middle of the box, for Relate…, until the next click. On another box, the two's relations are
@@ -1843,6 +2082,13 @@ function mount(el) {
       for (const m of scene.marks) if (m.settings && Object.values(m.settings).some(s => s.note && outs.has(Tree.key(s.note.pattern)))) outline(m, 'dc-row', 3);
     }
     for (const g of groups()) if (g.members.some(id => sel.isSelected(graph.getCellById(id) ?? {}))) outline(g, 'dc-group', 4);
+    // What's selected is outlined by its own shape, not by a frame round it; X6's frame shows only while it's dragged (see the stylesheet).
+    for (const c of sel.getSelectedCells()) if (c.isNode()) {
+      const m = scene.byId.get(c.id);
+      if (!m || m.points) continue;
+      outline(m, 'dc-group dc-shaped', 2);
+      if (m.rotate) marks.lastChild.setAttribute('transform', `${marks.lastChild.getAttribute('transform')} rotate(${m.rotate} ${m.w / 2 + 2} ${m.h / 2 + 2})`);
+    }
     // The format bar's scope, while a group is chosen or pointed at: each mark it reaches lit, as a group is.
     const cuedHere = cued && new Set([...cued].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
     for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 3);
@@ -2085,6 +2331,8 @@ function mount(el) {
       ...App.views.peek().filter(v => v.layout === 'chart' && v.id !== base.view).map(v => Scene.steps(App.shown.peek(), chart, v.id, base.day, { state: App.state.peek(), computed }))];
     const live = () => aheadOf === mine && App.scene.peek() === base && jobs.length;
     const step = idle => {
+      // (Not while the chart travels, which it would cost a frame.)
+      if (flight) return later();
       for (let first = true; live() && (first || idle.timeRemaining() > longest); first = false) {
         const t = performance.now();
         if (jobs[0].next().done) jobs.shift();
@@ -2522,7 +2770,7 @@ function mount(el) {
   function showRect(r, pad, lo, hi) {
     const W = root.clientWidth, H = root.clientHeight;
     const s = clamp(Math.min((W - 2 * pad) / Math.max(1, r.w), (H - 2 * pad) / Math.max(1, r.h)), lo, hi);
-    const at = (x, w, room) => w * s > room - 2 * pad ? pad - x * s : (room - w * s) / 2 - x * s;
+    const at = (x, w, room) => Math.round(w * s > room - 2 * pad ? pad - x * s : (room - w * s) / 2 - x * s);
     quietly(() => { graph.zoomTo(s); graph.translate(at(r.x, r.w, W), at(r.y, r.h, H)); });
     zoomRead();
   }
@@ -2537,7 +2785,8 @@ function mount(el) {
   }
   function zoom(k) {
     if (!scene) return;
-    if (k === 'fit') { framed = true; left = null; return settle(); }
+    const was = aboutToGlide();
+    if (k === 'fit') { framed = true; left = null; settle(); return glide(was); }
     if (!seen()) return;
     const s = pageScale();
     if (k === 'in' || k === 'out') {
@@ -2550,6 +2799,18 @@ function mount(el) {
       graph.translate(t.tx + was.x - now.x, t.ty + was.y - now.y);
     } else graph.zoomTo(k * s);
     zoomRead();
+    glide(was);
+  }
+  // The whole page glides from where it was, as what's on it travels, where only the view of it changes: a zoom asked for, or what's
+  // brought on screen. (The wheel is a hand on it, and goes as the hand does.)
+  const aboutToGlide = () => ({ s: graph.zoom(), t: graph.translate() });
+  function glide(was) {
+    const s = graph.zoom(), t = graph.translate();
+    if (reduced.matches || flight || landing || root.closest('[hidden]') || graph.getCells().length > FLIGHT || (s === was.s && t.tx === was.t.tx && t.ty === was.t.ty)) return;
+    const a = viewport.animate([{ transform: `translate(${was.t.tx}px, ${was.t.ty}px) scale(${was.s})` }, { transform: `translate(${t.tx}px, ${t.ty}px) scale(${s})` }], TRAVEL), mine = flight = { anims: [a], rects: new Map(), lines: new Map() };
+    root.classList.add('flying');
+    const done = () => { if (flight === mine) { flight = null; root.classList.remove('flying'); } };
+    a.finished.then(done, () => {});
   }
   const resized = new ResizeObserver(() => { showHandles(null); seen(); if (owed || (framed && scene === framedFor)) settle(); onScreen(); });
   resized.observe(root);
@@ -2561,9 +2822,10 @@ function mount(el) {
     const W = screen.w, H = screen.h, z = graph.zoom(), all = extent(ms);
     const r = all.w * z <= W - 2 * pad && all.h * z <= H - 2 * pad ? all : extent(ms.slice(0, 1));
     const a = graph.localToGraph(r.x, r.y), b = graph.localToGraph(r.x + r.w, r.y + r.h);
-    const into = (lo, hi, room) => lo < pad ? pad - lo : hi > room - pad ? Math.max(pad - lo, room - pad - hi) : 0;
-    const dx = into(a.x, b.x, W), dy = into(a.y, b.y, H), t = graph.translate();
-    if (dx || dy) graph.translate(t.tx + dx, t.ty + dy);
+    const into = (lo, hi, room, top = pad) => lo < top ? top - lo : hi > room - pad ? Math.max(top - lo, room - pad - hi) : 0;
+    // (Clear of the formula bar, over the chart's top as what's brought is selected.)
+    const dx = into(a.x, b.x, W), dy = into(a.y, b.y, H, Math.max(pad, 44)), t = graph.translate();
+    if (dx || dy) { const was = aboutToGlide(); graph.translate(t.tx + dx, t.ty + dy); glide(was); }
   }
 
   // Tab and Shift+Tab select the next box and the one before, in reading order (by rows, top down, then

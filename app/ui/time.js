@@ -53,10 +53,13 @@ const Time = (() => {
     const c = App.chart.value, wb = App.shown.value, N = App.notes.value;
     if (!c) return [];
     const rows = wb.rows(c).filter(r => 'record' in r), recs = recordsOf(rows), out = new Map();
-    const add = (d, [what, of]) => { if (!out.has(d)) out.set(d, new Map()); out.get(d).set(what + '·' + of, { what, of }); };
-    for (const r of rows) for (const d of [r.since, r.before]) if (d) add(d, said(recs, r.record, N, true));
-    for (const r of rows) if (r.field === 'date' && r.at && recs[r.at]) add(r.value, [r.edge, whose(recs, r.at, N)]);
-    return [...out].sort(([a], [b]) => a.localeCompare(b)).map(([day, m]) => ({ day, items: [...m.values()] }));
+    // A day's weight, on the ruler, is the most it does: 3, something comes to be or ends; 2, a relation or a stake moves; 1, a date is only noted.
+    const add = (d, [what, of], w) => { if (!out.has(d)) out.set(d, Object.assign(new Map(), { w: 0 })); const m = out.get(d); m.set(what + '·' + of, { what, of }); m.w = Math.max(m.w, w); };
+    const weigh = id => { const x = recs[id]; return !x ? 1 : x.args ? 2 : Tree.isObject(x) ? 3 : recs[x.at]?.args ? 2 : 1; };
+    const acts = r => { const t = Tree.treeOf(recs, r.record); return t && (N.isStart(t) || N.isEnd(t)) ? weigh(r.at) : 1; };
+    for (const r of rows) for (const d of [r.since, r.before]) if (d) add(d, said(recs, r.record, N, true), weigh(r.record));
+    for (const r of rows) if (r.field === 'date' && r.at && recs[r.at]) add(r.value, [r.edge, whose(recs, r.at, N)], acts(r));
+    return [...out].sort(([a], [b]) => a.localeCompare(b)).map(([day, m]) => ({ day, weight: m.w, items: [...m.values()] }));
   });
   // The shell draws the date's popover and the ruler under the view from these, and comes back from a look at another day
   // to the day the page keeps, or to today, from a day or from the log as it stood, by the last; `away`, whether there's
@@ -270,18 +273,41 @@ const Time = (() => {
     </div>`;
   }
 
-  // ---- The ruler: at the view's foot, a tick for each of the chart's days; dragging scrubs ----
+  // ---- The ruler: at the view's foot, the years a calm scale along its bottom and the chart's days rising from it, each by
+  // what it does; a click or a drag anywhere on it goes to the day nearest, so it stays while a hand is on it, today too; Play
+  // runs the chart through the days its structure changes ----
   const CAP = 1096;   // a longer gap is drawn as three years, with a break
-  // Its width, measured as it's drawn and whenever it's resized: a year's label sits after its line, and where
-  // it has no room there, the line stands alone.
+  // Its width, measured as it's drawn and whenever it's resized: a year's label stands under its mark, and where it has no
+  // room there, the mark stands alone.
   const width = signal(0), measure = new ResizeObserver(es => { for (const e of es) if (e.target.isConnected) width.value = e.contentRect.width; });
   let measured = null;
+  const holding = signal(false), playing = signal(false);
+  let stopPlay = null;
+  // From the first of the days the structure changes, a day at a time, each once it's drawn and has stood a moment, back to the day it began on.
+  function play(days) {
+    if (playing.peek()) return stopPlay?.();
+    const began = Shell.time.peek()?.asOf ?? null, went = Shell.view.peek(), STAND = 420;
+    let i = 0, timer = 0, unlayer = null;
+    const stop = () => { clearTimeout(timer); timer = 0; playing.value = false; stopPlay = null; unlayer?.(); unlayer = null; };
+    const step = () => {
+      if (!playing.peek() || Shell.view.peek() !== went) return stop();
+      if (i >= days.length) { Shell.at(began ? { asOf: began } : null, { replace: true }); return stop(); }
+      Shell.at(days[i] === Log.today() ? null : { asOf: days[i] }, { replace: true });
+      i++;
+      // (After it's drawn: a large chart stands as long, however long it took.)
+      requestAnimationFrame(() => { timer = setTimeout(step, STAND); });
+    };
+    playing.value = true;
+    stopPlay = stop;
+    unlayer = Shell.layer(stop);
+    step();
+  }
   function Ruler() {
     const t = Shell.time.value, today = Log.today(), evs = events.value;
     const [hot, setHot] = useState(null);
     const ref = useRef();
-    if (!(t?.asOf || opened.value) || !evs.length) return null;
-    const days = [...new Set([...evs.map(e => e.day), today, ...(t?.asOf ? [t.asOf] : [])])].sort(), items = new Map(evs.map(e => [e.day, e.items]));
+    if (!(t?.asOf || opened.value || holding.value || playing.value) || !evs.length) return null;
+    const days = [...new Set([...evs.map(e => e.day), today, ...(t?.asOf ? [t.asOf] : [])])].sort(), items = new Map(evs.map(e => [e.day, e.items])), weights = new Map(evs.map(e => [e.day, e.weight]));
     // Days are placed by how far apart they are, a long gap shortened and marked with a break; Jan 1 of each
     // year inside an unbroken gap is labeled.
     const pos = [0], breaks = [], years = [];
@@ -292,23 +318,33 @@ const Time = (() => {
       for (let y = +days[i - 1].slice(0, 4) + 1; y <= +days[i].slice(0, 4); y++)
         years.push([y, pos[i - 1] + (dayOf(`${y}-01-01`) - dayOf(days[i - 1])) / 864e5]);
     }
-    const span = pos.at(-1) || 1, at = p => `calc(16px + (100% - 32px) * ${p / span})`;
+    const span = pos.at(-1) || 1, at = p => `${p / span * 100}%`;
     const nearest = e => {
-      const r = ref.current.getBoundingClientRect(), p = (e.clientX - r.left - 16) / Math.max(1, r.width - 32) * span;
+      const r = ref.current.getBoundingClientRect(), p = (e.clientX - r.left) / Math.max(1, r.width) * span;
       let best = 0;
       pos.forEach((x, i) => { if (Math.abs(x - p) < Math.abs(pos[best] - p)) best = i; });
       return days[best];
     };
     const down = e => {
       if (e.button !== 0) return;
+      stopPlay?.();
       const el = e.currentTarget;
       el.setPointerCapture(e.pointerId);
-      let first = true;
-      const go = ev => { const d = nearest(ev); setHot(d); Shell.at(d === today ? null : { asOf: d }, { replace: !first }); first = false; };
+      // (The chart's what's being looked at: what opened the ruler gets out of its way, and the ruler stays till the hand has left it.)
+      holding.value = true;
+      Shell.closeAll();
+      el.classList.add('held');
+      let first = true, was = null;
+      const go = ev => { const d = nearest(ev); if (d === was) return; was = d; setHot(d); Shell.at(d === today ? null : { asOf: d }, { replace: !first }); first = false; };
       go(e);
-      const move = ev => go(ev), up = () => { el.removeEventListener('pointermove', move); setHot(null); };
+      const move = ev => go(ev), up = ev => {
+        el.removeEventListener('pointermove', move); el.classList.remove('held');
+        const r = el.parentElement.getBoundingClientRect();
+        if (ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom) { setHot(null); holding.value = false; }
+      };
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up, { once: true });
+      el.addEventListener('pointercancel', up, { once: true });
     };
     const key = e => {
       const i = days.indexOf(t?.asOf ?? today), d = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
@@ -317,14 +353,22 @@ const Time = (() => {
       show(days[Math.max(0, Math.min(days.length - 1, i + d))]);
     };
     const cur = t?.asOf ?? today, tip = hot ?? cur, its = items.get(tip) ?? [], tx = pos[days.indexOf(tip)] / span;
-    return html`<div class="scrub" ref=${el => { ref.current = el; if (el && el !== measured) { measure.disconnect(); measure.observe(measured = el); width.value = el.clientWidth; } }} tabindex="0" role="slider" aria-label="Date" aria-valuetext=${short(cur)}
+    // A year's mark stands alone where its label would run into the last, or off the end.
+    let lastAt = -Infinity;
+    const said = years.map(([y, p]) => { const x = width.value * p / span, room = !width.value || (x - lastAt >= 40 && width.value - x >= 16); if (room) lastAt = x; return [y, p, room]; });
+    const moved = days.filter(d => (weights.get(d) ?? 0) >= 2);
+    return html`<div class=${'scrub' + (playing.value ? ' playing' : '')} data-floats-on="1" onPointerLeave=${e => { if (!e.buttons) holding.value = false; }}>
+      <button class="btn icon scrub-play" aria-label=${playing.value ? 'Stop' : 'Play the chart through its days'} data-tip=${playing.value ? 'Stop' : 'Play the chart through its days'} aria-pressed=${playing.value} onClick=${() => { Shell.closeAll(); play(moved.includes(today) ? moved : [...moved, today]); }}>${Shell.icon(playing.value ? 'square' : 'play')}</button>
+      <div class="scrub-track" ref=${el => { ref.current = el; if (el && el !== measured) { measure.disconnect(); measure.observe(measured = el); width.value = el.clientWidth; } }} tabindex="0" role="slider" aria-label="Date" aria-valuetext=${short(cur)}
         onPointerDown=${down} onPointerMove=${e => { if (!e.buttons) setHot(nearest(e)); }} onPointerLeave=${() => setHot(null)} onKeyDown=${key}>
-      ${years.map(([y, p]) => html`<span class="yr" style=${`left:${at(p)}`}>${width.value && (width.value - 32) * (1 - p / span) < 36 ? '' : y}</span>`)}
-      ${breaks.map(p => html`<span class="brk" style=${`left:${at(p)}`} />`)}
-      ${days.map((d, i) => html`<i class=${d === cur ? 'on' : d === hot ? 'hot' : d === today ? 'now' : ''} style=${`left:${at(pos[i])}`} />`)}
-      <span class=${'scrub-tip' + (tx < .2 ? ' l' : tx > .8 ? ' r' : '')} style=${`left:${at(pos[days.indexOf(tip)])}`}>
-        <b>${tip === today ? 'Today' : short(tip)}</b>${its[0] ? html` · ${its[0].what}${its[0].of ? ` · ${its[0].of}` : ''}${its.length > 1 ? ` · ${its.length - 1} more` : ''}` : null}
-      </span>
+        ${said.map(([y, p, room]) => html`<span class="yr" style=${`left:${at(p)}`}>${room ? html`<span>${y}</span>` : null}</span>`)}
+        ${breaks.map(p => html`<span class="brk" style=${`left:${at(p)}`} />`)}
+        ${days.map((d, i) => html`<i class=${`ev w${weights.get(d) ?? 1}` + (d === hot && d !== cur ? ' hot' : '') + (d === today ? ' now' : '')} style=${`left:${at(pos[i])}`} />`)}
+        <b class="hand" style=${`left:${at(pos[days.indexOf(cur)])}`} />
+        <span class=${'scrub-tip' + (tx < .2 ? ' l' : tx > .8 ? ' r' : '')} style=${`left:${at(pos[days.indexOf(tip)])}`}>
+          <b>${tip === today ? 'Today' : short(tip)}</b>${its[0] ? html` · ${its[0].what}${its[0].of ? ` · ${its[0].of}` : ''}${its.length > 1 ? ` · ${its.length - 1} more` : ''}` : null}
+        </span>
+      </div>
     </div>`;
   }
 

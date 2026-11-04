@@ -1,11 +1,12 @@
 /* The inspector, on dendra.css's rows: a label column and a value column, values typed over in place. */
 
 /* Each list of rows (a record's entries, a section, a relation's entries) is a grid: its labels in a column
-   as wide as the longest of them, up to half the panel, and its values in the rest. Its rows take its columns;
+   of one width on every panel, so the eye can rest and a value never jumps sideways from record to record (a longer label wraps), and
+   its values in the rest. Its rows take its columns;
    a row with columns of its own (a tag's, a relative's, a style's output) or a heading spans them. Narrow, a
    label sits over its value (below). */
 .insp { padding-bottom: 32px; }
-.insp :is(.rows, section, .rr-at, .nots) { display: grid; grid-template-columns: fit-content(50%) minmax(0, 1fr); column-gap: 12px; align-content: start; }
+.insp :is(.rows, section, .rr-at, .nots) { display: grid; grid-template-columns: 42% minmax(0, 1fr); column-gap: 12px; align-content: start; }
 .insp :is(.rows, section, .styles, .rr-at, .nots, .ent) > * { grid-column: 1 / -1; min-width: 0; }
 .insp :is(.styles, .ent, .row:not(.chk, .out, .rel, .keyrow)) { display: grid; grid-template-columns: subgrid; }
 /* A row Enter has left a value for: focused, so a key typed next is the window's. */
@@ -20,7 +21,8 @@
 .insp > .crumb > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* When a record holds, under its title: each day a link to the chart then. */
 .ih > .span { display: flex; flex-wrap: wrap; column-gap: 12px; margin: 2px 0 0; font: var(--t12); color: var(--ink-2); }
-.ih > .span .day { color: var(--accent-ink); cursor: pointer; }
+.ih > .span .day { color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--rule-2); text-underline-offset: 3px; }
+.ih > .span .day:hover { color: var(--ink); text-decoration-color: currentColor; }
 .ih:focus-visible { outline-offset: -4px; }
 /* A long panel's strip, sticky at its top: its sections, a click from each, Look and Position always in view at its end. */
 .strip { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 12px; padding: 0 20px; height: 28px; border-bottom: 1px solid var(--rule); background: var(--surface); font: var(--t12); color: var(--ink-2); }
@@ -81,7 +83,7 @@ button.lk.hint { margin-left: 8px; color: var(--accent-ink); white-space: nowrap
 .lbl { cursor: default; }
 .ruled > .k .lbl { color: var(--ink-3); }
 .failed > .k .lbl { color: var(--no); }
-.heeds > .k .lbl { color: var(--due); }
+.heeds > .k .lbl { color: var(--no); }
 /* A label that says something clicked: why a formula gives it, or who typed it, and when. */
 .lbl.asks:hover { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--rule-2); }
 .typed { display: grid; gap: 2px; min-width: 200px; max-width: 320px; }
@@ -118,7 +120,7 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
 .row.chk .btn.ver { right: 13px; }
 /* Narrow, every row of a label and its value sets the label over the value, so neither wraps but a long
    value. (A relative is a name and its role, as a list's row is.) */
-@container (max-width: 340px) {
+@container (max-width: 300px) {
   .insp .row:not(.chk, .out, .rel, .keyrow) { grid-template-columns: minmax(0, 1fr); }
   .row:not(.chk, .out, .rel, .src, .draft) > .k:not(.wide) { padding: 4px 0 0 calc(var(--depth, 0) * 16px); font: var(--t12); color: var(--ink-3); }
   .row:not(.chk, .out, .rel) > .v { padding-left: calc(var(--depth, 0) * 16px); }
@@ -129,7 +131,8 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
    clicking anywhere in the cell types into it. */
 .cellbox { position: relative; display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; min-height: var(--row); }
 .hug { position: relative; display: flex; align-items: center; min-width: 0; max-width: 100%; }
-.cell { field-sizing: content; width: auto; min-width: 4ch; max-width: calc(100% + 14px); height: var(--row); margin: 0 -7px; padding: 0 6px; border-color: transparent; background: transparent; text-overflow: ellipsis; }
+/* (Its text on the label's baseline: the same 4 px over it, a 20 px line, whatever kind of value it is.) */
+.cell { field-sizing: content; width: auto; min-width: 4ch; max-width: calc(100% + 14px); height: var(--row); margin: 0 -7px; padding: 3px 6px; line-height: 20px; border-color: transparent; background: transparent; text-overflow: ellipsis; }
 .draft .cell, .k > .cell { width: calc(100% + 14px); }
 :where(.cell):hover:not(:focus, :disabled) { border-color: var(--rule); }
 .cell:focus { background: var(--surface); }
@@ -166,6 +169,14 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .sel.add > span { text-decoration: underline double; text-underline-offset: 2px; }
 .sel:disabled > span::after { visibility: hidden; }
 .sel.fx > span { font-style: italic; }
+/* In the panel, its chevron at its column's end, one straight edge down it, whatever each option says. */
+.insp .row > .v .hug:has(> .sel.dd:not(:disabled)) { flex: 1; }
+.insp .row > .v .sel.dd { display: flex; justify-content: space-between; gap: 8px; flex: none; width: calc(100% + 14px); max-width: none; }
+.insp .row > .v .sel.dd > span::after { content: none; }
+.insp .row > .v .sel.dd::after { content: ""; flex: none; width: 10px; height: 6px; margin: 7px 8px 0 0; background: var(--chev) no-repeat center; }
+.insp .row > .v .sel:disabled::after { visibility: hidden; }
+/* (Where what its name says is offered beside it, there's room for that.) */
+.insp .row > .v .sel.dd:has(+ .hint) { width: auto; flex: none; gap: 0; }
 
 /* A tag: hovering shows the other state, and redlines the label. */
 .v.ctl .tag { cursor: default; }
@@ -286,6 +297,8 @@ svg.sw { width: 28px; height: 16px; flex: none; overflow: visible; background: v
 /* (In dark, dimmed whole, so what's on it still reads as on the page, and the plate isn't the brightest thing in the panel.) */
 :root[data-theme="dark"] svg.sw { filter: brightness(.76); }
 svg.sw.off { opacity: .35; }
+/* (A swatch sits on a bit of the page it's of, white in both themes; in dark, the panel's no brightest thing for it.) */
+:root[data-theme="dark"] svg.sw { opacity: .86; }
 :root[data-theme="dark"] i.chip { border-color: var(--ink-3); }
 
 .row.out:has(.cap.on) { background: var(--selected); }
