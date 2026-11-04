@@ -30,8 +30,28 @@ const App = (() => {
 
   const who = () => Store.who() || 'You';
   const day = computed(() => Shell.time.value?.asOf ?? Log.today());
-  // In History, the workbook as it stood just after the change picked, which can't be changed.
-  const readOnly = computed(() => !!Shell.time.value?.stood);
+  // Viewing or Editing, the window's (dendra.md, Workbook): each chart's, for this tab; a chart opens as this browser was
+  // told to open it, or else in Editing. Viewing, nothing writes.
+  const modes = signal((() => { try { return JSON.parse(sessionStorage.getItem('dendra.modes')) ?? {}; } catch { return {}; } })());
+  const opensKey = c => `viewing.${c}`, opensSaid = signal(0);
+  const opensViewing = computed(() => { opensSaid.value; return !!chart.value && store.get(opensKey(chart.value)) === '1'; });
+  const viewing = computed(() => !!chart.value && (modes.value[chart.value] ?? opensViewing.value));
+  function setViewing(on) {
+    modes.value = { ...modes.peek(), [chart.peek()]: on };
+    try { sessionStorage.setItem('dendra.modes', JSON.stringify(modes.peek())); } catch {}
+    if (Shell.time.peek()?.stood) return;
+    Shell.toast(on ? 'Viewing: nothing you do here changes the chart' : 'Editing', { ms: 3000 });
+  }
+  function setOpensViewing(on) {
+    store.set(opensKey(chart.peek()), on ? '1' : null);
+    opensSaid.value++;
+    if (on) setViewing(true);
+  }
+  // In History, the workbook as it stood just after the change picked, which can't be changed; and in Viewing.
+  const readOnly = computed(() => !!Shell.time.value?.stood || viewing.value);
+  // Why it can't be changed now, as a toast says it.
+  const whyNot = () => Shell.time.peek()?.stood ? 'Can’t change the past' : 'Viewing: switch to Editing to change this';
+  const refuse = () => { Shell.toast(whyNot()); return null; };
   const stood = computed(() => {
     const t = Shell.time.value;
     if (!t?.stood) return null;
@@ -103,6 +123,8 @@ const App = (() => {
   // It reads only the Required and Check notes, so a look or a field shown, changed, counts nothing again.
   const asking = keptWhile(() => JSON.stringify(['Required', 'Check'].flatMap(l => notes.value.notes(l).map(n => [n.note, n.view, n.param, Tree.key(n.pattern), n.value]))), () => notes.peek());
   const needs = computed(() => Formulas.attention(result.value, asking.value, day.value));
+  // The same, due soon being within so many days: what the status list's Next 90 days lists.
+  const needsWithin = days => Formulas.attention(result.peek(), asking.peek(), day.peek(), days);
   Shell.register('attention', { items: () => needs.value.filter(a => a.kind === 'error' && !a.error).map(({ id }) => ({ kind: 'error', id, go: () => {
     const r = state.peek()[id];
     if (!r) return;
@@ -120,7 +142,7 @@ const App = (() => {
   const keep = (c, s) => { stacks.value = { ...stacks.peek(), [c]: s }; try { sessionStorage.setItem('dendra.undo', JSON.stringify(stacks.peek())); } catch {} };
   const made = c => { lastDiscarded.value = null; const s = stackOf(c.chart); keep(c.chart, { undo: [...s.undo, { id: c.id, act: c.id }], redo: [] }); return c; };
   function step(back) {
-    if (readOnly.peek()) return Shell.toast('Can’t change the past');
+    if (readOnly.peek()) return refuse();
     // With a change pending, Undo discards it first, and says so, Redo bringing it back; it never undoes past it. A
     // change pending discarded is the latest thing undone, so Redo brings it back first, until something's made or begun.
     const p = mine();
@@ -133,9 +155,22 @@ const App = (() => {
     if (!r) return Shell.toast(back ? 'Nothing to undo' : 'Nothing to redo', { ms: 2000 });
     if (typeof r === 'string') return Shell.toast(r);
     keep(c, { [from]: s[from].slice(0, -1), [to]: [...s[to], { id: r.id, act: top.act }] });
-    Shell.toast(`${back ? 'Undid' : 'Redid'}: ${Time.describe(book.peek().changes().find(x => x.id === top.act))}`, back ? { redo } : { undo });
+    Shell.toast(Time.describe(r), back ? { redo } : { undo });
   }
   const undo = () => step(true), redo = () => step(false);
+  // Undo's list: the steps it can take back, the latest first, each by its words.
+  const steps = () => stackOf(chart.value).undo.map(s => book.peek().changes().find(x => x.id === s.act)).filter(Boolean).reverse().map(c => Time.describe(c));
+  // Back to there: the steps from the latest through the `n`th of that list, one toast saying how many, Redo putting them
+  // all back.
+  function undoTo(n) {
+    if (readOnly.peek()) return refuse();
+    const again = k => { batch(() => { for (let i = 0; i < k; i++) step(false); }); Shell.toast(`Redid ${k} changes`, { undo: () => undoTo(k) }); };
+    if (mine()) discard();
+    if (n === 1) return step(true);
+    const words = steps();
+    batch(() => { for (let i = 0; i < n; i++) step(true); });
+    Shell.toast(`Undid ${n} changes, back to before ${words[n - 1]}`, { redo: () => again(n) });
+  }
   // The ids the change last previewed gave what it would add (see would), which the next change gives what it adds,
   // in order: so a change made as it was previewed is that change, ids and all. A change pending keeps its own.
   let named = [];
@@ -152,7 +187,7 @@ const App = (() => {
   // keepers), unless `keep` is false (Tidy).
   let staying = null;
   function change(fn, { say, dated = true, ids, empty, keep = true } = {}) {
-    if (readOnly.peek()) { Shell.toast('Can’t change the past'); return null; }
+    if (readOnly.peek()) return refuse();
     const tx = edit(dated, ids ?? named), was = entered.peek();
     if (!ids) named = [];
     fn(tx);
@@ -214,13 +249,13 @@ const App = (() => {
   // before Enter: the day shown, another, or all along, for what was always so; `change` takes it as `dated`
   // (a day, or false for all along). asksDay(record, recs) says whether a record about to be added asks its day,
   // its sides read in recs (the chart shown, and anything added with it).
-  function asksDay(r, recs = state.peek()) {
-    return r?.args?.length > 1 && !!Tree.treeOf({ ...recs, '': r }, '') && !startOf(r, recs);
+  function asksDay(r, recs = state.peek(), N = notes.peek()) {
+    return r?.args?.length > 1 && !!Tree.treeOf({ ...recs, '': r }, '') && !startOf(r, recs, N);
   }
   // The start entry of a record about to be added, where its kind or relation has one (a general partner's Admission
   // Date): its label, or null.
-  function startOf(r, recs = state.peek()) {
-    const t = Tree.treeOf({ ...recs, '': r }, ''), N = notes.peek();
+  function startOf(r, recs = state.peek(), N = notes.peek()) {
+    const t = Tree.treeOf({ ...recs, '': r }, '');
     return (t && N.notes('Start').map(n => n.pattern.args?.length === 1 && n.pattern.args[0].edge).find(e => e && N.isStart({ out: { field: 'date' }, args: [{ edge: e, loc: t }] }))) || null;
   }
   // How deleting a record ends it (dendra.md, Time), the mirror of when one added holds from. One whose kind or
@@ -309,7 +344,8 @@ const App = (() => {
   // 'from' gives or the end entry an 'until' gives), value (a relation's amount it asks first, { edge, field, v }),
   // ready(p) (whether what else it asks is given), needs (the records it's at), source (where it began), act (what its
   // button calls it, a deletion's Dissolve), say, done(change), auto (its controls take the keys as it's begun), inline
-  // (those where it was asked take them, not the bar's) }; and `from`, the day shown as it was begun. It's the chart's it
+  // (those where it was asked take them, not the bar's), reverse (the change it reverses, History's Undo this change, which
+  // make redlines) }; and `from`, the day shown as it was begun. It's the chart's it
   // was begun in: a click away, another view, another day or another chart shown leave it pending; one begun elsewhere in
   // its place says so, and Undo brings it back.
   const pending = signal(null);
@@ -326,10 +362,10 @@ const App = (() => {
   const ready = p => !(p.asks && p.day === undefined) && !(p.value && p.value.v === undefined) && (p.ready?.(p) ?? true);
   // What its button says: its verb, or what it's called (Dissolve); a deletion as never held is Delete.
   const actOn = p => p.asks === 'until' && p.day === null ? p.verb : p.act ?? p.verb;
-  const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring' };
+  const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring', Undo: 'undoing', Redo: 'redoing' };
   const discarded = p => { const act = actOn(p); return `Discarded ${act !== p.verb ? act.toLowerCase().replace(/e$/, '') + 'ing' : doing[p.verb] ?? p.verb.toLowerCase()} ${p.what}`; };
   function stage(p) {
-    if (readOnly.peek()) { Shell.toast('Can’t change the past'); return; }
+    if (readOnly.peek()) { refuse(); return; }
     // Where the keys were as it was begun: what had them, the row it's in, and its part of the window.
     const was = pending.peek(), a = document.activeElement !== document.body ? document.activeElement : null;
     const back = a && { el: a, key: a.closest?.('[data-key]')?.dataset.key, region: a.closest?.('[data-region]') };
@@ -379,9 +415,9 @@ const App = (() => {
     let empty = false;
     const c = batch(() => {
       pending.value = null;
-      const made = change(tx => p.make(tx, p.day, p), { dated: datedOf(p), ids: p.ids, say: p.say, empty: () => { empty = true; } });
-      if (!made && !empty) pending.value = p;
-      return made;
+      const it = p.reverse ? reversing(p.reverse) : change(tx => p.make(tx, p.day, p), { dated: datedOf(p), ids: p.ids, say: p.say, empty: () => { empty = true; } });
+      if (!it && !empty) pending.value = p;
+      return it;
     });
     if (empty) drop(p, ', which changes nothing');
     else if (c) { p.done?.(c); after(p); }
@@ -664,12 +700,14 @@ const App = (() => {
   // From History: an older change undone or redone (its reverse), or an item deleted restored, made now, and
   // said as History says it.
   function remake(c) {
-    if (typeof c === 'string') return Shell.toast(c);
+    if (typeof c === 'string') return Shell.toast(c), null;
     Shell.at(null);
     if (c) { made(c); Shell.toast(Time.describe(c), { undo }); }
+    return c;
   }
-  const reverse = id => remake(book.peek().reverse(id, who()));
-  const restore = item => remake(book.peek().restore(chart.peek(), item, who()));
+  const reversing = id => readOnly.peek() ? refuse() : remake(book.peek().reverse(id, who()));
+  const reverse = id => { if (viewing.peek()) return refuse(); return remake(book.peek().reverse(id, who())); };
+  const restore = item => { if (viewing.peek()) return refuse(); return remake(book.peek().restore(chart.peek(), item, who())); };
 
   // ---- The chart menu: the workbook's charts, a new one, and the workbooks this browser keeps ----
   const books = signal([]);
@@ -746,7 +784,7 @@ const App = (() => {
   }
   // A new chart is named as it begins, in the title bar.
   function newChart() {
-    if (readOnly.peek()) return Shell.toast('Can’t change the past');
+    if (readOnly.peek()) return refuse();
     const c = startChart(book.peek());
     if (typeof c === 'string') return Shell.toast(c);
     open(c.chart);
@@ -756,6 +794,7 @@ const App = (() => {
   // following (a record's place and sides, a note's pattern and view, a shape's view, ends and members), so the copy
   // is the chart as it stands, its records' days included, with its own History from here on. Named as it begins.
   function duplicateChart() {
+    if (readOnly.peek()) return refuse();
     const wb = book.peek(), from = chart.peek(), was = wb.charts().find(x => x.chart === from)?.name ?? 'Untitled';
     const names = new Set(wb.charts().map(x => Tree.norm(x.name)));
     let name = `${was} copy`, i = 2;
@@ -781,6 +820,7 @@ const App = (() => {
   // The chart shown taken out of the workbook, as one change, which its toast can take back; another chart is shown.
   function deleteChart() {
     const wb = book.peek(), id = chart.peek(), next = wb.charts().find(x => x.chart !== id);
+    if (readOnly.peek()) return refuse();
     if (!next) return;
     const tx = wb.edit({ chart: id, who: who() });
     tx.remove(id);
@@ -819,7 +859,7 @@ const App = (() => {
     rename,
     menu: () => {
       const all = (version.value, book.value.charts()), here = Store.where()?.id, others = books.value.filter(b => b.id !== here);
-      return [{ label: 'New chart', run: newChart }, { label: 'New workbook', run: blank }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
+      return [{ label: 'New chart', disabled: readOnly.value, run: newChart }, { label: 'New workbook', run: blank }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
         { label: 'Delete chart', danger: true, disabled: readOnly.value || all.length < 2, tip: all.length < 2 ? 'It’s this workbook’s only chart' : null, run: deleteChart }, '-',
         { label: 'Charts', items: all.map(c => ({ label: c.name, checked: c.chart === chart.value, run: () => c.chart !== chart.peek() && open(c.chart) })) },
         { label: 'Workbooks', items: [
@@ -829,7 +869,7 @@ const App = (() => {
     },
   });
   Shell.register('undo', {
-    undo, redo,
+    undo, redo, steps, undoTo,
     canUndo: () => !readOnly.value && stackOf(chart.value).undo.length > 0,
     canRedo: () => !readOnly.value && (stackOf(chart.value).redo.length > 0 || (!!lastDiscarded.value && lastDiscarded.value.chart === chart.value && !pending.value)),
   });
@@ -979,6 +1019,6 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, change, keeping, would, asksDay, endOf, heldFrom, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
+    readOnly, viewing, setViewing, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, would, asksDay, endOf, heldFrom, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
   };
 })();

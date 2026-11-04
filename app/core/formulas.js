@@ -3549,9 +3549,9 @@ function requiredAt(N, t, edge) {
   const byTree = asked.get(N) ?? asked.set(N, new WeakMap()).get(N), m = byTree.get(t) ?? byTree.set(t, new Map()).get(t);
   return m.get(edge) ?? m.set(edge, N.required({ args: [{ edge, loc: t }] })).get(edge);
 }
-function attention(R, N, day) {
+function attention(R, N, day, within = 30) {
   const recs = R.records, items = [], soon = new Date(day + 'T12:00:00');
-  soon.setDate(soon.getDate() + 30);
+  soon.setDate(soon.getDate() + within);
   const by = Tree.isoOf(soon), checks = N.notes('Check').length > 0;
   const required = N.notes('Required').filter(n => !n.view && n.pattern.args?.length === 1).map(n => n.pattern.args[0]);
   const edges = new Map();

@@ -473,7 +473,7 @@ const Shell = (() => {
         : it.seg ? html`<div class="menu-seg" role="group">${it.seg.map(s => html`<button aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
         : html`<div role=${it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked=${it.checked === undefined ? null : !!it.checked} id=${mi(i)}
             aria-disabled=${it.disabled ? 'true' : null} aria-haspopup=${it.items ? 'menu' : null} data-tip=${it.tip ?? null} aria-description=${it.tip ?? null}
-            class=${'menu-item' + (i === active ? ' on' : '') + (it.items ? ' sub' : '') + (it.danger ? ' danger' : '') + (selectable(it) || it.disabled ? '' : ' said')}
+            class=${'menu-item' + (i === active || it.lit ? ' on' : '') + (it.items ? ' sub' : '') + (it.danger ? ' danger' : '') + (selectable(it) || it.disabled ? '' : ' said')}
             onPointerMove=${() => { if (i !== act && selectable(it)) { setAct(i); if (it.items) openSub(it, el(i)); else floats.peek().filter(x => x.parent === f.id).forEach(x => x.close()); } }}
             onClick=${() => selectable(it) && run(it)}>
             ${checks ? html`<span class="check">${it.checked ? icon('check') : null}</span>` : null}
@@ -664,8 +664,10 @@ const Shell = (() => {
     const wb = part('workbook'), items = [];
     if (wb) items.push({ label: 'Rename', disabled: App.readOnly.value, run: nameChart }, ...wb.menu(), '-');
     const themes = { order: 30, seg: THEMES.map(([label, t]) => ({ label, pressed: theme.value === t, run: () => setTheme(t) })) };
+    // Editing or Viewing, as the title bar's switch says it.
+    const modes = { order: 5, seg: [['Editing', false], ['Viewing', true]].map(([label, on]) => ({ label, pressed: App.viewing.value === on, run: () => App.setViewing(on) })) };
     const acts = many('action').filter(a => a.menu === 'chart').map(a => ({ order: a.order ?? 25, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
-    for (const it of [...acts, themes].sort((a, b) => a.order - b.order)) {
+    for (const it of [...acts, modes, themes].sort((a, b) => a.order - b.order)) {
       if (it.seg && items.length && items[items.length - 1] !== '-') items.push('-');
       items.push(it);
       if (it.seg) items.push('-');
@@ -675,6 +677,17 @@ const Shell = (() => {
   }
   // A name cut short is shown whole on hover, as the formula bar's is.
   const whole = e => { const b = e.currentTarget, n = b.querySelector('.name'); if (n && n.scrollWidth > n.clientWidth) b.dataset.tip = n.textContent; else delete b.dataset.tip; };
+  // Editing or Viewing, as Word's switch is; and whether this chart opens in Viewing, in this browser.
+  const modeMenu = e => menu(e.currentTarget, () => [
+    { label: 'Editing', checked: !App.viewing.value, run: () => App.setViewing(false) },
+    { label: 'Viewing', checked: App.viewing.value, run: () => App.setViewing(true) }, '-',
+    { label: 'Open this chart in Viewing', checked: App.opensViewing.value, run: () => App.setOpensViewing(!App.opensViewing.peek()) }]);
+  // Undo's list: the steps it can take back, the latest first, by their words; picking one undoes back to there, and pointing
+  // at one lights it and the later ones it takes too, as Office's does.
+  const undoList = e => {
+    const u = part('undo'), lit = signal(0), words = u.steps(), points = words.map((_, i) => on => { lit.value = on ? i + 1 : 0; });
+    menu(e.currentTarget, () => words.map((label, i) => ({ label, lit: i < lit.value, run: () => u.undoTo(i + 1), point: points[i] })), { cls: 'undolist', placement: 'bottom-end' });
+  };
   function TitleBar() {
     const u = part('undo'), t = time.value;
     return html`<header class="titlebar" data-region="bars">
@@ -688,7 +701,10 @@ const Shell = (() => {
         <button class="btn icon" aria-label=${away.value ? 'Show panel' : 'Hide panel'} data-tip=${away.value ? 'Show panel' : 'Hide panel'} data-keys=${keyLabel('$mod+Backslash')}
           aria-pressed=${!away.value} onClick=${() => wide.peek() ? narrow() : setShut(!away.peek())}>${icon('panel')}</button>
         <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+KeyZ')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
+        <button class="btn icon undo-list" aria-label="Undo list" data-tip="Undo list" aria-haspopup="menu" disabled=${!u?.canUndo()} onClick=${undoList}>${icon('chevron')}</button>
         <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+KeyY')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
+        <span class="sep" />
+        ${part('workbook') ? html`<span class=${'mode' + (App.viewing.value ? ' viewing' : '')}><button class="btn ghost dd" aria-haspopup="menu" onClick=${modeMenu}>${App.viewing.value ? 'Viewing' : 'Editing'}</button></span>` : null}
         <button class="btn primary" aria-haspopup="dialog" onClick=${() => Export.open()}>Export</button>
       </div>
     </header>`;
@@ -739,6 +755,7 @@ const Shell = (() => {
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
         ${bare ? html`<div class="empty void"><button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button></div>` : null}
+        ${part('time') ? h(part('time').Band) : null}
         ${h(App.Pending)}
         ${part('time') ? h(part('time').Ruler) : null}
       </div>
@@ -770,13 +787,13 @@ const Shell = (() => {
       if (e.button !== 0 || editing.peek()) return;
       narrow();
       show(v.id);
-      drag(e, { item: e.currentTarget, items: [...ref.current.children], axis: 'x', onDrop: (from, i) => vp.move(list[from].id, i) });
+      if (!App.readOnly.peek()) drag(e, { item: e.currentTarget, items: [...ref.current.children], axis: 'x', onDrop: (from, i) => vp.move(list[from].id, i) });
     };
     const commit = (v, name) => { editing.value = null; name = name.trim(); if (name && name !== v.name) vp.rename(v.id, name); };
     // A tab's menu, at the pointer, or over the tab from the keyboard.
     const tabMenu = (e, v) => {
       e.preventDefault(); show(v.id);
-      menu(e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : e.currentTarget, [{ label: 'Rename', run: () => { editing.value = v.id; } }, ...vp.menu(v.id)], { placement: 'top-start' });
+      menu(e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : e.currentTarget, [{ label: 'Rename', disabled: App.readOnly.peek(), run: () => { editing.value = v.id; } }, ...vp.menu(v.id)], { placement: 'top-start' });
     };
     const onKey = e => {
       const k = list.findIndex(x => x.id === view.peek()), d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
@@ -787,6 +804,7 @@ const Shell = (() => {
       ref.current.children[list.indexOf(next)]?.focus();
     };
     const add = e => vp.add(e.currentTarget).then(id => { if (id) { show(id); editing.value = id; } });
+    const name = v => { if (!App.readOnly.peek()) editing.value = v.id; };
     const all = e => menu(e.currentTarget, list.map(v => ({ label: v.name, checked: v.id === view.peek(), run: () => show(v.id) })), { placement: 'top-end' });
     return html`<div class="sheets" role="tablist" aria-label="Views" ref=${ref} onKeyDown=${onKey} onScroll=${more} onWheel=${e => { if (e.deltaY && !e.deltaX) { e.preventDefault(); ref.current.scrollLeft += e.deltaY * (e.deltaMode ? 16 : 1); } }}>
       ${list.map(v => editing.value === v.id
@@ -794,8 +812,8 @@ const Shell = (() => {
             onKeyDown=${e => { if (e.key === 'Enter') commit(v, e.target.value); else if (e.key === 'Escape') { e.stopPropagation(); editing.value = null; } }}
             onBlur=${e => commit(v, e.target.value)} /></div>`
         : html`<button key=${v.id} id=${'tab-' + v.id} class="sheet" role="tab" aria-selected=${v.id === view.value} aria-controls="view" tabindex=${v.id === view.value ? 0 : -1} data-tour=${v.id === view.value ? null : 'sheet'}
-            onPointerDown=${e => down(e, v)} onDblClick=${() => { editing.value = v.id; }} onContextMenu=${e => tabMenu(e, v)}>${v.name}</button>`)}
-    </div>${over ? html`<button class="btn icon views" aria-haspopup="menu" aria-label="All views" data-tip="All views" onClick=${all}>${icon('chevron')}</button>` : null}<button class="btn icon" aria-label="New view" data-tip="New view" onClick=${add}>${icon('plus')}</button>`;
+            onPointerDown=${e => down(e, v)} onDblClick=${() => name(v)} onContextMenu=${e => tabMenu(e, v)}>${v.name}</button>`)}
+    </div>${over ? html`<button class="btn icon views" aria-haspopup="menu" aria-label="All views" data-tip="All views" onClick=${all}>${icon('chevron')}</button>` : null}<button class="btn icon" aria-label="New view" data-tip="New view" disabled=${App.readOnly.value} onClick=${add}>${icon('plus')}</button>`;
   }
 
   // ---- The status bar: what needs attention, counted, the worst first; F8 steps through it in that order ----
@@ -814,11 +832,23 @@ const Shell = (() => {
   }
   // A count clicked opens its items, each in its words and where (the 'needs' part: what, whose, its figure), found as
   // they're typed; choosing one goes there.
+  // What's one problem is listed as one: several of one check or date at one record's relations (four failures of Capacity
+  // Held by one person) under a head naming the check and the record, each by where it is. Found as they're typed, every
+  // one in its words. Due soon says how soon, its list a click from the next 90 days'.
   function listOf(kind, anchor) {
-    const say = part('needs');
-    const items = needs().filter(it => it.kind === kind).map(it => { const w = say?.(it) ?? { what: '', where: '', figure: '' };
-      return { label: [w.what, w.where].filter(Boolean).join(' · '), detail: w.figure || null, names: w.figure ? [w.figure] : [], run: it.go }; });
-    if (anchor) menu(anchor, items, { search: true, cls: 'needs', placement: 'top-end' });
+    if (!anchor) return;
+    const say = part('needs'), within = signal(30);
+    const of = () => (kind === 'soon' && within.value !== 30 ? many('attention').flatMap(a => a.within?.(within.value) ?? []).filter(it => it.kind === 'soon') : needs().filter(it => it.kind === kind)).map(it => {
+      const w = say?.(it) ?? { what: '', where: '', figure: '' };
+      return { w, label: [w.what, w.where].filter(Boolean).join(' · '), detail: w.figure || null, names: w.figure ? [w.figure] : [], run: it.go };
+    });
+    const grouped = xs => {
+      const heads = new Map();
+      for (const x of xs) { const k = x.w.who ? `${x.w.what}|${x.w.who}` : x.label; if (!heads.has(k)) heads.set(k, []); heads.get(k).push(x); }
+      return [...heads.values()].flatMap(g => g.length < 2 ? g : [{ head: `${g[0].w.what} · ${g[0].w.who} (${g.length})` }, ...g.map(x => ({ ...x, label: x.w.where }))]);
+    };
+    const days = () => kind === 'soon' ? [{ seg: [30, 90].map(n => ({ label: `Next ${n} days`, pressed: within.value === n, run: () => { within.value = n; } })) }] : [];
+    menu(anchor, q => q ? rank(of(), q) : [...days(), ...grouped(of())], { search: true, cls: 'needs', placement: 'top-end' });
   }
   const countButton = kind => document.querySelector(`.status .counts > .${kind}`);
   const counts = () => { const items = needs(); return KINDS.map(([k, say, names, tip]) => ({ k, say, names, tip, n: items.filter(it => it.kind === k).length })).filter(c => c.n); };
