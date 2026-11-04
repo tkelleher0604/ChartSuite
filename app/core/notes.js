@@ -214,6 +214,8 @@ function index(rows) {
     required: t => value('Required', t) === true,
     // That what's entered there doesn't change over time, as a number given once doesn't: typed over, it's corrected.
     fixed: t => value('Fixed', t) === true,
+    // A date says its own day, one fact unless a note says it recurs (a questionnaire's): Fixed, false there, its Changes over time ticked.
+    changing: t => value('Fixed', t) === false,
     // A Check note on a definition: one ruled out is a check failed. On an entry typed by hand: its "no" needs attention.
     check: t => value('Check', t) === true && !!resolve('Formula', t),
     heeds: t => value('Check', t) === true && !resolve('Formula', t),

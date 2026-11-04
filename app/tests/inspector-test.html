@@ -115,6 +115,8 @@ async function run() {
 
   // Typing over a value with history to keep asks from when, in the window's one bar, the keys there; Enter makes it
   const keep = async () => { pb('.btn.primary')?.click(); await tick(60); };
+  // (What overrides a rule is made only with why.)
+  const because = async (text = 'Agreed with counsel') => { const i = pb('.why-in input'); i.value = text; i.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(20); };
   const day0 = Tree.formatDate(Log.today(), 'short'), nEin = App.wb.changes().length, target = () => st().fund_target?.value, targetCell = () => rowOf('Target Commitments').querySelector('.cell'), target0 = target();
   await type(targetCell(), '$800,000,000');
   check('typing over a value with history asks from when, in the bar, the day shown till another’s typed, the keys there, nothing yet made', target() === target0 && App.wb.changes().length === nEin
@@ -196,18 +198,22 @@ async function run() {
     && !FormulaBar.pending.peek() && !onFile.classList.contains('peek'), document.activeElement?.outerHTML.slice(0, 120));
   onFile.click(); await tick(60);
   const overrideBtn = () => document.querySelector('.fxbar .fx-override');
-  check('clicking a computed tick opens its reason, overriding nothing, the reason’s command labelled', App.wb.changes().length === n1 && st()[onFileId].tag === true && !pb() && overrideBtn()?.textContent === 'Rule out…'
+  check('clicking a computed tick opens its reason, overriding nothing, the reason’s command labelled', App.wb.changes().length === n1 && st()[onFileId].tag === true && !pb() && overrideBtn()?.textContent === 'Override…'
     && /Formation Document on File/.test(document.querySelector('.fxbar .fx-name')?.textContent ?? ''), document.querySelector('.fxbar')?.textContent.slice(0, 200));
   overrideBtn().click(); await tick(60);
-  check('… which goes through the bar, saying what it fails', App.wb.changes().length === n1 && pb('.btn.primary')?.textContent === 'Rule out' && /^Fails Formation Document on File at Fund III/.test(spoken(pb('.fails') ?? document.body))
+  check('… which goes through the bar, saying what it fails', App.wb.changes().length === n1 && pb('.btn.primary')?.textContent === 'Override' && /^Fails Formation Document on File at Fund III/.test(spoken(pb('.fails') ?? document.body))
     && document.activeElement === pb('.from input'), pb()?.textContent);
+  // A decision: it asks why, and until when, and isn't made till it's told why (dendra.md, Definitions: Typed over).
+  check('… asking why, its button waiting on it, and until when', pb('.btn.primary')?.getAttribute('aria-disabled') === 'true' && !!pb('.why-in.needed input') && !!pb('.until input'), pb()?.textContent);
+  pb('.btn.primary').click(); await tick(40);
+  check('… pressed with no reason, it makes nothing and the keys go to Why', App.wb.changes().length === n1 && document.activeElement === pb('.why-in input'), document.activeElement?.outerHTML.slice(0, 100));
   check('… and its row shows it, a red X', rowOf('Formation Document on File').querySelector('.tag').classList.contains('fails') && !overrideBtn(), rowOf('Formation Document on File').innerHTML.slice(0, 200));
   key(pb(), 'Escape'); await tick(60);
   check('… Esc leaves it as it was', App.wb.changes().length === n1 && st()[onFileId].tag === true && App.computed.value.computed[onFileId] && !pb(), pb()?.textContent);
   // … and Find reaches it, for what a formula gives that's selected
   Shell.select([onFileId]); await tick(60);
-  const ruling = await (async () => { Shell.find('rule out'); await tick(150); const out = [...document.querySelectorAll('.findpal .label')].map(x => x.textContent); Shell.closeAll(); await tick(30); return out; })();
-  check('… Find reaches Rule out…, of the computed tag selected', ruling.includes('Rule out…'), ruling.join(' | '));
+  const ruling = await (async () => { Shell.find('waiver'); await tick(150); const out = [...document.querySelectorAll('.findpal .label')].map(x => x.textContent); Shell.closeAll(); await tick(30); return out; })();
+  check('… Find reaches Override…, by the words for it, of the computed tag selected', ruling.includes('Override…'), ruling.join(' | '));
   Shell.select(['fund']); await tick(60);
 
   // A choice from its dropdown
@@ -226,11 +232,14 @@ async function run() {
   check('a computed value is italic', cnt.classList.contains('fx') && App.computed.value.computed[was[0]]);
   await type(cnt, '10%');
   check('clicking a computed value asks why', whys.includes(was[0]));
-  check('typing over a computed value asks from when', !!pb('.from input') && !!rowOf('Voting Percentage').querySelector('s.del'), pb()?.textContent);
-  await keep();
+  check('typing over a computed value asks from when, and why', !!pb('.from input') && !!rowOf('Voting Percentage').querySelector('s.del') && !!pb('.why-in.needed'), pb()?.textContent);
+  check('… and says it changes that value, not that it adds one and takes one away', /^Changes 1 voting percentage/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
+  await because(); await keep();
   check('typing over a computed value enters it, with an amber corner', count()[1].value === 0.1 && !App.computed.value.computed[count()[0]] && !!rowOf('Voting Percentage').querySelector('.hug.over'));
   await type(rowOf('Voting Percentage').querySelector('input'), '');
-  check('clearing an entered value lets the formula stand', count()[1].value === was[1].value && !!App.computed.value.computed[count()[0]], JSON.stringify(count()));
+  check('clearing what’s typed over a rule asks why too, as Back to the rule, clearing nothing yet', count()[1].value === 0.1 && pb('.btn.primary')?.textContent === 'Back to the rule' && !!pb('.why-in.needed'), pb()?.textContent);
+  await because(); await keep();
+  check('… and given, the formula stands', count()[1].value === was[1].value && !!App.computed.value.computed[count()[0]], JSON.stringify(count()));
   // An entry saying what the formula gives overrides nothing: it has no corner, as a paid tax year has none.
   const agree = Object.keys(App.computed.value.covered).find(id => App.computed.value.covered[id].agrees && st()[id]?.args);
   Shell.select([agree]); await tick(60);
@@ -851,13 +860,12 @@ async function run() {
   // An error is no record: going to one selects the record it's at, its formula asked why
   const fye = Object.keys(st()).find(k => st()[k].at === 'mgmt' && st()[k].edge === 'Fiscal Year End');
   App.change(tx => tx.remove(fye)); await tick(60);
-  // (A check failed is an error too, app.js's: each is gone to until one is the formula's.)
-  const errs = Shell.parts.value.attention.flatMap(a => a.items()).filter(i => i.kind === 'error'), asked = [], offAsk = Shell.on('why-open', d => asked.push(d));
-  for (const e of errs) { asked.length = 0; e.go(); await tick(60); if (Shell.selection.value[0] === 'mgmt') break; }
-  offAsk();
-  check('going to an error selects the record it’s at, and asks its formula why', errs.length > 0 && Shell.selection.value[0] === 'mgmt' && asked.length === 1 && !!App.computed.value.errors.find(e => e.id === asked[0]),
-    `${errs.length} errors; ${Shell.selection.value}; ${asked}`);
-  check('… where the error shows in place of the value, focused, saying what it needs', document.activeElement?.matches('.insp .errv') && $$('.errv').length === App.computed.value.errors.length
+  // What can't be worked out for want of it is that blank, counted once, whichever want it (dendra.md, Definitions: Can't say); going to it takes the keys there.
+  const wants = Shell.parts.value.attention.flatMap(a => a.items()).filter(i => i.kind === 'blank' && i.id === 'mgmt' && Tree.same(i.edge, 'Fiscal Year End'));
+  wants[0]?.go(); await tick(60);
+  check('what can’t be worked out for want of a value is that blank, once, its row selected and taking the keys', wants.length === 1 && !!wants[0].by && Shell.selection.value[0] === 'mgmt' && !!document.activeElement?.closest('[data-key="mgmt|Fiscal Year End"]'),
+    `${wants.length} ${Shell.selection.value} ${document.activeElement?.outerHTML.slice(0, 80)}`);
+  check('… and what wants it says so in place of the value', $$('.errv').length === App.computed.value.errors.length
     && $$('.errv').every(b => b.textContent === 'Needs Fiscal Year End' && b.dataset.tip?.startsWith('#')), $$('.errv').map(b => `${b.textContent} [${b.dataset.tip}]`).join(' | '));
   Shell.parts.value.undo.undo(); await tick(60);
 
@@ -1080,7 +1088,7 @@ async function run() {
   Shell.parts.value.undo.undo(); await tick(60);
   // So with anything typed at a year a formula gives: the year is entered as it stands, with it
   Shell.select([taxYear('AIV-1', 2026)]); await tick(60);
-  await type(rowOf('Annual Tax Amount')?.querySelector('input'), '$450'); await tick(60); await keep();
+  await type(rowOf('Annual Tax Amount')?.querySelector('input'), '$450'); await tick(60); await because(); await keep();
   check('… and typing over a value at a year enters the year with it', last().adds.length === 2 && last().adds.some(r => r.args && r.tag === true)
     && last().adds.some(r => r.edge === 'Annual Tax Amount' && r.value === 450 && last().adds.some(y => y.record === r.at)), JSON.stringify(last().adds));
   Shell.parts.value.undo.undo(); await tick(60);

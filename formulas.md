@@ -359,7 +359,7 @@ So a missing percentage leaves a look-through through it unknown, rather than sm
 | `KIND(x)` | x's kind, as text. |
 | `OBJECT(name)` | The object whose Name is the text, without regard to case: nothing if there's none, `#VALUE!` if there are several. |
 | `WITHOUT(x, expression)` | The expression, worked out as if x and everything that depends on it weren't in the chart, with every computed record worked out again. For counterfactuals like §57(b)(2)'s carve-out. It can't read the definition it's in, since that's always a loop. |
-| `TODAY`, `DATE`, `YEAR`, `MONTH`, `DAY`, `YEARFRAC`, `EDATE`, `EOMONTH`, and text functions | As in Excel. A day of the year, as a fiscal year ends on, has a `MONTH` and a `DAY` and no `YEAR`, and isn't counted from. |
+| `TODAY`, `DATE`, `YEAR`, `MONTH`, `DAY`, `YEARFRAC`, `EDATE`, `EOMONTH`, and text functions | As in Excel, but that `TODAY` is the day shown, not the clock's (dendra.md, Definitions: Today). A day of the year, as a fiscal year ends on, has a `MONTH` and a `DAY` and no `YEAR`, and isn't counted from. |
 | `WORKDAY(date, days)` | As in Excel, without holidays. `WORKDAY(d - 1, 1)` is the first working day on or after d, where a deadline falling on a weekend moves to. |
 
 ### Errors
