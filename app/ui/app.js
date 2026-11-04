@@ -490,7 +490,7 @@ const App = (() => {
     };
     return html`<span class="from">${words.length > 1 ? html`<button ref=${button} type="button" class="sel dd" aria-haspopup="menu" aria-label=${word} onClick=${pick} onKeyDown=${opens}><span>${word}</span></button>`
         : html`<span class="word">${word}</span>`}
-      ${always ? null : later && !change ? dayLink(day) : html`<span class="hug"><input ref=${input} class="cell date" value=${text ?? (day ? Tree.formatDate(day, 'short') : '')} aria-label=${words[0]} data-tip=${bad || null}
+      ${always ? null : later && !change ? dayLink(day) : html`<span class="hug"><input ref=${input} class="cell date" value=${text ?? (day ? Tree.formatDate(day, 'short') : '')} aria-label=${words[0]}
         spellcheck=${false} autocomplete="off" aria-invalid=${day === undefined || bad ? 'true' : null} onFocus=${e => { setTyping(true); e.target.select(); }} onBlur=${() => { setTyping(false); if (day) setText(null); }} onKeyDown=${key}
         onInput=${e => { if (text === null) was.current = day; setText(e.target.value); set(Tree.parseDate(Tree.clean(e.target.value)) ?? undefined); }} /></span>${change && day && day > shown && !typing ? html` <button type="button" class="lk" onClick=${() => Shell.at({ asOf: day })}>Show the chart then</button>` : null}`}</span>`;
   }
@@ -931,7 +931,7 @@ const App = (() => {
       transfer: { rid: act.rid, to: toWas, part: o.part === undefined ? wasPart : o.part, base, day: act.day },
       asks: 'on', day: act.day, Fill: Transferring, ready: p => !!p.transfer.to && p.transfer.part !== undefined,
       // (It can be made again only on a day what it's of holds.)
-      fits: p => !p.day || !!transferable(act.rid, base(p.day)), bad: p => (p.day && !transferable(act.rid, base(p.day)) ? 'What it’s of doesn’t hold on that day' : null),
+      fits: p => !p.day || !!transferable(act.rid, base(p.day)), bad: p => (p.day && !transferable(act.rid, base(p.day)) ? `${N.segmentOf(on, act.rid)} doesn’t hold on that day` : null),
       make: (tx, d, p) => {
         const { to, part } = p.transfer;
         if (!d || (d === act.day && (part ?? null) === (wasPart ?? null) && sameTo(to))) return;
@@ -949,7 +949,7 @@ const App = (() => {
     stage({ verb: 'Change', what: `the insertion in ${N.segmentOf(on, act.rid)}`, source: 'amend ' + c.id, needs: [act.rid], amending: [act.rid, act.up, act.made], amends: c,
       transfer: { rid: act.rid, to: toWas, part: null, base, day: act.day }, between: true,
       asks: 'on', day: act.day, Fill: Transferring, ready: p => !!p.transfer.to,
-      fits: p => !p.day || !!transferable(act.rid, base(p.day)), bad: p => (p.day && !transferable(act.rid, base(p.day)) ? 'What it’s of doesn’t hold on that day' : null),
+      fits: p => !p.day || !!transferable(act.rid, base(p.day)), bad: p => (p.day && !transferable(act.rid, base(p.day)) ? `${N.segmentOf(on, act.rid)} doesn’t hold on that day` : null),
       make: (tx, d, p) => {
         const { to } = p.transfer;
         if (!d || (d === act.day && label(to) === label(toWas))) return;
@@ -1177,7 +1177,8 @@ const App = (() => {
       ${endable.length ? html`<button type="button" class="btn too" onClick=${() => endToo(p, endable)}>${endable.length > 1 ? 'End those too' : 'End that too'}</button>` : null}
       ${p.value ? html`<span class="amt" onKeyDown=${enter}><${Amount} key=${p.n} p=${p} auto=${auto} /></span>` : null}
       ${p.instead ? html`<button type="button" class="btn too" onClick=${p.instead.run}>${p.instead.label}</button>` : null}
-      ${p.amends && p.verb === 'Change' && !p.typed ? (t => (t.length ? html`<span class="rests">Takes with it: ${t.join('; ')}</span>` : null))(restsOn(p.amends, p)) : null}
+      ${p.amends && p.verb === 'Change' && !p.typed ? (t => (t.length ? html`<span class="rests takes">Takes with it: ${t.join('; ')}</span>` : null))(restsOn(p.amends, p)) : null}
+      ${p.bad?.(p) ? html`<span class="rests">${p.bad(p)}</span>` : null}
       ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} alts=${p.alts?.(p)} along=${p.along} bad=${p.bad?.(p)} change=${String(p.source).startsWith('amend')} set=${d => amend(p, { day: d })} /></span>`
         : p.from ? html`<span class="when">From ${p.from > day.value ? dayLink(p.from) : Tree.formatDate(p.from, 'short')}</span>` : null}
       <span class="acts"><button class="btn" onClick=${() => discard()}>Discard</button>

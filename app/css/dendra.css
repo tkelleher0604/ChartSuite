@@ -200,6 +200,7 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .hist-row .meta .change { padding: 0; border: 0; background: none; font: inherit; color: var(--accent-ink); }
 .hist-row .meta .change[aria-disabled="true"] { color: var(--ink-3); }
 .pendbar .rests, .asking .rests { margin-right: 8px; color: var(--no); font: var(--t12); }
+.pendbar .rests.takes, .asking .rests.takes { flex: 1 0 100%; order: 9; margin-right: 0; }
 .pendbar .stays, .asking .stays { color: var(--ink-2); }
 
 /* The past looks past: a band across the view, the moment shown and the way back. Over a chart's page it stands in the room above
