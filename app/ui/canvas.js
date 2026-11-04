@@ -17,15 +17,17 @@ Graph.registerConnector('runs', (s, t, route, { runs }) => runs.map(r => r.map((
 
 const active = signal(null);
 const zoomLevel = signal(1);
-// What helps a hand place things, the session's, in no log: gridlines, snapping to them, and rulers.
-const aids = signal({ grid: false, snap: false, rulers: false });
+// What helps a hand place things, the session's, in no log: gridlines, snapping to them, rulers, the margins shown, and whether the view's guides show.
+const aids = signal({ grid: false, snap: false, rulers: false, margins: false, guides: true });
 // The field pointed at or selected on the chart, by its row's key in the inspector, which lights that row.
 const fieldLit = signal(null);
 // The field selected, as its box and record ("fund|fund_juris"), for what formats it (the format bar); null for none.
 const fieldPicked = signal(null);
+// While words are being typed that can be set part by part: the look at what's selected in them, for the format bar; null otherwise.
+const rich = signal(null);
 const BLUE = '#1f5fbf', RED = '#c2372b';
 // Cells that draw no mark of their own, so nothing selects or moves them: the page, a line's label, a redline's ink.
-const UNMARKED = new Set(['page', 'label', 'ink']);
+const UNMARKED = new Set(['page', 'label', 'ink', 'guide']);
 // The footer and its number, the chart's own and the sheet's: selected and formatted as any text is, but placed by the page.
 const footOf = m => m?.role === 'footer' || m?.role === 'number';
 const footNote = () => App.notes.peek().resolve('Footer', { kind: 'View' })?.value ?? {};
@@ -120,7 +122,7 @@ function fieldAt(t, rec, p, edge) {
 // a line or reads as on it: just there where it's clear, or else on a grid; with `bands`, clear of the chart too, in the
 // page's bands above, below or beside it. Where the page has no such place, null; or, `last`, just below everything.
 function freeSpot(scene, w, h, near, { bands = false, gap = 16, lane = 24, last = false } = {}) {
-  const page = scene.page, m = page.margin, rects = [], segs = [], chart = { x: Infinity, y: Infinity, r: -Infinity, d: -Infinity };
+  const page = scene.page, ms = page.margins ?? { left: page.margin, right: page.margin, top: page.margin, bottom: page.margin }, rects = [], segs = [], chart = { x: Infinity, y: Infinity, r: -Infinity, d: -Infinity };
   const take = (x, y, r, d) => Object.assign(chart, { x: Math.min(chart.x, x), y: Math.min(chart.y, y), r: Math.max(chart.r, r), d: Math.max(chart.d, d) });
   for (const k of scene.marks) {
     if (k.points) {
@@ -136,7 +138,7 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16, lane = 24, last 
   const clear = (x, y) => !(bands && x < chart.r + gap && x + w + gap > chart.x && y < chart.d + gap && y + h + gap > chart.y)
     && !rects.some(r => x < r.x + r.w + gap && x + w + gap > r.x && y < r.y + r.h + gap && y + h + gap > r.y)
     && !segs.some(([a, b]) => Math.max(a[0], b[0]) >= x - g && Math.min(a[0], b[0]) <= x + w + g && Math.max(a[1], b[1]) >= y - g && Math.min(a[1], b[1]) <= y + h + g);
-  const x0 = m, y0 = m, x1 = page.w - m - w, y1 = page.h - m - h, cx = clamp(near.x - w / 2, x0, x1), cy = clamp(near.y - h / 2, y0, y1);
+  const x0 = ms.left, y0 = ms.top, x1 = page.w - ms.right - w, y1 = page.h - ms.bottom - h, cx = clamp(near.x - w / 2, x0, x1), cy = clamp(near.y - h / 2, y0, y1);
   if (clear(cx, cy)) return { x: cx, y: cy };
   const step = Math.max(8, Math.ceil(Math.max(page.w, page.h) / 160)), spots = [];
   for (let x = x0; x <= x1; x += step) for (let y = y0; y <= y1; y += step) spots.push({ x, y, d: Math.hypot(x - cx, y - cy) });
@@ -157,13 +159,50 @@ function textMarkup(it, red, faint) {
       'font-style': t.Italic || it.computed || it.blank ? 'italic' : 'normal', 'text-anchor': ANCHOR[t.Align] ?? 'middle', 'data-text': it.id, ...(faint && { opacity: FAINT }),
       ...(it.blank && { class: 'dc-blank' }),
     },
-    children: it.lines.map(l => {
+    children: it.lines.flatMap(l => {
       const r = l.red ?? it.redline ?? red;
       const deco = [t.Underline && 'underline', (t.Strike || r === 'go') && 'line-through'].filter(Boolean).join(' ');
-      return { tagName: 'tspan', attrs: { x: l.x, y: l.y, fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(t.Color), ...(deco && { 'text-decoration': deco }), ...(l.ink && { 'data-ink': '' }) }, textContent: l.text };
+      const mark = l.bullet ? [{ tagName: 'tspan', attrs: { x: l.bulletAt, y: l.y, fill: tone(t.Color), 'text-anchor': 'start' }, textContent: l.bullet }] : [];
+      if (!l.spans) return [...mark, { tagName: 'tspan', attrs: { x: l.x, y: l.y, fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(t.Color), ...(deco && { 'text-decoration': deco }), ...(l.ink && { 'data-ink': '' }) }, textContent: l.text }];
+      // Part of it in another look: its spans one after another along the line, a superscript raised as PowerPoint raises one.
+      let off = 0;
+      return [...mark, { tagName: 'tspan', attrs: { x: l.x, y: l.y }, children: l.spans.map(sp => {
+        const up = sp.base ? -Scene.BASE[sp.base] * px(t.Size) : 0, dy = up - off, s = sp.look, d = [s.Underline && 'underline', (s.Strike || r === 'go') && 'line-through'].filter(Boolean).join(' ');
+        off = up;
+        return { tagName: 'tspan', attrs: { ...(dy && { dy }), fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(s.Color), 'font-family': Scene.fontFamily(s.Font), 'font-size': px(s.Size), 'font-weight': s.Bold ? 700 : 400, 'font-style': s.Italic ? 'italic' : 'normal', ...(d && { 'text-decoration': d }) }, textContent: sp.text };
+      }) }];
     }),
   };
 }
+// A gradient fill: a look's Fill drawn by its stops, from one colour to the next along its angle, clockwise from the right, as PowerPoint's linear gradient. One for each, in the page of the document's own that shadows are in.
+const gradients = new Set();
+function gradient(o) {
+  const stops = o.stops ?? [], id = `dc-grad-${(o.angle ?? 0)}-${stops.map(([at, c]) => `${at}${String(c).replace('#', '')}`).join('-')}`.replace(/[^\w-]/g, '_');
+  if (gradients.has(id) && document.getElementById(id)) return id;
+  gradients.add(id);
+  defsHere().insertAdjacentHTML('beforeend', Shapes.gradientDef(id, o));
+  return id;
+}
+// A pattern fill: its strokes over its Fill, a tile of each in the same place.
+function hatch(o, bg) {
+  const id = `dc-patt-${o.prst}-${String(o.fg ?? '').replace('#', '')}-${String(bg ?? '').replace('#', '')}`.replace(/[^\w-]/g, '_');
+  if (!document.getElementById(id)) defsHere().insertAdjacentHTML('beforeend', Shapes.patternDef(id, o, bg));
+  return id;
+}
+function defsHere() {
+  let defs = document.getElementById('dc-shadows');
+  if (!defs) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+    svg.innerHTML = '<defs id="dc-shadows"></defs>';
+    document.body.append(svg);
+    defs = svg.firstChild;
+  }
+  return defs;
+}
+// A shape flipped, as its row says: mirrored in its own frame, its text left to read.
+const flipped = (f, w, h) => f ? `translate(${f.h ? w : 0} ${f.v ? h : 0}) scale(${f.h ? -1 : 1} ${f.v ? -1 : 1})` : null;
 const paint = v => !v || v === 'none' ? 'none' : v;
 // A stroke's width on screen: a whole number of the screen's pixels, one at least, by the zoom, so strokes of one weight render alike at
 // any zoom. On screen only: the PDF and the deck print the weight as it is. A class for each weight, one rule each, rewritten as the zoom changes.
@@ -179,7 +218,7 @@ const zoomedTo = d => { if (d !== screenPerPage) { screenPerPage = d; writeWeigh
 // as its Transparency, its outline, and its Shadow.
 function bodyMarkup(shape, w, h, s, red, extra = {}) {
   const stroke = red === 'appear' ? BLUE : red === 'go' ? RED : paint(s.Outline), clear = Math.min(100, Math.max(0, s.Transparency ?? 0));
-  return { tagName: 'path', selector: 'body', attrs: { d: Scene.path(shape, w, h, s.Corner), fill: paint(s.Fill), ...(clear && { 'fill-opacity': 1 - clear / 100 }),
+  return { tagName: 'path', selector: 'body', attrs: { d: Scene.path(shape, w, h, s.Corner, s.Tail), fill: s.Gradient?.stops?.length && !red ? `url(#${gradient(s.Gradient)})` : s.Pattern?.prst && !red ? `url(#${hatch(s.Pattern, paint(s.Fill))})` : paint(s.Fill), ...(clear && { 'fill-opacity': 1 - clear / 100 }),
     stroke, 'stroke-width': px(s.Weight), class: crisp(px(s.Weight)), 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter',
     ...(Scene.shadowOf(s.Shadow) && { filter: `url(#${shadow(drawnAt, Scene.shadowOf(s.Shadow))})` }), ...extra } };
 }
@@ -192,17 +231,8 @@ function shadow(s, o) {
   const id = `dc-shadow-${Math.round(s * 1000)}-${[o.blur, o.distance, o.angle, o.color.replace('#', ''), o.transparency].join('-').replace(/[^\w-]/g, '_')}`;
   if (shadows.has(id) && document.getElementById(id)) return id;
   shadows.add(id);
-  let defs = document.getElementById('dc-shadows');
-  if (!defs) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('aria-hidden', 'true');
-    svg.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
-    svg.innerHTML = '<defs id="dc-shadows"></defs>';
-    document.body.append(svg);
-    defs = svg.firstChild;
-  }
   const a = o.angle * Math.PI / 180, dx = px(o.distance) * Math.cos(a) / s, dy = px(o.distance) * Math.sin(a) / s, blur = px(o.blur) / 2 / s;
-  defs.insertAdjacentHTML('beforeend', `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">`
+  defsHere().insertAdjacentHTML('beforeend', `<filter id="${id}" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB">`
     + `<feDropShadow dx="${dx}" dy="${dy}" stdDeviation="${blur}" flood-color="${o.color}" flood-opacity="${1 - o.transparency / 100}"/></filter>`);
   return id;
 }
@@ -303,12 +333,12 @@ function cellsOf(scene, ink = null) {
           attrs: { line: { stroke: paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: Scene.dash(s.Dash, s.Weight), targetMarker: marker(s.Arrow === 'end' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'end')),
             sourceMarker: marker(s.Arrow === 'start' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'start')) }, wrap: { strokeWidth: 10 } } });
       } else if (m.geometry === 'legend') node(m, 'shape', legendMarkup(m, s));
-      else if (m.geometry === 'picture') node(m, 'shape', [m.crop ? croppedImage(m) : { tagName: 'image', attrs: { href: m.src, width: m.w, height: m.h, preserveAspectRatio: 'xMidYMid meet' } },
+      else if (m.geometry === 'picture') node(m, 'shape', [{ tagName: 'g', attrs: { ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) }, children: [m.crop ? croppedImage(m) : { tagName: 'image', attrs: { href: m.src, width: m.w, height: m.h, preserveAspectRatio: 'xMidYMid meet' } }] },
         { tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'transparent', stroke: paint(s.Outline === '#000000' ? 'none' : s.Outline), 'stroke-width': px(s.Weight) } }]);
       else if (m.geometry === 'group') continue;
       else {
         const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
-        const body = bodyMarkup(geometry, m.w, m.h, s, null, m.geometry === 'frame' ? { 'pointer-events': 'visibleStroke' } : {});
+        const body = bodyMarkup(geometry, m.w, m.h, s, null, { ...(m.geometry === 'frame' && { 'pointer-events': 'visibleStroke' }), ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) });
         // (The footer and its number are the sheet's, set in Page setup.)
         node(m, m.role === 'footer' || m.role === 'number' ? 'foot' : 'shape', [body,...(m.geometry === 'text' || m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.geometry === 'frame' ? 18 : m.h, fill: 'transparent' } }] : []),
           ...m.texts.map(it => textMarkup(it))]);
@@ -391,11 +421,13 @@ function mount(el) {
     translating: { restrict: view => scene ? pageRect(['shape', 'label'].includes(view?.cell?.getData()?.kind)) : null },
     // A line's label is dragged along its line, or off it, as its own (see movedLabel).
     interacting: view => {
-      const k = view.cell.getData()?.kind;
-      if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still(), edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
-      return { nodeMovable: !pointing && !still() && !rowDrag && k !== 'foot' && (!UNMARKED.has(k) || k === 'label') };
+      const k = view.cell.getData()?.kind, held = !!scene?.byId.get(view.cell.id)?.locked;
+      if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still() && !held, edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
+      return { nodeMovable: !pointing && !still() && !rowDrag && !held && k !== 'foot' && (!UNMARKED.has(k) || k === 'label') };
     },
   });
+  // What a hand draws, aims and copies (see Drawing), once all it's given is made.
+  let hand = null;
   // A Key's row dragged moves that row among the rest, a line showing where it would go, never the Key: which is
   // moved by its title or its edge. Let go with nothing moved, it's a click on the row.
   let rowDrag = null;
@@ -440,10 +472,10 @@ function mount(el) {
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: false,
     pointerEvents: 'none', multipleSelectionModifiers: ['shift', 'ctrl', 'meta'], filter: selectable });
   graph.use(sel);
-  const resizable = n => n.isNode() && ['box', 'shape'].includes(n.getData()?.kind) && !still();
+  const resizable = n => n.isNode() && ['box', 'shape'].includes(n.getData()?.kind) && !still() && !scene?.byId.get(n.id)?.locked;
   const lockedCell = n => { const m = scene?.byId.get(n.id); return !!m && (m.type === 'box' || m.type === 'shape') && lockedOf(m); };
   // (A free shape turns, by the handle over it, in steps of a degree; a box or the Key doesn't.)
-  const turnable = n => { const m = n.isNode() && n.getData()?.kind === 'shape' && !still() ? scene?.byId.get(n.id) : null; return !!m && !['legend', 'group', 'line'].includes(m.geometry) && !m.role; };
+  const turnable = n => { const m = n.isNode() && n.getData()?.kind === 'shape' && !still() ? scene?.byId.get(n.id) : null; return !!m && !['legend', 'group', 'line'].includes(m.geometry) && !m.role && !m.locked; };
   const transform = new Transform({ resizing: { enabled: resizable, minWidth: 24, minHeight: 12, orthogonal: true, preserveAspectRatio: lockedCell }, rotating: { enabled: turnable, grid: 1 } });
   graph.use(transform);
   transform.stopListening(); // it would put handles on whatever is clicked; grips() decides
@@ -499,7 +531,13 @@ function mount(el) {
   gridLines.setAttribute('class', 'dc-grid');
   viewport.insertBefore(gridLines, sheet.nextSibling);
   const rulers = ['across', 'down'].map(c => over.appendChild(Object.assign(document.createElement('canvas'), { className: `dc-ruler ${c}` })));
+  // A guide is dragged out of a ruler, onto the page (see Drawing).
+  rulers.forEach((r, k) => r.addEventListener('pointerdown', e => { if (e.button === 0 && !still()) hand.guideDrag(e, k ? 'down' : 'across'); }));
   const gridStep = () => 24 / (scene?.page.scale ?? 1);
+  // The page's margins, shown with its rulers or asked for by name, never printed.
+  const marginLines = document.createElementNS(NS, 'path');
+  marginLines.setAttribute('class', 'dc-margins');
+  viewport.insertBefore(marginLines, gridLines.nextSibling);
   function paintAids() {
     const a = aids.value, p = scene?.page;
     if (!p) return;
@@ -507,6 +545,8 @@ function mount(el) {
     let d = '';
     if (a.grid) { for (let x = step; x < p.w; x += step) d += `M${x},0V${p.h}`; for (let y = step; y < p.h; y += step) d += `M0,${y}H${p.w}`; }
     gridLines.setAttribute('d', d);
+    const ms = p.margins ?? { left: p.margin, right: p.margin, top: p.margin, bottom: p.margin };
+    marginLines.setAttribute('d', a.margins || a.rulers ? `M${ms.left},${ms.top} H${p.w - ms.right} V${p.h - ms.bottom} H${ms.left} Z` : '');
     rulers.forEach(r => { r.hidden = !a.rulers; });
     if (!a.rulers || !root.clientWidth) return;
     const inch = 96 / p.scale, z = graph.zoom(), o = graph.localToGraph(0, 0), css = getComputedStyle(root), ink = css.getPropertyValue('--ink-3') || '#777', fill = css.getPropertyValue('--surface') || '#fff';
@@ -552,7 +592,7 @@ function mount(el) {
     calmDraw = !(s && !s.wb.tidy) && !lookWas;
     lookWas = !!s && !s.wb.tidy;
     cellsTo(App.chart.peek(), view, [...cellsOf(scene, ink), ...(ink?.cells ?? []), { id: '·page', shape: 'dendra', x: 0, y: 0, width: scene.page.w, height: scene.page.h, zIndex: -1e6,
-      data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }]);
+      data: { kind: 'page' }, markup: [{ tagName: 'rect', attrs: { width: scene.page.w, height: scene.page.h, fill: 'none', 'pointer-events': 'none' } }] }, ...(hand?.guideCells() ?? [])]);
     sheet.setAttribute('width', scene.page.w);
     sheet.setAttribute('height', scene.page.h);
     // Each view comes back as it was left; one not seen yet opens on its whole page. Either is so at once,
@@ -1040,14 +1080,21 @@ function mount(el) {
     if ([...places.keys()].some(id => scene.byId.get(id)?.type === 'box')) for (const [id, p] of stoodFor(scene, places)) { tx.note('Position', treeOf(id), p, { view }); baked.add(id); }
     for (const [id, p] of places) {
       const m = scene.byId.get(id);
-      if (!m || footOf(m)) continue;
+      if (!m || footOf(m) || m.locked) continue;
       if (m.type === 'box') {
         // (A drag lands on the half pixel; what's typed is kept as typed.)
         const old = n.position(treeOf(m.record), view), o = origin(page), r = p.typed ? v => v : round;
         tx.note('Position', treeOf(m.record), { x: r(p.x - o.x), y: r(p.y - o.y), w: r(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: r(p.h ?? old.h) }), ...(old?.lock && { lock: true }), hand: true }, { view });
       } else if (m.type === 'shape') {
-        const points = rowOf(id)?.points, r = p.typed ? v => v : round;
-        if (points) { tx.update(id, { x: round(p.x), y: round(p.y), ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
+        const row = rowOf(id), points = row?.points ?? (m.geometry === 'line' ? m.points : null), r = p.typed ? v => v : round;
+        // A line: moved, and its width and height its ends' distance across and down; an end it's moved off what it's glued to, unless that moves with it, lets go.
+        if (points) {
+          const dx = p.dx ?? p.x - m.x, dy = p.dy ?? p.y - m.y, across = p.w !== undefined, down = p.h !== undefined, fx = across && m.w ? p.w / m.w : 1, fy = down && m.h ? p.h / m.h : 1;
+          const next = points.map(([x, y], i) => [r(m.x + dx + (x - m.x) * fx + (across && !m.w && i ? p.w : 0)), r(m.y + dy + (y - m.y) * fy + (down && !m.h && i ? p.h : 0))]);
+          const ends = row?.ends?.map(e => e && places.has(e) ? e : null);
+          tx.update(id, { x: next[0][0], y: next[0][1], points: next, ...(ends && { ends: ends.some(Boolean) ? ends : null }) });
+          continue;
+        }
         const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h);
         // (A Key put by hand is in no corner by name now.)
         tx.update(id, { x: r(clamp(p.x, 0, page.w - w)), y: r(clamp(p.y, 0, page.h - h)), ...((p.w !== undefined || p.h !== undefined) && { w: r(w), h: r(h) }), ...(rowOf(id)?.corner && { corner: null }) });
@@ -1062,7 +1109,8 @@ function mount(el) {
     if (places.size) App.change(tx => place(tx, places));
   }
   // A place or size typed, in the page's terms: what's locked keeps its proportions; a group's members go with it, as one.
-  const lockedOf = m => { if (m.type !== 'box') return !!rowOf(m.id)?.lock; const t = treeOf(m.record); return !!t && !!App.notes.peek().position(t, viewOf())?.lock; };
+  // (A picture is, till it's unlocked, as PowerPoint's is.)
+  const lockedOf = m => { if (m.type !== 'box') { const row = rowOf(m.id); return row?.lock ?? m.geometry === 'picture'; } const t = treeOf(m.record); return !!t && !!App.notes.peek().position(t, viewOf())?.lock; };
   function put(id, at) {
     const m = scene.byId.get(id);
     if (!m) return;
@@ -1077,7 +1125,8 @@ function mount(el) {
     if (now) for (const f of Object.keys(at)) if (Math.abs(now[f] - at[f]) > 0.6) { Shell.toast(`${name[f]} stays ${pts(now[f])}: ${m.geometry === 'text' && f === 'h' && now[f] > at[f] ? 'its text needs that' : 'it stays on the page'}`, { ms: 3500 }); break; }
   }
   // A free shape turned, by its handle or its Rotation typed, by degrees clockwise, its row's own.
-  const turn = (id, angle) => { const a = ((Math.round(angle * 10) / 10) % 360 + 360) % 360, m = scene.byId.get(id); if (m && a !== (m.rotate ?? 0)) App.change(tx => tx.update(id, { rotate: a || undefined }), { dated: false, say: `Rotated ${called(m)} to ${a}°` }); };
+  // (A line by the way it runs; a group, about its middle, its shapes with it: see Drawing.)
+  const turn = (id, angle) => { const a = ((Math.round(angle * 10) / 10) % 360 + 360) % 360, m = scene.byId.get(id); if (m?.geometry === 'line') return hand.aimLine(id, a); if (m?.geometry === 'group') return hand.turnBy(a - (rowOf(id)?.rotate ?? 0), [m]); if (m && a !== (m.rotate ?? 0)) App.change(tx => tx.update(id, { rotate: a || undefined }), { dated: false, say: `Rotated ${called(m)} to ${a}°` }); };
   // Its proportions locked, as PowerPoint's Lock aspect ratio: as either is typed or a corner dragged, the other follows.
   function lockSize(id, on) {
     const m = scene.byId.get(id);
@@ -1135,8 +1184,8 @@ function mount(el) {
     const at = Layout.pin(m.points, { x: p.x, y: p.y, w: m.label.w, h: m.label.h });
     App.change(tx => tx.note('Position', treeOf(m.record), at, { view: viewOf() }), { dated: false, say: `Moved the label of ${called(m)}` });
   }
-  graph.on('node:moved', ({ node }) => { dragging = null; root.classList.remove('dragging'); if (node.getData()?.kind === 'label') return movedLabel(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
-  graph.on('node:resized', ({ node }) => { dragging = null; root.classList.remove('dragging'); moved([node.id]); });
+  graph.on('node:moved', ({ node }) => { dragging = null; root.classList.remove('dragging'); if (node.getData()?.kind === 'label') return movedLabel(node); if (['box', 'shape'].includes(node.getData()?.kind)) hand.equalGaps(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
+  graph.on('node:resized', ({ node }) => { dragging = null; root.classList.remove('dragging'); moved([node.id]); spilt([node.id]); });
   graph.on('node:rotating', ({ node }) => { dragging = node.id; showHandles(null); astray(node.id); });
   graph.on('node:rotated', ({ node }) => { dragging = null; turn(node.id, node.getAngle()); });
   graph.on('edge:mouseup', ({ edge }) => { if (scene.byId.get(edge.id)?.geometry === 'line') moved([edge.id]); });
@@ -1160,7 +1209,9 @@ function mount(el) {
         const c = graph.getCellById(b.id);
         if (c) { const p = c.getPosition(), s = c.getSize(); rects.set(b.id, { x: p.x, y: p.y, w: s.width, h: s.height }); }
       }
-      const live = Scene.reflow(scene, rects);
+      const live = Scene.reflow(scene, rects), glued = new Map(rects);
+      for (const b of scene.marks.filter(x => x.type === 'shape' && hand?.gluable(x))) { const c = graph.getCellById(b.id); if (c) { const p = c.getPosition(), s = c.getSize(); glued.set(b.id, { x: p.x, y: p.y, w: s.width, h: s.height, geometry: b.geometry }); } }
+      hand?.followLines(glued);
       graph.batchUpdate(() => {
         for (const l of live.lines) {
           const e = graph.getCellById(l.id), ps = l.points;
@@ -1285,17 +1336,21 @@ function mount(el) {
       raw = legend ? m.title : rowOf(m.id)?.text;
       // A text box left empty goes, however it's left, as PowerPoint's does.
       const gone = tx => tx.remove(m.id);
-      save = text => App.change(tx => m.geometry === 'text' && !text.trim() ? gone(tx) : tx.update(m.id, legend ? { title: text } : { text }));
+      save = (text, keys, runs) => App.change(tx => m.geometry === 'text' && !text.trim() ? gone(tx) : tx.update(m.id, legend ? { title: text } : { text, runs: runs?.length ? runs : undefined }));
       if (m.geometry === 'text' && !raw?.trim()) escaped = () => App.change(gone);
     }
     if (!it) return;
-    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape' });
+    // (Its words can be set part by part: a shape's own, not the Key's title or what a formula says.)
+    const parts = m.type === 'shape' && m.geometry !== 'legend' && !m.role && !/^\s*=/.test(raw ?? '');
+    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape', ...(parts && { rich: { runs: typed !== undefined ? [] : rowOf(m.id)?.runs ?? [] } }) });
   }
-  // Typing in place, over the mark: Enter keeps it (Shift+Enter breaks a shape's line), Esc doesn't, as a cell's in
+  // Typing in place, over the mark: Enter keeps it (a shape's begins a paragraph: see below), Esc doesn't, as a cell's in
   // Excel (but does what `escaped` says), unless it's `kept`, as a shape's text in PowerPoint; and leaving keeps it.
   // `grow`: it widens as it's typed, a text box nobody has sized; `box`: a new box, named as it's typed, its kind
   // chosen beside it (see kindChooser) from `box.kinds`, `box.kind` first, each chosen told to `box.pick`.
-  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null, kept = false } = {}) {
+  // `rich`, its words can be set part by part: what's selected in it takes a look from the format bar or its keys, and what it saves has its runs too.
+  let richEdit = null;
+  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null, kept = false, rich = null } = {}) {
     over.querySelectorAll('.dc-edit, .dc-kind, .dc-kinds').forEach(x => x.remove());
     tipFor(null);
     const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look, size = px(t.Size) * z;
@@ -1310,6 +1365,8 @@ function mount(el) {
     ed.textContent = text;
     over.appendChild(ed);
     ed.focus();
+    const parts = rich && richEditor(ed, text, rich.runs ?? [], it.look);
+    if (parts) richEdit = parts;
     // Double-click selects it all, to type over; typing over starts after what was typed.
     const range = document.createRange(), s = getSelection();
     range.selectNodeContents(ed);
@@ -1317,17 +1374,101 @@ function mount(el) {
     s.removeAllRanges(); s.addRange(range);
     let done = false;
     const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box);
-    const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); const v = ed.innerText.replace(/\n$/, ''); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys); else escaped?.(); };
+    const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys, runs); else escaped?.(); };
+    // (Going to the format bar's palette, it stays open, what's selected kept, till a press anywhere else.)
+    const outside = e => { if (!e.target.closest?.('.dc-edit, .fb, .float')) finish(true); };
     ed.addEventListener('keydown', e => {
       e.stopPropagation();
       if (list?.key(e) || kind?.key(e)) return;
+      if (parts?.key(e)) return;
       if (e.key === 'Escape') { e.preventDefault(); finish(kept); }
-      else if (e.key === 'Enter' && !(multiline && e.shiftKey)) { e.preventDefault(); finish(true, true); }
+      // A shape's words, as PowerPoint's: Enter begins a paragraph, Ctrl+Enter, Esc or a click away ends the typing. (With nothing typed there's no paragraph to end: it ends.)
+      else if (e.key === 'Enter' && multiline && !(e.ctrlKey || e.metaKey) && (e.shiftKey || ed.textContent)) { e.preventDefault(); paragraph(ed); }
+      else if (e.key === 'Enter') { e.preventDefault(); finish(true, true); }
       // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
       else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
     });
-    ed.addEventListener('blur', () => finish(true));
+    ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); finish(true); });
     return ed;
+  }
+  // A new line at the caret, as text, so a run's places stay in its characters. (At the very end, a second, which keeping the words takes off, as a last line break draws nothing to type on.)
+  function paragraph(ed) {
+    const s = getSelection();
+    if (!s.rangeCount) return;
+    const r = s.getRangeAt(0), rest = r.cloneRange();
+    r.deleteContents();
+    rest.selectNodeContents(ed); rest.setStart(r.endContainer, r.endOffset);
+    const n = document.createTextNode(rest.toString() ? '\n' : '\n\n');
+    r.insertNode(n);
+    r.setStart(n, 1); r.collapse(true); s.removeAllRanges(); s.addRange(r);
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  // Words being typed set part by part (Scene's runs). Each run is a span of the editor's, saying what it is, so typing in it stays in it; what's selected, or else the word the
+  // caret's in, takes a look; Ctrl+B, Ctrl+I, Ctrl+U, Ctrl+Shift+X, and Ctrl+Shift+= and Ctrl+= for a superscript and subscript, as PowerPoint's; Ctrl+] and Ctrl+[ its size.
+  function richEditor(ed, text, runs, base) {
+    let last = [0, 0];
+    const css = r => [r.Bold !== undefined && `font-weight:${r.Bold ? 700 : 400}`, r.Italic !== undefined && `font-style:${r.Italic ? 'italic' : 'normal'}`, (r.Underline || r.Strike) && `text-decoration:${[r.Underline && 'underline', r.Strike && 'line-through'].filter(Boolean).join(' ')}`, r.Color && `color:${r.Color}`, r.Font && `font-family:${Scene.fontFamily(r.Font).replace(/"/g, "'")}`, r.Size && `font-size:${px(r.Size) / pageScale() * graph.zoom() * (r.Base ? 0.66 : 1)}px`, r.Base && `vertical-align:${r.Base === 'up' ? 'super' : 'sub'}`, r.Base && !r.Size && 'font-size:66%'].filter(Boolean).join(';');
+    const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const paint = (txt, rs) => {
+      let html = '', at = 0;
+      for (const r of [...rs].sort((a, b) => a.from - b.from)) { const { from, to, ...look } = r; if (from > at) html += esc(txt.slice(at, from)); html += `<span data-run='${JSON.stringify(look).replace(/'/g, '&#39;')}' style="${css(look)}">${esc(txt.slice(from, to))}</span>`; at = to; }
+      ed.innerHTML = html + esc(txt.slice(at));
+    };
+    const read = () => {
+      const out = []; let at = 0;
+      const walk = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
+      for (let n; (n = walk.nextNode());) { const own = n.parentElement.closest('[data-run]'), look = own && JSON.parse(own.dataset.run); if (look && n.length) { const prev = out.at(-1); if (prev && prev.to === at && JSON.stringify({ ...prev, from: 0, to: 0 }) === JSON.stringify({ from: 0, to: 0, ...look })) prev.to = at + n.length; else out.push({ from: at, to: at + n.length, ...look }); } at += n.length; }
+      return out;
+    };
+    const place = (a, b) => {
+      const walk = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT), r = document.createRange(), s = getSelection();
+      let at = 0, began = false, ended = false;
+      for (let n; (n = walk.nextNode());) { if (!began && a <= at + n.length) { r.setStart(n, a - at); began = true; } if (began && b <= at + n.length) { r.setEnd(n, b - at); ended = true; break; } at += n.length; }
+      if (!began) { r.selectNodeContents(ed); r.collapse(false); } else if (!ended) r.collapse(true);
+      s.removeAllRanges(); s.addRange(r);
+    };
+    const now = () => {
+      const s = getSelection();
+      if (s.rangeCount && ed.contains(s.anchorNode) && ed.contains(s.focusNode)) {
+        const of = (n, o) => { const r = document.createRange(); r.selectNodeContents(ed); r.setEnd(n, o); return r.toString().length; }, a = of(s.anchorNode, s.anchorOffset), b = of(s.focusNode, s.focusOffset);
+        last = [Math.min(a, b), Math.max(a, b)];
+      }
+      return last;
+    };
+    // The look at what's selected, for the format bar to say.
+    const lookNow = () => { const [a] = now(), r = read().find(x => x.from <= a && x.to > a); return { ...base, ...(r ?? {}), Bold: !!(r?.Bold ?? base.Bold), Italic: !!(r?.Italic ?? base.Italic), Underline: !!(r?.Underline ?? base.Underline), Strike: !!(r?.Strike ?? base.Strike) }; };
+    const told = () => { rich.value = lookNow(); };
+    const moved = () => { if (document.activeElement === ed) told(); };
+    document.addEventListener('selectionchange', moved);
+    // A look given what's selected, or the word the caret's in; a yes-or-no given its opposite where it has it throughout.
+    function set(label, value) {
+      let [a, b] = now();
+      const t = ed.textContent;
+      if (a === b) { while (a > 0 && /\S/.test(t[a - 1])) a--; while (b < t.length && /\S/.test(t[b])) b++; }
+      if (a === b) return false;
+      const rs = read(), scale = pageScale();
+      const has = (l, at) => { const r = rs.find(x => x.from <= at && x.to > at); return r?.[l] ?? (l === 'Base' ? undefined : base[l]); };
+      const yes = v => v === undefined ? !Array.from({ length: b - a }, (_, i) => has(label, a + i)).every(Boolean) : v;
+      const v = label === 'Bold' || label === 'Italic' || label === 'Underline' || label === 'Strike' ? yes(value) : value;
+      // (A look the same as the rest's goes, so a run says only what's other than its text; a word in a bold box can still be not bold.)
+      paint(t, Scene.runsWith(rs, a, b, label, v, { ...base, Size: base.Size * scale }));
+      place(a, b); last = [a, b]; ed.focus(); told();
+      return true;
+    }
+    const sized = by => { const [a] = now(), r = read().find(x => x.from <= a && x.to > a), at = r?.Size ?? Math.round(base.Size * pageScale() * 2) / 2; return set('Size', Math.max(1, at + by)); };
+    paint(text, runs);
+    told();
+    return { runs: read, close() { document.removeEventListener('selectionchange', moved); rich.value = null; }, set,
+      key(e) {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey) return false;
+        const k = e.key.toLowerCase(), act = !e.shiftKey && k === 'b' ? () => set('Bold') : !e.shiftKey && k === 'i' ? () => set('Italic') : !e.shiftKey && k === 'u' ? () => set('Underline') : e.shiftKey && k === 'x' ? () => set('Strike')
+          : e.shiftKey && (k === '+' || k === '=') ? () => set('Base', lookNow().Base === 'up' ? undefined : 'up') : !e.shiftKey && k === '=' ? () => set('Base', lookNow().Base === 'down' ? undefined : 'down')
+          : !e.shiftKey && k === ']' || (e.shiftKey && k === '>') ? () => sized(1) : !e.shiftKey && k === '[' || (e.shiftKey && k === '<') ? () => sized(-1) : null;
+        if (!act) return false;
+        e.preventDefault();
+        act();
+        return true;
+      } };
   }
   // A new box's kind, chosen beside its name as it's typed: "Entity ▾" at the name's right, its placeholder "New entity".
   // A click opens the kinds, the one it is ticked; Tab and Shift+Tab step through them. The keys stay in the name all the
@@ -1629,11 +1770,11 @@ function mount(el) {
     const under = drawn.length ? Math.max(...drawn.map(r => r.y + r.h)) : m.type === 'box' ? m.y + m.h / 2 - 8 : mid[1];
     const rect = it ? fieldRect(m, it) : { x: m.type === 'box' ? m.x : drawn[0]?.x ?? mid[0], y: under, w: m.type === 'box' ? m.w : 120, h: px(look.Size) * 1.2 };
     const labels = entriesOf(m);
-    openEditor({ look }, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 120) }, typed ?? raw, text => {
+    openEditor({ look }, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 120) }, typed ?? raw, (text, keys, runs) => {
       if (!Tree.clean(text)) return it && unText(m);
-      App.change(tx => { for (const p of s.own ? [rec] : s.outputs) tx.note('Text', p, { ...(at(p)?.value ?? {}), text: text.trim() }, { view }); },
+      App.change(tx => { for (const p of s.own ? [rec] : s.outputs) { const { runs: _, ...was } = at(p)?.value ?? {}; tx.note('Text', p, { ...was, text: text.trim(), ...(runs?.length && { runs }) }, { view }); } },
         { dated: false, say: it ? null : `Added text to ${whereSaid([m], s)}` });
-    }, { multiline: true, selectAll: typed === undefined && !!raw, ph: 'Text', complete: labels, tab: it ? d => stepField(d, true) : null, kept: true });
+    }, { multiline: true, selectAll: typed === undefined && !!raw, ph: 'Text', complete: labels, tab: it ? d => stepField(d, true) : null, kept: true, rich: { runs: typed !== undefined ? [] : it?.free.runs ?? [] } });
   }
   // A free text taken away at the scope: the scope's own note goes; and where the mark's own is taken away but a group's
   // would still give it text, it keeps an empty one, the narrowest, which gives none.
@@ -1794,8 +1935,11 @@ function mount(el) {
     pointerAt = { x: e.clientX, y: e.clientY };
     if (scene) { gripsNear(e); dotsNear(e); }
     if (!scene || e.target.closest?.('.dc-handle, .dc-edit, .dc-complete')) return;
-    // A free shape is no box: on one, or on its grips, there's nothing to relate, whatever box is under or beside it.
-    if (e.target.closest?.('.x6-widget-transform') || graph.getCellById(e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id') ?? '')?.getData()?.kind === 'shape') { showHandles(null); return hover(null); }
+    // A free shape is no box: on one, or on its grips, there's nothing to relate, whatever box is under or beside it; but one not selected has dots too, for a line
+    // drawn from it, which only glues (see relating).
+    const onCell = graph.getCellById(e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id') ?? '');
+    if (e.target.closest?.('.x6-widget-transform')) { showHandles(null); return hover(null); }
+    if (onCell?.getData()?.kind === 'shape') { const fs = scene.byId.get(onCell.id); showHandles(hand?.gluable(fs) && !sel.isSelected(onCell) && !e.buttons ? fs : null); return hover(null); }
     const f = e.buttons || pointing || root.classList.contains('relating') ? null : fieldUnder(e.clientX, e.clientY);
     showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' ? f.m : null));
     hover(f);
@@ -1814,6 +1958,13 @@ function mount(el) {
   }, true);
   for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); if (aids.peek().rulers) paintAids(); zoomRead(); snapSoon(); });
 
+  // A connector: a line glued to what it joins, a free shape's row with no record and no meaning attached, in the deck a real connector. From one to another, or from one to a point. Selected, as what was just made.
+  function connect(a, b, q = null, given = {}) {
+    let id = null;
+    if (still()) return Shell.toast(App.whyNot());
+    const pts = [Scene.edgePoint(a, b ? [b.x + b.w / 2, b.y + b.h / 2] : q), b ? Scene.edgePoint(b, [a.x + a.w / 2, a.y + a.h / 2]) : q].map(([u, v]) => [round(u), round(v)]), look = { ...hand.newLook('line'), ...given };
+    if (App.change(tx => { id = tx.add('shape', { view: viewOf(), geometry: 'line', x: pts[0][0], y: pts[0][1], points: pts, ends: [a.id, b?.id ?? null], ...(Object.keys(look).length && { format: look }) }); }, { dated: false, say: `Drew a line from ${called(a)}${b ? ` to ${called(b)}` : ''}` })) Shell.select([id]);
+  }
   // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
   // or from the middle of the box, for Relate…, until the next click. On another box, the two's relations are
   // asked for; on empty page, a new box of a kind, or a line. A handle clicked, not dragged, is a click on its box.
@@ -1825,7 +1976,8 @@ function mount(el) {
     let target = null, unlayer = null;
     root.classList.add('relating');
     const at = ev => graph.clientToLocal(ev.clientX, ev.clientY);
-    const boxAt = p => scene.marks.find(m => m.type === 'box' && m.id !== from.id && p.x >= m.x && p.x <= m.x + m.w && p.y >= m.y && p.y <= m.y + m.h) ?? null;
+    // (Any mark a line can be glued to: a line to a box is asked about, a line to a free shape, or from one, only glues.)
+    const boxAt = p => hand.markAt(p, [from.id]);
     // Begun from a menu, nothing else says what comes next: it's said beside the box, and then beside the pointer, where the eye is.
     const next = click ? over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-tip dc-next', textContent: scene.marks.some(m => m.type === 'box' && m.id !== from.id) ? 'Now click the other box' : 'Now click where the other box goes' })) : null;
     if (next) { const g = graph.localToGraph(from.x + from.w, from.y + from.h / 2); Object.assign(next.style, { left: `${g.x + 8}px`, top: `${g.y - 12}px` }); }
@@ -1849,9 +2001,14 @@ function mount(el) {
       if (down && Math.hypot(ev.clientX - down.clientX, ev.clientY - down.clientY) < 4) return take(graph.getCellById(from.id));
       const p = at(ev);
       target = boxAt(p);
-      if (target) Shell.emit('relate-open', [from.id, target.id]);
+      // A line with no relation in mind: to or from a free shape, there's none it could be, so it's glued; into empty room from one, it ends there. (Asking what's between two boxes makes nothing, so it glues nothing.)
+      if (target && (target.type !== 'box' || from.type !== 'box')) { if (!only) connect(from, target); }
+      else if (target) Shell.emit('relate-open', [from.id, target.id]);
       else if (only || !ev.target.closest?.('.dc') || ev.target.closest?.('.dc-edit') || ev.button !== 0) return;
-      else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) { const guide = marks.appendChild(line.cloneNode()); create(lastKind(), p, { relate: from.id, guide }); }
+      else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) {
+        if (from.type !== 'box') return connect(from, null, [p.x, p.y]);
+        const guide = marks.appendChild(line.cloneNode()); create(lastKind(), p, { relate: from.id, guide });
+      }
     };
     const esc = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(); } };
     addEventListener('pointermove', move);
@@ -1892,35 +2049,47 @@ function mount(el) {
       const now = rowOf(one.id)?.corner; return { label, checked: now?.v === v && now?.h === h && (now.dx ?? scene.page.margin * scene.page.scale) === scene.page.margin * scene.page.scale, run: () => App.change(tx => keyCorner(tx, one.id, [v, h]), { dated: false, say: `Put the Key in the ${label.toLowerCase()} corner` }) }; }).concat(['-', { label: 'Where the page places it', checked: !rowOf(one.id)?.corner && rowOf(one.id)?.x == null, run: () => App.change(tx => keyCorner(tx, one.id, null), { dated: false, say: 'Let the page place the Key' }) }]) }, '-'] : [];
     const text = one?.type === 'shape' && !['line', 'picture', 'group'].includes(one.geometry), fielded = bound.length && bound.length === ms.length;
     const worded = one && (one.type === 'box' || (one.type === 'line' && one.texts?.some(isField)));
+    const free = ms.filter(m => m.type === 'shape' && m.geometry !== 'legend' && !m.role), pictured = one?.geometry === 'picture';
+    // In one order: what it says; how it looks; what it's made of and related to; how it stands on the page; the clipboard; and what takes it away, last, so nothing goes by a slip.
     return [
       ...(text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []), ...inCorner,
       ...(fielded ? [...(worded ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => edit(one.id) }] : []),
         { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }] : []), '-'] : []),
       ...formatItems(ms, ro),
       ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
+      ...(pictured ? [{ label: 'Crop', disabled: ro, run: () => hand.crop(one.id) }, { label: 'Change picture…', disabled: ro, run: () => hand.changePicture(one.id) }, { label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }, '-'] : []),
+      ...(free.length && !ms.some(m => m.type === 'box') && !pictured && !one?.geometry?.startsWith?.('group') ? [{ label: 'Set as default', disabled: ro || !one, run: () => hand.setDefault() }, ...(one ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }] : []), '-'] : []),
       // What a structure chart is made of: its owner and its holding (or what else its first lists call them), as a list's + asks.
       ...(one?.type === 'box' && !ro ? [...addsOf(one), { label: 'Relate…', run: () => relating(one) }] : []),
       // What's between it and another box, which makes nothing, so reading asks it too.
       ...(one?.type === 'box' ? [{ label: 'With…', run: () => relating(one, undefined, null, true) }] : []),
-      // Their own History.
-      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }, '-', { label: 'Hide in this view', disabled: ro && !App.seeing(), run: () => App.seeing() ? App.see(viewOf(), bound.map(m => m.record), false) : remove() }] : []),
-      ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
       // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: 'Insert an entity between…', disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
-      ...(one?.type === 'box' && App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []),
-      // A company's own: each stake in it, sold or ended from the company, not only from its thin line.
-      ...(one?.type === 'box' ? stakeItems(one) : []),
+      // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line. (One row, so the menu fits the window it opens in.)
+      ...(one?.type === 'box' ? (deals => deals.length ? [{ label: 'Transactions', items: deals }] : [])([...(App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []), ...stakeItems(one)]) : []),
+      // Their own History.
+      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }, '-'] : []),
+      { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
+      ...(free.length || ms.some(m => m.geometry === 'group') ? [{ label: 'Flip and turn', disabled: ro, items: FLIPS() }] : []),
+      ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
+        : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
+      ...(placeable().length ? [{ label: ms.every(m => m.type === 'box') ? 'Duplicate as a new box…' : 'Duplicate', keys: '$mod+KeyD', disabled: ro, run: duplicate }] : []),
+      '-', { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !(clip?.items.length || clip?.field || clip?.free !== undefined), run: () => paste() },
+      '-',
+      ...(bound.length ? [{ label: 'Hide in this view', disabled: ro && !App.seeing(), run: () => App.seeing() ? App.see(viewOf(), bound.map(m => m.record), false) : remove() }] : []),
+      ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
       // (On the Key, what it deletes, the row selected or the Key, in its own label.)
       { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
       // What the word for an act hides, offered plainly: a mistake is taken back as never held.
       ...(bound.length && bound.some(m => App.endOf(m.record) !== false) ? [{ label: 'Delete as a mistake…', danger: true, disabled: !App.canAsk(), run: () => { remove(true); App.neverHeld(); } }] : []),
-      '-', { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
-      ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
-        : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
-      '-', { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !(clip?.items.length || clip?.field || clip?.free !== undefined), run: () => paste() },
     ];
   }
+  // Flip and turn: as PowerPoint's Rotate list. On what can't, it says why as it's asked.
+  const FLIPS = () => [{ label: 'Flip across', run: () => hand.flip('h') }, { label: 'Flip upside down', run: () => hand.flip('v') }, '-',
+    { label: 'Turn right 90°', run: () => hand.turnBy(90) }, { label: 'Turn left 90°', run: () => hand.turnBy(-90) }];
+  // A row of the panel, gone to, the panel brought back for it: its alt text, say.
+  const focusRow = name => { Shell.showPanel?.(); setTimeout(() => { const f = document.querySelector(`.insp [data-row="${name}"] textarea, .insp [data-row="${name}"] input`); f?.scrollIntoView({ block: 'center' }); f?.focus(); }, 60); };
   // Each stake in a box, by who holds it and how much: a transfer of it, or its end, begun from the company as from its line.
   function stakeItems(m) {
     const st = App.entered.peek(), N = App.notes.peek(), stakes = (Tree.index(st).relations.get(m.record) ?? []).map(rid => ({ rid, tr: App.transferable(rid, st) })).filter(({ rid, tr }) => tr?.amount && Tree.objectOf(st, tr.first.at) !== m.record);
@@ -1940,8 +2109,8 @@ function mount(el) {
     if (!ms.length) return [];
     const bar = typeof FormatBar !== 'undefined' ? FormatBar : {}, open = what => () => bar.open ? bar.open(what) : document.querySelector(`.fb [data-fb="${what}"]`)?.click();
     const boxy = ms.some(m => m.type === 'box' || (m.type === 'shape' && m.geometry !== 'line'));
-    return [{ label: 'Format', disabled: ro, items: [...(boxy ? [{ label: 'Fill…', run: open('fill') }] : []), { label: 'Outline…', run: open('outline') }, { label: 'Font…', run: open('font') }] },
-      ...(bar.copyLook ? [{ label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : []), '-'];
+    return [{ label: 'Format', items: [...(boxy ? [{ label: 'Fill…', disabled: ro, run: open('fill') }] : []), { label: 'Outline…', disabled: ro, run: open('outline') }, { label: 'Font…', disabled: ro, run: open('font') },
+      ...(bar.copyLook ? ['-', { label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : [])] }, '-'];
   }
   // The group whose note decides a field, where it's a group's: one beside an output, or at the entry wherever it is,
   // as the Key and Styles group them; null for a box's own, or where none says.
@@ -1987,13 +2156,21 @@ function mount(el) {
       '-', { label: 'Copy', keys: '$mod+C', run: () => copyField(f) },
     ];
   }
+  // The page's own right-click: what can be put on it, right there; and how it's set up.
   const pageItems = p => [
     ...[...kinds()].sort().map(k => ({ label: `New ${lowered(k)}`, disabled: still(), run: () => create(k, p) })), '-',
+    { label: 'New shape', disabled: still(), items: Shapes.gallery().flatMap(g => [{ head: g.head }, ...g.shapes.map(([id, name]) => ({ label: name, run: () => insert(id, { ...placedAt(p, 140, 70), ...(Shapes.OPEN.has(id) && { format: { Fill: 'none' } }) }) }))]) },
+    { label: 'New text box', disabled: still(), run: () => insert('text', { x: round(p.x), y: round(p.y) }) },
+    { label: 'New line', disabled: still(), run: () => insert('line', { points: [[round(p.x), round(p.y)], [round(p.x + 96 / pageScale()), round(p.y)]] }) },
+    { label: 'New arrow', disabled: still(), run: () => insert('arrow-line', { points: [[round(p.x), round(p.y)], [round(p.x + 96 / pageScale()), round(p.y)]] }) }, '-',
     { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() }, '-',
-    { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, '-',
-    { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
-    ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-', { label: 'Tidy', disabled: still(), run: tidy },
+    { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, { label: 'Selection pane', keys: 'Alt+F10', run: () => hand.pane(true) }, '-',
+    { label: 'Page setup…', disabled: still(), run: () => Export.setup() }, { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
+    ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-',
+    aidsRow(), '-',
+    { label: 'Tidy', disabled: still(), run: tidy },
   ];
+  const placedAt = (p, w, h) => ({ x: round(clamp(p.x - w / 2, 0, scene.page.w - w)), y: round(clamp(p.y - h / 2, 0, scene.page.h - h)), w, h });
   let pageAt = {};
 
   // ---- States others ask for: highlight, redline, hidden records drawn ----
@@ -2085,6 +2262,7 @@ function mount(el) {
   // which the router leaves alone. A click that moves it by nothing writes nothing.
   function bendGrips() {
     marks.querySelectorAll('.dc-bend').forEach(n => n.remove());
+    hand?.paint();
     const cs = sel.getSelectedCells(), m = cs.length === 1 && cs[0].isEdge() && !still() ? scene.byId.get(cs[0].id) : null;
     if (m?.type !== 'line' || m.straight || !m.points || m.points.length < 2) return;
     const z = graph.zoom();
@@ -2174,7 +2352,7 @@ function mount(el) {
   function redline(r) {
     const R2 = typeof FormulaBar !== 'undefined' && FormulaBar.pending.peek()?.R2;
     red = r ? { state: r.records, computed: r.computed ?? (R2?.records === r.records ? R2 : App.computed.peek()), appear: new Set(r.appear ?? []), go: new Set(r.go ?? []),
-      changed: new Set(Object.keys(r.changed ?? {})), scene: null } : null;
+      changed: new Set(Object.keys(r.changed ?? {})), scene: null, wb: r?.shows ? (rows => ({ ...App.shown.peek(), rows: () => rows, notes: () => Notes.index(rows.filter(x => 'note' in x)) }))([...App.shown.peek().rows(App.chart.peek()), ...r.shows]) : null } : null;
     if (r) return show();
     if (!clearing) { clearing = true; queueMicrotask(() => { clearing = false; show(); }); }
   }
@@ -2250,7 +2428,7 @@ function mount(el) {
     const base = App.scene.peek(), quick = (base?.marks.length ?? 0) <= QUICK.marks, s = styled && quick ? styled : null;
     // The scene a redline draws, for the view and day shown: laid out now where the chart is quick, else ahead.
     if (red && base && !(red.scene?.view === base.view && red.scene.day === base.day))
-      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true, holds: holdsFor(base) }) : null);
+      red.scene = laidAhead.get(red.state)?.get(`${base.view}|${base.day}`) ?? (quick ? Scene.of(red.wb ?? App.shown.peek(), App.chart.peek(), base.view, base.day, { state: red.state, computed: red.computed, ahead: true, holds: holdsFor(base) }) : null);
     const r = red?.scene ? red : null;
     const st = stateNow(), N = App.notes.peek();
     const away = id => { const k = st[Tree.objectOf(st, id)]?.kind; return !!k && N.value('Shown', { kind: k }, base?.view) === false; };
@@ -2288,7 +2466,7 @@ function mount(el) {
   // day, however often it's asked for again meanwhile.
   const laidAhead = new WeakMap();
   function* redAhead(r, base) {
-    const sc = yield* Scene.steps(App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true, holds: holdsFor(base) });
+    const sc = yield* Scene.steps(r.wb ?? App.shown.peek(), App.chart.peek(), base.view, base.day, { state: r.state, computed: r.computed, ahead: true, holds: holdsFor(base) });
     (laidAhead.get(r.state) ?? laidAhead.set(r.state, new Map()).get(r.state)).set(`${base.view}|${base.day}`, sc);
     if (red?.state === r.state && !red.scene) show();
   }
@@ -2328,18 +2506,31 @@ function mount(el) {
     const p = (banded && freeSpot(s, w, h, near, { bands: true })) || (close && freeSpot(s, w, h, near, { gap: 5, lane: 5 })) || freeSpot(s, w, h, near) || freeSpot(s, w, h, near, { last: true });
     return { x: clamp(p.x, 0, s.page.w - w), y: clamp(p.y, 0, s.page.h - h) };
   };
+  // A picture lands in free room, as large as it can be there up to its size, its proportions kept, in the page's bands if they've the room, or anywhere clear of what's drawn;
+  // on a page with none, as it is, and that's said.
+  function pictureSpot(s, w, h, near) {
+    for (const k of [1, 0.75, 0.5, 0.33, 0.2]) for (const o of [{ bands: true, gap: 8, lane: 8 }, { gap: 8, lane: 8 }]) { const p = freeSpot(s, w * k, h * k, near, o); if (p) return { ...p, w: round(w * k), h: round(h * k) }; }
+    Shell.toast('The page has no free room: the picture is over what’s drawn', { ms: 3500 });
+    return { ...spot(s, w, h, near), w, h };
+  }
   function insert(geometry, opts = {}) {
-    const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2), sel0 = placeable();
+    const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2), sel0 = placeable(), stands = opts.x !== undefined;
     let row = { view, geometry, ...opts }, besideIt = null;
-    if (geometry === 'arrow-line') row = { ...row, geometry: 'line', format: { Arrow: 'end' } };
+    if (geometry === 'arrow-line') row = { ...row, geometry: 'line', format: { Arrow: 'end', ...opts.format } };
     if (geometry === 'legend') row = { title: 'Key', columns: 2, ...row };
     if (geometry === 'text') row.text = opts.text ?? '';
+    // What's set as the default of its family, and what its shape asks for itself.
+    const given = hand.newLook(geometry, row.format);
+    if (Object.keys(given).length && geometry !== 'legend' && geometry !== 'frame' && geometry !== 'picture') row.format = given;
     if (geometry === 'frame' && sel0.length && opts.x === undefined) {
       const b = { x: Math.min(...sel0.map(m => m.x)), y: Math.min(...sel0.map(m => m.y)), r: Math.max(...sel0.map(m => m.x + m.w)), d: Math.max(...sel0.map(m => m.y + m.h)) };
       row = { ...row, x: round(b.x - 14), y: round(b.y - 28), w: round(b.r - b.x + 28), h: round(b.d - b.y + 42), text: opts.text ?? 'Frame',
         format: { Layer: -1 + Math.min(0, ...s.marks.map(m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0)) } };
     } else if (row.geometry === 'line' && opts.points) Object.assign(row, { x: opts.points[0][0], y: opts.points[0][1] });
-    else if (opts.x === undefined) {
+    else if (opts.x === undefined && geometry === 'picture') {
+      const p = pictureSpot(s, opts.w ?? 160, opts.h ?? 100, mid);
+      Object.assign(row, { x: round(p.x), y: round(p.y), w: p.w, h: p.h });
+    } else if (opts.x === undefined) {
       const drawn = geometry === 'text' || geometry === 'legend' ? Scene.shapeOf(row, s) : null;
       const [w, h] = drawn ? [drawn.w, drawn.h] : [opts.w, opts.h].every(Number.isFinite) ? [opts.w, opts.h] : SIZE[geometry] ?? [140, 70];
       // With something selected, a note is about it: the free room nearest beside it, first on its right, on its level.
@@ -2356,11 +2547,12 @@ function mount(el) {
     const add = it => { let id = null; if (!App.change(tx => { id = tx.add('shape', it); })) return null; Shell.select([id]); return id; };
     if (!typing) return add(row);
     Shell.select([]);
-    openEditor({ look: typing.look }, at, '', text => {
+    openEditor({ look: typing.look }, at, '', (text, keys, runs) => {
       if (!text.trim()) return;
-      const made = Scene.shapeOf({ ...row, x: at.x, y: at.y, text }, scene), q = spot(scene, made.w, made.h, besideIt ? { x: besideIt.left + made.w / 2, y: besideIt.y } : { x: at.x + made.w / 2, y: at.y + made.h / 2 }, !besideIt, !!besideIt);
-      add({ ...row, x: round(q.x), y: round(q.y), text });
-    }, { multiline: true, grow: !!typing.auto, kept: true });
+      // (Put by a hand, it stands where it's put; left to the page, it's placed again, as long as it's come out.)
+      const made = Scene.shapeOf({ ...row, x: at.x, y: at.y, text }, scene), q = stands ? { x: at.x, y: at.y } : spot(scene, made.w, made.h, besideIt ? { x: besideIt.left + made.w / 2, y: besideIt.y } : { x: at.x + made.w / 2, y: at.y + made.h / 2 }, !besideIt, !!besideIt);
+      add({ ...row, x: round(q.x), y: round(q.y), text, ...(runs?.length && { runs }) });
+    }, { multiline: true, grow: !!typing.auto, kept: true, rich: {} });
     return null;
   }
   // Hide in this view hides what's selected in this view and deletes a free shape; with `records`, Delete, it
@@ -2477,8 +2669,8 @@ function mount(el) {
     });
     Shell.select(ids);
   }
-  // Ctrl+D copies in place, leaving the clipboard as it was.
-  const duplicate = () => paste(marksNow());
+  // Ctrl+D: a shape copied a step down and right; a box, a new record of its kind with its look, named as it's typed (see Drawing), leaving the clipboard as it was.
+  const duplicate = () => hand.duplicate();
   const nudge = (dx, dy) => moveTo(new Map(placeable().map(m => [m.id, { x: m.x + dx, y: m.y + dy, ...(m.points && { dx, dy }) }])));
   // The arrow keys nudge: one after another, of one selection, they're one change, as History lists it. The marks move
   // at once, as a drag moves them, and the change is made as the nudging stops: a moment after the last, or as anything
@@ -2503,7 +2695,7 @@ function mount(el) {
     clearTimeout(r.timer);
     moveTo(new Map(r.ms.map(m => [m.id, { x: m.x + r.dx, y: m.y + r.dy, ...(m.points && { dx: r.dx, dy: r.dy }) }])));
   }
-  const nudgeEnds = e => { if (run && !(e.type === 'keydown' && /^(Arrow|Shift)/.test(e.key))) nudged(); };
+  const nudgeEnds = e => { if (run && !(e.type === 'keydown' && /^(Arrow|Shift|Control|Meta)/.test(e.key))) nudged(); };
   addEventListener('keydown', nudgeEnds, true);
   addEventListener('pointerdown', nudgeEnds, true);
   const stopNudge = Shell.on('select', () => nudged());
@@ -2534,8 +2726,17 @@ function mount(el) {
   function match(dim) {
     const ms = placeable();
     if (ms.length < 2) return;
-    const v = ms[0][dim === 'width' ? 'w' : 'h'];
-    moveTo(new Map(ms.map(m => [m.id, { x: m.x, y: m.y, ...(dim === 'width' ? { w: v } : { h: v }) }])));
+    // (As the one first selected, and it says so.)
+    const key = dim === 'width' ? 'w' : 'h', v = ms[0][key], rest = ms.filter(m => Math.abs(m[key] - v) > 0.25), word = dim === 'width' ? 'wide' : 'tall';
+    if (still()) return Shell.toast(App.whyNot());
+    if (!rest.length) return Shell.toast(`Already as ${word} as each other`, { ms: 2500 });
+    App.change(tx => place(tx, new Map(rest.map(m => [m.id, { x: m.x, y: m.y, ...(dim === 'width' ? { w: v } : { h: v }) }]))), { say: `Made ${rest.length === 1 ? called(rest[0]) : `${rest.length} ${rest.every(m => m.type === 'box') ? 'boxes' : 'items'}`} as ${word} as ${called(ms[0])}` });
+    spilt(rest.map(m => m.id));
+  }
+  // What a hand has made too small for its words says so: they're never broken mid-word to fit, nor shrunk where it isn't asked.
+  function spilt(ids) {
+    const sp = ids.map(id => App.scene.peek()?.byId.get(id)).filter(m => m?.spills);
+    if (sp.length) Shell.toast(`${sp.length === 1 ? `${called(sp[0])}: its text runs` : `${sp.length} of them: their text runs`} out at that size`, { ms: 4000 });
   }
   function order(how) {
     const ms = selected().filter(m => m.type !== 'frame' && m.geometry !== 'group').concat(selected().filter(m => m.geometry === 'group').flatMap(g => g.members.map(id => scene.byId.get(id)).filter(Boolean)));
@@ -2607,7 +2808,7 @@ function mount(el) {
     return { writes: ws, gone: some.length ? placedHere().filter(bentHere) : [...placedHere().filter(n => !keys.has(Tree.key(n.pattern))), ...scaleHere()], n: some.length, key: key?.id, freed };
   }
   let triedTidy = 0;
-  function tidied(only) {
+  function tidied(only, over = false) {
     const { writes, gone, key, freed, n } = tidying(only), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
     // (Boxes laid out around what stands go around the Key too, where it's drawn.)
     const standing = n ? App.scene.peek().marks.find(m => m.geometry === 'legend') : null;
@@ -2615,15 +2816,23 @@ function mount(el) {
     const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))).map(r => key && r.shape === key ? { ...r, kept: null, ...(freed && { x: null, y: null }) } : standing && r.shape === standing.id && r.x == null ? { ...r, x: standing.x - 16, y: standing.y - 16, w: standing.w + 32, h: standing.h + 32 } : r),
       ...(!only && firstTidy() ? [] : writes.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; }))];
     const notes = Notes.index(rows.filter(r => 'note' in r));
-    return { ...wb, rows: () => rows, notes: () => notes, tidy: tidyName() };
+    const wbTried = { ...wb, rows: () => rows, notes: () => notes, tidy: tidyName() };
+    // (And in its preview, as in the change, what's laid over a box goes with it: see Scene.annotated.)
+    if (!over && App.scene.peek()?.marks.some(m => m.type === 'shape' && !m.role && m.geometry !== 'legend' && m.geometry !== 'group')) {
+      const moved = Scene.annotated(App.scene.peek(), Scene.of(wbTried, App.chart.peek(), view, App.scene.peek().day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true })).rows;
+      if (moved.size) { const seen = rows.map(r => moved.has(r.shape) ? { ...r, ...moved.get(r.shape) } : r); return { ...wbTried, rows: () => seen }; }
+    }
+    return wbTried;
   }
   function tidy(o) {
     const { writes, gone, n, freed } = tidying(o?.only), view = viewOf(), base = App.scene.peek();
     // (What its preview draws, entered: the place of each box it lays out, in a place's terms, and the Key where it set it.)
-    const laid = holdsOf(Scene.of(tidied(o?.only), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true })), keyId = !n && base.marks.find(m => m.geometry === 'legend' && (m.byPage || freed))?.id;
+    const after = Scene.of(tidied(o?.only, true), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true }), laid = holdsOf(after), keyId = !n && base.marks.find(m => m.geometry === 'legend' && (m.byPage || freed))?.id;
     const first = !o?.only && firstTidy();
     const entered = w => { if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value, ...(first && { order: p.x }) }; };
-    if (!App.change(tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null, ...(freed && { x: null, y: null }) }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); }, { say: o?.say ?? (n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'), keep: false, dated: false })) return;
+    // What's laid over a box goes with it; what's tied to nothing stays, which is said.
+    const ann = Scene.annotated(base, after), stays = n || !ann.stay.length ? '' : `; ${ann.stay.length === 1 ? `${called(ann.stay[0])} stays where it was: it’s on no box` : `${ann.stay.length} shapes stay where they were: they’re on no box`}`;
+    if (!App.change(tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null, ...(freed && { x: null, y: null }) }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); for (const [id, c] of ann.rows) tx.update(id, c); }, { say: o?.say ?? `${n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'}${stays}`, keep: false, dated: false })) return;
     if (n) return;
     framed = true; left = null;
     settle();
@@ -2815,11 +3024,20 @@ function mount(el) {
     // Delete deletes what's selected, a box or a line as a change pending (App.deleting); a field selected, it clears.
     // (Viewing, a what-if is asked for by its word; a key pressed in passing writes nothing and begins nothing.)
     'Delete': () => still() ? Shell.toast(App.whyNot()) : fieldNow() ? clearField() : remove(true), 'Backspace': () => still() ? Shell.toast(App.whyNot()) : fieldNow() ? clearField() : remove(true),
-    'ArrowLeft': () => nudging(-1, 0), 'ArrowRight': () => nudging(1, 0), 'ArrowUp': () => nudging(0, -1), 'ArrowDown': () => nudging(0, 1),
-    'Shift+ArrowLeft': () => nudging(-10, 0), 'Shift+ArrowRight': () => nudging(10, 0), 'Shift+ArrowUp': () => nudging(0, -10), 'Shift+ArrowDown': () => nudging(0, 10),
+    // PowerPoint's: an arrow moves a step, the grid's with Snap to grid, or else 6 pt on the sheet; Ctrl+arrow 1.25 pt; Shift+arrow sizes about its middle, and with Ctrl finely; Alt+arrow
+    // turns by 15 degrees what can turn (and with nothing that can, walks the trail, as it always has).
+    ...Object.fromEntries([['ArrowLeft', -1, 0], ['ArrowRight', 1, 0], ['ArrowUp', 0, -1], ['ArrowDown', 0, 1]].flatMap(([k, a, b]) => {
+      const coarse = () => (aids.peek().snap ? gridStep() : 8 / pageScale()), fine = () => 5 / 3 / pageScale();
+      return [[k, () => nudging(a * coarse(), b * coarse())], [`$mod+${k}`, () => nudging(a * fine(), b * fine())], [`Shift+${k}`, () => hand.sizeBy(a * coarse(), -b * coarse())], [`$mod+Shift+${k}`, () => hand.sizeBy(a * fine(), -b * fine())]];
+    })),
+    'Alt+ArrowLeft': () => turnsNow() ? hand.turnBy(-15) : false, 'Alt+ArrowRight': () => turnsNow() ? hand.turnBy(15) : false,
+    'F4': () => hand.repeat(), 'Alt+F10': () => hand.pane(),
+    // The shapes' alignments have keys of their own.
+    ...Object.fromEntries([['KeyL', 'left'], ['KeyE', 'center'], ['KeyR', 'right'], ['KeyT', 'top'], ['KeyM', 'middle'], ['KeyB', 'bottom']].map(([k, how]) => [`Alt+Shift+${k}`, () => align(how)])),
     '$mod+KeyA': () => { sel.reset(graph.getCells().filter(selectable)); },
     '$mod+KeyD': () => duplicate(), '$mod+KeyG': () => group(), '$mod+Shift+KeyG': () => ungroup(),
-    '$mod+BracketRight': () => order('forward'), '$mod+BracketLeft': () => order('backward'),
+    // (With a field selected, as with text in PowerPoint, its size; with a mark, its order.)
+    '$mod+BracketRight': () => fieldNow() ? FormatBar.resize?.(1) : order('forward'), '$mod+BracketLeft': () => fieldNow() ? FormatBar.resize?.(-1) : order('backward'),
     '$mod+Shift+BracketRight': () => order('front'), '$mod+Shift+BracketLeft': () => order('back'),
     '$mod+Equal': () => zoom('in'), '$mod+Minus': () => zoom('out'), 'Shift+Digit0': () => zoom(1),
     'F2': () => { const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length === 1) edit(k[0]); },
@@ -2827,6 +3045,7 @@ function mount(el) {
     // Esc backs out a step: from a field to its box, from the selection to none.
     'Escape': () => { if (fieldNow()) return pickField(null); if (!keysOfSelection().length) return false; entered = null; Shell.select([]); },
   };
+  const turnsNow = () => selected().some(m => m.geometry === 'group' || (m.type === 'shape' && !['legend'].includes(m.geometry) && !m.role));
   const wrapped = Object.fromEntries(Object.entries(keyMap).map(([k, f]) => [k, e => { if (f(e) !== false) { e.preventDefault(); e.stopPropagation(); } }]));
   const unbind = tinykeys.tinykeys(root, wrapped);
   // Ctrl+Shift+Space, Select all like this, by the space typed, whatever key code it comes with.
@@ -2932,6 +3151,11 @@ function mount(el) {
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
+    // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
+    connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
+    flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
+    // What's being typed part by part takes a look (Bold, a color, a size) in place of the mark it's in. → whether it did.
+    richSet: (label, v) => !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
@@ -2939,9 +3163,10 @@ function mount(el) {
     destroy() {
       nudged(); stopNudge(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
       stopDraw(); stopKeyOver(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
-      graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
+      hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
+  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected, connect });
   active.value = canvas;
   return canvas;
 }
@@ -2981,6 +3206,8 @@ const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
 const aidToggle = k => () => { aids.value = { ...aids.peek(), [k]: !aids.peek()[k] }; };
+// What helps the eye and never prints, one row of a menu, its ticks a step in, so the menus it's on fit the window they open in.
+const aidsRow = () => ({ label: 'Gridlines and guides', items: [['Gridlines', 'grid'], ['Snap to grid', 'snap'], ['Rulers', 'rulers'], ['Margins', 'margins'], ['Guides', 'guides']].map(([label, k]) => ({ label, checked: aids.peek()[k], run: aidToggle(k) })) });
 for (const [id, name, k, names] of [['chart.grid', 'Gridlines', 'grid', ['Grid', 'Show grid']], ['chart.snap', 'Snap to grid', 'snap', ['Grid', 'Snap', 'Align to grid']], ['chart.rulers', 'Rulers', 'rulers', ['Ruler', 'Show rulers', 'Guides']]])
   Shell.register('action', { id, name, names, enabled: here, run: aidToggle(k) });
 Shell.register('action', { id: 'chart.rotate', name: 'Rotate…', names: ['Rotation', 'Turn', 'Angle'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && active.peek().selected()[0].type === 'shape',
@@ -3010,5 +3237,5 @@ Shell.register('action', { id: 'chart.unbend', name: 'Reset the route', names: [
   run: () => { const m = lineNow(), n = bendNote(); if (n) App.change(tx => tx.remove(n.note), { dated: false, say: `Reset the route of ${App.notes.peek().nameOf(App.state.peek(), m.record)}: ${App.notes.peek().segmentOf(App.state.peek(), m.record)}` }); },
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line a hand has bent first' });
 
-return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt, aids, aidToggle, keyCaption, keyCorner };
+return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, rich, scope: () => scopeNow(), named, groupsAt, aids, aidToggle, aidsRow, keyCaption, keyCorner };
 })();

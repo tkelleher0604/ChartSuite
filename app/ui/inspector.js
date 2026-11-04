@@ -1194,6 +1194,9 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
   : label === 'Format' ? (named ? (v === 'none' ? 'Hidden' : 'Shown') : TEXTS[v] ?? upper(String(v)))
   : label === 'Corner' || label === 'Transparency' ? `${Math.round(v)}%`
   : label === 'Shadow' ? shadowSaid(v) : label === 'Arrowhead' ? headSaid(v) : label === 'Dash' ? DASHES[v] ?? upper(String(v))
+  : label === 'Gradient' ? (v?.stops?.length ? html`<i class="chip" style=${`background:linear-gradient(${(v.angle ?? 0) + 90}deg,${v.stops.map(([at, c]) => `${c} ${at}%`).join(',')})`} />Gradient, ${v.angle ?? 0}°` : 'None')
+  : label === 'Pattern' ? (Shapes.PATTERNS.find(p => p[0] === v?.prst)?.[1] ?? 'None')
+  : label === 'Inset' ? `${v.l ?? 7.2}, ${v.t ?? 3.6}, ${v.r ?? 7.2}, ${v.b ?? 3.6} pt` : label === 'Indent' ? `${v} pt` : label === 'Layer' ? (v > 0 ? 'Brought forward' : v < 0 ? 'Sent back' : 'As it was made') : label === 'Tail' ? 'Moved' : label === 'Connector' ? upper(String(v))
   : label === 'Shape' ? (typeof FormatBar !== 'undefined' && FormatBar.shapeName?.(v)) || SHAPES[v] || upper(String(v)) : upper(String(v));
 function LookSection({ look, reset, named }) {
   if (!look.length) return null;
@@ -1234,15 +1237,16 @@ function Look({ id }) {
   // This mark's own: a box's at its object, a line's at its relation's own tree, as the format bar notes them.
   const mine = x => x.pattern.id === id || (!!recs()[id].args && T.key(T.bare(x.pattern)) === T.key(T.bare(t)));
   const rank = x => mine(x) ? 0 : x.view ? 1 : x.pattern.kind === 'View' ? 2 : 3;
-  // (The page's own, a note at the view itself, is what All text says.)
-  const from = x => mine(x) ? (recs()[id].args ? 'This line' : 'This box') : x.pattern.kind === 'View' ? 'All text' : !x.view ? 'Default'
+  // (The page's own, a note at the view itself, is what All text says of its words, and Everything else of the rest.)
+  const WORDS = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'];
+  const from = (x, label) => mine(x) ? (recs()[id].args ? 'This line' : 'This box') : x.pattern.kind === 'View' ? (WORDS.includes(label) ? 'All text' : 'Everything else') : !x.view ? 'Default'
     : (s => { const c = Scene.captionOf(n, x.pattern, v); return T.norm(c).startsWith(T.norm(s)) ? c : `${s}: ${c}`; })(Scene.styleName(n, T.bare(x.pattern)));
   const bent = n.resolve('Bend', t, v)?.note;
   // An arrow its style leaves Auto is said so: this line has it by which way it runs, and it's no look of this line's own.
   const look = [...Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
-    .map(([label, s]) => ({ label, value: s.value, ...(label === 'Arrow' && s.note.value === 'auto' && { said: `Auto (${s.value === 'none' ? 'none, as it runs down' : `${s.value === 'both' ? 'both ends' : `at the ${s.value}`}, as it doesn’t run down`})` }), from: from(s.note), rank: rank(s.note) })), ...(bent ? [{ label: 'Route', value: 'Bent', from: 'This line', rank: 0 }] : [])].sort((a, b) => a.rank - b.rank);
+    .map(([label, s]) => ({ label, value: s.value, ...(label === 'Arrow' && s.note.value === 'auto' && { said: `Auto (${s.value === 'none' ? 'none, as it runs down' : `${s.value === 'both' ? 'both ends' : `at the ${s.value}`}, as it doesn’t run down`})` }), from: from(s.note, label), rank: rank(s.note) })), ...(bent ? [{ label: 'Route', value: 'Bent', from: 'This line', rank: 0 }] : [])].sort((a, b) => a.rank - b.rank);
   // (And what's this box's alone of its fields, beside it, as a look pasted on it gives.)
-  const beside = n.notes('Size').length ? ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'].flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
+  const beside = n.notes('Size').length ? WORDS.flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
   const resetPlace = !App.readOnly.value && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ only: id, say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
   // (Its position before its look, so a row or a section the look gains moves no field under the pointer.)
@@ -1502,6 +1506,8 @@ function HiddenHere({ id }) {
 // a box's outline too, however heavy, so none runs along the chip's edge.
 function Swatch({ sw, off }) {
   const stroke = sw.Outline === 'none' ? 'none' : sw.Outline, dash = Scene.dash(sw.Dash, sw.Weight), w = stroke === 'none' ? 0 : Math.max(1, Math.min(sw.Weight * Scene.PT, 2.5));
+  // (A gradient or a pattern, drawn as the chart draws it.)
+  const fancy = sw.Gradient?.stops?.length || sw.Pattern?.prst ? `sw-${JSON.stringify([sw.Gradient, sw.Pattern, sw.Fill]).replace(/\W/g, '')}` : null;
   return html`<svg class=${'sw' + (off ? ' off' : '')} viewBox="0 0 28 16" aria-hidden="true">${sw.kind === 'line'
     ? html`<path d="M2 8H26" fill="none" stroke=${stroke} stroke-width=${Math.min(sw.Weight * Scene.PT, 3)} stroke-dasharray=${dash} />
       ${['end', 'both'].includes(sw.Arrow) && stroke !== 'none' ? html`<path d="M27 8l-6-3.2v6.4z" fill=${stroke} />` : null}${['start', 'both'].includes(sw.Arrow) && stroke !== 'none' ? html`<path d="M1 8l6-3.2v6.4z" fill=${stroke} />` : null}`
@@ -1510,7 +1516,7 @@ function Swatch({ sw, off }) {
         stroke-dasharray=${['bracket', 'solid'].includes(sw.Frame) ? null : Scene.dash(sw.Frame === 'dotted' ? 'dotted' : 'dashed', 0.75)} />`
     : sw.kind === 'text' ? html`<text x="14" y="12" text-anchor="middle" font-family=${Scene.fontFamily(sw.Font)} font-size="11" fill=${sw.Color}
         font-weight=${sw.Bold ? 700 : 400} font-style=${sw.Italic ? 'italic' : 'normal'}>Aa</text>`
-    : html`<path d=${Scene.path(sw.Shape ?? 'rect', 24 - w, 12 - w)} transform=${`translate(${2 + w / 2} ${2 + w / 2})`} fill=${sw.Fill === 'none' ? 'none' : sw.Fill} fill-opacity=${sw.Transparency ? 1 - sw.Transparency / 100 : null} stroke=${stroke}
+    : html`${fancy ? html`<defs dangerouslySetInnerHTML=${{ __html: sw.Gradient?.stops?.length ? Shapes.gradientDef(fancy, sw.Gradient) : Shapes.patternDef(fancy, sw.Pattern, sw.Fill) }} />` : null}<path d=${Scene.path(sw.Shape ?? 'rect', 24 - w, 12 - w)} transform=${`translate(${2 + w / 2} ${2 + w / 2})`} fill=${fancy ? `url(#${fancy})` : sw.Fill === 'none' ? 'none' : sw.Fill} fill-opacity=${sw.Transparency ? 1 - sw.Transparency / 100 : null} stroke=${stroke}
         stroke-width=${w} stroke-dasharray=${dash} />`}</svg>`;
 }
 // A view's styles (those reaching `only`, if given), each with the outputs it formats: an output that only
@@ -1549,18 +1555,25 @@ function Styles({ v, only }) {
   const output = (g, alone, part, s) => {
     const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]), on = reached.get(g) ?? { own: 0, masked: [] };
     // What doesn't read as this row: those of its marks with a look of their own, and what another style decides of them all.
-    const notes = [...on.own ? [`${on.own} ${on.own === 1 ? 'keeps its' : 'keep their'} own`] : [], ...on.masked.map(([l, by]) => `${l} decided by ${by}`)];
+    const notes = [...on.own ? [`${on.own} ${on.own === 1 ? 'keeps its' : 'keep their'} own`] : [], ...on.masked.map(([l, by]) => `${l} decided by ${by}`)], whose = on.ownNames?.length ? on.ownNames.join(', ') : null;
     return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onClick=${e => { if (!e.target.closest('.grip, .cellbox, input, .lk')) aimAt(g); }}>${alone ? grip(alone) : null}<div class="k" onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
       <div class="v" title=${said && names.length === 1 ? names[0] : null}><span class="capline"><${Caption} g=${keyWord(g) ? { ...g, caption: keyWord(g) } : g} label=${names.join(', ')} put=${out => cap(g, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
-        ${notes.length ? html`<span class="onote" title=${notes.join(', ')}>${on.own && fb ? html`<button type="button" class="lk" onClick=${() => fb.selectDiffers()}>${notes[0]}</button>` : notes[0]}${notes.length > 1 ? `, ${notes.slice(1).join(', ')}` : ''}</span>` : null}</span>
+        ${notes.length ? html`<span class="onote" title=${whose ?? notes.join(', ')}>${on.own && fb ? html`<button type="button" class="lk" data-tip=${whose} onClick=${() => fb.selectDiffers()}>${notes[0]}</button>` : notes[0]}${notes.length > 1 ? `, ${notes.slice(1).join(', ')}` : ''}</span>` : null}</span>
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
   // A style that is its one group is that row alone: Names, not Name over Names.
   return html`${parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
     ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname">${Scene.isChange(s.pattern) ? rows[0].name : html`<${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}>`}</div></div>${rows.map(g => output(g, null, part, s))}`}
   </div>`))}
+  ${only ? null : html`<${EverythingElse} v=${v} sc=${sc} n=${n} />`}
   ${off.length ? html`<div class="row styles-off"><button type="button" class="lk" aria-expanded=${offOpen} onClick=${() => setOffOpen(x => !x)}>Not on this page (${off.length})</button></div>
     ${offOpen ? off.map(g => { const s = styleAt.get(g.style); return html`<div class="ent style lone" key=${g.key}>${output(g, null, [], s)}</div>`; }) : null}` : null}`;
+}
+// Everything else: every box no style or note of its own gives a look, the page's catch-all, a note at the view itself. A row as any is: clicked, it's what the bar's next look goes to, and what it reaches is lit.
+function EverythingElse({ v, sc, n }) {
+  const self = { id: v, kind: 'View' }, g = { style: '·rest', key: '·rest', outputs: [self], caption: 'Everything else', name: null, rest: true, swatch: { kind: 'box', ...Scene.DEFAULTS.box, ...Object.fromEntries(['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'].map(l => [l, n.resolve(l, self, v)?.note.view === v ? n.resolve(l, self, v).value : undefined]).filter(([, x]) => x !== undefined)) } };
+  const on = typeof FormatBar !== 'undefined' && FormatBar.aimedAt?.(g);
+  return html`<div class="ent style lone" key="·rest"><div class=${'row out lone' + (on ? ' on' : '')} onClick=${() => aimAt(g)}><div class="k"><${Swatch} sw=${g.swatch} /></div><div class="v"><span class="capline"><button type="button" class=${'cap' + (on ? ' on' : '')}>Everything else</button></span></div></div></div>`;
 }
 
 // A Styles row aimed at: the ribbon's scope, what it reaches lit on the chart (the format bar's aim), till it's clicked again.
@@ -1622,13 +1635,17 @@ function ViewPanel() {
 }
 
 // ---- A free shape: its text, its look and its place; the Key: its title, its columns and its rows ----
-const SHAPES = { text: 'Text box', legend: 'Key', rect: 'Rectangle', rounded: 'Rounded rectangle' };
+const SHAPES = { text: 'Text box', legend: 'Key', line: 'Line', picture: 'Picture', group: 'Group', frame: 'Frame' };
 function ShapeView({ id, part }) {
-  const row = App.shown.value.item(App.chart.value, id).at(-1), m = App.scene.value?.byId.get(id), n = N(), v = App.scene.value?.view, still = App.readOnly.value;
+  const row = App.shown.value.item(App.chart.value, id).at(-1), m = App.scene.value?.byId.get(id), n = N(), v = App.scene.value?.view, still = App.readOnly.value, cv = Shell.parts.peek().canvas?.active?.(), page = App.scene.value?.page;
   if (!row) return null;
   const set =(changes, say) => App.change(tx => tx.update(id, changes), { dated: false, say });
-  const g = row.geometry ?? 'rect', name = SHAPES[g] ?? g[0].toUpperCase() + g.slice(1), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
-  const look = Object.entries(row.format ?? {}).map(([label, value]) => ({ label, value, from: null }));
+  // A line is a connector where it's glued, and only there. What it's glued to says so, with a way to let go.
+  const glued = g => g === 'line' && row.ends?.some(Boolean), gone = id => App.scene.value?.byId.get(id);
+  const g = row.geometry ?? 'rect', name = row.name ?? (glued(g) ? 'Connector' : SHAPES[g] ?? Shapes.name(g) ?? upper(g)), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
+  // (A free shape's weight is as printed, in its row; and a line's Connector is its route, whatever it's glued to.)
+  const look = Object.entries(row.format ?? {}).filter(([, value]) => value !== null && value !== undefined).map(([label, value]) => ({ label: label === 'Connector' ? 'Route' : label, value: label === 'Weight' ? Scene.fromSlide(page, value) : value, from: null }));
+  const lineAt = g === 'line' && m ? { ...m, r: cv?.angleOf?.(m) } : null;
   const reset = still || !look.length ? null : html`<button class="btn ghost reset" onClick=${() => set({ format: {} }, 'Reset the look')}>Reset</button>`;
   // The Key's rows in its order, each with a box to show or hide it, which leaves it where it is, so nothing moves under
   // the pointer; hidden ones it has no row for now (nothing drawn is keyed by them) after them.
@@ -1648,8 +1665,10 @@ function ShapeView({ id, part }) {
         put=${out => { if (out.choice === 'Where it was put') return; const [v, h] = out.choice.toLowerCase().split(' '); App.change(tx => Canvas.keyCorner(tx, id, out.choice === 'Where the page places it' ? null : [v, h]), { dated: false, say: out.choice === 'Where the page places it' ? 'Let the page place the Key' : `Put the Key in the ${out.choice.toLowerCase()} corner` }); }} /></div></div>` : null}
     </div>
     ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
-    ${m && g !== 'line' ? html`<${Place} at=${m} keys=${key ? 'xyw' : 'xywh'} put=${(k, x) => Shell.parts.peek().canvas?.active?.()?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' ? null : { on: row.lock, set: on => set({ lock: on || undefined }) }} turn=${key || g === 'group' || row.role ? null : { at: row.rotate, set: a => Shell.parts.peek().canvas?.active?.()?.turn(m.id, a) }} />` : null}
-    ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} />` : null}
+    ${glued(g) ? html`<div class="rows"><div class="row"><div class="k">Glued to</div><div class="v">${row.ends.map(e => e ? (gone(e)?.record ? n.nameOf(recs(), gone(e).record) : gone(e)?.texts?.[0]?.text ?? Shapes.name(gone(e)?.geometry) ?? 'A shape') : null).filter(Boolean).join(' and ')}</div></div></div>` : null}
+    ${m && g !== 'group' && !key && !row.role ? html`<div class="rows"><div class="row" data-row="alt"><div class="k">Alt text</div><div class="v ctl"><${Prose} text=${row.alt ?? ''} label="Alt text" put=${alt => set({ alt: alt || undefined }, alt ? 'Set the alt text' : 'Took the alt text off')} /></div></div></div>` : null}
+    ${m ? html`<${Place} at=${m} keys=${key ? 'xyw' : 'xywh'} put=${(k, x) => cv?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' || g === 'line' ? null : { on: row.lock ?? g === 'picture', set: on => set({ lock: on }) }} turn=${key || row.role ? null : { at: g === 'line' ? Math.round((lineAt?.r ?? 0) * 10) / 10 : row.rotate, set: a => cv?.turn(m.id, a) }} />` : null}
+    ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} cv=${cv} />` : null}
     <${LookSection} look=${look} reset=${reset} />
   </div>`;
 }
@@ -1686,12 +1705,13 @@ function KeyRow({ r, id, row, m, on, shown, show, order, still }) {
 }
 // A picture's Crop: how much of each side of it is cut off, in percent of the whole picture, typed. The picture stays the
 // size and where it was on the page: what's cut goes, and its frame shrinks round the rest.
-function Crop({ m, row, set }) {
+function Crop({ m, row, set, cv }) {
   const c = { left: 0, top: 0, right: 0, bottom: 0, ...row.crop }, fullW = m.w / (1 - (c.left + c.right) / 100), fullH = m.h / (1 - (c.top + c.bottom) / 100), page = App.scene.value?.page;
   const put = (side, x) => { const was = c[side], v = Math.max(0, Math.min(95 - (side === 'left' || side === 'right' ? c.left + c.right - was : c.top + c.bottom - was), x)), d = (v - was) / 100, crop = { ...c, [side]: v };
     set({ crop, ...(side === 'left' && { x: m.x + fullW * d, w: m.w - fullW * d }), ...(side === 'right' && { w: m.w - fullW * d }), ...(side === 'top' && { y: m.y + fullH * d, h: m.h - fullH * d }), ...(side === 'bottom' && { h: m.h - fullH * d }) }, 'Cropped the picture'); };
   const any = Object.values(c).some(Boolean);
   return html`<${Section} title="Crop" act=${any && !App.readOnly.value ? html`<button class="btn ghost reset" onClick=${() => set({ crop: null, x: m.x - fullW * c.left / 100, y: m.y - fullH * c.top / 100, w: fullW, h: fullH }, 'Took the crop off the picture')}>Reset</button>` : null}>
+    ${App.readOnly.value ? null : html`<div class="row"><button class="btn ghost" onClick=${() => cv?.crop(m.id)}>Crop handles</button><button class="btn ghost" onClick=${() => cv?.changePicture(m.id)}>Change picture…</button></div>`}
     ${[['Left', 'left'], ['Top', 'top'], ['Right', 'right'], ['Bottom', 'bottom']].map(([label, side]) => html`<div class="row" key=${side}><div class="k">${label}</div><div class="v ctl">
       <${Field} r=${{ field: 'number', value: c[side] }} datatype="number" label=${`Crop ${label}`} put=${out => out && put(side, out.value)}><span class="unit">%</span></${Field}></div></div>`)}</${Section}>`;
 }
@@ -1822,7 +1842,8 @@ function RelateView({ a, b }) {
     App.stage({ verb: 'Add', what: `${name}: ${n.placed(r, null, rec.args).map(s => s.join + s.text).join('')}`, source: `relate ${a} ${b}`, relate: { a, b, key: 'new', out: { tag: true } },
       asks: 'from', day: was ? was.day : App.begins(), needs: [a, b], say: c => Time.describe(c),
       // (Its lists go by their roles, plural, as any list's name is: Holders, Funds.)
-      make: tx => { tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb }); },
+      // (And drawn on the page it's made on, a line and a row in its Styles, as what it's drawn to say.)
+      make: tx => { tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb }); const view = Shell.view.peek(); if (view) tx.note('Shown', p, true, { view }); },
       done: () => { naming.value = null; fresh.value = { a, b, key: [ra, rb, a, b].join('|').toLowerCase() }; } });
   };
   // Enter goes on to the next it asks, until it's all given, and then makes it.
@@ -1864,6 +1885,7 @@ function RelateView({ a, b }) {
   return html`<div class="insp" data-tour="pair">
     <header class="ih"><h2 class="ih-title">${name(a)} <span class="and">and</span> ${name(b)}</h2></header>
     ${holds.length || after.length ? html`<div class="relate">${holds.map(heldRow)}${after.map(laterRow)}</div>` : null}
+    ${still || !ma || !mb ? null : html`<div class="relate">${ghost('Just a line, no relation', () => Shell.parts.peek().canvas?.active?.()?.connect(a, b))}</div>`}
     ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
       ${form ? html`<div class=${'rr new' + (ours ? ' adding' : '')} onKeyDown=${formKeys}><span class="ctl"><span class=${'tag' + (ours ? ' yes' : '')} /></span><span class="form">

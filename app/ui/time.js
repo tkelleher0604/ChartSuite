@@ -515,10 +515,10 @@ const Time = (() => {
     const moved = new Set([...made, ...gone].map(i => i.id));
     // A view made or deleted goes by the Name note that goes with it.
     const named = id => all.find(i => i.type === 'note' && rec(i).label === 'Name' && rec(i).pattern.id === id);
-    // A relation of a new name, added with its name and its sides' order (the two-box panel's New relation), is said
+    // A relation of a new name, added with its name and its sides' order and shown where it's made (the two-box panel's New relation), is said
     // by its adding alone: those notes are its naming.
     const fresh = all.filter(i => i.type === 'record' && !i.was.length && rec(i).args).map(rec);
-    const naming = (i, n) => !i.was.length && (n.label === 'Name' || n.label === 'Order') && !n.view && n.pattern.args && !Tree.idsIn(n.pattern).size
+    const naming = (i, n) => !i.was.length && (((n.label === 'Name' || n.label === 'Order') && !n.view) || (n.label === 'Shown' && n.value === true)) && n.pattern.args && !Tree.idsIn(n.pattern).size
       && fresh.some(r => r.args.length === n.pattern.args.length && n.pattern.args.every(a => r.args.some(b => Tree.same(b.edge, a.edge))));
     const lines = [], line = (text, extra) => { if (!text) return null; let l = lines.find(x => x.text === text); if (!l) lines.push(l = { text, sub: [], ...extra }); return l; };
     const under = (l, text, extra) => { if (l && text && !l.sub.some(x => x.text === text)) l.sub.push({ text, sub: [], ...extra }); };
@@ -821,6 +821,13 @@ const Time = (() => {
     if (ON[label]) return `Made ${of} ${ON[label][v ? 0 : 1]}`;
     if (label === 'Dash') return `Made the outline of ${of} ${String(v).replace(/-/g, ' ')}`;
     if (label === 'Arrowhead') return `Changed the arrowheads of ${of}`;
+    if (label === 'Gradient') return v ? `Gave ${of} a gradient` : `Took the gradient off ${of}`;
+    if (label === 'Pattern') return v ? `Gave ${of} a pattern` : `Took the pattern off ${of}`;
+    if (label === 'Tail') return `Moved what ${of} points at`;
+    if (label === 'Inset') return `Set the inner margins of ${of}`;
+    if (label === 'Indent') return v ? `Indented ${of} ${v} pt` : `Took the indent off ${of}`;
+    if (label === 'Bullet') return v === 'none' ? `Took the bullets off ${of}` : v === 'number' ? `Numbered ${of}` : `Bulleted ${of}`;
+    if (label === 'Shrink') return v ? `Made ${of} shrink its text to fit` : `Stopped ${of} shrinking its text`;
     const noun = NOUNS[label];
     if (!noun) return `Changed ${label} of ${of}`;
     if (v === 'none') return `Took the ${noun} off ${of}`;

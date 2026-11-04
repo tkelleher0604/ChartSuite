@@ -18,6 +18,7 @@
 <script src="../core/log.js"></script>
 <script src="../core/formulas.js"></script>
 <script src="../core/layout.js"></script>
+<script src="../core/shapes.js"></script>
 <script src="../core/scene.js"></script>
 <script src="../sample/calder-ridge.js"></script>
 <script>
@@ -1426,8 +1427,84 @@ async function drawnAgain() {
     edits >= 20 && !differ.length, `${edits} edits${differ.length ? `; ${differ.join('; ')}` : ', none differ'}`);
 }
 
+// ---- What a hand draws (dendra.md, Free shapes): the table of shapes, runs, a shape's words, glue, margins, a size of its own, annotations ----
+function freeDrawing() {
+  const wb = Log.open(SAMPLE), computed = w => { const N = w.notes(C), S = w.schema(C); return Formulas.computeState(w.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); };
+  const scene = (w, o = {}) => { const R = computed(w); return Scene.of(w, C, MAIN, DAY, { state: R.records, computed: R, ...o }); }, edit = (w, f) => { const tx = w.edit({ chart: C, who: WHO }); const r = f(tx); if (typeof tx.commit() === 'string') throw new Error('no change'); return r; };
+  // The one table.
+  check('every shape of the gallery has a name, a preset and an outline', Shapes.gallery().flatMap(g => g.shapes).length >= 60 && Shapes.ids.every(id => Shapes.name(id) && Shapes.prst(id) && /^M/.test(Shapes.path(id, 80, 50))), Shapes.ids.filter(id => !/^M/.test(Shapes.path(id, 80, 50))).join());
+  check('… a right triangle is called so, and the rectangles’ variants don’t lead', Shapes.name('rtriangle') === 'Right triangle' && Shapes.gallery()[0].head === 'Basic shapes' && Shapes.gallery()[0].shapes.slice(0, 3).map(s => s[0]).join() === 'rect,rounded,oval', Shapes.gallery()[0].shapes.slice(0, 3).join());
+  check('… braces, brackets, stars, callouts and flowchart are there', ['leftbrace', 'rightbracket', 'star5', 'callout', 'fc-decision'].every(id => Shapes.has(id)));
+  check('a callout’s tip is drawn where it says', /L\d+\.?\d*,-?\d+/.test(Shapes.path('callout', 100, 50, null, [0.9, 0.9])) && Shapes.path('callout', 100, 50, null, [0.9, 0.9]).includes('140'), Shapes.path('callout', 100, 50, null, [0.9, 0.9]));
+  // Runs.
+  const rs = Scene.runsWith(Scene.runsWith([], 6, 11, 'Bold', true), 6, 8, 'Color', '#ff0000');
+  check('a run takes a look, split where it must be', j(rs) === j([{ from: 6, to: 8, Bold: true, Color: '#ff0000' }, { from: 8, to: 11, Bold: true }]), j(rs));
+  check('… and a look given back goes, its neighbours running on as one', j(Scene.runsWith(rs, 6, 8, 'Color', undefined)) === j([{ from: 6, to: 11, Bold: true }]), j(Scene.runsWith(rs, 6, 8, 'Color', undefined)));
+  check('… in a bold text, not bold is a look too', j(Scene.runsWith([], 0, 3, 'Bold', false, { Bold: true })) === j([{ from: 0, to: 3, Bold: false }]));
+  const [tb, list, tight, shrunk, line, glued, rect] = edit(wb, tx => [
+    tx.add('shape', { view: MAIN, geometry: 'text', x: 40, y: 40, text: 'Hello world', runs: [{ from: 6, to: 11, Bold: true, Base: 'up' }] }),
+    tx.add('shape', { view: MAIN, geometry: 'rect', x: 40, y: 80, w: 300, h: 120, text: 'One\nTwo', format: { Bullet: 'number', Align: 'left', Inset: { l: 20, t: 10, r: 10, b: 10 } } }),
+    tx.add('shape', { view: MAIN, geometry: 'rect', x: 40, y: 220, w: 120, h: 20, text: 'Too much text for this shape to hold on any line at all', format: {} }),
+    tx.add('shape', { view: MAIN, geometry: 'rect', x: 40, y: 260, w: 120, h: 30, text: 'Too much text for this shape to hold on any line at all', format: { Shrink: true } }),
+    tx.add('shape', { view: MAIN, geometry: 'line', x: 10, y: 10, points: [[10, 10], [20, 20]], format: { Connector: 'elbow' }, ends: ['fund', 'blocker'] }),
+    tx.add('shape', { view: MAIN, geometry: 'line', x: 400, y: 400, points: [[400, 400], [500, 500]] }),
+    tx.add('shape', { view: MAIN, geometry: 'rect', x: 600, y: 400, w: 60, h: 40, flip: { h: true }, format: { Gradient: { angle: 90, stops: [[0, '#ffffff'], [100, '#000000']] }, Fill: '#ffffff' } }),
+  ]);
+  const s = scene(wb), it = s.byId.get(tb).texts[0], sp = it.lines[0].spans;
+  check('the scene gives a line its spans: what’s set in each look, raised, its width theirs', sp?.length === 2 && sp[1].text === 'world' && sp[1].look.Bold && sp[1].base === 'up' && sp[1].look.Size < it.look.Size && Math.abs(it.lines[0].w - (Scene.measure(sp[0].text, sp[0].look) + Scene.measure(sp[1].text, sp[1].look))) < 0.01, j(sp));
+  const l = s.byId.get(list).texts[0];
+  check('a shape’s words numbered: each paragraph’s first line starts with its mark, its words in from it', l.lines[0].bullet === '1.' && l.lines[1].bullet === '2.' && l.lines[0].x > l.lines[0].bulletAt && l.indent > 0, j(l.lines));
+  check('… its inner margins each side’s', Math.abs(l.lines[0].bulletAt - 20 * Scene.PT / s.page.scale) < 1, `${l.lines[0].bulletAt}`);
+  check('a shape too small for its words says so, and doesn’t break a word', s.byId.get(tight).spills === true && Scene.says(s).some(t => /runs out of its shape/.test(t)), Scene.says(s).join('; '));
+  check('… or shrinks them, where it’s told to, by PowerPoint’s steps', s.byId.get(shrunk).shrunk < 1 && !s.byId.get(shrunk).spills && s.byId.get(shrunk).texts[0].look.Size < s.byId.get(tight).texts[0].look.Size, s.byId.get(shrunk).shrunk);
+  // Glue.
+  const lm = s.byId.get(line), fund = s.byId.get('fund'), blocker = s.byId.get('blocker');
+  check('a free line glued runs between what it’s glued to, wherever its row last had it, square where it’s an elbow', lm.points[0][1] >= fund.y && lm.points.at(-1)[1] <= blocker.y + 1 && lm.points.slice(1).every((p, i) => Math.abs(p[0] - lm.points[i][0]) < 0.01 || Math.abs(p[1] - lm.points[i][1]) < 0.01), j(lm.points));
+  check('a free shape’s flip and its gradient are in the scene', !!s.byId.get(rect).flip?.h && s.byId.get(rect).look.Gradient.angle === 90);
+  const inStack = w => scene(w).marks.filter(m => m.type === 'shape').map(m => m.id), stacked = inStack(wb);
+  edit(wb, tx => tx.update(list, { x: 44 }));
+  check('a shape moved keeps its place in the stack', j(inStack(wb)) === j(stacked) && scene(wb).byId.get(list).x !== s.byId.get(list).x, j([inStack(wb), stacked]));
+  // Margins, and a size of its own.
+  const w2 = Log.open(SAMPLE);
+  edit(w2, tx => tx.note('Page', { id: MAIN, kind: 'View' }, { size: 'slide', margins: { top: 72, right: 72, bottom: 36, left: 108 } }));
+  const m2 = scene(w2), fit = m2.marks.filter(m => m.type === 'box');
+  check('margins are each side’s, as the page says: what it places keeps within them, its title on the left one', Math.abs(m2.page.margins.left - 108 * Scene.PT / m2.page.scale) < 0.01 && Math.min(...fit.map(b => b.x)) >= m2.page.margins.left - 1 && Math.max(...fit.map(b => b.x + b.w)) <= m2.page.w - m2.page.margins.right + 1 && Math.abs(m2.marks.find(x => x.role === 'title').x * m2.page.scale - (108 * Scene.PT - 9.6)) < 1, j(m2.page.margins));
+  check('… asked of a paper too', Math.abs(scene(Log.open(SAMPLE), { paper: 'letter landscape m:18,18,18,18' }).page.margins.left * scene(Log.open(SAMPLE), { paper: 'letter landscape m:18,18,18,18' }).page.scale - 18 * Scene.PT) < 0.01);
+  const own = scene(Log.open(SAMPLE), { paper: 'custom:960x600 landscape m:36,36,36,36' });
+  check('a size of its own, and 4:3 on the list', own.page.sheet.w === 960 && own.page.sheet.h === 600 && Scene.PAPERS.slide43 === 'Slide 4:3' && Scene.PAGES.slide43[0] === 960, j(own.page.sheet));
+  // Annotations.
+  const w3 = Log.open(SAMPLE), s3 = scene(w3), a = s3.byId.get('fund'), b = s3.byId.get('blocker');
+  const box = { x: Math.min(a.x, b.x) - 6, y: a.y - 6, w: Math.max(a.x + a.w, b.x + b.w) - Math.min(a.x, b.x) + 12, h: b.y + b.h - a.y + 12 };
+  const [over, far, ended] = edit(w3, tx => [tx.add('shape', { view: MAIN, geometry: 'rounded', ...box }), tx.add('shape', { view: MAIN, geometry: 'text', x: 4, y: 4, w: 30, h: 20, text: 'x' }), tx.add('shape', { view: MAIN, geometry: 'line', x: a.x + 2, y: a.y + 2, points: [[a.x + 2, a.y + 2], [a.x - 40, a.y - 40]] })]);
+  const before = scene(w3), after = scene(w3, { paper: 'letter portrait' }), ann = Scene.annotated(before, after), o = ann.rows.get(over), at = k => after.byId.get(k);
+  check('on another layout, a shape over boxes goes round them where they now stand', !!o && o.x <= Math.min(at('fund').x, at('blocker').x) && o.x + o.w >= Math.max(at('fund').x + at('fund').w, at('blocker').x + at('blocker').w) && o.y <= at('fund').y && o.y + o.h >= at('blocker').y + at('blocker').h, j([o, at('fund'), at('blocker')]));
+  check('… a line’s end at a box goes with it, its other end scaled', Math.abs(ann.rows.get(ended)?.points[0][0] - at('fund').x) < 8, j(ann.rows.get(ended)));
+  check('… and what’s over nothing stays, and is counted', ann.stay.some(m => m.id === far) && !ann.rows.has(far), ann.stay.map(m => m.id).join());
+  // The Key doesn't lie unawares; a height given takes no other with it; Everything else.
+  const w4 = Log.open(SAMPLE), s4 = scene(w4), fill = s4.byId.get('fund').settings.Fill.value;
+  edit(w4, tx => tx.note('Fill', Tree.treeOf(w4.asOf(C, DAY), 'halvard'), fill, { view: MAIN }));
+  const s5 = scene(w4);
+  check('a box given by hand the fill a Key row keys, and isn’t that, is said', Scene.keyLies(s5).some(x => x.b.id === 'halvard') && !Scene.keyLies(s4).length && Scene.says(s5).some(t => /looks like .* in the Key, but isn.t/.test(t)), Scene.says(s5).join('; '));
+  const w6 = Log.open(SAMPLE), s6 = scene(w6), row6 = s6.marks.filter(m => m.type === 'box' && Math.abs(m.y - s6.byId.get('inv_aiv').y) < 1), hs = new Map(row6.map(m => [m.id, m.h]));
+  edit(w6, tx => { const st = w6.asOf(C, DAY), t = Tree.treeOf(st, 'inv_us'), n = s6.byId.get('inv_us'), off = s6.page.offset; tx.note('Position', t, { x: n.x - off.x, y: n.y - off.y, w: n.w, h: 20, hand: true }, { view: MAIN }); });
+  const s7 = scene(w6);
+  check('a box given a height takes none of its rank with it', row6.length > 2 && row6.filter(m => m.id !== 'inv_us').every(m => Math.abs(s7.byId.get(m.id).h - hs.get(m.id)) < 0.5) && s7.byId.get('inv_us').h <= 21, j(row6.map(m => [m.id, s7.byId.get(m.id).h, hs.get(m.id)])));
+  const w8 = Log.open(SAMPLE), s8 = scene(w8), plain = s8.marks.find(m => m.type === 'box' && !m.settings.Fill.note);
+  edit(w8, tx => tx.note('Fill', { id: MAIN, kind: 'View' }, '#abcdef', { view: MAIN }));
+  const s9 = scene(w8);
+  check('Everything else: a box nothing else fills takes the page’s, and one a style fills keeps its', !!plain && s9.byId.get(plain.id).settings.Fill.value === '#abcdef' && s9.byId.get('fund').settings.Fill.value === s8.byId.get('fund').settings.Fill.value, plain?.id);
+  // A look carries the chart's colors.
+  const w10 = Log.open(SAMPLE), ten = ['#ffffff', '#111111', '#eeeeee', '#222222', '#102030', '#203040', '#304050', '#405060', '#506070', '#607080'];
+  edit(w10, tx => { tx.note('Palette', { kind: 'View' }, { colors: ten }); tx.note('Shape Defaults', { kind: 'View' }, { shape: { Fill: '#102030' } }); tx.note('Fill', { id: MAIN, kind: 'View' }, '#abcdef', { view: MAIN }); });
+  const look = Notes.houseLook(w10.rows(C), MAIN), read = Notes.lookFrom(JSON.parse(JSON.stringify(look)));
+  check('a house style carries the chart’s colors, what its shapes take, and Everything else, a file too', read.palette?.colors.join() === ten.join() && read.shapes?.shape?.Fill === '#102030' && read.rest?.Fill === '#abcdef', j(read.rest));
+  const swatches = Shapes.swatches(ten), where = Shapes.inTheme(ten);
+  check('its colors have their tints and shades, each known for what it is in a theme', swatches.length === 60 && where('#102030').slot === 'accent1' && where(swatches[14]).slot === 'accent1' && where(swatches[14]).mod === 0.2 && where('#123456') === null, j(where(swatches[14])));
+  check('… and Office’s are known by PowerPoint’s own values', Shapes.inTheme()('#dae3f3').slot === 'accent1' && Shapes.inTheme()('#000000').slot === 'tx1' && Shapes.inTheme()('#ffffff').slot === 'bg1');
+}
+
 if (location.search.includes('fresh')) window.drawFresh = json => drawAll(Log.open(json))[1];
-else Promise.resolve().then(run).then(drawnAgain)
+else Promise.resolve().then(run).then(drawnAgain).then(freeDrawing)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

@@ -334,7 +334,58 @@ dialog.dlg:has(.ex)[open] { animation: none; }
 .ex-well.many .ex-page { align-self: start; }
 /* Gridlines and rulers, the session's: never printed. */
 .dc-grid { fill: none; stroke: var(--rule-2); stroke-opacity: .55; stroke-width: 1px; vector-effect: non-scaling-stroke; pointer-events: none; }
-.dc-over > .dc-ruler { position: absolute; left: 0; top: 0; pointer-events: none; }
+.dc-over > .dc-ruler { position: absolute; left: 0; top: 0; pointer-events: auto; }
+.dc-over > .dc-ruler.across { cursor: ns-resize; }
+.dc-over > .dc-ruler.down { cursor: ew-resize; }
+/* What a hand draws with: the crosshair while Insert waits, what's being drawn, a line's ends, a guide, the margins, equal gaps. */
+.dc.drawing, .dc.drawing .x6-node, .dc.drawing .x6-edge, .dc.drawing .x6-graph-svg { cursor: crosshair; }
+.dc-draft { fill: var(--selected); fill-opacity: .25; stroke: var(--accent); stroke-width: 1.25px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.dc-ghost { opacity: .55; pointer-events: none; }
+.dc-end { fill: #fff; stroke: var(--accent); pointer-events: auto; cursor: move; }
+.dc-end.glued { fill: var(--accent); }
+.dc-guide { stroke: #c2372b; stroke-width: 1px; stroke-dasharray: 4 3; opacity: .8; pointer-events: none; }
+.dc-guide.dragging { opacity: 1; }
+.dc-guide-hit { pointer-events: stroke; }
+.dc-guide-hit.down { cursor: ew-resize; }
+.dc-guide-hit.across { cursor: ns-resize; }
+.dc-margins { fill: none; stroke: var(--accent); stroke-opacity: .55; stroke-width: 1px; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.dc-gap { fill: none; stroke: #c2372b; pointer-events: none; }
+text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-serif); }
+.dc-cropper.frame { stroke: var(--ink); stroke-dasharray: 3 2; pointer-events: none; }
+.dc-cropper.bar { fill: var(--ink); stroke: #fff; stroke-width: .5; pointer-events: auto; }
+.dc-cropper.bar.tall { cursor: ew-resize; }
+.dc-cropper.bar.flat { cursor: ns-resize; }
+.dc-turn { fill: #fff; stroke: var(--accent); pointer-events: auto; cursor: grab; }
+.dc-turn.stem { fill: none; pointer-events: none; }
+.dc-edit[data-rich] span[data-run] { white-space: pre-wrap; }
+/* The Selection Pane, over the chart at its right, what's in front first. */
+.dc-over > .dc-panehost { position: absolute; top: 10px; right: 10px; pointer-events: none; }
+.dc-pane { pointer-events: auto; width: 256px; max-height: min(60vh, 460px); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r); box-shadow: 0 6px 18px rgb(0 0 0 / .14); font: var(--t12); }
+.dc-pane > header { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 4px 10px; border-bottom: 1px solid var(--rule); font-weight: 600; }
+.dc-panerows { overflow: auto; padding: 2px 0; }
+.dc-panerows > .row { display: flex; align-items: center; gap: 2px; padding: 0 2px 0 10px; min-height: 26px; cursor: default; user-select: none; }
+.dc-panerows > .row:hover { background: var(--hover); }
+.dc-panerows > .row.on { background: var(--selected); color: var(--accent-ink); }
+.dc-panerows > .row.off .nm { color: var(--ink-3); font-style: italic; }
+.dc-panerows > .row.dropabove { box-shadow: inset 0 2px 0 var(--accent); }
+.dc-panerows > .row.dropbelow { box-shadow: inset 0 -2px 0 var(--accent); }
+.dc-panerows .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dc-panerows input.cell { flex: 1; min-width: 0; }
+.dc-panerows .btn.icon { width: 22px; height: 22px; min-width: 22px; padding: 0; opacity: .55; }
+.dc-panerows .btn.icon:hover, .dc-panerows .row.on .btn.icon { opacity: 1; }
+.ex-inch { display: inline-flex; align-items: center; gap: 4px; font: var(--t12); color: var(--ink-2); }
+.ex-inch > input { width: 52px; height: 26px; padding: 0 6px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); color: var(--ink); font: var(--t13, var(--t12)); text-align: right; }
+.ex-margins { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ex-label { font: var(--t12); font-weight: 600; color: var(--ink-2); }
+.ex-unit { font: var(--t12); color: var(--ink-3); }
+.palette-slots { display: grid; gap: 4px; }
+.palette-slots > .row { display: grid; grid-template-columns: 1fr 34px 86px; align-items: center; gap: 8px; }
+.palette-slots input[type="color"] { width: 34px; height: 24px; padding: 0; border: 1px solid var(--rule-2); border-radius: var(--r); background: none; }
+/* (A shade at whichever edge there's more beyond, where it scrolls, and none where it doesn't.) */
+.gallery { max-height: min(56vh, 380px); overflow-y: auto; padding: 0 4px;
+  background: linear-gradient(var(--surface) 40%, transparent) center top / 100% 28px no-repeat local, linear-gradient(transparent, var(--surface) 60%) center bottom / 100% 28px no-repeat local,
+    linear-gradient(rgba(0, 0, 0, .14), transparent) center top / 100% 10px no-repeat scroll, linear-gradient(transparent, rgba(0, 0, 0, .14)) center bottom / 100% 10px no-repeat scroll; }
+.gallery > .menu-head { margin: 6px 0 2px; }
 .dc-over > .dc-ruler[hidden] { display: none; }
 .dc-over > .dc-ruler.down { border-right: 1px solid var(--rule-2); }
 .dc-over > .dc-ruler.across { border-bottom: 1px solid var(--rule-2); }

@@ -859,6 +859,8 @@ const FormulaBar = (() => {
   // A relation in words, for a pane that says its sides itself: [the side said first, the words, the other].
   // An option says the role: is a director of; a role still to choose is "…", as a side still to choose is.
   function phrase(t, a, b, { choice = 'choice' in (t.out ?? {}) ? '…' : null, not = false } = {}) {
+    // (A side named only by which end it is, From and To, says nothing a sentence can be made of: never "is a from of".)
+    if (!choice && /^(from|to|of|by|for|at|in|on|via|source|target|start|end|a|b|one|two|first|second)$/i.test(String(a))) return [a, not ? ' is not linked to ' : ' is linked to ', b];
     const q = predicateOf(t, a, b), w = choice ? { head: lower(choice), form: 'noun', prep: q.form === 'noun' && !q.flip ? q.prep : ' of ' } : q;
     return w.flip && !choice ? [b, verbal(w, not) + w.prep, a] : [a, verbal(w, not) + w.prep, b];
   }
@@ -1472,7 +1474,7 @@ const FormulaBar = (() => {
     if (!p || p.unread || p.flaws?.some(f => !f.warn)) return canvas?.redline(null);
     const text = (X, id) => { const r = X.records[id]; return !r || isObj(r) ? '' : Tree.outputText(r); };
     const changed = Object.fromEntries(p.diff.change.map(id => [id, { before: text(R.peek(), id), after: text(p.R2, id) }]));
-    canvas?.redline({ appear: p.diff.appear, go: p.diff.go, changed, records: p.R2.records });
+    canvas?.redline({ appear: p.diff.appear, go: p.diff.go, changed, records: p.R2.records, shows: p.change?.shows });
   });
   // The subject as the pending change would leave it: undefined if unchanged, null if gone, or its record.
   function after(m) {
