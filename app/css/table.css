@@ -289,7 +289,7 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 /* ---- The ruler, at the view's foot: the years a calm scale along the bottom, the chart's days rising from a hairline over
    it, by what each does (something comes to be or ends, tall and dark; a relation moves; a date noted, short and faint); the
    day shown, the hand. Over a chart's foot, so the chart doesn't move as it comes and goes; a table gives it its room. ---- */
-.scrub { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: 48px; display: flex; align-items: stretch; background: var(--paper); border-top: 1px solid var(--rule); user-select: none; touch-action: none; }
+.scrub { position: relative; z-index: 3; height: 48px; display: flex; align-items: stretch; background: var(--paper); border-top: 1px solid var(--rule); user-select: none; touch-action: none; }
 .scrub-play { align-self: center; flex: none; margin-left: 8px; }
 .scrub-play > svg { width: 14px; height: 14px; fill: currentColor; }
 .scrub-track { position: relative; flex: 1; min-width: 0; margin: 0 28px 0 12px; border-radius: var(--r); outline-offset: 2px; }

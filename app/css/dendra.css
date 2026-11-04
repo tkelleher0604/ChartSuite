@@ -359,7 +359,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 /* Put away, the inspector leaves its divider at the window's edge, to drag it out again. */
 .main.shut { grid-template-columns: minmax(0, 1fr) 1px 0; }
 .main.shut > .inspector { visibility: hidden; }
-.view { position: relative; display: grid; grid-template: auto minmax(0, 1fr) auto / minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--side); }
+.view { position: relative; display: grid; grid-template: auto minmax(0, 1fr) auto auto / minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--side); }
 /* The formula bar is the view's: over a table, in its own row, so what it opens to pushes the rows down and lies over none; over a
    chart, on the chart's top edge, so nothing moves as it comes and goes, and with nothing selected it gives its room back. */
 .view > .slot.formulabar { grid-area: 1 / 1; z-index: 5; min-width: 0; }
@@ -383,14 +383,13 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 /* The view shown fills it; under it, the window's one bar while a change is pending (App.Pending), over the foot of a
    chart, so the chart doesn't move as it comes and goes, and under a table's last row, which it never hides. */
 .view > .host { position: relative; grid-area: 2 / 1; min-height: 0; }
-.view > .host:has(> .dc) { grid-area: 1 / 1 / 4; }
-.view > .pendbar { grid-area: 3 / 1; z-index: 4; }
+.view > .host:has(> .dc) { grid-area: 1 / 1 / 5; }
+/* The time's ruler (table.css) is over the same foot, above the bar: the bar's at the window's foot whether it's open or not, so what's on it stays under the hand. */
+.view > .scrub { grid-area: 3 / 1; }
+.view > .pendbar { grid-area: 4 / 1; z-index: 4; }
 /* A chart with no box: its one action, over the middle of the page, which takes clicks around it. */
 .view > .void { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .view > .void > .btn { pointer-events: auto; }
-/* The time's ruler (table.css): over a chart's foot, so the page doesn't move as it comes and goes, and the bar over it; under a table's last row. */
-.view:has(> .scrub):not(:has(> .host:not([hidden]) > .dc)) { padding-bottom: 48px; }
-.view:has(> .scrub):has(> .host:not([hidden]) > .dc) > .pendbar { margin-bottom: 48px; }
 .inspector > .host { min-height: 100%; }
 /* What takes the inspector's place (History) fills it, and scrolls itself. */
 .inspector > .host.aside { position: absolute; inset: 0; min-height: 0; max-width: none; margin: 0; padding: 0; background: var(--surface); }
