@@ -160,7 +160,7 @@ const Shell = (() => {
   const go = (fn, o) => { replacing = !!o?.replace; batch(fn); replacing = false; };
   const select = (keys, o) => go(() => { const k = [].concat(keys ?? []); if (!same(k, selection.peek())) selection.value = k; }, o);
   const show = (id, o) => go(() => { view.value = id; }, o);
-  const at = (t, o) => go(() => { time.value = t || null; }, o);
+  const at = (t, o) => go(() => { time.value = (t?.asOf ? { ...t, asOf: Tree.firstDay(t.asOf) } : t) || null; }, o);
   // An entry, relation or kind in general, as a selection key; and a key's pattern, if it's one of those.
   const general = p => '~' + JSON.stringify(p);
   const pattern = key => { if (key?.[0] !== '~') return null; try { return JSON.parse(key.slice(1)); } catch { return null; } };
@@ -512,6 +512,22 @@ const Shell = (() => {
     const el = tip.value, ref = useRef();
     useLayoutEffect(() => { if (!el) return; ref.current.showPopover?.(); return place(el, ref.current, 'bottom', 6); }, [el]);
     return el ? html`<div class="float tip" popover="manual" role="tooltip" ref=${ref}>${el.dataset.tip}${el.dataset.keys ? html`<kbd>${el.dataset.keys}</kbd>` : null}</div>` : null;
+  }
+
+  // ---- A red ring always says why in words: whatever's marked invalid says it beside it while it's marked, its own words
+  // (data-why) or else by what it takes. Marked and pointed at it says so too. ----
+  const ringed = signal(null);
+  const marked_ = el => el.hasAttribute?.('aria-invalid') && el.getAttribute('aria-invalid') !== 'false';
+  const whyOf = el => el.dataset.why ?? (el.classList.contains('date') ? Tree.notA('date') : 'Not a value this takes');
+  new MutationObserver(ms => { for (const { target: el } of ms) {
+    if (marked_(el)) { if (whyOf(el)) { if (!el.dataset.tip) el.dataset.tip = whyOf(el); ringed.value = el; } }
+    else if (el.dataset.tip === whyOf(el)) delete el.dataset.tip;
+    if (ringed.peek() === el && !marked_(el)) ringed.value = null;
+  } }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['aria-invalid'] });
+  function Ringed() {
+    const el = ringed.value, ref = useRef();
+    useLayoutEffect(() => { if (!el) return; ref.current.showPopover?.(); const stop = place(el, ref.current, 'bottom-start', 4), t = setInterval(() => { if (!el.isConnected || !marked_(el)) { if (ringed.peek() === el) ringed.value = null; } }, 300); return () => { stop(); clearInterval(t); }; }, [el]);
+    return el ? html`<div class="float tip why" popover="manual" role="alert" ref=${ref}>${whyOf(el)}</div>` : null;
   }
 
   // ---- Dialogs, on <dialog>: modal, named by their title ----
@@ -907,7 +923,7 @@ const Shell = (() => {
       <footer class="foot" data-region="tabs"><${Sheets} /><${Status} /></footer>
     </div>
     ${floats.value.map(f => html`<${Float} key=${f.id} f=${f} />`)}
-    <${Toasts} /><${Tip} />`;
+    <${Toasts} /><${Tip} /><${Ringed} />`;
 
   // The shell's own actions and keys.
   const problems = () => needs().length > 0;

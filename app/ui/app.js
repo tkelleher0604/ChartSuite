@@ -103,8 +103,8 @@ const App = (() => {
     const wb = shown.peek(), c = chart.peek();
     if (!c || !id || entered.peek()[id] || !wb.item(c, id).length) return null;
     const days = new Set(), up = [id], seen = new Set();
-    for (let i = 0; i < up.length; i++) if (!seen.has(up[i])) { seen.add(up[i]); for (const r of wb.item(c, up[i])) { if (r.since > d) days.add(r.since); up.push(...Tree.argsOf(r).map(a => a.at)); } }
-    for (const r of wb.rows(c)) if ('record' in r && seen.has(r.at) && r.field === 'date' && r.value > d) days.add(r.value);
+    for (let i = 0; i < up.length; i++) if (!seen.has(up[i])) { seen.add(up[i]); for (const r of wb.item(c, up[i])) { if (r.since > d) days.add(Tree.firstDay(r.since)); up.push(...Tree.argsOf(r).map(a => a.at)); } }
+    for (const r of wb.rows(c)) if ('record' in r && seen.has(r.at) && r.field === 'date' && r.value > d) days.add(Tree.firstDay(r.value));
     return [...days].sort().find(x => wb.asOf(c, x)[id]) ?? null;
   }
   // What a record selected that starts after the day shown will be then, its entries and its relations to what the chart
@@ -487,8 +487,8 @@ const App = (() => {
     const wb = shown.peek(), c = chart.peek();
     if (!c || !id || entered.peek()[id] || !wb.item(c, id).length) return null;
     const days = new Set(), up = [id], seen = new Set();
-    for (let i = 0; i < up.length; i++) if (!seen.has(up[i])) { seen.add(up[i]); for (const r of wb.item(c, up[i])) { if (r.before && r.before <= d) days.add(r.before); up.push(...Tree.argsOf(r).map(a => a.at)); } }
-    for (const r of wb.rows(c)) if ('record' in r && seen.has(r.at) && r.field === 'date' && r.value <= d) days.add(r.value);
+    for (let i = 0; i < up.length; i++) if (!seen.has(up[i])) { seen.add(up[i]); for (const r of wb.item(c, up[i])) { if (r.before && r.before <= d) days.add(Tree.firstDay(r.before)); up.push(...Tree.argsOf(r).map(a => a.at)); } }
+    for (const r of wb.rows(c)) if ('record' in r && seen.has(r.at) && r.field === 'date' && r.value <= d) days.add(Tree.firstDay(r.value));
     const before = x => { const y = new Date(x + 'T12:00:00'); y.setDate(y.getDate() - 1); return Tree.isoOf(y); };
     const ended = [...days].sort().reverse().find(x => wb.asOf(c, before(x))[id]);
     return ended ? { day: ended, last: before(ended) } : null;
@@ -504,11 +504,11 @@ const App = (() => {
   // drawn, as the two-box panel's later relation is.
   function From({ day, set, auto, asks, word: end, alts, along, bad, change }) {
     const { useState, useRef, useLayoutEffect } = preactHooks;
-    const [text, setText] = useState(null), [typing, setTyping] = useState(false), input = useRef(), button = useRef(), keys = useRef(auto), was = useRef();
+    const [text, setText] = useState(null), [typing, setTyping] = useState(false), input = useRef(), button = useRef(), keys = useRef(auto), was = useRef(), caret = useRef(false);
     // Shown with `auto`, or switched from its own menu (not another's showing the same, in the bar or where it was asked),
     // the day takes the keys, selected; all along, its menu does.
     useLayoutEffect(() => {
-      if (keys.current) { if (input.current) { input.current.focus(); input.current.select(); } else button.current?.focus(); }
+      if (keys.current) { if (input.current) { input.current.focus(); if (caret.current) { caret.current = false; const n = input.current.value.length; setTimeout(() => input.current?.setSelectionRange(n, n)); } else input.current.select(); } else button.current?.focus(); }
       keys.current = false;
     }, [day === null]);
     const words = asks === 'until' ? [typeof end === 'string' ? end : 'Ends on', 'Never held'] : asks === 'on' ? [typeof end === 'string' ? end : 'On'] : [typeof end === 'string' ? end : 'From', 'All along'], always = day === null, word = words[always ? 1 : 0];
@@ -519,7 +519,10 @@ const App = (() => {
       { label: words[1], detail: along, checked: always, run: () => { if (!always) keys.current = true; set(null); } }]);
     // Its list opens by Enter or the arrow, as a list does, nothing made from it till a day's left to make it on; once all along
     // is picked there's nothing else to ask, and Enter makes it.
-    const opens = e => { if (e.key !== 'ArrowDown' && !(e.key === 'Enter' && !always)) return; e.preventDefault(); e.stopPropagation(); pick(e); };
+    const opens = e => {
+      // (All along, a day typed begins it, as it does over a day.)
+      if (always && e.key.length === 1 && /[\d\p{L}]/u.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); keys.current = true; caret.current = true; was.current = null; setText(e.key); set(Tree.parseKnown(e.key) ?? undefined); return; }
+      if (e.key !== 'ArrowDown' && !(e.key === 'Enter' && !always)) return; e.preventDefault(); e.stopPropagation(); pick(e); };
     const key = e => {
       if (e.key !== 'Escape' || text === null) return;
       e.preventDefault(); e.stopPropagation();
@@ -529,8 +532,8 @@ const App = (() => {
     return html`<span class="from">${words.length > 1 ? html`<button ref=${button} type="button" class="sel dd" aria-haspopup="menu" aria-label=${word} onClick=${pick} onKeyDown=${opens}><span>${word}</span></button>`
         : html`<span class="word">${word}</span>`}
       ${always ? null : later && !change ? dayLink(day) : html`<span class="hug"><input ref=${input} class="cell date" value=${text ?? (day ? Tree.formatDate(day, 'short') : '')} aria-label=${words[0]}
-        spellcheck=${false} autocomplete="off" aria-invalid=${day === undefined || bad ? 'true' : null} onFocus=${e => { setTyping(true); e.target.select(); }} onBlur=${() => { setTyping(false); if (day) setText(null); }} onKeyDown=${key}
-        onInput=${e => { if (text === null) was.current = day; setText(e.target.value); set(Tree.parseDate(Tree.clean(e.target.value)) ?? undefined); }} /></span>${change && day && day > shown ? html` <button type="button" class="lk" onClick=${() => Shell.at({ asOf: day })}>Show the chart then</button>` : null}`}</span>`;
+        spellcheck=${false} autocomplete="off" aria-invalid=${day === undefined || bad ? 'true' : null} data-why=${typeof bad === 'string' ? bad : Tree.notA('date')} onFocus=${e => { setTyping(true); if (!caret.current) e.target.select(); }} onBlur=${() => { setTyping(false); if (day) setText(null); }} onKeyDown=${key}
+        onInput=${e => { if (text === null) was.current = day; setText(e.target.value); set(Tree.parseKnown(Tree.clean(e.target.value)) ?? undefined); }} /></span>${change && day && day > shown ? html` <button type="button" class="lk" onClick=${() => Shell.at({ asOf: day })}>Show the chart then</button>` : null}`}</span>`;
   }
   // A day a change holds from or until, said where it's after the day shown: a link to the chart then, where it's drawn.
   const dayLink = d => html`<button type="button" class="lk" onClick=${() => Shell.at(d === Log.today() ? null : { asOf: d })}>${Tree.formatDate(d, 'short')}</button>`;
@@ -707,7 +710,7 @@ const App = (() => {
     for (const r of rows) if (r.args?.length === 2 && r.tag === true && r.args[1].at === id && nouns.has(Tree.norm(N.name({ args: r.args.map(a => ({ edge: a.edge, loc: {} })) })))) {
       const x = r.args[0].at, end = rows.find(e => e.at === x && e.field === 'date' && nouns.has(Tree.norm(e.edge.replace(/\s+(date|day)$/i, ''))));
       if (!end) continue;
-      const y = new Date(end.value + 'T12:00:00'); y.setDate(y.getDate() - 1);
+      const y = new Date(Tree.firstDay(end.value) + 'T12:00:00'); y.setDate(y.getDate() - 1);
       const recs = wb.asOf(c, Tree.isoOf(y));
       if (recs[x]) out.push({ merged: x, on: end.value, recs, stakes: stakesAt(x, recs).filter(s => s.held) });
     }
@@ -761,9 +764,12 @@ const App = (() => {
   // and its bar ask, in one row, its amount where it has one (an ownership's Percentage), first, taking the keys; then
   // the day it holds from: its start entry where it has one (a general partner's Admission Date), the day typed given it,
   // or else From, its own period's; or All along. Enter adds it, with what was typed.
+  // The day a relation added holds from till someone says otherwise: the day they went to, where they've gone to one. Today,
+  // which nobody has said, is no evidence of when it began: it's all along, which says only that no day was given (dendra.md, Time).
+  const begins = () => { const d = day.peek(); return d === Log.today() ? null : d; };
   function relating(rec, o, recs = state.peek()) {
     const start = startOf(rec, recs), amount = amountOf(rec, recs), make = o.make;
-    stage({ verb: 'Add', asks: 'from', day: day.peek(), auto: true, ...o, ...(start && { word: start }), ...(amount && { value: { ...amount, v: null } }),
+    stage({ verb: 'Add', asks: 'from', day: begins(), auto: true, ...o, ...(start && { word: start }), ...(amount && { value: { ...amount, v: null } }),
       make: (tx, d, p) => {
         const id = make(tx, d, p);
         if (id && start && d) tx.add('record', { at: id, edge: start, field: 'date', value: d });
@@ -1639,7 +1645,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, workAt, state, needs,
-    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
+    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone, annotate, broken,
   };
 })();

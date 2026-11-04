@@ -173,6 +173,7 @@ input.bare { border-color: transparent; background: transparent; }
 .pop { padding: 12px; }
 .tip { padding: 4px 8px; border-radius: var(--r); background: var(--toast); color: var(--toast-ink); font: var(--t12); width: max-content; max-width: 320px; text-wrap: pretty; pointer-events: none; }
 .tip kbd { color: inherit; opacity: .65; margin-left: 8px; }
+.tip.why { background: var(--no); color: #fff; }
 
 /* ---- Dialogs ---- */
 dialog.dlg { width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 64px); padding: 0; border: 1px solid var(--rule-2); border-radius: var(--r-pop); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-pop); overflow: auto; }

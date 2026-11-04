@@ -1118,14 +1118,16 @@ async function run() {
   const failsSaid = $('.pendbar .fails')?.textContent, n3 = N();
   press('Escape', document.body); await tick(150);
   check('A change that would leave a check failing says so in its bar, before it’s made, with its figure', failsSaid?.replace(/\s/g, ' ') ==='Fails Ownership Adds Up at Fund III (103.4%, not 100%)' && N() === n3 && !App.pending.peek(), failsSaid);
-  // As of today, a row added that asks its day, an ownership, holds from the day its bar says: today, typed over,
-  // or all along; never on a past day by default.
+  // As of today, a row added that asks its day, an ownership, says so in its bar: all along, till a day is said, today being
+  // no evidence of when it began; from the day shown, typed over, from its menu.
   Shell.at(null); await tick(100);
   const halcyon = day => pct('Halcyon University Endowment', 'Calder Ridge Capital Partners III, L.P.', day), fromIn = () => $('.pendbar .from input');
   const addHalcyon = async () => { paste('Owner\tOwned\tPercentage\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await previewed(); };
   n0 = N();
   await addHalcyon();
-  check('As of today, a row pasted that asks its day asks it in its bar, from today', fromIn()?.value === Tree.formatDate(Log.today(), 'short') && N() === n0, $('.pendbar')?.textContent);
+  check('As of today, a row pasted that asks its day asks it in its bar, all along till a day is said', $('.pendbar .from')?.textContent.trim() === 'All along' && !fromIn() && N() === n0, $('.pendbar')?.textContent);
+  $('.pendbar .from .sel').click(); await tick(); item('From').click(); await tick(60);
+  check('… From, from its menu, is the day shown, typed over', fromIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
   fromIn().value = 'someday'; fromIn().dispatchEvent(new Event('input', { bubbles: true })); await tick();
   press('Enter', fromIn()); await tick(100);
   check('… and isn’t made while what’s typed there isn’t a day', N() === n0 && !!$('.pendbar') && $('.pendbar .btn.primary').disabled);
@@ -1135,12 +1137,12 @@ async function run() {
     `${halcyon(Log.today())} ${halcyon('2026-03-03')} ${halcyon('2026-03-02')}`);
   undo(); await tick(150);
   await addHalcyon();
+  $('.pendbar .from .sel').click(); await tick(); item('From').click(); await tick(60);
   press('Enter', Table.grid.rowManager.element); await tick(150);
-  check('… Enter in the grid makes it from today', N() === n0 + 3 && halcyon(Log.today()) === 0.06 && halcyon('2023-12-31') === null, `${N() - n0} ${halcyon('2023-12-31')}`);
+  check('… Enter in the grid makes it from today, where that’s what was picked', N() === n0 + 3 && halcyon(Log.today()) === 0.06 && halcyon('2023-12-31') === null, `${N() - n0} ${halcyon('2023-12-31')}`);
   undo(); await tick(150);
   await addHalcyon();
-  $('.pendbar .from .sel').click(); await tick(); item('All along').click(); await tick(60);
-  check('… or all along, chosen in its bar', $('.pendbar .from')?.textContent.trim() === 'All along' && !fromIn());
+  check('… or all along, as it began', $('.pendbar .from')?.textContent.trim() === 'All along' && !fromIn());
   press('Enter', Table.grid.rowManager.element); await tick(150);
   check('… which holds on every day, 2023 too', halcyon('2023-12-31') === 0.06 && halcyon(Log.today()) === 0.06, halcyon('2023-12-31'));
   undo(); await tick(150);

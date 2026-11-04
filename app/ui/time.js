@@ -4,7 +4,7 @@
 const Time = (() => {
   const { html, signal, computed } = Shell;
   const { useEffect, useLayoutEffect, useRef, useState } = preactHooks;
-  const dayOf = iso => new Date(iso + 'T12:00:00');
+  const dayOf = iso => new Date(Tree.firstDay(iso) + 'T12:00:00');
   const short = iso => Tree.formatDate(iso, 'short');
   const monthDay = iso => { const [, m, d] = iso.split('-'); return `${Tree.MONTHS[m - 1].slice(0, 3)} ${+d}`; };
   const show = d => Shell.at(!d || d === Log.today() ? null : { asOf: d }, { replace: !!Shell.time.peek()?.asOf });
@@ -54,8 +54,8 @@ const Time = (() => {
     if (!c) return [];
     const rows = wb.rows(c).filter(r => 'record' in r), recs = recordsOf(rows), out = new Map();
     const add = (d, [what, of]) => { if (!out.has(d)) out.set(d, new Map()); out.get(d).set(what + '·' + of, { what, of }); };
-    for (const r of rows) for (const d of [r.since, r.before]) if (d) add(d, said(recs, r.record, N, true));
-    for (const r of rows) if (r.field === 'date' && r.at && recs[r.at]) add(r.value, [r.edge, whose(recs, r.at, N)]);
+    for (const r of rows) for (const d of [r.since, r.before]) if (d) add(Tree.firstDay(d), said(recs, r.record, N, true));
+    for (const r of rows) if (r.field === 'date' && r.at && recs[r.at]) add(Tree.firstDay(r.value), [r.edge, whose(recs, r.at, N)]);
     return [...out].sort(([a], [b]) => a.localeCompare(b)).map(([day, m]) => ({ day, items: [...m.values()] }));
   });
   // The shell draws the date's popover and the ruler under the view from these, and comes back from a look at another day
@@ -219,8 +219,8 @@ const Time = (() => {
     const typed = e => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
-      const d = Tree.parseDate(e.target.value);
-      if (d) { show(d); close(); } else e.target.classList.add('bad');
+      const d = Tree.firstDay(Tree.parseKnown(e.target.value));
+      if (d) { show(d); close(); } else { e.target.classList.add('bad'); e.target.dataset.why = Tree.notA('date'); e.target.setAttribute('aria-invalid', 'true'); }
     };
     // At every day, today too, the page can keep it; on a page that keeps one, another day is a look.
     const can = !App.readOnly.value, tip = can ? null : App.whyNot(), name = view?.name, keeps = view?.keeps ?? null;
@@ -236,7 +236,7 @@ const Time = (() => {
       <div class="date-top">
         <button class="btn" aria-pressed=${!t} onClick=${() => show(null)}>Today</button>
         <input aria-label="Date" autofocus value=${text ?? Tree.formatDate(day)} spellcheck="false" onFocus=${e => e.target.select()}
-          onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); toward(Tree.parseDate(e.target.value)); }} onKeyDown=${typed} />
+          onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); e.target.removeAttribute('aria-invalid'); toward(Tree.firstDay(Tree.parseKnown(e.target.value))); }} onKeyDown=${typed} />
       </div>
       ${keeping}
       <div class="date-body">

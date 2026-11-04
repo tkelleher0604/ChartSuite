@@ -62,7 +62,7 @@ function because(id) {
 // What needs attention as of the day shown (App.needs), by record: a date a formula gives is overdue once the
 // day is past it, and due soon within 30 days of it; a blank is a required entry missing.
 const needsAt = computed(() => Map.groupBy(App.needs.value, a => a.id));
-const later = (iso, days) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + days); return T.isoOf(d); };
+const later = (iso, days) => { const d = new Date(T.firstDay(iso) + 'T12:00:00'); d.setDate(d.getDate() + days); return T.isoOf(d); };
 const dueOf = id => needsAt.value.get(id)?.find(a => a.kind === 'overdue' || a.kind === 'soon')?.kind ?? null;
 const DUE = { overdue: 'overdue', soon: 'due soon' };
 // A date's text, kept on one line: red when overdue and amber when due soon, saying so to a screen reader.
@@ -406,7 +406,7 @@ function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', ti
   // Typed over, what it said is struck before what's typed, whole, as comparison software prints the two.
   return html`<label class=${'cellbox' + (title ? ' title' : '') + cls}>${dirty && raw ? html`<s class=${'del' + ((r?.field ?? datatype) === 'date' ? ' date' : '')}>${shown}</s>` : null}<span class=${'hug' + (over ? ' over' : '') + (due && now === null ? ' ' + due : '')}>
     <${Box} ref=${ref} rows=${wrap ? 1 : null} class=${'cell' + ((r?.field ?? datatype) === 'date' ? ' date' : '') + (fx && now === null ? ' fx' : '') + (dirty && T.clean(now) ? ' add' : '') + (bad ? ' bad' : '')}
-      value=${now ?? (title ? Scene.bind(shown) : shown)} placeholder=${ph} disabled=${App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null}
+      value=${now ?? (title ? Scene.bind(shown) : shown)} placeholder=${ph} disabled=${App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null} data-why=${bad ? T.notA(datatype ?? T.classify(T.clean(now ?? ''))) : null}
       aria-label=${label ? label + (due ? `, ${DUE[due]}` : '') : ph} data-tour=${fx ? 'computed' : null} data-fx=${fx ? '' : null}
       onPointerDown=${e => { clicked.current = document.activeElement !== e.currentTarget; }} onMouseUp=${e => { if (clicked.current) e.preventDefault(); clicked.current = false; }}
       onFocus=${e => { const el = e.currentTarget; if (doc) { type(raw); setTimeout(() => el.select()); } else el.select(); if (fx) emit('why-open', id); }}
@@ -530,7 +530,7 @@ function Filing({ due, slot, close }) {
     select(to);
   };
   return html`<div class="filing">
-    <label class="field"><span>${slot.edge}</span><input class="cell" value=${text} spellcheck=${false} aria-invalid=${value ? null : 'true'}
+    <label class="field"><span>${slot.edge}</span><input class="cell date" value=${text} spellcheck=${false} aria-invalid=${value ? null : 'true'} data-why=${T.notA('date')}
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onInput=${e => setText(e.target.value)}
       onKeyDown=${e => { if (e.key === 'Enter') { e.preventDefault(); keep(); } }} /></label>
     <p class="meta">${was.edge} ${next === undefined || next?.value === was.value ? short(was.value) : html`<s class="del">${short(was.value)}</s>`}${next && next.value !== was.value ? html` <span class="add">${short(next.value)}</span>` : null}</p>
@@ -555,7 +555,8 @@ function Answers({ g }) {
 const boxed = id => 'tag' in recs()[id] && !disagreeing.value.get(id);
 
 // The first day a relation entered at a record holds from, or null.
-const firstRelated = at => App.shown.value.rows(App.chart.value).filter(r => r.since && r.args?.some(a => a.at === at)).map(r => r.since).sort()[0] ?? null;
+// (Today is no evidence: a stake made today says nothing of when a company was formed.)
+const firstRelated = at => App.shown.value.rows(App.chart.value).filter(r => r.since && r.since !== Log.today() && r.args?.some(a => a.at === at)).map(r => r.since).sort()[0] ?? null;
 // A record's output, or a blank one's, in place: typed, chosen or ticked; named `label`.
 function Output({ id, slot, label }) {
   if (slot?.na) return html`<span class="na" data-tip="Not tested: its rule doesn’t apply here">n/a</span>`;
@@ -685,7 +686,7 @@ function joinTo(id, b, w, lb, fresh = null) {
 // A role asked in its bar: "Elena Vasquez is a [ … ] of GP III", its list open at once, picked, the keys go on to the day.
 function RoleFill({ p }) {
   const at = useRef(), r = p.role;
-  const choose = el => menu(el, r.options.map(o => ({ label: o, checked: T.same(o, r.now ?? ''), run: () => { App.amendPending(p, { role: { ...App.pending.peek().role, now: o } }); setTimeout(() => { const i = at.current?.closest('.pendbar, .asking')?.querySelector('.when input'); i?.focus(); i?.select(); }); } })), { search: true });
+  const choose = el => menu(el, r.options.map(o => ({ label: o, checked: T.same(o, r.now ?? ''), run: () => { App.amendPending(p, { role: { ...App.pending.peek().role, now: o } }); setTimeout(() => { const box = at.current?.closest('.pendbar, .asking'), i = box?.querySelector('.when input') ?? box?.querySelector('.when .sel'); i?.focus(); i?.select?.(); }); } })), { search: true });
   useLayoutEffect(() => { if (at.current && !r.now && !at.current.closest('.asking')) { at.current.focus(); choose(at.current); } }, []);
   return html`<span class="transfer"><span>${bound(r.first)} is ${r.now ? article(r.now) : 'a'} <button ref=${at} type="button" class=${'sel dd' + (r.now ? '' : ' ph')} aria-haspopup="menu" aria-label=${`Role: ${r.now ?? 'none'}`} onClick=${e => choose(e.currentTarget)}><span>${r.now ? lower(r.now) : '…'}</span></button> of ${bound(r.then)}</span></span>`;
 }
@@ -943,7 +944,8 @@ function detail(it) {
   // coming stands beside it ("55% from Feb 1, 2027").
   const entered = !fx(it.rid), span = entered && !at.some(([, e]) => e.field === 'date') && App.spanOf(it.rid);
   const lead = at.find(([id, e]) => FIGURES.has(e.field) && !fx(id)), rows = lead ? App.shown.value.item(App.chart.value, lead[0]) : [], now = rows.find(v => Log.validOn(v, App.day.value)), next = rows.find(v => v.since > App.day.value);
-  const since = [span?.from?.day, now?.since].filter(Boolean).sort().at(-1);
+  // (A day it holds from only as its side does, which nobody entered of it, is no day of its own: it holds all along.)
+  const since = [span?.from?.when ? null : span?.from?.day, now?.since].filter(Boolean).sort().at(-1);
   // (What a record's end records, a merger, is no period: it's its day.)
   if (span?.until && App.endsAct(it.rid)) facts.push({ text: short(span.until.day) });
   else {
@@ -1176,10 +1178,12 @@ function Head({ path = [], title, more, span, children }) {
 // Feb 1, 2027"; an object's by the act its entries record ("Formed", "Dissolved"). Each day is a link to the chart then.
 function Span({ id }) {
   App.version.value; App.day.value;
-  const { from, until } = App.spanOf(id), before = d => later(d, -1);
-  if (!from && !until) return null;
+  const span = App.spanOf(id), from = span.from?.when ? null : span.from, until = span.until, before = d => later(d, -1);
+  // A relation with no day of its own holds all along, which is what it reads as: never a day its side began on, which nobody said of it.
+  const along = !from && !!recs()[id]?.args && !fx(id) && App.shown.value.item(App.chart.value, id).length > 0;
+  if (!from && !until && !along) return null;
   return html`<p class="span">
-    ${from ? html`<span>${from.word ?? 'From'} <${DayOf} id=${id} side="from" day=${from.day} shows=${from.day} />${from.when ? `, ${from.when}` : ''}</span>` : null}
+    ${from ? html`<span>${from.word ?? 'From'} <${DayOf} id=${id} side="from" day=${from.day} shows=${from.day} /></span>` : along ? html`<span>All along</span>` : null}
     ${until ? html`<span>${until.word ?? 'Until'} <${DayOf} id=${id} side="until" day=${until.day} shows=${until.day <= App.day.value ? before(until.day) : until.day} />${until.when ? `, ${until.when}` : ''}</span>` : null}</p>`;
 }
 // A day a record holds from or until, wherever it's said, is a real control: the chart then, and Change this day…, the entry that
@@ -1714,7 +1718,7 @@ function RelateView({ a, b }) {
     const p = { args: [{ edge: ra, loc: {} }, { edge: rb, loc: {} }] }, rec = { args: [{ edge: ra, at: a }, { edge: rb, at: b }], tag: true };
     const was = App.pending.peek()?.relate?.key === 'new' && App.pending.peek().relate.a === a && App.pending.peek().relate.b === b ? App.pending.peek() : null;
     App.stage({ verb: 'Add', what: `${name}: ${n.placed(r, null, rec.args).map(s => s.join + s.text).join('')}`, source: `relate ${a} ${b}`, relate: { a, b, key: 'new', out: { tag: true } },
-      asks: 'from', day: was ? was.day : App.day.peek(), needs: [a, b], say: c => Time.describe(c),
+      asks: 'from', day: was ? was.day : App.begins(), needs: [a, b], say: c => Time.describe(c),
       // (Its lists go by their roles, plural, as any list's name is: Holders, Funds.)
       make: tx => { tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb }); },
       done: () => { naming.value = null; fresh.value = { a, b, key: [ra, rb, a, b].join('|').toLowerCase() }; } });

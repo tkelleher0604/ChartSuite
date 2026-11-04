@@ -79,6 +79,8 @@ const st = () => App.state.value, last = () => App.wb.changes().at(-1);
 const alike = (a, b) => !!a && !!b && JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
 const N = () => App.notes.value;
 const key = (el, k, o = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, ...o }));
+// The day a change pending asks, to type over: a relation added begins all along, its menu going to From.
+const dayAsked = async () => { const box = () => pb('.from input') ?? $('.asking .from input'); if (!box() && pb('.from .sel')) { pb('.from .sel').click(); await tick(); [...document.querySelectorAll('.float .menu-item')].find(x => x.textContent.trim() === 'From')?.click(); await tick(60); } return box(); };
 const type = async (el, text) => { el.focus(); await tick(); el.value = text; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(); key(el, 'Enter'); await tick(); };
 const pick = async label => { const it = [...document.querySelectorAll('.float .menu-item')].find(x => x.querySelector('.label').textContent === label); it?.click(); await tick(); return !!it; };
 // The window's one bar while a change is pending (App.Pending), which the shell shows under the view.
@@ -348,20 +350,23 @@ async function run() {
   check('… the first of them puts the box above on top, as its owner', !!firstOpen && spoken(firstOpen.querySelector('.nm')).toLowerCase().startsWith(`${higher} is an owner of`), firstOpen && spoken(firstOpen.querySelector('.nm')));
   Shell.emit('relate-open', ['blocker', 'bdc']); await tick(60);
   // A relation with no start of its own (an ownership) is added from a day said in its redline, before Enter:
-  // the day shown, by default, so an owner added today isn't in the chart as of a day before
+  // all along, till a day is said, today being no evidence of when it began; the day shown from its menu
   const n0r = App.wb.changes().length, owned = () => Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));
   rr[0].querySelector('.tag').focus(); rr[0].querySelector('.tag').click(); await tick(60);   // (a click focuses a button)
-  const asking = $('.rr.adding'), fromIn = pb('.from input'), hereIn = $('.rr.adding .ask .from input');
-  check('ticking one that asks its day redlines it, ticked, its day asked in the bar under the view, the day shown, to type over', !!asking && /is an owner of the BDC/.test(asking.textContent)
-    && pb('.from .sel')?.textContent === 'From' && fromIn?.value === Tree.formatDate(Log.today(), 'short')
+  const asking = $('.rr.adding');
+  check('ticking one that asks its day redlines it, ticked, its day asked in the bar under the view, all along till one is said', !!asking && /is an owner of the BDC/.test(asking.textContent)
+    && pb('.from .sel')?.textContent === 'All along' && !pb('.from input')
     && /^Ownership: Fund III Blocker → The BDC/.test(spoken(pb('.what'))) && /DiscardAdd$/.test(pb().textContent.replace(/\s/g, ''))
     && App.wb.changes().length === n0r && Object.keys(FormulaBar.pending.peek()?.change.records ?? {}).length === 1, `${asking?.textContent} / ${pb()?.textContent}`);
   // … and asked where it was ticked too, under its row, the keys there: its amount first, then its day, Discard and Add,
   // the bar's state, the bar setting it out the same
   const askBtns = $$('.rr.adding .ask .btn').map(b => b.textContent), amountIn = $('.rr.adding .ask .amount input');
-  check('… and asked under its row too, where it was ticked, the keys there: its Percentage first, blank, then From the day shown, Discard and Add', !!amountIn && document.activeElement === amountIn
-    && amountIn.value === '' && $('.rr.adding .ask .amount .word')?.textContent === 'Percentage' && !!hereIn && hereIn.value === fromIn?.value
-    && $('.rr.adding .ask .from .sel')?.textContent === 'From' && askBtns.join() === 'Discard,Add' && pb('.amount .word')?.textContent === 'Percentage', `${askBtns} ${document.activeElement?.outerHTML.slice(0, 100)}`);
+  check('… and asked under its row too, where it was ticked, the keys there: its Percentage first, blank, then All along, Discard and Add', !!amountIn && document.activeElement === amountIn
+    && amountIn.value === '' && $('.rr.adding .ask .amount .word')?.textContent === 'Percentage'
+    && $('.rr.adding .ask .from .sel')?.textContent === 'All along' && askBtns.join() === 'Discard,Add' && pb('.amount .word')?.textContent === 'Percentage', `${askBtns} ${document.activeElement?.outerHTML.slice(0, 100)}`);
+  pb('.from .sel').click(); await tick(30); [...document.querySelectorAll('.menu-item')].find(x => x.textContent.trim() === 'From').click(); await tick(60);
+  const fromIn = pb('.from input'), hereIn = $('.rr.adding .ask .from input');
+  check('… From, from its menu, is the day shown, typed over, there and in the bar', !!hereIn && hereIn.value === fromIn?.value && fromIn?.value === Tree.formatDate(Log.today(), 'short') && $('.rr.adding .ask .from .sel')?.textContent === 'From', fromIn?.value);
   hereIn.value = 'March 2, 2025'; hereIn.dispatchEvent(new Event('input', { bubbles: true })); await tick(30);
   check('… one state: a day typed under the row is the bar’s day too', App.pending.peek()?.day === '2025-03-02' && pb('.from input')?.value === 'Mar 2, 2025', pb('.from input')?.value);
   key(hereIn, 'Escape'); await tick(30);
@@ -387,11 +392,11 @@ async function run() {
   check('… a click away leaves it pending, the bar and the redline with it, and coming back shows it ticked', away && !!$('.rr.adding') && !!pb(), `${away} ${!!$('.rr.adding')}`);
   key(document.body, 'Enter'); await tick(60);
   const own = owned();
-  check('ticking one relates them, from today with Enter', !!own && App.wb.item(C, own[0])[0].since === Log.today() && App.wb.changes().length === n0r + 1 && !pb(), JSON.stringify(own?.[1]));
-  check('… the very record its redline showed, its id and its day and all', !!own && Object.keys(redlined).join() === own[0] && alike(redlined[own[0]], App.entered.peek()[own[0]]) && redlined[own[0]].since === Log.today(),
+  check('ticking one relates them, all along with Enter, no day having been said', !!own && !App.wb.item(C, own[0])[0].since && App.wb.changes().length === n0r + 1 && !pb(), JSON.stringify(own?.[1]));
+  check('… the very record its redline showed, its id and its day and all', !!own && Object.keys(redlined).join() === own[0] && alike(redlined[own[0]], App.entered.peek()[own[0]]) && !redlined[own[0]].since,
     `${JSON.stringify(redlined)} / ${own?.[0]} ${JSON.stringify(own && App.entered.peek()[own[0]])}`);
-  check('… so an owner added today isn’t in the chart as of 2023, where both sides are', !App.wb.asOf(C, '2023-12-31')[own[0]] && ['blocker', 'bdc'].every(x => App.wb.asOf(C, '2023-12-31')[x]));
-  check('… and History says from when, as the toast does', Time.describe(last()) === `Added Ownership: Fund III Blocker → The BDC from ${Tree.formatDate(Log.today(), 'short')}`
+  check('… so an owner added with no day said is in the chart as of 2023, where both sides are', !!App.wb.asOf(C, '2023-12-31')[own[0]] && ['blocker', 'bdc'].every(x => App.wb.asOf(C, '2023-12-31')[x]));
+  check('… and History says from when, as the toast does', Time.describe(last()) === 'Added Ownership: Fund III Blocker → The BDC all along'
     && document.querySelector('.toast span')?.textContent === Time.describe(last()), `${Time.describe(last())} / ${document.querySelector('.toast span')?.textContent}`);
   const offered = $$('.rr-at .row > .k').map(k => k.textContent.trim()), pct = $$('.rr-at .row').find(r => r.querySelector(':scope > .k')?.textContent.trim() === 'Percentage')?.querySelector('input');
   check('… and offers its entries at once, the first to type into', offered.includes('Percentage') && offered.includes('Voting Percentage') && document.activeElement === pct, offered.join(', '));
@@ -409,21 +414,23 @@ async function run() {
     $('.rr.new')?.innerHTML.slice(0, 300));
   for (const [el, v] of [[nm, 'Co-Investment Right'], [ra, 'Holder'], [rb, 'Issuer']]) { el.focus(); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(10); }
   check('… once named, it’s a change pending, as one ticked is: redlined, the bar asking its day, nothing made yet', !!$('.rr.new.adding') && /^Co-Investment Right: Fund III Blocker → The BDC/.test(spoken(pb('.what') ?? document.body))
-    && pb('.from input')?.value === Tree.formatDate(Log.today(), 'short') && Object.keys(FormulaBar.pending.peek()?.change.records ?? {}).length === 1 && App.wb.changes().length === nNew && document.activeElement === rb,
+    && pb('.from .sel')?.textContent === 'All along' && Object.keys(FormulaBar.pending.peek()?.change.records ?? {}).length === 1 && App.wb.changes().length === nNew && document.activeElement === rb,
     `${pb()?.textContent} ${document.activeElement?.outerHTML.slice(0, 80)}`);
   key(rb, 'Enter'); await tick();
-  check('New relation makes one, and names it, from the day its bar says', Object.entries(st()).some(([id, r]) => r.args?.[0].edge === 'Holder' && r.args[1].at === 'bdc' && App.wb.item(C, id)[0].since === Log.today())
+  check('New relation makes one, and names it, all along till a day is said', Object.entries(st()).some(([id, r]) => r.args?.[0].edge === 'Holder' && r.args[1].at === 'bdc' && !App.wb.item(C, id)[0].since)
     && N().name({ args: [{ edge: 'Holder', loc: {} }, { edge: 'Issuer', loc: {} }] }) === 'Co-Investment Right' && !$('.rr.new input') && !pb() && App.wb.changes().length === nNew + 1
-    && Time.describe(last()) === `Added Co-Investment Right: Fund III Blocker → The BDC from ${Tree.formatDate(Log.today(), 'short')}`, Time.describe(last()));
+    && Time.describe(last()) === 'Added Co-Investment Right: Fund III Blocker → The BDC all along', Time.describe(last()));
 
   // … or all along, for what was always so, from its menu: then it's in the chart as of 2023
   Shell.emit('relate-open', ['holdco', 'halvard']); await tick(60);
   ghost('Add a relation')?.click(); await tick();
   $$('.rr').find(r => / is an owner of Halvard/.test(r.querySelector('.nm')?.textContent))?.querySelector('.tag').click(); await tick(60);
   pb('.from .sel')?.click(); await tick();
+  await pick('From');
+  pb('.from .sel')?.click(); await tick();
   const fromMenu = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
   await pick('All along');
-  check('… or all along, from its menu', fromMenu === 'From,All along' && pb('.from')?.textContent.trim() === 'All along' && !pb('.from input')
+  check('… or all along, from its menu, back from a day', fromMenu === 'From,All along' && pb('.from')?.textContent.trim() === 'All along' && !pb('.from input')
     && document.activeElement === pb('.from .sel'), fromMenu + ' / ' + pb()?.textContent);
   key(document.activeElement, 'Enter'); await tick(60);
   const along = Object.keys(st()).find(k => st()[k].args && N().nameOf(st(), k) === 'Ownership' && st()[k].args.some(a => a.at === 'holdco') && st()[k].args.some(a => a.at === 'halvard'));
@@ -436,7 +443,7 @@ async function run() {
   ghost('Add a relation')?.click(); await tick();
   $$('.rr').find(r => / is an adviser to Northpine/.test(r.querySelector('.nm')?.textContent))?.querySelector('.tag').click(); await tick(60);
   const shownDay = pb('.from input')?.value;
-  await type(pb('.from input'), 'March 2, 2025');
+  await type(await dayAsked(), 'March 2, 2025');
   const advised = Object.keys(st()).find(k => st()[k].args && N().nameOf(st(), k) === 'Investment Adviser' && st()[k].args.some(a => a.at === 'holdco') && st()[k].args.some(a => a.at === 'northpine'));
   check('… with a day shown, that day; or one typed over it', shownDay === 'Jan 1, 2026' && !!advised && App.wb.item(C, advised)[0].since === '2025-03-02', `${shownDay} ${JSON.stringify(advised && App.wb.item(C, advised))}`);
   Shell.parts.value.undo.undo(); Shell.at(null); await tick(60);
@@ -444,7 +451,7 @@ async function run() {
   Shell.emit('relate-open', ['pension', 'northpine']); await tick(60);
   ghost('Add a relation')?.click(); await tick();
   $$('.rr').find(r => / is an owner of Northpine/.test(r.querySelector('.nm')?.textContent))?.querySelector('.tag').click(); await tick(60);
-  await type(pb('.from input'), 'December 1, 2027');
+  await type(await dayAsked(), 'December 1, 2027');
   Shell.select([]); Shell.emit('relate-open', ['pension', 'northpine']); await tick(60);
   ghost('Add a relation')?.click(); await tick();
   const later = $('.rr.later'), offeredAgain = $$('.rr:not(.later) .nm').some(x => / is an owner of Northpine/.test(x.textContent));
@@ -521,7 +528,7 @@ async function run() {
     $$('.rr').find(r => re.test(spoken(r.querySelector('.nm') ?? r)))?.querySelector('.tag').click(); await tick(60); };
   await tickOwner('pension', 'northpine', / is an owner of Northpine/);
   check('a change pending has one bar, the window’s, under the view', document.querySelectorAll('.pendbar').length === 1 && !!document.querySelector('.view > .pendbar'), document.querySelectorAll('.pendbar').length);
-  const barDay = pb('.from input');
+  const barDay = await dayAsked();
   barDay.value = 'June 3'; barDay.dispatchEvent(new Event('input', { bubbles: true })); await tick();
   key(barDay, 'Escape'); await tick(60);
   check('Esc in the bar’s day field puts back what was typed, keeping the keys there, the change still pending', !!App.pending.peek() && document.activeElement === pb('.from input')
@@ -543,7 +550,7 @@ async function run() {
   check('Undo with a change pending discards it first, saying so, and undoes nothing else', !App.pending.peek() && !pb() && nP() === nU && /^Discarded adding Ownership: .*Northpine/.test(toastText()), toastText());
   [...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Redo')?.click(); await tick(60);
   check('… its toast’s Redo bringing it back', !!App.pending.peek() && !!pb() && nP() === nU);
-  const later1 = pb('.from input');
+  const later1 = await dayAsked();
   later1.focus(); later1.value = 'December 1, 2027'; later1.dispatchEvent(new Event('input', { bubbles: true })); await tick(); later1.blur(); await tick(60);
   const link = pb('.from .lk');
   check('a day after the day shown, said in the bar, is a link to the chart then, where the change is drawn', link?.textContent === 'Dec 1, 2027' && !pb('.from input') && !FormulaBar.pending.peek(), pb()?.innerHTML.slice(0, 300));
@@ -700,7 +707,7 @@ async function run() {
   check('a deletion pending shows in the inspector: the end entry it gives in blue, the record struck', rowOf('Dissolution Date')?.querySelector('.v.redline .add')?.textContent === today && !!$('.insp.going'),
     rowOf('Dissolution Date')?.outerHTML.slice(0, 200));
   check('… and what follows from it counted, as for a line', (FormulaBar.pending.peek()?.deltas ?? []).length > 0, JSON.stringify(FormulaBar.pending.peek()?.deltas ?? null));
-  await type(pb('.from input'), 'December 1, 2027');
+  await type(await dayAsked(), 'December 1, 2027');
   const dissolved = Tree.entryAt(st(), 'northpine', 'Dissolution Date');
   check('an end day typed after the day shown: recorded as of the day shown, so the record says it before then, and the toast says the day it ends on', !!st().northpine && st()[dissolved]?.value === '2027-12-01'
     && !App.wb.item(C, dissolved)[0].since && /^Dissolved Northpine Software, LLC on Dec 1, 2027/.test(toastText()), `${toastText()} ${JSON.stringify(App.wb.item(C, dissolved ?? ''))}`);
@@ -745,12 +752,12 @@ async function run() {
   check('… each such row saying which relation it’s of, so two that read alike are told apart', alike2.length && alike2.every(r => r.querySelector('.why')?.textContent === r.querySelector('.nm .sel').getAttribute('aria-label').split(':')[0])
     && new Set(alike2.map(r => r.querySelector('.why').textContent)).size === alike2.length, alike2.map(r => r.querySelector('.why')?.textContent).join(' | '));
   role?.click(); await tick(); await pick('Director');
-  check('… and chosen, it’s added as any relation is, asking in its row its start entry, as a position holds from its Start Date, the day shown',
-    !!$('.rr.adding') && $('.rr.adding .ask .from .sel')?.textContent === 'Start Date' && $('.rr.adding .ask .from input')?.value === today && App.pending.peek()?.word === 'Start Date', $('.rr.adding')?.textContent);
+  check('… and chosen, it’s added as any relation is, asking in its row its start entry, as a position holds from its Start Date, all along till a day is said',
+    !!$('.rr.adding') && $('.rr.adding .ask .from .sel')?.textContent === 'All along' && App.pending.peek()?.word === 'Start Date', $('.rr.adding')?.textContent);
   key(document.body, 'Enter'); await tick(80);
   const posFields = $$('.rr-at .row > .k').map(k => k.textContent.trim()), posOf = Object.keys(st()).find(k => st()[k].args && st()[k].choice === 'Director' && st()[k].args.some(a => a.at === 'halvard') && st()[k].args.some(a => a.at === 'chen'));
-  check('… Enter keeping it, its start given the day, its fields offered as a form sets them, the role first and the start before the end', posFields.join() === 'Title,Start Date,End Date'
-    && document.activeElement?.getAttribute('aria-label') === 'Title' && !$('.rr.adding') && Tree.entryAt(st(), posOf, 'Start Date') && st()[Tree.entryAt(st(), posOf, 'Start Date')].value === Log.today(), posFields.join(', '));
+  check('… Enter keeping it, no start given, as none was said, its fields offered as a form sets them, the role first and the start before the end', posFields.join() === 'Title,Start Date,End Date'
+    && document.activeElement?.getAttribute('aria-label') === 'Title' && !$('.rr.adding') && !Tree.entryAt(st(), posOf, 'Start Date'), posFields.join(', '));
   const director = $$('.rr').find(r => / is a director of Halvard/.test(r.querySelector('.nm')?.textContent));
   check('… held, it has its box, ticked, and its role a dropdown in the sentence', !!director?.querySelector('.ctl .tag.yes') && director.querySelector('.nm .sel')?.textContent === 'director', director?.innerHTML.slice(0, 200));
   check('… as every relation that holds has its box', $('.relate').querySelectorAll(':scope > .rr').length > 1 && [...$('.relate').querySelectorAll(':scope > .rr')].every(r => r.querySelector('.ctl .tag')));
@@ -1356,7 +1363,10 @@ async function saysWhen(C, keep) {
   const blocked = Object.keys(st()).find(k => st()[k].args && N().nameOf(st(), k) === 'Ownership' && st()[k].args.some(a => a.at === 'fund') && st()[k].args.some(a => a.at === 'blocker'));
   Shell.select([blocked]); await tick(60);
   const spanned = () => spoken($('.ih .span') ?? document.createElement('p')).trim();
-  check('a relation’s head says from when, one nobody entered said as what it is', /^From [A-Z][a-z]{2} \d+, \d{4}(, when .* was formed)?$/.test(spanned()), spanned());
+  check('a relation’s head says all along where it has no day of its own, never a day its side began on', /^All along$/.test(spanned()), spanned());
+  const dated = Object.keys(st()).find(k => st()[k].args?.length > 1 && !st()[k].computed && App.wb.item(C, k).length && App.wb.item(C, k).every(v => v.since));
+  Shell.select([dated]); await tick(60);
+  check('… and from when, where it has one', /^From [A-Z][a-z]{2} \d+, \d{4}/.test(spanned()), spanned());
   $('.ih .span .lk')?.click(); await tick(60);
   const dayMenu = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
   await pick('Show the chart then'); await tick(60);
@@ -1422,7 +1432,7 @@ async function saysWhen(C, keep) {
   // Not in the chart is a state: ended, it says when, with the chart then
   Shell.select(['own_us_fund']); await tick(60);
   App.deleting(['own_us_fund'], 'Ownership'); await tick(40);
-  await type(pb('.from input'), 'December 1, 2036'); await tick(60);
+  await type(await dayAsked(), 'December 1, 2036'); await tick(60);
   Shell.at({ asOf: '2036-12-02' }); await tick(80);
   const later0 = $('.insp > .later');
   check('a relation that ended before the day shown says when, as a state, with the chart then', spoken(later0 ?? document.body).startsWith('Ended Dec 1, 2036') && !!later0?.querySelector('.btn') && !$('.empty'), $('.insp')?.textContent);
@@ -1439,7 +1449,7 @@ async function saysWhen(C, keep) {
   App.interposing(blocked); await tick(80);
   await typeIn('Calder Ridge Holdco, LLC'); await pick('New Entity: Calder Ridge Holdco, LLC'); await tick(80);
   check('… asking whom and on what day, saying what stays with the stake that ends', spoken(pb('.transfer')).trim() === 'Fund III → Calder Ridge Holdco, LLC → Fund III Blocker·Stock Certificate No. 1, Fund III Blocker stays with the stake that ends' && pb('.btn.primary')?.textContent === 'Insert' && App.wb.changes().length === nIns, pb()?.textContent);
-  await type(pb('.from input') ?? $('.asking .from input'), 'January 1, 2037'); await tick(80);
+  await type(await dayAsked(), 'January 1, 2037'); await tick(80);
   const on37 = App.wb.asOf(C, '2037-01-01'), named = Object.keys(on37).find(k => on37[k].value === 'Calder Ridge Holdco, LLC'), mid = named && on37[named].at, rels = Object.keys(on37).filter(k => on37[k].args?.some(a => a.at === mid)), pctAt = r => Object.values(on37).find(x => x.at === r && x.edge === 'Percentage')?.value;
   check('… the old ended on the day, the holder over the new at 100%, the new over what it held at the old figure', App.wb.changes().length === nIns + 1 && !on37[blocked] && !!App.wb.asOf(C, '2036-12-31')[blocked]
     && rels.length === 2 && rels.some(r => on37[r].args.some(a => a.at === 'fund') && pctAt(r) === 1) && rels.some(r => on37[r].args.some(a => a.at === 'blocker') && pctAt(r) === 1), JSON.stringify(rels));
@@ -1465,7 +1475,7 @@ async function saysWhen(C, keep) {
   await pick('Merged into…'); await tick(60);
   check('… which asks whom, its verb waiting on it', pb('.btn.primary')?.textContent === 'Merge' && pb('.btn.primary').disabled && /Merged into/.test(spoken(pb('.what'))) && !!document.querySelector('.float .menu-find'), pb()?.textContent);
   await typeIn('Corvane'); await pick('Corvane Specialty Chemicals Holdings, LLC'); await tick(60);
-  await type(pb('.from input'), 'February 1, 2037'); await tick(80);
+  await type(await dayAsked(), 'February 1, 2037'); await tick(80);
   check('… and says it: Merged Northpine into Corvane on the day', App.wb.changes().length === nMerge + 1 && spoken(document.querySelector('.toast span')) === 'Merged Northpine Software, LLC into Corvane Specialty Chemicals Holdings, LLC on Feb 1, 2037'
     && App.wb.asOf(C, '2037-01-31').northpine && !App.wb.asOf(C, '2037-02-01').northpine && Object.values(App.wb.asOf(C, '2037-01-31')).some(r => r.args?.some(a => a.edge === 'Merged' && a.at === 'northpine')), document.querySelector('.toast span')?.textContent);
   check('… its head saying so', /Merged Feb 1, 2037/.test(spanned()), spanned());
@@ -1516,7 +1526,7 @@ async function saysWhen(C, keep) {
   const roles = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
   check('a person named in a list goes straight to the kind, in its bar, then the day, nothing made till Enter', /Director/.test(roles) && pb('.btn.primary')?.disabled && /Elena Vasquez is a/.test(spoken(pb('.what'))) && !Object.keys(st()).some(k => N().nameOf(st(), k) === 'Elena Vasquez'), `${roles} / ${pb()?.textContent}`);
   await pick('Director'); await tick(60);
-  check('… the keys going on to the day', document.activeElement === pb('.when input') && !pb('.btn.primary').disabled, document.activeElement?.outerHTML.slice(0, 80));
+  check('… the keys going on to the day', document.activeElement === (pb('.when input') ?? pb('.when .sel')) && !pb('.btn.primary').disabled, document.activeElement?.outerHTML.slice(0, 80));
   key(document.activeElement, 'Enter'); await tick(80);
   const elena = Object.keys(st()).find(k => st()[k].kind === 'Individual' && N().nameOf(st(), k) === 'Elena Vasquez');
   check('a person added from a list, by a relation the view doesn’t draw, stays off the page, the toast saying so, with Show', !!elena && !App.scene.peek().byId.has(elena) && N().resolve('Shown', Tree.treeOf(st(), elena), here2)?.value === false
@@ -1560,7 +1570,7 @@ async function saysWhen(C, keep) {
   // A value typed from a day: its day and its value, those either side meeting where they met
   const stakeOf = Object.keys(st()).find(k => st()[k].at === halvardStake && st()[k].edge === 'Percentage');
   App.put(stakeOf, st()[stakeOf], { field: 'percent', value: 0.55 }); await tick(80);
-  await type(pb('.from input'), 'February 1, 2037'); await tick(100);
+  await type(await dayAsked(), 'February 1, 2037'); await tick(100);
   Shell.select([halvardStake]); await tick(60);
   const comingBtn = rowOf('Percentage').querySelector('.ver.coming');
   check('what’s coming stands amBeside the value it’ll replace', /^55% from Feb 1, 2037/.test(comingBtn?.textContent ?? ''), rowOf('Percentage')?.textContent);
@@ -1569,7 +1579,7 @@ async function saysWhen(C, keep) {
   const row37 = App.wb.item(C, stakeOf).find(r => r.since === '2037-02-01');
   App.amendingRow(stakeOf, row37); await tick(120);
   check('Change this day… on a value: its own bar, its figure and day in place', pb('.amt input')?.value === '55%' && pb('.from input')?.value === 'Feb 1, 2037' && /stake in/.test(spoken(pb('.what'))), pb()?.textContent);
-  await type(pb('.from input'), 'March 1, 2037'); await tick(100);
+  await type(await dayAsked(), 'March 1, 2037'); await tick(100);
   const vals = App.wb.item(C, stakeOf).map(r => `${r.value}:${r.since ?? ''}:${r.before ?? ''}`).join();
   check('… the rows either side meeting on the new day, the one entry saying what moved', /0\.82:[^:]*:2037-03-01/.test(vals) && /0\.55:2037-03-01:/.test(vals) && /: Feb 1 → Mar 1$/.test(Time.describe(last())), `${vals} ${Time.describe(last())}`);
   Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(80);
@@ -1582,7 +1592,7 @@ async function saysWhen(C, keep) {
   check('a merger’s survivor is found by what it begins with first', spoken(document.querySelector('.float .menu-item.on .label') ?? document.body).startsWith('Corvane'), spoken(document.querySelector('.float .menu-item.on .label') ?? document.body));
   await pick('Corvane Specialty Chemicals Holdings, LLC'); await tick(60);
   check('… what it ends is said on its bar, in names and figures', /Ends Fund III’s 64%, the BDC’s 12%/.test(spoken(pb('.what'))), spoken(pb('.what')));
-  await type(pb('.from input'), 'February 1, 2037'); await tick(100);
+  await type(await dayAsked(), 'February 1, 2037'); await tick(100);
   const mg1 = last(), asks = [...document.querySelectorAll('.toast button')].find(b => /holders receive/.test(b.textContent));
   check('… and stays said: its toast asks what those holders received', !!asks && Time.act(mg1)?.type === 'merger', document.querySelector('.toast')?.textContent);
   asks?.click(); await tick(120);
@@ -1591,18 +1601,18 @@ async function saysWhen(C, keep) {
   check('… a merger in its list is said by its day, no period', !!amMergedRow && !/since|until/i.test(amMergedRow.textContent) && /20\d\d/.test(amMergedRow.textContent), amMergedRow?.textContent);
   check('… as the survivor’s panel does, each by what it held and what it holds there, or Add', Shell.selection.peek().join() === 'corvane' && /What did they receive\?/.test(amAsked?.textContent ?? '') && /held 64%/.test(amAsked?.textContent ?? '') && /held 12%/.test(amAsked?.textContent ?? '') && /here/.test(amAsked?.textContent ?? '') && !!amAsked?.querySelector('.add-entry'), amAsked?.textContent);
   App.amending(mg1); await tick(120);
-  await type(pb('.from input'), 'March 1, 2037'); await tick(100);
+  await type(await dayAsked(), 'March 1, 2037'); await tick(100);
   check('a merger changed is one entry saying what moved, its date and its relation moved', last().amends === mg1.id && plainly(last()) === 'Changed the merger of Northpine Software, LLC: Feb 1 → Mar 1' && !!App.wb.asOf(C, '2037-02-15').northpine && !App.wb.asOf(C, '2037-03-01').northpine, Time.describe(last()));
   Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(80);
   check('… all back as it was', App.wb.changes().length === nMg + 4 && !!st().northpine, `${App.wb.changes().length - nMg}`);
   // An insertion: what stays with the stake that ends, and its day offered as the new company's start
   Shell.select([blocked]); App.interposing(blocked); await tick(80);
   await typeIn('Calder Ridge Holdco, LLC'); await pick('New Entity: Calder Ridge Holdco, LLC'); await tick(80);
-  await type(pb('.from input') ?? $('.asking .from input'), 'January 1, 2037'); await tick(100);
+  await type(await dayAsked(), 'January 1, 2037'); await tick(100);
   const ins1 = last(), amFormed = [...document.querySelectorAll('.toast button')].find(b => /^Formed Jan 1, 2037/.test(b.textContent)), insAct = Time.act(ins1);
   check('an insertion’s toast offers its day as the new company’s Formation Date', !!amFormed && insAct?.type === 'insert', document.querySelector('.toast')?.textContent);
   App.amending(ins1); await tick(120);
-  await type(pb('.from input'), 'February 1, 2037'); await tick(100);
+  await type(await dayAsked(), 'February 1, 2037'); await tick(100);
   const insOn = App.wb.asOf(C, '2037-02-01');
   check('an insertion changed: one entry, its new company and its two stakes keeping their ids, from the new day', last().amends === ins1.id && plainly(last()) === 'Changed the insertion in Fund III Blocker: Jan 1 → Feb 1' && !!insOn[insAct.up] && !!insOn[insAct.made] && !App.wb.asOf(C, '2037-01-15')[insAct.up], Time.describe(last()));
   Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(80);

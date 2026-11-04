@@ -1252,7 +1252,7 @@ const FormulaBar = (() => {
     if (v === null || v === undefined) return '—';
     if (Array.isArray(v)) return !v.length ? '—' : v.slice(0, 5).map(x => show(x, pct)).join(', ') + (v.length > 5 ? `, +${v.length - 5}` : '');
     if (v?.t === 'err') return v.code;
-    if (v?.t === 'date') return Tree.formatDate(v.iso);
+    if (v?.t === 'date') return Tree.formatDate(v.known ?? v.iso);
     if (v?.t === 'rec') { const r = v.id && Rv.records[v.id]; return !r ? '—' : isObj(r) ? nameOf(Rv, v.id) : Tree.outputText(r); }
     if (v === true || v === false) return v ? 'TRUE' : 'FALSE';
     if (typeof v === 'number') return Tree.format(pct ? 'percent' : 'number', v);
@@ -2031,7 +2031,7 @@ const FormulaBar = (() => {
     if (!r.cited || !m.covered || m.covered.agrees || v === null || v === undefined) return null;
     if (Formulas.isError(v)) return html`<span class="err">${v.code}</span>`;
     if ('tag' in m.rec) return html`<span class=${'tag fx ' + (v ? 'yes' : 'no')} />`;
-    return html`<span class="fx">${v?.t === 'date' ? Tree.formatDate(v.iso) : typeof v === 'number' ? Tree.format(m.rec.field, v) : String(v)}</span>`;
+    return html`<span class="fx">${v?.t === 'date' ? Tree.formatDate(v.known ?? v.iso) : typeof v === 'number' ? Tree.format(m.rec.field, v) : String(v)}</span>`;
   }
   // A new row, at the end, with the cursor in it.
   let fresh = null;

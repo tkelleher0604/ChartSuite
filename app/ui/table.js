@@ -346,7 +346,7 @@ const Table = (() => {
     else if (rows === 'date') {
       // (A row a change has just moved stays where it was, till the grid's left: holdRows.)
       const month = today.slice(0, 7), held = view === stillIn ? still : null;
-      for (const r of data) { const k = held?.get(r.id); r._g = k?.g ?? (r._m[f0].due ? 'overdue' : r[f0].slice(0, 7)); r._at = k?.at ?? r[f0]; }
+      for (const r of data) { const k = held?.get(r.id); r._g = k?.g ?? (r._m[f0].due ? 'overdue' : Tree.firstDay(r[f0]).slice(0, 7)); r._at = k?.at ?? r[f0]; }
       groups = monthsIn(data.map(r => r._g), month);
       const at = new Map(groups.map((g, i) => [g, i]));
       data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b._at.localeCompare(a._at) : a._at.localeCompare(b._at)));
@@ -497,7 +497,7 @@ const Table = (() => {
     input.addEventListener('input', () => grow(input, cell));
     onRendered(() => { grow(input, cell); input.focus(); if (!first) input.select(); else input.setSelectionRange(input.value.length, input.value.length); });
     let done = false;
-    const bad = () => { input.classList.add('bad'); input.setAttribute('aria-invalid', 'true'); return false; };
+    const bad = () => { input.classList.add('bad'); input.dataset.why = Tree.notA(typeOf(c, cell.getRow().getData())); input.setAttribute('aria-invalid', 'true'); return false; };
     const keep = o => {
       if (done) return true;
       if (!readable(cell, input.value)) return bad();
@@ -545,6 +545,7 @@ const Table = (() => {
       lit = !typing ? found.findIndex(o => same(o, was)) : found.length ? 0 : -1;
       wrong = none && c.type === 'edge' ? otherKind(current, c.edge, q) : null;
       input.classList.toggle('bad', none);
+      input.dataset.why = '';   // (Its list says why.)
       input.toggleAttribute('aria-invalid', none);
       paint(none);
     }
@@ -1399,7 +1400,7 @@ const Table = (() => {
   const noDay = s => s.replace(/^As (of|it stood on) [^\t\n]*\t*\r?\n/, '');
   async function rowsOf(f) {
     const X = await loadSheetJS(), wb = X.read(await f.arrayBuffer(), { cellNF: true }), ws = wb.Sheets[wb.SheetNames[0]], pad = n => String(n).padStart(2, '0');
-    for (const [k, c] of Object.entries(ws)) if (k[0] !== '!' && c.t === 'n' && c.z && X.SSF.is_date(c.z)) { const d = X.SSF.parse_date_code(c.v); c.w = `${d.y}-${pad(d.m)}-${pad(d.d)}`; }
+    for (const [k, c] of Object.entries(ws)) if (k[0] !== '!' && c.t === 'n' && c.z && X.SSF.is_date(c.z)) { const d = X.SSF.parse_date_code(c.v), month = /m/i.test(c.z), day = /d/i.test(c.z) || (!month && !/^y+$/i.test(c.z)); c.w = day ? `${d.y}-${pad(d.m)}-${pad(d.d)}` : month ? `${d.y}-${pad(d.m)}` : `${d.y}`; }
     return X.utils.sheet_to_csv(ws, { FS: '\t', blankrows: false });
   }
   const pickRows = then => {
@@ -1671,7 +1672,7 @@ const Table = (() => {
     // What it's at: the records it writes over, those it adds at, and those it ends.
     const needs = [...new Set([...Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]), ...x.ends])].filter(id => id in entered);
     App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
-      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : App.day.peek() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
+      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : over.length ? App.day.peek() : App.begins() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
   // Rows deleted, as one change pending: the records entered there, and what's at them, each ended as App.deleting says.
@@ -2412,7 +2413,7 @@ const Table = (() => {
     records[rel] = { args, tag: true };
     const recs = { ...st, ...records }, asks = App.asksDay(records[rel], recs), entered = App.entered.peek();
     App.stage({ verb: 'Add', what: `${N.nameOf(recs, rel)}: ${N.placed(recs, rel).map(s => s.join + s.text).join('')}`, source: 'row ' + m.view,
-      ...(asks && { asks: 'from', day: App.day.peek(), auto: true }), needs: args.map(a => a.at).filter(id => id in entered),
+      ...(asks && { asks: 'from', day: App.begins(), auto: true }), needs: args.map(a => a.at).filter(id => id in entered),
       say: c => Time.describe(c), make: tx => fill(tx, records), done: () => landed(rel, () => Shell.select([rel])) });
   }
   // The new row's place: under the last row, or, where the rows run on past the grid's foot, there.
@@ -2699,7 +2700,7 @@ const Table = (() => {
         if (blank(v)) return;
         ws[at(i + 2, j)] = type === 'tag' ? { t: 's', v: text('tag', v) }
           : typeof v === 'number' && NUMERIC.has(type) ? { t: 'n', v, ...(type === 'percent' ? { z: pct(v) } : type === 'money' ? { z: `"$"#,##0${Number.isInteger(v) ? '' : '.00'}` } : {}) }
-          : type === 'date' && /^\d{4}-\d\d-\d\d$/.test(v) ? { t: 'n', v: serial(v), z: 'mmm d, yyyy' }
+          : type === 'date' && /^\d{4}(-\d\d){0,2}$/.test(v) ? { t: 'n', v: serial(Tree.firstDay(v)), z: v.length === 4 ? 'yyyy' : v.length === 7 ? 'mmm yyyy' : 'mmm d, yyyy' }
           : type === 'document' ? { t: 's', v: c.filed ? filed(v) : Tree.format('document', v), l: { Target: String(v) } }
           : { t: 's', v: text(type, v) };
       });
