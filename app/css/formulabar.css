@@ -98,6 +98,8 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-row.editable:not(.editing) > .fx-cm:hover .CodeMirror { background: var(--hover); border-radius: var(--r); }
 .fx-row.editing > .fx-cm .CodeMirror { background: var(--surface); border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), inset 0 0 0 1px var(--accent); }
 .fx-row.editing .CodeMirror-focused { outline: none; }   /* the row's ring is the focus ring; one, not two */
+.fx-row:not(.editing) .CodeMirror-focused { outline: none; }   /* a row read has text to select, no field */
+.fx-row:not(.editing) .CodeMirror-cursors { visibility: hidden; }
 .fx-row.editing .CodeMirror { color: var(--ink); }
 /* Why a row can't be made yet, once Enter asks, under it. */
 .fx-problem { grid-column: 2; margin: 0 2px 4px; font: var(--t12); color: var(--no); }

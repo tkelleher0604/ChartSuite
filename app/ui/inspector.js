@@ -1361,7 +1361,7 @@ function Typeset({ r, def }) {
       : t.k === 'str' || t.k === 'op' ? html`<span class="muted">${src}</span>` : src);
   });
   if (last < text.length) lines.at(-1).push(text.slice(last));
-  return html`<div class="st-set" onClick=${() => FormulaBar.focus('r' + r.i)} onDblClick=${() => App.readOnly.peek() || FormulaBar.focus('r' + r.i, { write: true })}>${lines.map((l, i) => html`<div class=${i ? 'cont' : null}>${l}</div>`)}</div>`;
+  return html`<div class="st-set" onClick=${e => FormulaBar.focus('r' + r.i, { write: e.detail > 1 && !App.readOnly.peek() })}>${lines.map((l, i) => html`<div class=${i ? 'cont' : null}>${l}</div>`)}</div>`;
 }
 // How many records a clause gives, in the words of the list they make ("15 close affiliates") or of the kind
 // they're at ("3 entities").

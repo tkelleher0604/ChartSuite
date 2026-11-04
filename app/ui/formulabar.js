@@ -112,11 +112,17 @@ const FormulaBar = (() => {
     }
     return memo.get(id);
   }
-  // The clause a row cites of a record it reads: a label of that record's rows, after a dot, just after the part;
-  // or, for an item of a list, what the condition on the list asks of it first (ANY(BDC.[Close Affiliates], @.[(b)(2)] …)).
+  // The clause a row cites of a record it reads: a label of that record's rows, after a dot, just after the part; or,
+  // for an item of a list or a name it's given, what's asked of that (ANY(BDC.[Close Affiliates], @.[(b)(2)] …);
+  // LET(a, [Affiliated Person](x, @), a.[(C)] OR a.[(D)])), the first of those that holds.
   function clauseOf(Rv, id, text, p) {
-    const m = /^\s*(?:,\s*@\s*)?\.\s*(?:\[([^\]]+)\]|([A-Za-z_]\w*))/.exec(String(text ?? '').slice(p.to)), c = m && (m[1] ?? m[2]);
-    return c && defOfRecord(Rv, id)?.rows.some(r => Tree.same(r.label, c)) ? c : null;
+    const rest = String(text ?? '').slice(p.to), known = c => !!defOfRecord(Rv, id)?.rows.some(r => Tree.same(r.label, c));
+    const m = /^\s*\.\s*(?:\[([^\]]+)\]|([A-Za-z_]\w*))/.exec(rest), c = m && (m[1] ?? m[2]);
+    if (m) return known(c) ? c : null;
+    const named = /^\s*,\s*(@|[A-Za-z_]\w*)\s*\./.exec(rest)?.[1];
+    if (!named) return null;
+    const asked = [...rest.matchAll(new RegExp(`${named === '@' ? '@' : `\\b${named}`}\\s*\\.\\s*\\[([^\\]]+)\\]`, 'g'))].map(x => x[1]).filter(known), rows = groundOf(Rv, id)?.rows ?? [];
+    return asked.find(l => rows.some(r => Tree.same(r.label, l))) ?? asked[0] ?? null;
   }
   // A definition's own screen is the inspector's, for its pattern in general.
   const openDef = id => { const n = noteOf(id); if (n) Shell.select([Shell.general(n.pattern)]); };
@@ -241,12 +247,12 @@ const FormulaBar = (() => {
   // Two objects: all that's between them. The one picked shows as its record if they're in it, or else as its rows at
   // the pair, all grey, and why not. Unpicked, it's the most derived one that holds, a tag before a value, the first
   // selected first: the pension is a remote affiliate of the BDC, and here's why; or else one entered; or where none
-  // holds, the first that could, each said, the first selected first.
+  // holds, the most derived that could, the same way: MacAllister is not a remote affiliate of the BDC, and why not.
   function describePair(s, Rv, dr, pk) {
     const options = optionsOf(Rv, s.pair), first = l => l.findLast(x => x.a === s.pair[0]) ?? l.at(-1);
-    const held = options.filter(x => !x.entered && x.id && x.on !== false);
+    const held = options.filter(x => !x.entered && x.id && x.on !== false), could = options.filter(x => !x.entered && (!x.id || x.on === false));
     const o = options.find(x => x.key === pk) ?? first(held.filter(x => x.on === true)) ?? first(held)
-      ?? first(options.filter(x => x.entered && x.on !== false)) ?? options.find(x => x.a === s.pair[0] && !x.id) ?? options[0];
+      ?? first(options.filter(x => x.entered && x.on !== false)) ?? first(could.filter(x => x.d.type === 'tag')) ?? first(could) ?? options[0];
     if (!o) return null;
     const m = o.id ? describe({ id: o.id }, Rv, dr) : { id: null, def: o.d, at: o.at, absent: true, title: o.d.name, out: o.d.type === 'tag' ? { tag: null } : { text: '—' }, ...argsOf(Rv, o) };
     if (!o.id) m.rows = rowsOf(m, Rv, dr);
@@ -1169,7 +1175,7 @@ const FormulaBar = (() => {
   // by a document. Nothing where it can't be read off.
   function clearsOf(Rv, id) {
     const recs = Rv.records, no = notsOf(Rv, id), g = reasonOf(Rv, id), d = defOfRecord(Rv, id), t = Tree.treeOf(recs, id);
-    if (!no?.failed.length || !t || !N().check(t)) return [];
+    if (recs[id]?.tag !== false || !no?.failed.length || !t || !N().check(t)) return [];
     const seen = new Set(), wants = no.failed.flatMap(f => {
       if (f.clause) return f.clause.yes ? [{ c: f.clause.yes }] : [];
       if (f.want) return [{ text: `at ${f.want}` }];
@@ -1506,7 +1512,7 @@ const FormulaBar = (() => {
     useLayoutEffect(() => {
       const cm = cmr.current, { row, m, colors, would, write } = props.current, hv = hover.value, still = App.readOnly.peek() || !write;
       if (cm.getOption('readOnly') !== still) cm.setOption('readOnly', still);
-      if (aim.value === row.key) { aim.value = null; requestAnimationFrame(() => { cm.focus(); cm.setCursor(cm.lineCount(), 0); }); }
+      if (aim.value === row.key) { aim.value = null; requestAnimationFrame(() => { cm.focus(); cm.setCursor(cm.lineCount(), 0); if (!cm.getOption('readOnly')) startEditing(cm, row.key); }); }
       if (!cm.hasFocus() && cm.getValue() !== row.formula) cm.setValue(row.formula);
       cm.operation(() => {
         for (const mk of cm.getAllMarks()) if (mk.fx) mk.clear();
@@ -1782,7 +1788,8 @@ const FormulaBar = (() => {
       const item = e.currentTarget.closest('.fx-row'), items = [...item.parentElement.querySelectorAll(':scope > .fx-row')];
       Shell.drag(e, { item, items, onDrop: (from, i) => change(m.def.id, rows => { const l = rows.slice(); l.splice(i, 0, l.splice(from, 1)[0]); return l; }) });
     };
-    const reads = write ? {} : { onClick: () => { reading.value = reading.peek() === r.key ? null : r.key; }, onDblClick: editable ? () => openAt(r.key, { write: true }) : null };
+    // A double-click by its count: the first click lights the row's names, which draws them anew under the pointer.
+    const reads = write ? {} : { onClick: e => { if (e.detail > 1 && editable) openAt(r.key, { write: true }); else reading.value = reading.peek() === r.key ? null : r.key; } };
     return html`<div class=${cls} data-key=${r.key} ...${reads}>
       ${write ? html`<span class="fx-grip" aria-hidden="true" onPointerDown=${reorder} />` : null}
       ${write ? html`<input class="bare fx-label" value=${r.label} size=${Math.max(2, r.label.length)} spellcheck="false" aria-label="Label"
@@ -1792,7 +1799,7 @@ const FormulaBar = (() => {
       ${problem.value?.key === r.key ? html`<p class="fx-problem" role="alert">${problem.value.message}</p>` : null}
       ${write ? html`<button class="btn icon fx-x" aria-label=${keep ? 'Keep row' : 'Delete row'} data-tip=${keep ? 'Keep row' : 'Delete row'} ...${point}
           onClick=${() => change(m.def.id, rows => rows.map(x => x.key === r.key ? { ...x, gone: !x.gone } : x))}>${Shell.icon('x')}</button>`
-        : editable ? html`<button class="btn icon fx-pencil" aria-label="Edit row" data-tip="Edit row" onClick=${e => { e.stopPropagation(); openAt(r.key, { write: true }); }} onDblClick=${e => e.stopPropagation()}>${Shell.icon('Pencil')}</button>` : null}
+        : editable ? html`<button class="btn icon fx-pencil" aria-label="Edit row" data-tip="Edit row" onClick=${e => { e.stopPropagation(); openAt(r.key, { write: true }); }}>${Shell.icon('Pencil')}</button>` : null}
     </div>`;
   }
   // What the rows would give where an entry overrides them, after the cited row: "C Corporation" beside the
@@ -1881,9 +1888,11 @@ const FormulaBar = (() => {
   function namedIn(q) {
     const st = App.state.peek(), n = N(), words = norm(q).split(' ').filter(Boolean);
     if (words.length < 2) return [];
-    const objects = Object.keys(st).filter(id => isObj(st[id]) && !Tree.isView(st[id])).map(id => ({ id, names: [n.shortOf(st, id), n.nameOf(st, id)].map(norm) }));
+    const related = Tree.index(st).relations;
+    const objects = Object.keys(st).filter(id => isObj(st[id]) && !Tree.isView(st[id])).map(id => ({ id, ties: related.get(id)?.length ?? 0, names: [n.shortOf(st, id), n.nameOf(st, id)].map(x => norm(x).replace(/^the /, '')) }));
+    // Its name, what its name begins with, or words its name has; between equals, the one with the most relations.
     const best = part => { const t = part.join(' '), w = ` ${t} `, score = ({ names }) => names.includes(t) ? 0 : names.some(x => x.startsWith(`${t} `)) ? 1 : names.some(x => ` ${x} `.includes(w)) ? 2 : 3;
-      return objects.map(o => [score(o), o.names[1].length, o]).filter(x => x[0] < 3).sort((a, b) => a[0] - b[0] || a[1] - b[1])[0]; };
+      return objects.map(o => [score(o), o.ties, o]).filter(x => x[0] < 3).sort((a, b) => a[0] - b[0] || b[1] - a[1])[0]; };
     if ((best(words)?.[0] ?? 3) < 2) return [];   // one name, already
     let pair = null;
     for (let i = 1; i < words.length; i++) {

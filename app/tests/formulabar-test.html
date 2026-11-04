@@ -580,7 +580,8 @@ async function checks() {
   await saidOf([CLOSE_MGMT]);
   const alsoFact = [...document.querySelectorAll('.fx-said .fx-fact.go')].find(x => /an affiliated person of Margaret/.test(x.textContent));
   alsoFact?.click(); await wait(40);
-  check('a ground after “Also” steps down as any does, by the clause it cites', M().title === 'Affiliated Person' && M().clause === '(C)', `${M().title} ${M().clause}`);
+  check('a ground after “Also” steps down as any does, by the clause it cites, with its breadcrumb', M().title === 'Affiliated Person' && M().clause === '(C)' && /^Close Affiliate/.test(document.querySelector('.fx-crumb')?.textContent ?? ''), `${M().title} ${M().clause}`);
+  check('… and cites of what a row names (LET(a, …, a.[(C)] OR a.[(D)])) the clause it asks for that holds', /Margaret A\. Chen is an affiliated person of the Manager \(§2\(a\)\(3\)\(C\)\)\.$/.test(FormulaBar.because('fx:bdc=bdc_ics&close affiliate=chen')), FormulaBar.because('fx:bdc=bdc_ics&close affiliate=chen'));
   check('because(): plain text, or empty for what no row gives', FormulaBar.because('chen') === '' && FormulaBar.because(REMOTE_NS) === FormulaBar.sentence(REMOTE_NS));
   // A step down selects what it steps to: the panel follows the band
   await saidOf([OKAFOR_GP]);
@@ -624,6 +625,9 @@ async function checks() {
   pairFound?.run(); await wait(30);
   check('… and selects them both', Shell.selection.peek().join() === 'fund,tessellate', Shell.selection.peek().join());
   check('… but not one name, or a name and nothing', !findFor('Fund III').some(x => x.pair) && !findFor('Fund III Zebra').some(x => x.pair));
+  findFor('MacAllister BDC').find(x => x.pair)?.run(); await wait(30);
+  check('… a name in part, the record with most to it: the BDC, not its Bylaws', Shell.selection.peek().join() === 'macallister,bdc', Shell.selection.peek().join());
+  check('… and where none holds, the most derived that could, why not', M().absent && M().title === 'Remote Affiliate' && /only of Cayman GP/.test(document.querySelector('.fx-inline')?.textContent ?? ''), M().title);
   // Why isn't X here: a search of who could be on the list; picked, that relation open on the two
   Shell.select([]); await wait(20);
   const anchor = document.body.appendChild(document.createElement('button'));
@@ -775,7 +779,7 @@ async function checks() {
   document.querySelector('.fxbar [data-key="r0"]').click(); await wait(20);
   check('a row clicked is read: no field to type over, no grip, no way to delete it, and it’s lit', !document.querySelector('.fxbar input.fx-label') && !document.querySelector('.fxbar .fx-x') && !document.querySelector('.fxbar .fx-grip')
     && document.querySelector('.fxbar [data-key="r0"]').classList.contains('reading') && cmOf('r0').getOption('readOnly') === true && !document.querySelector('.fx-row.editing') && App.version.peek() === v2);
-  document.querySelector('.fxbar [data-key="r1"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await wait(40);
+  document.querySelector('.fxbar [data-key="r1"]').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 2 })); await wait(40);
   check('a double-click asks to write: its label a field, each row its delete, the cursor in it', !!document.querySelector('.fxbar input.fx-label') && !!document.querySelector('.fxbar .fx-x') && cmOf('r1').getOption('readOnly') === false && !document.querySelector('.fxbar .fx-pencil'));
   FormulaBar.discard(); await wait(30);
   check('… and Esc leaves it as it was, read', !document.querySelector('.fxbar input.fx-label') && !!document.querySelector('.fxbar .fx-pencil') && cmOf('r1').getOption('readOnly') === true && App.version.peek() === v2);
