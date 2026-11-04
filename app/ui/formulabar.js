@@ -1778,7 +1778,7 @@ const FormulaBar = (() => {
     useLayoutEffect(() => {
       const cm = cmr.current, { row, m, colors, would, write } = props.current, hv = hover.value, still = App.readOnly.peek() || !write;
       if (cm.getOption('readOnly') !== still) cm.setOption('readOnly', still);
-      if (aim.value === row.key) { aim.value = null; requestAnimationFrame(() => { cm.focus(); cm.setCursor(cm.lineCount(), 0); if (!cm.getOption('readOnly')) startEditing(cm, row.key); }); }
+      if (aim.value === row.key) { aim.value = null; cm.focus(); cm.setCursor(cm.lineCount(), 0); if (!cm.getOption('readOnly')) startEditing(cm, row.key); }
       if (!cm.hasFocus() && cm.getValue() !== row.formula) cm.setValue(row.formula);
       cm.operation(() => {
         for (const mk of cm.getAllMarks()) if (mk.fx) mk.clear();
