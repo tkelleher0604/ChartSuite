@@ -1806,9 +1806,6 @@ async function readingOnly() {
   await tick(350);
   check('… back as it was', JSON.stringify(boxes()) === JSON.stringify(all) && !band(), boxes().length);
   // What's lit: a group chosen for a box selected, and a Styles row aimed at.
-  const fund = sc().byId.get('fund');
-  Shell.select(['fund']); await tick(200);
-  const scopes = FormatBar.scope?.() ?? null;
   const rows = () => Scene.groupsOf(App.notes.peek(), view), funds = rows().find(g => g.caption === 'Funds');
   Shell.select([]); await tick(150);
   FormatBar.aim(funds); await tick(200);
@@ -1816,7 +1813,8 @@ async function readingOnly() {
   check('A Styles row aimed at is lit, and what comes next takes it', !!lit && lit.marks.size > 1 && cv().canShowOnly(), `${lit?.marks.size}`);
   cv().selectLike(); await tick(250);
   check('Select all like this takes what’s lit', JSON.stringify(Shell.selection.peek().slice().sort()) === JSON.stringify([...lit.marks].sort()), Shell.selection.peek().join());
-  check('… and the scope’s two counts agree', /These (\d+) boxes/.test(txt($('.scope, [data-fb="scope"]') ?? document.body)) || true);
+  { const said = txt($('[data-fb="scope"]') ?? document.body), [, a] = /These (\d+) boxes/.exec(said) ?? [], [, b] = /All (\d+)/.exec(said) ?? [];
+    check('… and the scope’s two counts agree', !!a && a === b && +a === lit.marks.size, said); }
   Shell.select([]); await tick(150);
   FormatBar.aim(funds); await tick(200);
   const n1 = lit.marks.size;

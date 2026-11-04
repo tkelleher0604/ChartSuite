@@ -2714,7 +2714,7 @@ Shell.register('action', { id: 'chart.only', name: 'Show only these', names: ['H
 Shell.register('action', { id: 'chart.showAll', name: 'Show all', names: ['Back to the chart', 'Clear filters', 'Clear filter', 'Unfilter', 'Show everything'], enabled: () => here() && !!App.shownOf(), run: () => App.showAll(active.peek().scene().view),
   why: () => !here() ? 'Show a chart first' : 'This page shows all it has' });
 // What's between two boxes, offered where someone asks; which makes nothing.
-Shell.register('action', { id: 'chart.with', name: 'With…', names: ['Between', 'Between two boxes', 'Why not', 'Why isn’t', 'Why isnt', 'What holds between', 'Relationship between', 'Compare two'], enabled: () => here() && App.canAsk() && active.peek().selected().some(m => m.type === 'box'), run: call('withAnother'),
+Shell.register('action', { id: 'chart.with', name: 'With another box…', names: ['With', 'Between', 'Between two boxes', 'Why not', 'Why isn’t', 'Why isnt', 'What holds between', 'Relationship between', 'Compare two'], enabled: () => here() && App.canAsk() && active.peek().selected().some(m => m.type === 'box'), run: call('withAnother'),
   why: () => !here() ? 'Show a chart first' : !App.canAsk() ? App.whyNot() : 'Select a box first' });
 // A box's size, typed in its panel; so with a shape's.
 Shell.register('action', { id: 'chart.size', name: 'Size…', names: ['Height', 'Width', 'Resize', 'Lock proportions', 'Aspect ratio'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && ['box', 'shape'].includes(active.peek().selected()[0].type),

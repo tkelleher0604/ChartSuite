@@ -1975,8 +1975,11 @@ const FormulaBar = (() => {
   // says where it changes nothing, as silence proves nothing; and that it doesn't work, where it doesn't, for what a broken formula
   // would give is no outcome.
   const Delta = ({ p }) => {
+    // (As many as it has room for, what's the preview of never cut for them; the rest are a click away, by "more".)
+    const [fit, setFit] = preactHooks.useState({ of: null, n: 3 }), box = preactHooks.useRef(), n = fit.of === p?.deltas ? fit.n : 3;
+    preactHooks.useLayoutEffect(() => { const el = box.current; if (el && n > 1 && el.scrollWidth > el.clientWidth + 1) setFit({ of: p?.deltas, n: n - 1 }); });
     if (p?.flaws?.some(f => !f.warn)) return html`<span class="fx-delta fx-doesnt"><b class="take">The formula doesn’t work</b></span>`;
-    const ds = p?.deltas.slice(0, 3) ?? [], said = WORDS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => [countedOf(d[k], d.def, d.of[k]), d.of[k]])] : null; }).filter(Boolean), calm = p ? steady(p) : null;
+    const ds = p?.deltas.slice(0, n) ?? [], said = WORDS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => [countedOf(d[k], d.def, d.of[k]), d.of[k]])] : null; }).filter(Boolean), calm = p ? steady(p) : null;
     if (p?.from === 'bar' && !said.length) return html`<span class="fx-delta">No conclusions change</span>`;
     // A transfer to one named as it's typed takes away what reached through the old holder, till the new one has its own.
     const to = p?.from === 'pending' && App.pending.peek()?.verb === 'Transfer' && App.pending.peek().transfer?.to, until = to?.kind && ds.some(d => d.minus) ? `until ${to.name} has ${lower(ownerWord(App.pending.peek().transfer.rid))}` : null;
@@ -1987,10 +1990,10 @@ const FormulaBar = (() => {
     const countedAs = (x, of) => { const one = withOne(of); return one ? `${x} with ${short(one)}` : x; };
     const which = (e, verb, x, of) => Shell.popover(e.currentTarget, () => html`<div class="fx-which"><p>${verb} ${countedAs(x, of)}</p><ul>${listed(of)}</ul></div>`, { placement: 'bottom-end' });
     // What there's no room to say here is a click away, never left out: the smallest may be what's taken away.
-    const rest = p?.deltas.slice(3) ?? [], more = e => Shell.popover(e.currentTarget, () => html`<div class="fx-which">${rest.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => html`<p>${verb} ${countedAs(countedOf(x[k], x.def, x.of[k]), x.of[k])}</p><ul>${listed(x.of[k])}</ul>`))}</div>`, { placement: 'bottom-end' });
+    const rest = p?.deltas.slice(n) ?? [], more = e => Shell.popover(e.currentTarget, () => html`<div class="fx-which">${rest.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => html`<p>${verb} ${countedAs(countedOf(x[k], x.def, x.of[k]), x.of[k])}</p><ul>${listed(x.of[k])}</ul>`))}</div>`, { placement: 'bottom-end' });
     // (All of them with one record, that's said once, after them all.)
     const allWith = xs => { const ones = xs.map(([, of]) => withOne(of)), one = ones[0]; return xs.length > 1 && one && ones.every(o => o?.id === one.id) ? one : null; };
-    return said.length ? html`<span class="fx-delta">${said.map(([verb, cls, xs], i) => html`<span>${i ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `}${xs.map(([x, of], j) =>
+    return said.length ? html`<span class="fx-delta" ref=${box}>${said.map(([verb, cls, xs], i) => html`<span>${i ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `}${xs.map(([x, of], j) =>
       html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<button type="button" class="fx-count" aria-haspopup="dialog" onClick=${e => which(e, verb, x, of)}><b class=${cls}>${allWith(xs) ? x : countedAs(x, of)}</b></button>`)}${allWith(xs) ? ` with ${short(allWith(xs))}` : ''}${i < said.length - 1 || rest.length ? ';' : ''}</span>`)}${rest.length ? html`<span><button type="button" class="fx-count" aria-haspopup="dialog" onClick=${more}><b>${rest.length} more</b></button></span>` : null}${until ? html`<span>${until}</span>` : null}${calm ? html`<span class="fx-net" title=${calm}>· ${calm}</span>` : null}</span>` : null;
   };
   // What a relation's holder is called, by the list it makes ("an owner"), as a toast offers one.

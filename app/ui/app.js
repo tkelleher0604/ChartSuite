@@ -12,7 +12,7 @@ const App = (() => {
   let lastChart = null;
   const chart = computed(() => {
     const wb = book.value, v = Shell.view.value, ids = wb.charts().map(c => c.chart), has = c => ids.includes(c);
-    return lastChart = (v && [lastChart, ...ids].find(c => has(c) && wb.item(c, v).length)) || (has(lastChart) ? lastChart : ids[0] ?? null);
+    return lastChart = (v && [lastChart, ...ids].find(c => has(c) && (wb.item(c, v).length || looks.value[c]?.[v]))) || (has(lastChart) ? lastChart : ids[0] ?? null);
   });
   let unsubscribe = null;
   function use(wb) {
@@ -70,8 +70,8 @@ const App = (() => {
   // A change as a look: what it would remove and add, unmade.
   const lookChange = fn => { const c = chart.peek(), tx = book.peek().edit({ chart: c, who: who(), ids: [] }); fn(tx); const m = tx.made(); return m.adds.length || m.removes.length ? { id: Log.newId(), who: who(), when: new Date().toISOString(), chart: c, ...m } : null; };
   // Undo's steps of them, this window's, apart from its steps of changes: taken back in Viewing, or where there's no change of yours to take.
-  const lookSteps = signal({ undo: [], redo: [] });
-  function lookStep(say, undo, redo) { lookSteps.value = { undo: [...lookSteps.peek().undo, { say, undo, redo }], redo: [] }; }
+  const lookSteps = signal({}), lookStepsOf = c => lookSteps.value[c] ?? { undo: [], redo: [] };
+  function lookStep(say, undo, redo) { const c = chart.peek(); lookSteps.value = { ...lookSteps.peek(), [c]: { undo: [...lookStepsOf(c).undo, { say, undo, redo }], redo: [] } }; }
   // A look given a view: what's given and not undefined kept, what's undefined let go; one step back.
   function looking(view, patch, say) {
     const c = chart.peek(), was = lookOf(view, c), now = { ...was, ...patch };
@@ -143,8 +143,11 @@ const App = (() => {
     const t = lookOf(view)?.table;
     if (!t) return;
     if (readOnly.peek()) return refuse();
-    putLook(chart.peek(), view, null);
-    if (!change(tx => writeView(tx, view, t.name, t.rows, { why: t.why, order: true }), { dated: false, say: `Kept the table ${t.name}` })) putLook(chart.peek(), view, { table: t });
+    // (As one, so it's never for a moment gone from under the tab shown.)
+    batch(() => {
+      const c = change(tx => writeView(tx, view, t.name, t.rows, { why: t.why, order: true }), { dated: false, say: `Kept the table ${t.name}` });
+      if (c) putLook(chart.peek(), view, null);
+    });
   }
   // The log with what's looked at read over it. Kept with what it's of: another change only merged, as the log itself takes one.
   let over = null;
@@ -270,14 +273,14 @@ const App = (() => {
   const undo = () => step(true), redo = () => step(false);
   // A look taken back or put back, as Viewing's Undo does it, and a look's own toast.
   function stepLook(back) {
-    const [from, to] = back ? ['undo', 'redo'] : ['redo', 'undo'], l = lookSteps.peek(), last = l[from].at(-1);
+    const [from, to] = back ? ['undo', 'redo'] : ['redo', 'undo'], c = chart.peek(), l = lookStepsOf(c), last = l[from].at(-1);
     if (!last) return Shell.toast(back ? 'Nothing to undo' : 'Nothing to redo', { ms: 2000 });
     (back ? last.undo : last.redo)();
-    lookSteps.value = { [from]: l[from].slice(0, -1), [to]: [...l[to], last] };
+    lookSteps.value = { ...lookSteps.peek(), [c]: { [from]: l[from].slice(0, -1), [to]: [...l[to], last] } };
     Shell.toast(`${back ? 'Undid' : 'Redid'}: ${last.say}`, back ? { redo: () => stepLook(false) } : { undo: () => stepLook(true) });
   }
   // Undo's list: the steps it can take back, the latest first, each by its words.
-  const lookWords = () => [...lookSteps.value.undo].reverse().map(l => l.say);
+  const lookWords = () => [...lookStepsOf(chart.value).undo].reverse().map(l => l.say);
   const steps = () => { const mine = viewing.value ? [] : stackOf(chart.value).undo.map(s => book.peek().changes().find(x => x.id === s.act)).filter(Boolean).reverse().map(c => Time.describe(c)); return mine.length ? mine : lookWords(); };
   // Back to there: the steps from the latest through the `n`th of that list, one toast saying how many, Redo putting them
   // all back.
@@ -1599,8 +1602,8 @@ const App = (() => {
   });
   Shell.register('undo', {
     undo, redo, steps, undoTo,
-    canUndo: () => !Shell.time.value?.stood && ((!viewing.value && stackOf(chart.value).undo.length > 0) || lookSteps.value.undo.length > 0 || (viewing.value && !!pending.value)),
-    canRedo: () => !Shell.time.value?.stood && ((!viewing.value && stackOf(chart.value).redo.length > 0) || lookSteps.value.redo.length > 0 || (!!lastDiscarded.value && lastDiscarded.value.chart === chart.value && !pending.value)),
+    canUndo: () => !Shell.time.value?.stood && ((!viewing.value && stackOf(chart.value).undo.length > 0) || lookStepsOf(chart.value).undo.length > 0 || (viewing.value && !!pending.value)),
+    canRedo: () => !Shell.time.value?.stood && ((!viewing.value && stackOf(chart.value).redo.length > 0) || lookStepsOf(chart.value).redo.length > 0 || (!!lastDiscarded.value && lastDiscarded.value.chart === chart.value && !pending.value)),
   });
 
   // ---- Views: View objects, each described by its own notes, never dated ----

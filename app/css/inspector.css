@@ -32,10 +32,11 @@
 .strip .lk:hover { color: var(--ink); }
 .strip .lk.on { color: var(--ink); text-decoration: underline 2px var(--accent); text-underline-offset: 4px; }
 /* A list a formula could give and gives none of, saying so, with who could be on it. */
-.none-list { display: flex; align-items: baseline; gap: 8px; padding: 6px 20px; border-top: 1px solid var(--rule); color: var(--ink-2); }
-.none-list > .nm { font-weight: 500; }
+.insp section.none-list { display: flex; align-items: baseline; gap: 8px; min-height: 36px; padding: 8px 20px; border-top: 1px solid var(--rule); color: var(--ink-2); }
+.insp section.none-list > * { min-width: auto; }
+.none-list > .nm { font: var(--t12); font-weight: 600; color: var(--ink-2); }
 .none-list > .val { color: var(--ink-3); }
-.none-list > .why-isnt { margin-left: auto; color: var(--ink-2); }
+.none-list > .why-isnt { margin-left: auto; color: var(--ink-2); cursor: pointer; }
 .strip > .strip-more { flex: none; width: 20px; height: 20px; margin-left: -8px; }
 .insp > section { scroll-margin-top: 28px; }
 .ih-title { display: block; font: var(--t15); overflow-wrap: anywhere; text-wrap: balance; }

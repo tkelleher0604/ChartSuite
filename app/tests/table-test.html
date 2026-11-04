@@ -262,7 +262,10 @@ async function historyChecks(ours, fund) {
   check('Viewing: said in the title bar, filled', switchBtn()?.textContent === 'Viewing' && !!$('.titlebar .mode.viewing') && App.readOnly.peek());
   const refused = App.change(tx => tx.update('fund_ein', { value: '92-5555555' })); await tick(60);
   check('… and nothing writes: a change, saying why', refused === null && N() === v0 && /^Viewing/.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
-  check('… one pending', (App.stage({ verb: 'Add', what: 'x', make: () => {} }), !App.pending.peek()));
+  App.stage({ verb: 'Add', what: 'x', make: () => {} });
+  const whatIf = App.commit(); await tick(80);
+  check('… one pending is a what-if: it’s redlined, and its commit makes nothing, saying what would', !!App.pending.peek() && whatIf === null && N() === v0 && $$('.toast span').some(t => /switch to Editing to make this/i.test(t.textContent)), $$('.toast span').map(t => t.textContent).join(' / '));
+  App.discard({ quiet: true });
   check('… Undo', (undo(), N() === v0));
   check('… and the rest of History', (App.reverse(ours[3].id), App.restore('gp_agent'), N() === v0));
   $('.titlebar .chartmenu').click(); await tick(60);
@@ -2140,7 +2143,7 @@ async function tablesG3() {
     await find('annual tax');
     check('A list is found by what it holds as well as what it’s called', $$('.cols .colrow.mv').some(r => r.textContent.trim() === 'Taxed For'), $$('.cols .colrow.mv').map(r => r.textContent.trim()).join());
     await find('');
-    undo(); await tick(300); undo(); await tick(300);
+    App.undoLook(); await tick(300); App.undoLook(); await tick(300);
   });
   // A row of the list doesn't move as it's ticked; opened again, what's ticked is first.
   await listed(async () => {
