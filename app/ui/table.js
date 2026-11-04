@@ -269,7 +269,7 @@ const Table = (() => {
     }
     if (why && base) { const at = cols.findIndex(c => c.place > why.place); cols.splice(at < 0 ? cols.length : at, 0, why); }
     cols = [...lead, ...cols, ...trail, ...(why && !base ? [why] : [])];
-    const said = id => R === App.computed.value ? FormulaBar.because?.(id) ?? FormulaBar.sentenceIn(R, id) : FormulaBar.sentenceIn(R, id);
+    const said = id => R === App.computed.value ? FormulaBar.because(id) : FormulaBar.sentenceIn(R, id);
 
     // Each cell: the record there, if any, and where one would go.
     const cellOf = (row, c) => {

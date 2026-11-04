@@ -1520,17 +1520,18 @@ async function run() {
   await tick(200);
   console.warn = warn0;
   check('Going through every view with a record selected warns of nothing', !warned.length, warned.join(' / '));
-  // The formula bar's subject follows the view: a date selected in Dates, then Entities shown, the bar names Entities,
-  // not the date; an entity selected there, the entity.
+  // The formula bar's subject is the selection, whatever the view: the same click says the same thing on any table.
   const R1 = App.computed.peek().records, aDate = Object.keys(R1).find(id => R1[id].field === 'date' && R1[R1[id].at]?.args);
   const datesView = views().find(v => v.name === 'Dates'), entitiesView = views().find(v => v.name === 'Entities');
   Shell.show(datesView.id); Shell.select([aDate]); await tick(150);
   const onDate = $('.fxbar .fx-name')?.textContent;
   Shell.show(entitiesView.id); await tick(150);
-  const onEntities = $('.fxbar .fx-view')?.textContent, stillDate = !!$('.fxbar .fx-name');
+  const onEntities = $('.fxbar .fx-name')?.textContent;
   Shell.select([fund]); await tick(100);
-  check('The formula bar follows the view: a date selected in Dates, Entities named once it’s shown, and an entity selected there', !!onDate && onEntities === 'Entities' && !stillDate
-    && $('.fxbar .fx-name')?.textContent === App.notes.peek().nameOf(st(), fund), `${onDate} | ${onEntities} ${stillDate} | ${$('.fxbar .fx-name')?.textContent}`);
+  check('The formula bar says the selection, whatever the view: a date selected in Dates, the same shown on Entities, and an entity selected there', !!onDate && onEntities === onDate
+    && $('.fxbar .fx-name')?.textContent === App.notes.peek().nameOf(st(), fund), `${onDate} | ${onEntities} | ${$('.fxbar .fx-name')?.textContent}`);
+  Shell.select([]); await tick(60);
+  check('… and with nothing selected, the view’s name', $('.fxbar .fx-view')?.textContent === 'Entities', $('.fxbar .fx-view')?.textContent);
   Shell.select([]); await tick(60);
 
   // ---- F8 goes to the worst first, wherever the chart has it (the inspector's attention, stood in for) ----
@@ -2047,10 +2048,12 @@ async function tablesG3() {
   const h = { get scrollLeft() { return el().scrollLeft; }, set scrollLeft(x) { el().scrollLeft = x; }, get scrollTop() { return el().scrollTop; }, set scrollTop(x) { el().scrollTop = x; }, get clientWidth() { return el().clientWidth; } };
   h.scrollLeft = 900; await tick(150);
   const shownFree = () => Table.grid.getColumns().filter(c => c.getField() && !/\bpin\b/.test(c.getDefinition().cssClass));
-  const atEdge = () => shownFree().find(c => c.getElement().getBoundingClientRect().right > edge() + 1);
-  const first = atEdge(), title0 = first.getDefinition().title, x0 = first.getElement().getBoundingClientRect().left, before = shownFree()[0].getDefinition().title;
+  // Where a heading stands on the grid, by where it's scrolled to, as the headings follow the rows a frame later.
+  const on = c => c.getElement().offsetLeft - h.scrollLeft, from = () => 48 + Table.grid.getColumns().filter(c => c.getField() && /\bpin\b/.test(c.getDefinition().cssClass)).reduce((s, c) => s + c.getWidth(), 0);
+  const atEdge = () => shownFree().find(c => on(c) + c.getElement().offsetWidth > from() + 1);
+  const first = atEdge(), title0 = first.getDefinition().title, x0 = on(first), before = shownFree()[0].getDefinition().title;
   await listed(async () => { $$('.cols .colrow').find(r => r.querySelector('input').checked && r.textContent.trim().endsWith(before) && !r.textContent.includes('›'))?.querySelector('input').click(); await tick(400); });
-  check('Scrolled across, a column hidden before the edge moves nothing there', Math.abs(atEdge().getElement().getBoundingClientRect().left - x0) <= 2 && atEdge().getDefinition().title === title0 && before !== title0, `${before} ${title0} → ${atEdge().getDefinition().title} ${x0} → ${atEdge().getElement().getBoundingClientRect().left}`);
+  check('Scrolled across, a column hidden before the edge moves nothing there', Math.abs(on(atEdge()) - x0) <= 2 && atEdge().getDefinition().title === title0 && before !== title0, `${before} ${title0} → ${atEdge().getDefinition().title} ${x0} → ${on(atEdge())}`);
   await listed(async () => { allBtn('Hide all').click(); await tick(400); });
   check('Hide all hides every column but what names the rows', heads().join() === 'Name' && h.scrollLeft === 0, heads().join());
   check('… said in one toast, a count', /^Hid \d+ columns in /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
@@ -2163,7 +2166,7 @@ async function tablesG3() {
     await addTable(null, 'Dates', true);
     await toggle('Why');
     const f = 'f:$why', row = Table.grid.getRows('active').find(r => /Annual Tax Due/.test(r.getData()['f:$entry'] ?? '')).getData();
-    const reason = FormulaBar.because?.(row.id) ?? FormulaBar.sentence(row.id);
+    const reason = FormulaBar.because(row.id);
     check('Dates can show Why, as the reason says it', heads().at(-1) === 'Why' && !!reason && row[f] === reason, `${heads().join()} ${row[f]}`);
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Why');
     const i = Table.grid.getRows('active').findIndex(r => r.getData().id === row.id);
