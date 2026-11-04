@@ -972,7 +972,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     if (format === 'pptx') said.push(...chosen.flatMap(s => s.marks.filter(m => m.type === 'line' && m.points.length > 6).map(m => ({ t: `The line from ${called(s)(s.byId.get(m.from))} to ${called(s)(s.byId.get(m.to))} has more bends than a PowerPoint connector: in the deck it stays where it’s drawn`, s }))));
     const named = x => chosen.length > 1 ? `${x.s.name}: ${x.t}` : x.t;
     // What's wrong with the chart is said before it goes out, a click from each: what's overdue, in error or blank.
-    const open = Shell.problems().filter(c => c.kind !== 'soon');
+    const open = Shell.problems().filter(c => c.kind !== 'soon'), broke = FormulaBar.brokenSaid();
     return html`<div class="ex">
       <div class="ex-pick">
         <select aria-label="Format" value=${format} onChange=${e => { setFull(null); setFormat(e.target.value); }}>
@@ -987,6 +987,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       ${drawn && charts().length > 1 ? html`<div class="ex-views" role="group" aria-label="Views">${charts().map(v => html`<label>
         <input type="checkbox" checked=${ids.includes(v.id)} disabled=${ids.length === 1 && ids[0] === v.id} onChange=${e => tick(v.id, e.target.checked)} />${v.name}</label>`)}</div>` : null}
       ${table?.says ? html`<p class="ex-says">${table.says(all)}</p>` : null}
+      ${broke ? html`<p class="ex-says ex-broken" role="alert">${broke}</p>` : null}
       ${open.length ? html`<p class="ex-says ex-off">Still open on this chart: ${open.map(c => c.said).join(', ')} <button type="button" class="btn" onClick=${() => { close(false); setTimeout(() => Shell.listProblems(open[0].kind)); }}>See them</button></p>` : null}
       ${oneOff ? html`<p class="ex-says">${PAPERS[paper]} for this file only. ${stay.length === 1 && stay[0] ? `The page stays ${PAPERS[stay[0]]}.` : 'The pages stay as they are.'}</p>` : null}
       ${said.length ? html`<div class="ex-warns">

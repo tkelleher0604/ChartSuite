@@ -684,7 +684,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       return d.scene;
     }
   }
-  const state = opts.state;
+  // (A yes-or-no in error drawn as not holding, so a check that breaks keeps its flags: Formulas.asDrawn.)
+  const state = opts.computed ? Formulas.asDrawn(opts.computed, opts.state) : opts.state;
   const N = wb.notes(chart), styles = N.styles(view), styleAt = new Map(styles.map((s, i) => [s.key, i]));
   const tree = id => treeOf(state, id);
   const kept = workedIn(notesAre, view, rows), stands = new Map();

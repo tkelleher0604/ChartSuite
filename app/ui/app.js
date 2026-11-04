@@ -127,8 +127,8 @@ const App = (() => {
   // What needs attention as of the day shown (Formulas.attention). A check failed (Ownership Adds Up, Capacity
   // Held) is counted here, as an error; going to it selects what it's at, and asks why. The inspector counts
   // the rest, aiming at their rows.
-  // It reads only the Required and Check notes, so a look or a field shown, changed, counts nothing again.
-  const asking = keptWhile(() => JSON.stringify(['Required', 'Check'].flatMap(l => notes.value.notes(l).map(n => [n.note, n.view, n.param, Tree.key(n.pattern), n.value]))), () => notes.peek());
+  // It reads only the Required and Check notes, and where there's a rule to check, so a look or a field shown, changed, counts nothing again.
+  const asking = keptWhile(() => JSON.stringify(['Required', 'Check', 'Formula'].flatMap(l => notes.value.notes(l).map(n => [n.note, n.view, n.param, Tree.key(n.pattern), l === 'Formula' ? null : n.value]))), () => notes.peek());
   const needs = computed(() => Formulas.attention(result.value, asking.value, day.value));
   // The same, due soon being within so many days: what the status list's Next 90 days lists.
   const needsWithin = days => Formulas.attention(result.peek(), asking.peek(), day.peek(), days);
@@ -184,7 +184,7 @@ const App = (() => {
   // What a change keeps as it is, each a function of its edit: the chart shown keeps its boxes where they stand.
   const keepers = new Set();
   const keeping = k => { keepers.add(k); return () => keepers.delete(k); };
-  const edit = (dated, ids) => book.peek().edit({ chart: chart.peek(), who: who(), day: typeof dated === 'string' ? dated : dated ? Shell.time.peek()?.asOf ?? null : null, ids });
+  const edit = (dated, ids, note) => book.peek().edit({ chart: chart.peek(), who: who(), day: typeof dated === 'string' ? dated : dated ? Shell.time.peek()?.asOf ?? null : null, ids, note: Tree.clean(note ?? '') || null });
   // One change, by the user: refused while the past is shown; dated from the day shown, or from the day `dated`
   // gives (a payment, from the day it was made), unless it's false (a view isn't a fact about the world). `say`,
   // a string or a function of the change, is toasted with Undo. `ids`, those its redline gave what it adds. A start
@@ -192,10 +192,11 @@ const App = (() => {
   // typed: a start with Show Mar 2, 2027, the chart then; an end says its day itself ("Ended … on Dec 1, 2026", Time.describe).
   // A change that changes something also keeps as they are the boxes it doesn't place in the chart shown (the canvas's
   // keepers), unless `keep` is false (Tidy). `go`, a function of the change, gives what else its toast offers: [label, run].
+  // `note`, why it's made (dendra.md, Change), which History shows beside it.
   let staying = null;
-  function change(fn, { say, dated = true, ids, empty, keep = true, go } = {}) {
+  function change(fn, { say, dated = true, ids, empty, keep = true, go, note } = {}) {
     if (readOnly.peek()) return refuse();
-    const tx = edit(dated, ids ?? named), was = entered.peek();
+    const tx = edit(dated, ids ?? named, note), was = entered.peek();
     if (!ids) named = [];
     fn(tx);
     if (keep && tx.size()) for (const k of keepers) k(tx);
@@ -322,8 +323,21 @@ const App = (() => {
   // Who entered a record, as it stands on the day shown, and when: { who, when, note, since, before }; null where nothing did.
   function enteredBy(id) {
     const row = shown.peek().item(chart.peek(), id).find(v => Log.validOn(v, day.peek())), x = row && firstSaid(id, row);
-    return x ? { who: x.who, when: x.when, note: x.note ?? null, since: row.since ?? null, before: row.before ?? null } : null;
+    return x ? { who: x.who, when: x.when, note: shown.peek().reasons(x.id).at(-1)?.text ?? null, since: row.since ?? null, before: row.before ?? null } : null;
   }
+  // A reason given a change afterwards, as a change that says so (Log's annotate), which Undo takes back as any other.
+  function annotate(id, note) {
+    const text = Tree.clean(note ?? '');
+    if (!text) return null;
+    if (viewing.peek()) return refuse();
+    const c = book.peek().annotate({ chart: chart.peek(), who: who(), about: id, note: text });
+    if (typeof c === 'string') { Shell.toast(c); return null; }
+    made(c);
+    Shell.toast(Time.describe(c), { undo });
+    return c;
+  }
+  // The rules in error in what's shown, and what reads them (Formulas.broken): what a panel, a table and Export say.
+  const broken = computed(() => Formulas.broken(result.value));
 
   // ---- A value typed (dendra.md, Time) ----
   // A record to add, at what it's at entered: an entry is only ever at a record the timeline holds, so one a formula
@@ -525,6 +539,7 @@ const App = (() => {
     // Brought back, what said it was discarded goes.
     if (p === lastDiscarded.peek()) unsaid?.();
     lastDiscarded.value = null;
+    why.value = p.note ?? '';
     pending.value = { ids: [], chart: chart.peek(), from: Shell.time.peek()?.asOf ?? null, back, ...p, n: ++staged };
     if (was && was.source !== p.source) Shell.toast(discarded(was), { undo: () => stage(was) });
   }
@@ -550,6 +565,7 @@ const App = (() => {
     pending.value = null;
     after(p);
     if (quiet) return;
+    p.note = why.peek();
     lastDiscarded.value = p;
     unsaid = Shell.toast(discarded(p), { redo: () => stage(p) });
   }
@@ -568,7 +584,7 @@ const App = (() => {
     let empty = false;
     const c = batch(() => {
       pending.value = null;
-      const it = p.reverse ? reversing(p.reverse) : change(tx => p.make(tx, p.day, p), { dated: datedOf(p), ids: p.ids, say: p.say, go: p.go, empty: () => { empty = true; } });
+      const it = p.reverse ? reversing(p.reverse, why.peek()) : change(tx => p.make(tx, p.day, p), { dated: datedOf(p), ids: p.ids, say: p.say, go: p.go, note: why.peek(), empty: () => { empty = true; } });
       if (!it && !empty) pending.value = p;
       return it;
     });
@@ -943,6 +959,14 @@ const App = (() => {
     return html`<span class="amount"><span class="word">${v.edge}</span><span class="hug"><input ref=${input} class="cell" spellcheck=${false} autocomplete="off" aria-label=${v.edge}
       aria-invalid=${v.v === undefined ? 'true' : null} value=${text ?? (v.v === null || v.v === undefined ? '' : Tree.format(v.field, v.v))} onInput=${typed} onKeyDown=${key} onBlur=${() => { if (v.v !== undefined) setText(null); }} /></span></span>`;
   }
+  // Why it's made, a line that goes on the change (dendra.md, Change): open where it overrides what a rule gives, which needs
+  // saying; a word away on anything else. Kept apart from the change pending, so what's typed here redlines nothing.
+  const why = signal('');
+  function Why({ p, enter }) {
+    const [on, setOn] = preactHooks.useState(p.act === 'Rule out' || p.act === 'Attest' || !!why.peek());
+    if (!on) return html`<button type="button" class="lk why-add" onClick=${() => setOn(true)}>Why…</button>`;
+    return html`<label class="why-in" onKeyDown=${enter}><span>Why</span><input class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${why.value} onInput=${e => { why.value = e.target.value; }} /></label>`;
+  }
   function Controls({ p, auto, hint }) {
     const enter = e => { if (e.key === 'Enter' && !e.defaultPrevented && !e.target.closest('.lk')) { e.preventDefault(); e.stopPropagation(); commit(); } };
     const shown = typeof FormulaBar !== 'undefined' ? FormulaBar.pending.value : null, fails = failsOf(shown?.from === 'pending' ? shown.R2 : null);
@@ -955,6 +979,7 @@ const App = (() => {
       ${hint && p.asks ? html`<kbd class="tokey">F6</kbd>` : null}
       ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} alts=${p.alts?.(p)} set=${d => amend(p, { day: d })} /></span>`
         : p.from ? html`<span class="when">From ${p.from > day.value ? dayLink(p.from) : Tree.formatDate(p.from, 'short')}</span>` : null}
+      <${Why} key=${p.n} p=${p} enter=${enter} />
       <span class="acts"><button class="btn" onClick=${() => discard()}>Discard</button>
       <button class="btn primary" disabled=${!ready(p)} onClick=${commit}>${actOn(p)}</button></span>`;
   }
@@ -982,7 +1007,7 @@ const App = (() => {
     if (c) { made(c); Shell.toast(Time.describe(c), { undo }); }
     return c;
   }
-  const reversing = id => readOnly.peek() ? refuse() : remake(book.peek().reverse(id, who()));
+  const reversing = (id, note) => readOnly.peek() ? refuse() : remake(book.peek().reverse(id, who(), Tree.clean(note ?? '') || null));
   const reverse = id => { if (viewing.peek()) return refuse(); return remake(book.peek().reverse(id, who())); };
   const restore = item => { if (viewing.peek()) return refuse(); return remake(book.peek().restore(chart.peek(), item, who())); };
 
@@ -1269,7 +1294,7 @@ const App = (() => {
     },
   });
   // Find reaches each definition, as its pattern in general: the statute it encodes (inspector.js).
-  Shell.register('find', { items: () => { const N = notes.peek(); return N.notes('Formula').map(n => ({ label: N.name(n.pattern), detail: 'Definition', run: () => Shell.select([Shell.general(n.pattern)]) })); } });
+  Shell.register('find', { items: () => { const N = notes.peek(); return N.notes('Formula').map(n => ({ label: N.name(n.pattern), detail: 'Definition', names: N.check(n.pattern) ? ['Rule', 'Check'] : ['Rule'], run: () => Shell.select([Shell.general(n.pattern)]) })); } });
 
   // ---- Where the workbook is kept: its status beside its name, and opening and saving it in the chart menu ----
   const status = signal(Store.status());
@@ -1327,6 +1352,6 @@ const App = (() => {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, workAt, state, needs,
     readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
-    enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone,
+    enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone, annotate, broken,
   };
 })();

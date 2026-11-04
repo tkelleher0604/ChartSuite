@@ -117,10 +117,14 @@ function slots(at, all) {
   const ents = entriesAt(at).map(id => ({ id, edge: r[id].edge, t: tree(id), pinned: T.same(r[id].edge, 'Name') }));
   const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e }));
   const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
-  // A tag its rule hasn't tested here says so, apart from no (dendra.md, Definitions: Not tested).
-  const untested = App.definitions.value.filter(d => d.type === 'tag' && !d.edges && Formulas.silence(N(), App.schema.value, r, at, d.name) === 'untested' && ![...errors, ...blanks].some(x => T.same(x.edge, d.name))).map(d => slot(d.name, { at, na: true }));
-  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks, ...untested].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
-  const out = [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks, ...untested, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
+  // A tag its rule hasn't tested here says so, apart from no (dendra.md, Definitions: Not tested); and one whose rule reads a rule in
+  // error says it can't say, for its silence here would read as no.
+  const { reach } = App.broken.value, silent = d => d.type === 'tag' && !d.edges && ![...errors, ...blanks].some(x => T.same(x.edge, d.name)) && Formulas.silence(N(), App.schema.value, r, at, d.name);
+  const unsure = reach.size ? App.definitions.value.filter(d => reach.has(d.id) && silent(d)).map(d => slot(d.name, { at, unsure: d.id })) : [];
+  const untested = App.definitions.value.filter(d => !reach.has(d.id) && silent(d) === 'untested').map(d => slot(d.name, { at, na: true }));
+  const given = [...errors, ...blanks, ...unsure, ...untested], asked = offered.value.filter(o => o.at === at && !entryNamed(at, o.edge) && !given.some(x => T.same(x.edge, o.edge))).map(o => slot(o.edge, { at, open: true, made: true }));
+  const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...given, ...asked].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
+  const out = [...ents.filter(e => !(own && e.pinned)), ...given, ...asked, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
     .sort((a, b) => a.o - b.o || a.p - b.p || a.edge.localeCompare(b.edge));
   // Offered, the first not yet given, blank or not, is typed into at once.
   const first = all && out.find(x => x.open || x.blank);
@@ -209,6 +213,17 @@ const goes = id => { const p = App.pending.value, red = FormulaBar.pending.value
 function addEntry(at, edge, out) {
   const spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: T.specOf(tree(at)) }] };
   App.change(tx => { if (!App.schema.value[T.key(spec)]) tx.add('spec', { tree: spec }); tx.add('record', enterAt(tx, { at, edge, ...out })); });
+}
+// A new yes-or-no is only specified: this record's answer is left to a rule, or to its box, offered here, ticked by a hand that means
+// it. A hand tick from making the field would beat the rule written next. A check is one whose failures count as errors, and it goes
+// straight to its rule. One change either way.
+const offered = signal([]);     // yes-or-noes made from a record, offered in its panel till it's left: [{ at, edge }]
+function makeTag(at, edge, check = false) {
+  const spec = { out: { tag: true }, args: [{ edge, loc: T.specOf(tree(at)) }] }, p = T.bare(spec), what = check ? 'check' : 'yes-or-no';
+  App.change(tx => { if (!App.schema.value[T.key(spec)]) tx.add('spec', { tree: spec }); if (check) tx.note('Check', p, true); tx.says(`Added the ${what} ${edge}`); }, { dated: false, say: `Added the ${what} ${edge}` });
+  if (!check) { offered.value = [...offered.peek(), { at, edge }]; return; }
+  select([general(p)]);
+  FormulaBar.define(p);
 }
 const moved = (list, from, i) => { const l = list.slice(); l.splice(i, 0, l.splice(from, 1)[0]); return l; };
 // Reordering writes Order at each sibling's pattern: its edge at its location's specification.
@@ -495,6 +510,7 @@ const boxed = id => 'tag' in recs()[id] && !disagreeing.value.get(id);
 // A record's output, or a blank one's, in place: typed, chosen or ticked; named `label`.
 function Output({ id, slot, label }) {
   if (slot?.na) return html`<span class="na" data-tip="Not tested: its rule doesn’t apply here">n/a</span>`;
+  if (slot?.unsure) return html`<button class="errv err" data-tip="Its rule reads a rule that doesn’t work" onClick=${() => openDef(slot.unsure)}>Can’t say</button>`;
   // An error where the value would be: what it needs, in words ("Needs Fiscal Year End"), its code on hover;
   // with no words, its code, in red. Clicked, the bar says why.
   if (slot?.error) { const { code, msg } = slot.error.error, say = msg?.replace(/\.$/, '');
@@ -505,8 +521,10 @@ function Output({ id, slot, label }) {
   const k = r ? null : slot.type ? slot : kindAt(tree(slot.at), slot.edge);
   const type = r ? T.typeOf(r) : k.type, set = (out, o2) => put(id, slot, out, o2), held = id ? App.held(id) : undefined;
   const more = !r ? null : !f ? html`<${Versions} id=${id} />` : r.field === 'date' ? html`<${Filed} id=${id} />` : null;
-  return type === 'tag' ? html`<${TagBox} r=${r} fx=${f && !held} over=${o} label=${label} reason=${f && !held} tone=${id ? App.noTone(id) : ''} held=${held}
-        flip=${() => (held ? set(false) : f ? emit('why-open', id) : flip(id, slot))} change=${f || held ? null : () => putChange(id, slot, flipped(id))}>${more}</${TagBox}>`
+  // A box a rule covers, worked out or typed over, says why, clicked, and changes nothing, here as in a table.
+  const ruled = f || (!!id && over(id));
+  return type === 'tag' ? html`<${TagBox} r=${r} fx=${f && !held} over=${o} label=${label} reason=${ruled && !held} tone=${id ? App.noTone(id) : ''} held=${held}
+        flip=${() => (held ? set(false) : ruled ? emit('why-open', id) : flip(id, slot))} change=${ruled || held ? null : () => putChange(id, slot, flipped(id))}>${more}</${TagBox}>`
     : type === 'choice' ? html`<${Choice} r=${held ? { ...r, ...held } : r} was=${held ? r.choice : null} id=${id} fx=${f && !held} over=${o} put=${out => (held && T.same(out.choice, r.choice) ? set(false) : set(out, { auto: true }))} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}
         hint=${!r && recs()[slot.at]?.kind ? namedOption(nameOf(slot.at), k.options ?? []) : null}>${more}</${Choice}>`
     : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} preview=${out => putChange(id, slot, out)} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}
@@ -517,7 +535,7 @@ function Output({ id, slot, label }) {
 function entryMenu(anchor, id) {
   const r = recs()[id], f = fx(id);
   menu(anchor, [
-    { label: `All ${T.plural(r.edge)}`, keys: 'Alt+Click', run: () => select([general(patternOf(id))]) },
+    { label: 'Rule', keys: 'Alt+Click', run: () => select([general(patternOf(id))]) },
     // What a formula gives is overridden only by saying so (App.overriding), as its reason in the formula bar offers it.
     ...(f && 'tag' in r && !App.readOnly.peek() ? [{ label: r.tag ? 'Rule out…' : 'Attest…', run: () => App.overriding(id) }] : []),
     ...(f || App.readOnly.peek() ? [] : [{ label: 'Rename', run: () => { renaming.value = id; } }, ...(recs()[r.at]?.at ? [{ label: 'Move up a level', run: () => moveUp(id) }] : [])]),
@@ -527,13 +545,22 @@ function entryMenu(anchor, id) {
 }
 function addItems(at, anchor) {
   const t = tree(at), start = (type, edge) => () => { draft.value = { at, type, ...(edge && { edge, ...kindAt(t, edge) }) }; };
-  const items = unentered(at).sort((a, b) => a.args[0].edge.localeCompare(b.args[0].edge)).map(s => ({ label: s.args[0].edge, detail: typeName(s),
+  // (What a rule gives isn't added: a tag of one is its rule's to answer, and overriding it is a command of its own.)
+  const items = unentered(at).filter(s => !('tag' in s.out && N().resolve('Formula', T.bare(s)))).sort((a, b) => a.args[0].edge.localeCompare(b.args[0].edge)).map(s => ({ label: s.args[0].edge, detail: typeName(s),
     run: 'tag' in s.out ? () => addEntry(at, s.args[0].edge, { tag: true }) : start('field' in s.out ? 'field' : 'choice', s.args[0].edge) }));
   const others = () => [...T.index(recs()).kinds].flatMap(([, ids]) => ids).filter(x => !T.isView(recs()[x]) && x !== objectOf(at))
     .map(x => ({ label: nameOf(x), detail: recs()[x].kind, run: () => select([at, x]) })).sort((a, b) => a.label.localeCompare(b.label));
   const lists = recs()[at].kind ? listItems(at, anchor) : [];
-  return [...(lists.length ? [...lists, '-'] : []), ...items, ...(items.length ? ['-'] : []), { label: 'Value', run: start('field') }, { label: 'Tag', run: start('tag') }, { label: 'Choice', run: start('choice') }, '-',
+  return [{ label: 'Check…', names: ['Rule', 'Test', 'Compliance'], run: start('check') }, { label: 'New yes-or-no', names: ['Tag', 'Yes or no', 'Checkbox', 'Flag'], run: start('tag') }, { label: 'New value', names: ['Value', 'Field', 'Text', 'Number', 'Date'], run: start('field') }, { label: 'New choice', names: ['Choice', 'Dropdown', 'Option', 'List'], run: start('choice') }, '-',
+    ...(lists.length ? [...lists, '-'] : []), ...items, ...(items.length ? ['-'] : []),
     { label: 'Relation…', run: () => menu(anchor, others(), { search: true }) }, ...(recs()[at].kind && !linkOf(at) ? [{ label: 'Document…', run: () => linkAdd(anchor, at) }] : [])];
+}
+// What Add makes of a name typed that it doesn't know: a thing of each sort, named so.
+function addNamed(at, q) {
+  const name = T.clean(q), t = tree(at), have = specsAt(t, name).length || entryNamed(at, name);
+  if (!name || have) return [];
+  return ['-', { label: `New yes-or-no: ${name}`, asked: true, run: () => makeTag(at, name) }, { label: `Check: ${name}`, asked: true, run: () => makeTag(at, name, true) },
+    { label: `New value: ${name}`, asked: true, run: () => { draft.value = { at, type: 'field', edge: name, datatype: null }; } }, { label: `New choice: ${name}`, asked: true, run: () => { draft.value = { at, type: 'choice', edge: name, options: [] }; } }];
 }
 // The lists of relatives a record's kind can have, by their names (Owners, General Partners, Holdings), as its sections
 // name them once it has some: each the relations of the schema, entered not worked out, of two sides, one of which the
@@ -611,9 +638,13 @@ function Label({ it, fx }) {
     onKeyDown=${e => { if (e.key === 'Enter') e.target.blur(); else if (e.key === 'Escape') { e.stopPropagation(); e.target.value = r.edge; e.target.blur(); } }}
     onBlur=${e => { renaming.value = null; rename(it.id, T.clean(e.target.value)); }} />`;
   const click = e => { if (e.altKey && it.id) select([general(patternOf(it.id))]); else if (fx) emit('why-open', it.id); else if (r) typedBy(e.currentTarget, it.id); };
-  return html`<span class=${'lbl' + (fx || r ? ' asks' : '')} onClick=${click} onContextMenu=${e => { if (it.id) { e.preventDefault(); entryMenu({ x: e.clientX, y: e.clientY }, it.id); } }}>
-    ${it.edge}${it.blank ? html`<i class="req" aria-label="Required" />` : null}</span>`;
+  // (One with no record yet has a rule's way in too, where it's a yes-or-no just made or one a rule says nothing of here.)
+  const none = e => { if (!it.t) return; e.preventDefault(); menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rule', run: () => select([general(slotPattern(it))]) }]); };
+  return html`<span class=${'lbl' + (fx || r ? ' asks' : '')} onClick=${click} onContextMenu=${e => { if (it.id) { e.preventDefault(); entryMenu({ x: e.clientX, y: e.clientY }, it.id); } else none(e); }}>
+    ${it.edge}${it.blank ? html`<i class="req" aria-label="Required" />` : null}</span>${it.made ? html`<button class="lk muted to-rule" onClick=${() => select([general(slotPattern(it))])}>Rule</button>` : null}`;
 }
+// What a row with no record yet is of: its entry in general, as patternOf gives it for one with.
+const slotPattern = it => T.bare({ args: [{ edge: it.edge, loc: T.specOf(it.t.args[0].loc) }] });
 
 // A tag ruled out where its definition's Check note says that's a problem (Ownership Adds Up): an error,
 // said in place in red, where any other ruled out is quiet, but one a Check note says needs attention, in amber.
@@ -704,7 +735,7 @@ function copied(e, it, at) {
 // two-box panel draws one; its entries beneath it. Pointed at, its field on the chart lights, and the other way round.
 function Entry({ it, at, depth }) {
   const r = it.id ? recs()[it.id] : null, f = !!r && fx(it.id), sibs = () => slots(at).filter(s => s.id).map(s => s.id);
-  const tag = r ? boxed(it.id) : it.na || (!it.error && kindAt(tree(at), it.edge).type === 'tag'), day = ending(at, it.edge), end = day !== r?.value ? day : null;
+  const tag = r ? boxed(it.id) : it.na || (!it.error && !it.unsure && kindAt(tree(at), it.edge).type === 'tag'), day = ending(at, it.edge), end = day !== r?.value ? day : null;
   const keyMenu = e => { if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); } };
   // A press on its label takes the keys to the row, so Ctrl+C copies it, and may drag it onto the chart.
   const press = e => { if (e.target.closest('input, textarea, button')) return; const row = e.currentTarget.closest('.row'); row.tabIndex = -1; row.focus({ preventScroll: true }); carry(e, it); };
@@ -721,9 +752,15 @@ function Entry({ it, at, depth }) {
       ${tag ? [v, k] : [k, v]}
       <${OnChart} it=${it} at=${at} />
     </div>
+    ${r && overrides(it.id) ? html`<${TypedOver} id=${it.id} depth=${depth} />` : null}
     ${r && !('field' in r) ? html`<${Entries} at=${it.id} depth=${depth + 1} />` : null}
   </div>`;
 }
+// What a value typed over a rule says, under it, so no reader can miss that it isn't what the rule says; and the way back to the rule.
+const ruleSays = id => { const v = App.computed.value.covered?.[id]?.value, r = recs()[id];
+  return v === null || v === undefined ? 'says nothing here' : Formulas.isError(v) ? `gives ${v.code}` : `says ${typeof v === 'boolean' ? (v ? 'Yes' : 'No') : v?.t === 'date' ? short(v.iso) : typeof v === 'number' ? T.format(r.field, v) : String(v)}`; };
+const backToRule = id => App.change(tx => tx.remove(id, null), { dated: false, say: c => Time.describe(c) });
+const TypedOver = ({ id, depth }) => html`<div class="typedover" style=${`--depth:${depth}`}><span>Typed over: the rule ${ruleSays(id)}</span>${App.readOnly.value ? null : html`<button class="lk" onClick=${() => backToRule(id)}>Back to the rule</button>`}</div>`;
 
 // Options as they're typed where several can be: each after a comma, once.
 const optionsTyped = s => [...new Set(String(s).split(',').map(T.clean).filter(Boolean))];
@@ -732,6 +769,8 @@ function Draft({ d, depth }) {
   const [edge, setEdge] = useState(d.edge ?? ''), [k, setK] = useState(d), box = useRef();
   const named = () => { const e = T.clean(edge); if (e && !d.edge) setK({ ...d, ...kindAt(tree(d.at), e), type: d.type, datatype: kindAt(tree(d.at), e).datatype }); return e; };
   const finish = out => { const e = named(); if (!e || !out) return; draft.value = null; addEntry(d.at, e, out); };
+  // A yes-or-no or a check named is made, nothing ticked (makeTag).
+  const tagged = d.type === 'tag' || d.type === 'check', made = () => { const e = named(); if (!e) return; draft.value = null; makeTag(d.at, e, d.type === 'check'); };
   // Options set up front, as Excel's list takes them, by commas: each made, in the order typed, as one change; the record's
   // own is then picked from them, here, or never.
   const several = os => {
@@ -744,15 +783,15 @@ function Draft({ d, depth }) {
   // Leaving keeps a named tag, and drops anything else not finished; a dropdown's menu isn't leaving.
   const leave = e => {
     if (!box.current || box.current.contains(e.relatedTarget) || e.relatedTarget?.closest?.('.float')) return;
-    if (k.type === 'tag' && T.clean(edge)) finish({ tag: true }); else if (draft.peek() === d) draft.value = null;
+    if (tagged && T.clean(edge)) made(); else if (draft.peek() === d) draft.value = null;
   };
   const key = e => { if (e.key === 'Escape') { e.stopPropagation(); draft.value = null; } };
-  const nameKey = e => { if (e.key !== 'Enter') return; e.preventDefault(); if (!named()) return; if (k.type === 'tag') finish({ tag: true }); else box.current.querySelector('.v input, .v button')?.focus(); };
-  const tag = k.type === 'tag', name = html`<div class="k">${d.edge ? html`<span class="lbl">${d.edge}</span>` : html`<input class="cell" placeholder="Name" aria-label="Name" value=${edge}
+  const nameKey = e => { if (e.key !== 'Enter') return; e.preventDefault(); if (!named()) return; if (tagged) made(); else box.current.querySelector('.v input, .v button')?.focus(); };
+  const tag = tagged, name = html`<div class="k">${d.edge ? html`<span class="lbl">${d.edge}</span>` : html`<input class="cell" placeholder="Name" aria-label="Name" value=${edge}
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onInput=${e => setEdge(e.target.value)} onKeyDown=${nameKey} onBlur=${named} />`}</div>`;
-  const value = html`<div class="v ctl">${tag ? html`<span class="cellbox"><button class="tag yes" role="checkbox" aria-checked="true" aria-label=${T.clean(edge) || 'Tag'} onClick=${() => finish({ tag: true })} /></span>`
+  const value = html`<div class="v ctl">${tag ? html`<span class="cellbox"><span class="tag" aria-hidden="true" /></span>`
       : k.type === 'choice' && k.options?.length ? html`<${Choice} options=${k.options} label=${T.clean(edge) || 'Choice'} put=${finish} />`
-      : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New options" aria-label="New options" onKeyDown=${e => { const os = optionsTyped(e.target.value); if (e.key !== 'Enter' || !os.length) return; if (os.length > 1) several(os); else finish({ choice: os[0] }); }} /></span>`
+      : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New options" aria-label="New options" ref=${el => d.edge && el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onKeyDown=${e => { const os = optionsTyped(e.target.value); if (e.key !== 'Enter' || !os.length) return; if (os.length > 1) several(os); else finish({ choice: os[0] }); }} /></span>`
       : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} label=${T.clean(edge) || 'Value'} put=${finish} />`}</div>`;
   return html`<div class=${'row draft' + (tag ? ' chk' : '')} ref=${box} style=${`--depth:${depth}`} onFocusOut=${leave} onKeyDown=${key}>${tag ? [value, name] : [name, value]}</div>`;
 }
@@ -845,9 +884,11 @@ function groundSaid(it) {
   try { row = Formulas.ground(R, it.rid)?.rows?.[0]; } catch {}
   if (!row) return null;
   const mine = rel.args.find(a => T.same(a.edge, it.mine))?.at, other = rel.args.find(a => T.same(a.edge, it.edge))?.at;
-  const ids = (row.parts ?? []).flatMap(p => [p.id, ...(p.items ?? []).map(x => x.id)]).filter(x => x && x !== it.rid && R.computed[x]?.def === def);
+  const down = ps => (ps ?? []).flatMap(p => [p.id, ...down(p.items)]), ids = down(row.parts).filter(x => x && x !== it.rid && R.computed[x]?.def === def);
   const to = ids.find(x => r[x]?.args?.some(a => a.at === mine)), from = ids.find(x => r[x]?.args?.some(a => a.at === other));
-  if (!to) return word(row.label);
+  // Reached through a record it holds by the same relation, the words its row has say whose they are: more than 25% of voting securities,
+  // via AIV-1 Blocker, not as if it held them itself.
+  if (!to) { const by = from && r[from].args.find(a => a.at !== other)?.at; return by ? [word(row.label), `via ${termOf(by)}`].filter(Boolean).join(', ') : word(row.label); }
   const via = r[to].args.find(a => a.at !== mine)?.at, near = word(because(to)?.label), far = from && word(because(from)?.label);
   return `via ${termOf(via)}${near ? `, ${near.includes(':') ? '' : 'its '}${near}` : ''}${far ? `; ${far} there` : ''}`;
 }
@@ -900,7 +941,7 @@ function rowName(x) {
 const placeName = x => recs()[x]?.args ? rowName(x) : nameOf(x);
 // A list's + adds to it as Add's list of it does (addTo): who, one the chart has or a new one named.
 function Relatives({ id }) {
-  const { lists, docs, nots } = relatives(id);
+  const { lists, docs, nots } = relatives(id), isnts = FormulaBar.notOn?.(id) ?? [];
   const add = (e, name) => { const l = listsOf(id).find(x => T.same(x.name, name)); if (l) addTo(e.currentTarget, id, l); };
   // A relative takes two lines: its name and role, then the facts; with no role, the facts take its place.
   // The name is the long thing and the role or figure the short one, set at the right.
@@ -928,8 +969,9 @@ function Relatives({ id }) {
   // last, quieter, what's ruled out, each with its reason's words on hover.
   const worked = items => items.every(it => fx(it.rid)), typing = linking.value === id;
   const held = lists.flatMap(([, items]) => items);
-  // A list's count says how many of it a check fails at: "3 · 1 doesn't hold".
+  // A list's count says how many of it a check fails at: "3 · 1 doesn't hold"; and one a rule in error gives, that it's no answer.
   const counted = items => { const bad = items.filter(it => entriesAt(it.rid).some(e => recs()[e].tag === false && failed(e))).length;
+    if (App.broken.value.reach.has(App.computed.value.computed[items[0].rid]?.def)) return html`${items.length} · <span class="no">can’t be relied on</span>`;
     return bad ? html`${items.length} · <span class="no">${bad} ${bad === 1 ? 'doesn’t' : 'don’t'} hold</span>` : items.length; };
   // Ticked rows of a list end together, on one day, as a change pending; the panel stays on this record.
   const endRows = items => { const ids = items.filter(it => picked.has(it.rid)).map(it => it.rid);
@@ -939,13 +981,14 @@ function Relatives({ id }) {
   return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${counted(items)}
       cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} act=${html`${endRows(items)}${adds(name, items)}`}>${items.map(item)}
       ${worked(items) && asTable() ? html`<button class="lk as-table" onClick=${() => Table.openList(name, items[0].rid, id)}>Open ${name} as a table</button>` : null}
-      ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t…</button></div>` : null}</${Section}>`)}
+      ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t… on this list?</button></div>` : null}</${Section}>`)}
     ${docs.length || typing || docList(id) ? html`<${Section} title="Documents" id="docs" n=${docs.length} act=${docAdd(id)}>
       ${docs.map(docRow)}
       ${typing ? html`<div class="row"><div class="k wide"><input class="cell" placeholder="Link" aria-label="Link" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
         onKeyDown=${e => { if (e.key === 'Enter') { const u = T.clean(e.target.value); if (T.isAddress(u)) { linking.value = null; link(id, u); } else e.target.setAttribute('aria-invalid', 'true'); } else if (e.key === 'Escape') { e.stopPropagation(); linking.value = null; } }}
         onBlur=${() => { linking.value = null; }} /></div></div>` : null}</${Section}>` : null}
-    ${nots.length ? html`<div class="nots">${nots.map(it => html`<div class="row" key=${it.rid}><div class="k wide"><${Go} to=${it.rid} tip=${because(it.rid)?.words}>${notText(it, held)}</${Go}></div></div>`)}</div>` : null}`;
+    ${nots.length || isnts.length ? html`<div class="nots">${nots.map(it => html`<div class="row" key=${it.rid}><div class="k wide"><${Go} to=${it.rid} tip=${because(it.rid)?.words}>${notText(it, held)}</${Go}></div></div>`)}
+      ${isnts.map(x => html`<div class="row" key=${x.key}><div class="k wide"><button class="lk" onClick=${x.run}>${x.label}</button></div></div>`)}</div>` : null}`;
 }
 
 // Look: each format property set for a mark and its value, under where it comes from, said once, as an
@@ -1058,6 +1101,8 @@ function moreOf(id) {
       ...(App.interposable(id) ? [{ label: 'Insert an entity between…', disabled: still, run: () => App.interposing(id) }] : []),
       { label: `${App.deleteVerb([id])}…`, danger: true, disabled: still, run: () => remove(id, { auto: true, inline: true }) }],
   ];
+  // (A relation's own page, where it's named and its sides are, a click from any record of it: what renaming it starts from.)
+  if (r.args) sections[0].push({ label: 'The relation', run: () => select([general(N().relationPattern(tree(id)))]) });
   return sections.filter(s => s.length).flatMap((s, i) => i ? ['-', ...s] : s);
 }
 // The breadcrumb's kind opens its table, at the record's row, where the chart has one, or else says the kind in general;
@@ -1074,7 +1119,7 @@ function alike(id) {
 }
 // Add: what a record (at `at`), or a panel's own `items`, can have that it hasn't; `also`, another quiet action beside it.
 const AddRow = ({ at, items = anchor => addItems(at, anchor), also = null }) => App.readOnly.value ? null
-  : html`<div class="row addrow"><div class="k wide"><button class="btn ghost add-entry" onClick=${e => menu(e.currentTarget, items(e.currentTarget), { search: true })}>${icon('plus')}Add</button>${also}</div></div>`;
+  : html`<div class="row addrow"><div class="k wide"><button class="btn ghost add-entry" onClick=${e => menu(e.currentTarget, items(e.currentTarget), { search: true, more: at ? q => addNamed(at, q) : null })}>${icon('plus')}Add</button>${also}</div></div>`;
 
 function RecordView({ id }) {
   const r = recs()[id];
@@ -1516,15 +1561,19 @@ function RelateView({ a, b }) {
     const was = App.pending.peek()?.relate?.key === 'new' && App.pending.peek().relate.a === a && App.pending.peek().relate.b === b ? App.pending.peek() : null;
     App.stage({ verb: 'Add', what: `${name}: ${n.placed(r, null, rec.args).map(s => s.join + s.text).join('')}`, source: `relate ${a} ${b}`, relate: { a, b, key: 'new', out: { tag: true } },
       asks: 'from', day: was ? was.day : App.day.peek(), needs: [a, b], say: c => Time.describe(c),
-      make: tx => { tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); },
+      // (Its lists go by their roles, plural, as any list's name is: Holders, Funds.)
+      make: tx => { tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb }); },
       done: () => { naming.value = null; fresh.value = { a, b, key: [ra, rb, a, b].join('|').toLowerCase() }; } });
   };
+  // Enter goes on to the next it asks, until it's all given, and then makes it.
   const formKeys = e => {
-    if (e.key === 'Enter') { e.preventDefault(); if (ours) App.commit(); }
+    if (e.key === 'Enter') { e.preventDefault(); if (ours) App.commit(); else { const all = [...e.currentTarget.querySelectorAll('input.cell')]; all[all.indexOf(e.target) + 1]?.focus(); } }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); naming.value = null; if (ours) App.discard(); }
   };
-  const inp = (k, label, first) => html`<input class="cell" placeholder=${first ? 'New relation' : null} aria-label=${label} value=${form[k]} spellcheck=${false} autocomplete="off"
+  const inp = (k, label, first) => html`<input class=${'cell' + (first ? '' : ' role')} placeholder=${first ? 'New relation' : 'New role'} aria-label=${label} value=${form[k]} spellcheck=${false} autocomplete="off"
     onInput=${e => type(k, e.target.value)} ref=${first ? el => el && !el.dataset.on && (el.dataset.on = 1, el.focus()) : null} />`;
+  // A role another relation has is said as it's written: a formula reading it would read both.
+  const sharedRole = k => { const v = T.clean(form?.[k] ?? ''), of = v && App.relations.value.filter(x => !T.same(x.name, form.name) && x.edges?.some(e => T.same(e, v))).map(x => x.name); return of?.length ? html`<span class="role-shared">${v} is a side of ${of.join(' and ')} too.</span>` : null; };
   // What someone entered first, then what a formula gives, and last what's ruled out; each by name, then the
   // first's side first.
   const order = (x, y) => (r[x.id].tag === false) - (r[y.id].tag === false) || fx(x.id) - fx(y.id) || x.name.localeCompare(y.name);
@@ -1558,7 +1607,7 @@ function RelateView({ a, b }) {
     ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
       ${form ? html`<div class=${'rr new' + (ours ? ' adding' : '')} onKeyDown=${formKeys}><span class="ctl"><span class=${'tag' + (ours ? ' yes' : '')} /></span><span class="form">
-          ${inp('name', 'Name', true)}<span class="side">${side(a, true)}</span>${inp('ra', `${nameOf(a)}’s role`)}<span class="side">${side(b, true)}</span>${inp('rb', `${nameOf(b)}’s role`)}</span>
+          ${inp('name', 'Name', true)}<span class="side">${side(a, true)}</span>${inp('ra', `${nameOf(a)}’s role`)}${sharedRole('ra')}<span class="side">${side(b, true)}</span>${inp('rb', `${nameOf(b)}’s role`)}${sharedRole('rb')}</span>
           ${ours ? ask(p) : null}</div>`
         : ghost('New relation', () => { if (draft) App.discard(); naming.value = { a, b, name: '', ra: '', rb: '' }; })}
     </div>`}
@@ -1594,7 +1643,7 @@ function Typeset({ r, def }) {
   const text = r.formula, f = Formulas.splitFormula(text), byName = new Map(App.definitions.value.map(d => [T.norm(d.name), d]));
   let toks = [];
   try { toks = Formulas.tokenize(f.body, f.offset).slice(0, -1); } catch {}
-  const lines = [[text.slice(0, f.offset)]];
+  const lines = [[html`<span title=${FormulaBar.startSaid(f.kind)}>${text.slice(0, f.offset)}</span>`]];
   let depth = 0, last = f.offset;
   toks.forEach((t, i) => {
     const gap = text.slice(last, t.pos), src = text.slice(t.pos, t.end);
@@ -1611,12 +1660,18 @@ function Typeset({ r, def }) {
   return html`<div class="st-set" onClick=${e => FormulaBar.focus('r' + r.i, { write: e.detail > 1 && !App.readOnly.peek() })}>${lines.map((l, i) => html`<div class=${i ? 'cont' : null}>${l}</div>`)}</div>`;
 }
 // How many records a clause gives, in the words of the list they make ("15 close affiliates") or of the kind
-// they're at ("3 entities").
+// they're at ("3 entities"). A yes-or-no is said by how many it holds at, for that it was asked at some says nothing of them: "3 hold,
+// 3 don't".
 function counted(p, ids) {
   const n = N(), one = ids.length === 1, e = p.args?.length > 1 && n.edges(p)[0];
-  if (e) return lower(one ? e : n.listName(p, e));
+  const said = (k, x) => `${k} ${x}`;
+  if (e) return said(ids.length, lower(one ? e : n.listName(p, e)));
+  if (ids.length && ids.every(id => 'tag' in recs()[id])) {
+    const yes = ids.filter(id => recs()[id].tag === true).length, no = ids.length - yes;
+    return [yes || !no ? `${yes} ${yes === 1 ? 'holds' : 'hold'}` : null, no ? `${no} ${no === 1 ? 'doesn’t' : 'don’t'}` : null].filter(Boolean).join(', ');
+  }
   const kinds = [...new Set(ids.map(id => recs()[objectOf(id)]?.kind))];
-  return kinds.length === 1 && kinds[0] ? lower(one ? kinds[0] : T.plural(kinds[0])) : one ? 'record' : 'records';
+  return said(ids.length, kinds.length === 1 && kinds[0] ? lower(one ? kinds[0] : T.plural(kinds[0])) : one ? 'record' : 'records');
 }
 function Statute({ def, p, law }) {
   const { lead, groups, tail, put } = law, mine = Object.entries(App.computed.value.computed).filter(([, c]) => c.def === def.note);
@@ -1632,7 +1687,7 @@ function Statute({ def, p, law }) {
         <span class="st-label">${g.label}</span>${words(g, 'st-law')}
         <div class="st-forms">${g.rows.length ? g.rows.map(r => html`<${Typeset} key=${r.i} r=${r} def=${def.note} />`)
           : App.readOnly.value ? null : html`<button class="st-write" onClick=${write(g)}>${'='}</button>`}</div>
-        ${ids.length ? html`<button class="st-n" onClick=${() => select(ids)}>${ids.length} ${counted(p, ids)}</button>` : html`<span class="st-n" />`}</li>`; })}</ol>
+        ${ids.length ? html`<button class="st-n" onClick=${() => select(ids)}>${counted(p, ids)}</button>` : html`<span class="st-n" />`}</li>`; })}</ol>
     ${tail.map(x => words(x, 'st-lead'))}
   </div>`;
 }
@@ -1640,6 +1695,49 @@ function Statute({ def, p, law }) {
 // A yes or no about an entry in general, a checkbox row as a tag is: its box, then its label.
 const checkRow = (label, on, set) => html`<label class="row chk" key=${label}><span class="v ctl"><input type="checkbox" checked=${on} disabled=${App.readOnly.value}
   onChange=${e => set(e.target.checked)} /></span><span class="k">${label}</span></label>`;
+
+// Who last changed a rule, when and why, what it did, and its History: what a regulator asks of it, asked of the rule. Each of its
+// changes is what's said at its pattern (`keys`), the rest of what the change held left out.
+function RuleLog({ keys, name }) {
+  const log = Time.ruleLog(keys), last = log.at(-1), [typing, setTyping] = useState(false), still = App.readOnly.value;
+  useLayoutEffect(() => { if (last && !last.fx) Time.ask(last.change); }, [last?.change.id]);
+  if (!last) return null;
+  const say = e => { if (e.key === 'Escape') { e.stopPropagation(); setTyping(false); } else if (e.key === 'Enter') { e.preventDefault(); const text = e.target.value; setTyping(false); App.annotate(last.change.id, text); } };
+  return html`<div class="rule-log">
+    <p class="who"><span class="what">${last.head}</span> · ${last.who} · ${whenTyped(last.when)}</p>
+    ${last.reasons.map(r => html`<p class="why">${r.text}${r.own ? null : html`<span class="by"> · ${r.who}, ${short(T.isoOf(new Date(r.when)))}</span>`}</p>`)}
+    ${last.fx?.said ? html`<p class="did" title=${last.fx.said}>${last.fx.said}</p>` : null}
+    ${typing ? html`<label class="why-in"><span>Why</span><input class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onKeyDown=${say} onBlur=${() => setTyping(false)} /></label>`
+      : html`<p class="acts">${still ? null : html`<button class="lk why-add" onClick=${() => setTyping(true)}>Why…</button>`}<button class="lk" onClick=${() => Time.ofRule(keys, name)}>History</button></p>`}
+  </div>`;
+}
+// What a rule won't stand behind: what's wrong with it, or the rule it reads that's in error.
+function RuleInError({ def }) {
+  const { roots, reach } = App.broken.value, own = roots.find(r => r.def === def), warned = (App.computed.value.flaws?.[def] ?? []).filter(f => f.warn);
+  if (!reach.has(def) && !warned.length) return null;
+  return html`<div class="rule-err" role="alert">${own ? own.problems.map(t => html`<p>${t}</p>`) : reach.has(def) ? html`<p>It reads ${roots.map(r => r.name).join(' and ')}, whose formula doesn’t work: what it gives can’t be relied on.</p>` : null}
+    ${warned.map(f => html`<p class="warn">${f.message}</p>`)}</div>`;
+}
+// Each of a rule's records a tag's rule says no of, or a hand has typed over, by name: who fails, on its page; and the way back to the rule.
+function RuleRecords({ def, check }) {
+  const R = App.computed.value, nm = x => recs()[x]?.args ? segment(x) : bound(N().whereOf(recs(), recs()[x])), to = x => objectOf(x) ?? x;
+  const no = Object.keys(R.computed).filter(x => R.computed[x].def === def && recs()[x]?.tag === false).sort((a, b) => nm(a).localeCompare(nm(b)));
+  const typed = Object.keys(R.covered).filter(x => R.covered[x].def === def && !R.covered[x].agrees && recs()[x]).sort((a, b) => nm(a).localeCompare(nm(b)));
+  return html`
+    ${no.length ? html`<${Section} title=${check ? 'Fails at' : 'Doesn’t hold at'} n=${no.length} shut=${no.length > 8}>${no.map(x => html`<div class="row" key=${x}><div class="k wide"><${Go} to=${recs()[x].args ? x : to(x)}>${nm(x)}</${Go}></div></div>`)}</${Section}>` : null}
+    ${typed.length ? html`<${Section} title="Typed over" n=${typed.length}>${typed.map(x => html`<div class="row" key=${x}><div class="k wide"><${Go} to=${recs()[x].args ? x : to(x)}>${nm(x)}</${Go}></div>
+      <div class="v"><span class="muted">${T.outputText(recs()[x])}; the rule ${ruleSays(x)}</span>${App.readOnly.value ? null : html` <button class="lk" onClick=${() => backToRule(x)}>Back to the rule</button>`}</div></div>`)}</${Section}>` : null}`;
+}
+// What a rule can be limited to, of what its records have: each yes-or-no, and each option of a choice, at what it's at. Its rows
+// go under it, in the bar, n/a elsewhere (dendra.md, Not tested): nothing's made till Done.
+function limits(s0, def) {
+  const k = s0?.args?.[0]?.loc?.kind, S = Object.values(App.schema.value);
+  if (!k || !def) return [];
+  const at = S.filter(s => s.args?.length === 1 && s.out && s.args[0].loc.kind && T.same(s.args[0].loc.kind, k) && !T.same(s.args[0].edge, s0.args[0].edge)), nm = Formulas.nameText;
+  const tags = at.filter(s => 'tag' in s.out).map(s => ({ label: s.args[0].edge, run: () => FormulaBar.limit(def.note, nm(s.args[0].edge)) }));
+  const opts = at.filter(s => 'choice' in s.out).map(s => ({ label: `${s.args[0].edge}: ${s.out.choice}`, run: () => FormulaBar.limit(def.note, `${nm(s.args[0].edge)} = "${s.out.choice}"`) }));
+  return [...new Map([...tags, ...opts].map(x => [x.label, x])).values()].sort((a, b) => a.label.localeCompare(b.label));
+}
 
 // An entry, relation or kind in general: what it's called and means, its options, whether it's required,
 // a start or an end, where it's at, its definition, and its styles. Seen as a `style` (a frame selected), it
@@ -1651,30 +1749,47 @@ function GeneralView({ p, style }) {
   const name = n.name(p), def = !kind && n.resolve('Formula', p)?.note, dated = type === 'field' && s0.out.field === 'date', dp = { out: { field: 'date' }, args: p.args };
   // Where the Description is the statute the Formula sets out, it's said there, clause by clause, and only there.
   const law = def && clausesOf(def.value.map((r, i) => ({ ...r, i })), n.description(p));
-  const setName = to => { if (!to || to === name) return; App.change(tx => kind ? tx.rename(p, p.kind, to) : rel ? tx.note('Name', p, to) : tx.rename(loose(p), p.args[0].edge, to)); };
+  // (A selection names what its page is of, so a page renamed goes with its new name.)
+  const setName = to => {
+    if (!to || to === name) return;
+    const made = App.change(tx => kind ? tx.rename(p, p.kind, to) : rel ? tx.note('Name', p, to) : tx.rename(loose(p), p.args[0].edge, to));
+    if (made && !rel) select([general(kind ? { ...p, kind: to } : { ...p, args: [{ ...p.args[0], edge: to }] })]);
+  };
   const flag = (label, q, v) => App.change(tx => tx.note(label, q, v));
   const options = type === 'choice' ? optionsOf(specs) : [];
   const reorderOpts = (from, i) => App.change(tx => moved(options, from, i).forEach((o, k) => tx.note('Order', { out: { choice: o }, args: p.args }, k + 1)));
   const ats = kind ? [] : rel ? n.edges(p).map(e => [e, [...new Set(specs.map(s => where(s.args.find(a => T.same(a.edge, e)).loc)))].join(', ')])
     : [['At', [...new Set(specs.map(s => where(s.args[0].loc)))].join('\n')]];
   const below = kind ? [...new Map(Object.values(S).filter(s => s.args?.length === 1 && s.args[0].loc.kind && T.same(s.args[0].loc.kind, p.kind)).map(s => [T.norm(s.args[0].edge), s])).values()] : [];
-  const addFormula = () => { if (App.change(tx => tx.note('Formula', p, [{ label: '', formula: type === 'tag' ? '← ' : '= ' }]))) FormulaBar.focus('r0', { write: true }); };
+  // A first formula is written in the bar, and is nothing till it's Done (FormulaBar.define).
+  const addFormula = () => FormulaBar.define(p), writing = FormulaBar.draft.value?.fresh && T.key(FormulaBar.draft.value.pattern) === T.key(p);
   const v = viewShown()?.layout === 'chart' ? Shell.view.value : null, described = !law?.any && (describing || !!n.description(p));
-  const adds = still ? [] : [...(law?.any || described ? [] : [{ label: 'Description', run: () => setDescribing(true) }]), ...(def || kind ? [] : [{ label: 'Formula', run: addFormula }])];
+  const adds = still ? [] : [...(law?.any || described ? [] : [{ label: 'Description', run: () => setDescribing(true) }]), ...(def || kind || writing ? [] : [{ label: 'Formula', run: addFormula }])];
+  // What's said of it in a sentence (a role renamed, say, is every tree of it relabeled, and every formula that cites it).
+  const renameRole = (e, to) => {
+    if (!to || T.same(to, e)) return;
+    const said = `Renamed the role ${e} of ${name} to ${to}`, made = App.change(tx => { tx.rename(loose(p), e, to); tx.says(said); }, { say: said, dated: false });
+    if (made) select([general({ ...p, args: p.args.map(a => T.same(a.edge, e) ? { ...a, edge: to } : a) })]);
+  };
+  const keys = [...new Set([T.key(p), ...(def ? [T.key(def.pattern)] : [])])], cond = rel || kind || !def ? [] : limits(s0, def);
   // As of a day past, today's rule is what's read: where it's changed since, it says so.
   const since = def && typeof Time !== 'undefined' ? Time.ruleSince(def.pattern) : null;
   return html`<div class="insp">
-    <${Head} title=${name} path=${style ? [{ label: 'Style' }] : kind || rel ? [] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Tag') }]}>
+    <${Head} title=${name} path=${style ? [{ label: 'Style' }] : kind ? [] : rel ? [{ label: 'Relation' }] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Yes or no') }]}>
       <${Field} r=${{ field: 'text', value: name }} datatype="text" label="Name" title put=${out => out && setName(out.value)} /></${Head}>
     ${since ? html`<div class="later"><span>Today’s rule: changed ${since.day} by ${since.who}</span>${since.stand ? html`<button class="btn" onClick=${since.stand}>As it stood</button>` : null}</div>` : null}
     <div class="rows">
+      ${def ? html`<${RuleInError} def=${def.note} />` : null}
+      ${kind ? null : html`<${RuleLog} keys=${keys} name=${name} />`}
       ${described ? html`<div class="row"><div class="k">Description</div><div class="v ctl"><${Prose} text=${n.description(p) ?? ''} label="Description" auto=${describing}
         put=${text => { setDescribing(false); App.change(tx => tx.note('Description', p, text || undefined)); }} done=${() => setDescribing(false)} /></div></div>` : null}
-      ${ats.map(([k, x]) => html`<div class="row" key=${k}><div class="k">${k}</div><div class="v lines">${x}</div></div>`)}
-      ${rel ? n.edges(p).map(e => html`<div class="row" key=${'l' + e}><div class="k">${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
+      ${ats.map(([k, x]) => html`<div class="row" key=${k}><div class="k">${k}</div><div class="v lines">${cond.length && !still ? html`<button class="sel dd" aria-haspopup="menu" data-tip="Limit it to" onClick=${e => menu(e.currentTarget, cond, { search: cond.length > 7 })}><span>${x}</span></button>` : x}</div></div>`)}
+      ${rel ? n.edges(p).map(e => html`<div class="row" key=${'r' + e}><div class="k">Role</div><div class="v ctl"><${Field} r=${{ field: 'text', value: e }} datatype="text" label=${`Role ${e}`} put=${out => out && renameRole(e, out.value)} /></div></div>
+        <div class="row" key=${'l' + e}><div class="k">${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
-      ${kind || rel ? null : checkRow('Required', n.required(p), on => flag('Required', p, on))}
-      ${kind || rel || dated ? null : checkRow('Changes over time', !n.fixed(p), on => flag('Fixed', p, on ? undefined : true))}
+      ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('A blank needs filling in', n.required(p), on => flag('Required', p, on))}
+      ${type === 'tag' ? checkRow(def || writing ? 'A failure counts as an error' : 'A no needs attention', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
+      ${kind || rel || dated || def ? null : checkRow('Changes over time', !n.fixed(p), on => flag('Fixed', p, on ? undefined : true))}
       ${dated ? ['Start', 'End'].map(l => checkRow(l, l === 'Start' ? n.isStart(dp) : n.isEnd(dp), on => flag(l, dp, on))) : null}
       ${adds.length ? html`<${AddRow} items=${() => adds} />` : null}
     </div>
@@ -1686,6 +1801,7 @@ function GeneralView({ p, style }) {
       ${below.sort((x, y) => (n.order(x) ?? Infinity) - (n.order(y) ?? Infinity) || x.args[0].edge.localeCompare(y.args[0].edge)).map(s => html`<div class="row" key=${T.key(s)}>
         <div class="k"><${Go} to=${general(T.bare(s))}>${s.args[0].edge}</${Go}></div><div class="v muted">${typeName(s)}</div></div>`)}</${Section}>` : null}
     ${def ? html`<${Section} title="Formula"><${Statute} def=${def} p=${p} law=${law} /></${Section}>` : null}
+    ${def ? html`<${RuleRecords} def=${def.note} check=${n.value('Check', p) === true} />` : null}
     ${v && stylesOf(v, p).length ? html`<${Section} title="Styles"><${Styles} v=${v} only=${p} /></${Section}>` : null}
   </div>`;
 }
@@ -1746,8 +1862,10 @@ const attending = a => {
     select([obj]);
     if (why) emit('why-open', why);
   };
+  // (A rule in error that shows at no record goes to the rule.)
+  const toRule = () => { const q = N().notes('Formula').find(x => x.note === a.error.def)?.pattern; if (q) select([general(q)]); };
   const p = a.error && (placeOf(a.error) ?? a.error.args?.[0]);
-  return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, go: a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
+  return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, go: a.error?.rule ? toRule : a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
 };
 const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' || a.error).map(attending));
 
@@ -1786,6 +1904,24 @@ Shell.register('action', { id: 'record.merge', name: 'Merge into…', names: ['M
   enabled: () => !App.readOnly.peek() && !!theOne() && App.endsOf(theOne()).some(e => e.rel), run: () => App.merging(theOne()), why: notNow('Only what can merge merges', 'an entity') });
 Shell.register('action', { id: 'record.delete', get name() { return `${theOne() ? App.deleteVerb([theOne()]) : 'Delete'}…`; }, names: ['Delete', 'Remove', 'Dissolve', 'End'],
   enabled: () => !App.readOnly.peek() && !!theOne(), run: () => remove(theOne(), { auto: true, inline: true }), why: notNow('', 'what to delete') });
+// The list of the rules, from the chart's menu and Find: what checks something first, then every other, then the relations entered,
+// each a click from its page.
+function rulesList(anchor = { x: 40, y: 44 }) {
+  const n = N(), S = App.schema.peek(), { roots } = App.broken.peek(), defs = n.notes('Formula').filter(x => !x.view);
+  const item = (p, detail) => ({ label: n.name(p), detail: roots.some(r => T.same(r.name, n.name(p))) ? 'Doesn’t work' : detail, run: () => select([general(p)]) }), by = (a, b) => a.label.localeCompare(b.label);
+  const of = x => x.pattern.args?.length > 1 ? 'Relation' : 'field' in (n.fitting(S, x.pattern)[0]?.out ?? {}) ? 'Value' : 'choice' in (n.fitting(S, x.pattern)[0]?.out ?? {}) ? 'Choice' : 'Yes or no';
+  const checks = defs.filter(x => n.value('Check', x.pattern) === true), rest = defs.filter(x => !checks.includes(x));
+  const worked = new Set(defs.filter(x => x.pattern.args?.length > 1).map(x => T.norm(n.name(x.pattern))));
+  const relations = App.layouts.peek().relations.filter(l => !worked.has(T.norm(l.name))).map(l => item(l.rows, 'Relation'));
+  const part = (head, xs) => xs.length ? [{ head }, ...xs.sort(by)] : [];
+  menu(anchor, [...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations)], { search: true });
+}
+Shell.register('action', { id: 'rules', name: 'Rules', names: ['Checks', 'Check', 'Definitions', 'Formulas', 'List of rules', 'Relations'], menu: 'chart', order: 11, run: () => setTimeout(() => rulesList()) });
+// A relation no rule gives is reopened from Find too, by its name, as a rule is: its page names it, and its roles.
+Shell.register('find', { items: () => {
+  const n = N(), given = new Set(n.notes('Formula').filter(x => x.pattern.args?.length > 1).map(x => T.norm(n.name(x.pattern))));
+  return App.layouts.peek().relations.filter(l => !given.has(T.norm(l.name))).map(l => ({ label: l.name, detail: 'Relation', names: ['Relation', 'Rename relation'], run: () => select([general(l.rows)]) }));
+} });
 // Renamed in its panel's title, its Name, which the keys go to.
 Shell.register('action', { id: 'record.rename', name: 'Rename', names: ['Change name', 'Edit name'], enabled: () => !App.readOnly.peek() && !!theOne() && !!recs()[theOne()].kind,
   run: () => { Shell.showPanel?.(); setTimeout(() => { const t = document.querySelector('.insp .ih .cellbox.title textarea'); t?.focus(); t?.select(); }, 60); },
@@ -1873,7 +2009,7 @@ preactSignals.effect(() => {
 // it was put away.
 on('relate-open', d => { Shell.showPanel?.(); select(d); });
 // A relation just added offers its entries while its two boxes stay selected.
-on('select', () => { fresh.value = null; if (ticked.peek().size) ticked.value = new Set(); });
+on('select', () => { fresh.value = null; if (ticked.peek().size) ticked.value = new Set(); if (offered.peek().length) offered.value = []; });
 // A definition opened from the formula bar widens the inspector, since its statute set out wide is what the
 // bar was asked for.
 on('select', keys => { const p = keys.length === 1 && Shell.pattern(keys[0]); if (p && document.activeElement?.closest('.formulabar') && N().resolve('Formula', p)) Shell.widen(); });
