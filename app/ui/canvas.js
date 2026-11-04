@@ -634,7 +634,7 @@ function mount(el) {
   const snapped = new Map();
   function snapBodies() {
     snapping = 0;
-    if (!scene || !root.clientWidth) return;
+    if (!scene || root.closest('[hidden]')) return;
     const dpr = devicePixelRatio || 1, z = graph.zoom(), t = graph.translate(), d = z * dpr, at = `${z}|${t.tx}|${t.ty}|${dpr}`;
     if (at !== snapAt) { snapped.clear(); snapAt = at; }
     // (The middle of a pixel for a stroke of an odd width; between two for an even.)
@@ -695,7 +695,8 @@ function mount(el) {
   // drawn last, which costs nothing, but what a drag has left astray, which only the cell knows.
   function takeOff(next) {
     const sc = drawnScene, z = graph.zoom(), t = graph.translate();
-    if (reduced.matches || !screen.w || !root.clientWidth || !sc) { grounded(); return null; }
+    // (Whether it can be seen, by what hides it: asking the window its width here would lay it out, and again once it's drawn.)
+    if (reduced.matches || !screen.w || root.closest('[hidden]') || !sc) { grounded(); return null; }
     const up = flown(), rects = new Map(), lines = new Map(), going = [], stray = id => { const d = drawn.get(id); return d && !('zIndex' in d.where) ? graph.getCellById(id) : null; };
     // (What goes is copied only where it's few: more than a frame could fade is simply gone.)
     let toGo = 0;
@@ -2727,7 +2728,7 @@ function mount(el) {
   const aboutToGlide = () => ({ s: graph.zoom(), t: graph.translate() });
   function glide(was) {
     const s = graph.zoom(), t = graph.translate();
-    if (reduced.matches || flight || landing || !root.clientWidth || graph.getCells().length > FLIGHT || (s === was.s && t.tx === was.t.tx && t.ty === was.t.ty)) return;
+    if (reduced.matches || flight || landing || root.closest('[hidden]') || graph.getCells().length > FLIGHT || (s === was.s && t.tx === was.t.tx && t.ty === was.t.ty)) return;
     const a = viewport.animate([{ transform: `translate(${was.t.tx}px, ${was.t.ty}px) scale(${was.s})` }, { transform: `translate(${t.tx}px, ${t.ty}px) scale(${s})` }], TRAVEL), mine = flight = { anims: [a], rects: new Map(), lines: new Map() };
     root.classList.add('flying');
     const done = () => { if (flight === mine) { flight = null; root.classList.remove('flying'); } };
