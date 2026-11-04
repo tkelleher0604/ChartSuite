@@ -292,8 +292,9 @@ const FormulaBar = (() => {
   // failed, by its clause, what it read as a reason is. A number given down a list of itself, as a look-through is, says
   // the list had none that reached it; and what connects the two instead, a record that holds the first relation of
   // theirs both lack over each of them: GP III is a controller of both.
-  function notRuns(Rv, o) {
-    const { d, a, b, at } = o, recs = Rv.records, t = noteOf(d.id)?.pattern;
+  function notRuns(Rv, o) { try { return notSaid(Rv, o); } catch { return null; } }
+  function notSaid(Rv, o) {
+    const { d, a, b, at } = o, t = noteOf(d.id)?.pattern;
     if (!t) return null;
     const isTag = d.type === 'tag', [s, words] = isTag ? phrase(t, d.edges[0], d.edges[1], { not: true }) : [];
     const [x, y] = isTag && !Tree.same(s, d.edges[0]) ? [b, a] : [a, b];
@@ -483,7 +484,7 @@ const FormulaBar = (() => {
     hover.value = null; touch.value = null; pick.value = null; writing.value = null; reading.value = null;
     if (draft.peek()) { draft.value = null; preview(null); }
     trail.value = k >= 0 ? t.slice(0, k) : down ? [...t, last.crumb] : [];
-    last = { key, map: finder.peek().map, crumb: m && { id: m.id, title: m.title, clause: m.clause, place: placeText(m) } };
+    last = { key, map: finder.peek().map, crumb: m && { id: m.id, title: m.title, clause: m.clause, place: placeText(m), keys: Shell.selection.peek() } };
     if (down || k >= 0) {
       const ids = [m.id, ...last.map.keys()];
       requestAnimationFrame(() => { Shell.parts.peek().canvas?.zoomTo?.(ids); clear(); });
@@ -491,11 +492,11 @@ const FormulaBar = (() => {
   });
   // The rows close when the selection changes, unless a row is being edited; and what the inspector pointed at
   // goes with what it was in: a clause lights nothing, and a tag's preview is redlined no more.
-  on('select', () => { if (!editing.peek() && !stepping) open.value = false; lit.value = null; if (pending.peek()?.from === 'outside') preview(null); });
+  on('select', () => { if (!editing.peek() && !holding) open.value = false; lit.value = null; if (pending.peek()?.from === 'outside') preview(null); });
   // Back to a record on the breadcrumb, the last by default.
   function back(i = trail.peek().length - 1) {
     const to = trail.peek()[i];
-    if (to) goTo(to.id, to.clause);
+    if (to) goTo(to.id, to.clause, to.keys, false);
   }
 
   // ---- Why, in words: the facts that fired, as a sentence ----
@@ -1217,15 +1218,16 @@ const FormulaBar = (() => {
   });
   // A fact clicked: a computed one steps down into its reasons, by the clause that cited it; an entered one is
   // selected. A step down selects what it steps to, so the panel follows the band, the rows staying open.
-  let stepping = false;
+  let stepping = false, holding = false;
   function stepTo(c) {
     touch.value = null;
     if (R.peek().computed[c.id]) goTo(c.id, c.clause ?? finder.peek().via.get(c.id) ?? null);
     else Shell.select([c.id]);
   }
-  function goTo(id, clause) {
-    stepping = true;
-    try { batch(() => { Shell.select([id]); asked.value = { id, clause, under: Shell.selection.peek() }; }); } finally { stepping = false; }
+  // To a record, by its clause, with what was selected for it there (two objects are asked of again as two).
+  function goTo(id, clause, keys = [id], down = true) {
+    stepping = down; holding = true;
+    try { batch(() => { Shell.select(keys); asked.value = keys.length > 1 ? null : { id, clause, under: Shell.selection.peek() }; }); } finally { stepping = holding = false; }
   }
 
   // ---- Values, as a hovered part shows them ----
@@ -1773,7 +1775,7 @@ const FormulaBar = (() => {
 
   function pickMenu(e, m) {
     const Rv = R.peek(), holds = o => !!o.id && o.on !== false;
-    Shell.menu(e.currentTarget, [...m.options.filter(holds), ...m.options.filter(o => !holds(o))].map(o => ({ label: o.d.name, detail: `${placeText(argsOf(Rv, o), 'name')}${holds(o) ? '' : ' · no'}`, checked: o.key === m.option.key, run: () => { pick.value = o.key; } })));
+    Shell.menu(e.currentTarget, [...m.options.filter(holds), ...m.options.filter(o => !holds(o))].map(o => ({ label: o.d.name, detail: `${placeText(argsOf(Rv, o), 'short')}${holds(o) ? '' : ' · no'}`, checked: o.key === m.option.key, run: () => { pick.value = o.key; } })), { cls: 'fx-pick' });
   }
 
   // A row: its label, its formula, and what the rows would give where an entry overrides them.

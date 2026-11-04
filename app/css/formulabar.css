@@ -66,6 +66,10 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-fact.go:focus-visible { outline-offset: 1px; }
 .fx-said { padding: 4px 0 11px; margin-bottom: 7px; border-bottom: 1px solid var(--rule); }
 .fx-said > .fx-why { display: block; max-width: 112ch; text-wrap: pretty; }
+/* The relations two records could be in: each name, and the sides it's of. */
+.menu.fx-pick { max-width: min(640px, calc(100vw - 32px)); }
+.menu.fx-pick .menu-item > .label { flex: 1 0 auto; }
+.menu.fx-pick .menu-item > .detail { overflow: hidden; text-overflow: ellipsis; }
 /* The rest of what's between two records, each said in full; a click picks it. */
 .fx-between { list-style: none; margin: 0 0 7px; padding: 0 0 7px; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
 .fx-between > li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }

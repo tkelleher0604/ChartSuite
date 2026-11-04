@@ -592,6 +592,11 @@ async function checks() {
   check('… the rows still open, and the breadcrumb steps back, selecting it again', Shell.selection.peek().join() === M().id && M().id !== 'fx:controlled=fund&controller=okafor' && !!document.querySelector('.fx-panel') && !!document.querySelector('.fx-crumb'), `${Shell.selection.peek().join()} ${M().id}`);
   FormulaBar.back(); await wait(40);
   check('… back where it was', Shell.selection.peek().join() === 'fx:controlled=fund&controller=okafor' && M().id === 'fx:controlled=fund&controller=okafor' && !document.querySelector('.fx-crumb') && !!document.querySelector('.fx-panel'), Shell.selection.peek().join());
+  Shell.select(['pension', 'bdc']); await wait(40); await openRows();
+  [...document.querySelectorAll('.fx-said .fx-fact.go')].find(x => /affiliated person/.test(x.textContent))?.click(); await wait(40);
+  const stepped1 = Shell.selection.peek().length === 1 && !!document.querySelector('.fx-crumb') && !!document.querySelector('.fx-panel');
+  FormulaBar.back(); await wait(40);
+  check('… and from two records, back to the two', stepped1 && Shell.selection.peek().join() === 'pension,bdc' && M().options?.length > 0 && !document.querySelector('.fx-crumb') && !!document.querySelector('.fx-panel'), `${stepped1} ${Shell.selection.peek().join()}`);
   // A figure down a chain multiplies the whole chain
   const LT_AIV = 'fx:investment=tessellate&investor=inv_aiv';
   check('a look-through says each link, then the whole sum', FormulaBar.because(LT_AIV) === 'AIV-1 Investors (Fund III and III-A Partners) is an owner of AIV-1 with a percentage of 100%, AIV-1 is an owner of AIV-1 Blocker with a percentage of 100% and AIV-1 Blocker is an owner of Tessellate Dental Partners Holdco, LLC with a percentage of 66%, so the look-through ownership of AIV-1 Investors (Fund III and III-A Partners) in Tessellate Dental Partners Holdco, LLC is 100% × 100% × 66% = 66%.', FormulaBar.because(LT_AIV));
