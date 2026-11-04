@@ -28,7 +28,7 @@ History reads a transfer back from these records alone, as "Transferred 82% of H
 
 A record is **inserted between** the sides of a relation whose amount is a percentage, where a record of its kind can hold what the relation holds and be held by what holds it: on a day, the relation is transferred whole to that record, a new one or one the chart has, and a relation of the same name and output runs from the old holder to it at 100%, with each figure that said the amount again. It's one change, read back from those records alone: "Inserted Holdco between Fund III and Fund III Blocker on Jan 1, 2027". What's held stays held all the way up, so what a formula gives through the chain stands.
 
-Whoever's **responsible** for a record is a relation of two sides, Responsible, a person, and For, an entity or a date's own record (the tag or the relation a deadline is at), which no chart draws unless asked. A deadline is on the hook of the nearest up from it: its own record's, or else its entity's.
+Whoever's **responsible** for a record is a relation of two sides, Responsible, a person, and For, an entity or a date's own record (the tag or the relation a deadline is at), which no chart draws unless asked, or an entry of that name, in its words, on a chart that keeps it so. A deadline is on the hook of the nearest up from it: its own record's, or else its entity's.
 
 A record's **kind** can be changed, every version of it, one change, to one its relations still fit, on whatever day they hold; what's noted at it is noted at its id, and stays. A person named as a company is made one without being made again.
 

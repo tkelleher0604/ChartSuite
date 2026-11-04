@@ -681,8 +681,8 @@ const App = (() => {
     const N = notes.peek();
     return (Tree.index(recs).relations.get(rid) ?? []).map(x => recs[x].args?.find(a => a.at !== rid)).filter(Boolean).map(a => Tree.objectOf(recs, a.at)).filter(o => (Tree.index(recs).entries.get(o) ?? []).some(e => recs[e].field === 'document') || recs[o]?.kind === 'Document').map(o => N.nameOf(recs, o));
   }
-  // Who's on the hook for a record, a date's above all (dendra.md, Part 1: Responsible): the person a relation with a side named
-  // Responsible says, or an entry of that name in its words, at the record itself or the nearest up from it, a date's own record
+  // Who's on the hook for a record, a date's above all (dendra.md, Part 1: Responsible): an entry of that name, in its words, or the
+  // person a relation with a side named Responsible says, at the record itself or the nearest up from it, a date's own record
   // before its entity's. → { rid, who, name, short } (who, none where an entry says it) or null.
   function responsible(id, recs = state.peek()) {
     const I = Tree.index(recs), N = notes.peek(), up = [id], seen = new Set();
@@ -690,12 +690,12 @@ const App = (() => {
       const x = up[i];
       if (seen.has(x) || !recs[x]) continue;
       seen.add(x);
+      const e = Tree.entryAt(recs, x, 'Responsible'), said = e && (recs[e].value ?? recs[e].choice);
+      if (said && typeof said !== 'boolean') return { rid: e, who: null, name: String(said), short: String(said) };
       for (const rid of I.relations.get(x) ?? []) {
         const by = recs[rid].tag !== false && recs[rid].args.find(a => Tree.same(a.edge, 'Responsible') && a.at !== x);
         if (by) { const who = Tree.objectOf(recs, by.at); return { rid, who, name: N.nameOf(recs, who), short: N.shortOf(recs, who) }; }
       }
-      const e = Tree.entryAt(recs, x, 'Responsible'), said = e && (recs[e].value ?? recs[e].choice);
-      if (said && typeof said !== 'boolean') return { rid: e, who: null, name: String(said), short: String(said) };
       up.push(...Tree.argsOf(recs[x]).map(a => a.at));
     }
     return null;
