@@ -258,6 +258,11 @@ i.chip { display: inline-block; width: 10px; height: 10px; margin-right: 6px; bo
 .row.out > .k { display: flex; align-items: center; height: var(--row); padding: 0; }
 .row.out > .v { padding: 0; }
 .row.out .oname { display: block; margin-top: -4px; padding-bottom: 6px; font: var(--t12); color: var(--ink-3); }
+/* What doesn't read as a row, beside its caption, so the rows under it hold still. */
+.row.out .capline { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.row.out .capline > .cap { flex: 0 1 auto; min-width: 0; }
+.row.out .onote { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: var(--t12); color: var(--ink-3); }
+.styles-off { padding: 2px 0 2px 20px; font: var(--t12); color: var(--ink-3); }
 /* A Styles row's caption: a click lights what it reaches on the chart, a double-click types over it. */
 .row.out .cap { display: block; min-height: var(--row); max-width: calc(100% + 14px); margin: 0 -7px; padding: 3px 6px; border: 1px solid transparent; border-radius: var(--r); background: none; color: var(--ink); font: inherit; line-height: 20px; text-align: left; overflow-wrap: anywhere; cursor: default; }
 .row.out .cap:hover { border-color: var(--rule); }

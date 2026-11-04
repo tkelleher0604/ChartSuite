@@ -14,7 +14,8 @@
 // spacing; the shape, its rounding and shadow; fill and transparency; outline, its weight, dashes, arrows and route;
 // each palette's eyedropper; arrange; the format painter; and Clear formatting. Its commands are the window's
 // actions, so Find reaches each and ? lists its keys. Its controls keep their places whatever's selected. With nothing
-// selected, a row of the Styles panel clicked is the scope (see aim); and house styles are here too (see below).
+// selected, the font and size go to All text, the page's own note, and a row of the Styles panel clicked is the scope (see
+// aim); and house styles are here too (see below), and what differs from its style.
 const FormatBar = (() => {
 const { h, render } = preact;
 const html = htm.bind(h);
@@ -67,6 +68,13 @@ const page = () => Canvas.active.peek()?.scene()?.page;
 const shown = v => typeof v === 'number' ? Math.round(Scene.toSlide(page(), v) * 100) / 100 : v;
 const TEXT_LABELS = new Set(['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing', 'Format']);
 let current = null; // { canvas, scopes, scope, marks }
+// The scope with nothing selected: every text on the page that no narrower note reaches.
+const ALL_TEXT = { key: 'all text', root: true, caption: 'all text', label: 'All text' };
+const viewSelf = sc => ({ id: sc.view, kind: 'View' });
+// The footer or its number, the chart's own: its look is in its note (dendra.md, The page).
+const isFoot = m => m.role === 'footer' || m.role === 'number';
+const footNote = () => App.notes.peek().resolve('Footer', { kind: 'View' })?.value ?? {};
+const refoot = (tx, format) => tx.note('Footer', { kind: 'View' }, (({ format: _, ...rest }) => Object.keys(format).length ? { ...rest, format } : rest)(footNote()));
 
 // ---- What the selection is, and what reaches it ----
 
@@ -93,7 +101,8 @@ function scopesNow(c, sc, keys) {
   const picked = keys.map(k => sc.byId.get(Canvas.keyParts(k)[0])).filter(Boolean);
   const group = picked.length === 1 && picked[0].geometry === 'group' ? picked[0] : null;
   const marks = picked.flatMap(m => m.geometry === 'group' ? m.members.map(id => sc.byId.get(id)).filter(Boolean) : [m]);
-  if (!marks.length) return { marks, scopes: [] };
+  // With nothing selected, the font and size are the page's: every text no narrower note reaches (dendra.md, Notes).
+  if (!marks.length) return { marks, scopes: keys.length ? [] : [ALL_TEXT] };
   // The view's Styles rows (Scene.groupsOf, the Key's and Styles' rule and names). A Key row or a frame stands
   // for the rows it's drawn from, all of each, drawn here or not.
   const groups = Scene.groupsOf(App.notes.peek(), sc.view);
@@ -184,6 +193,7 @@ function kinOf(sc) {
 // The selection, as a scope, by what's drawn: "This box", "These 3 boxes", "This line" (the lines drawn as one
 // included), "These 2 shapes".
 function these(ms) {
+  if (ms.every(isFoot)) return ms.length === 1 && ms[0].role === 'number' ? 'The page number' : 'The footer';
   const noun = ms.every(m => m.type === 'box') ? 'box' : ms.every(m => m.type === 'line' || m.geometry === 'line') ? 'line' : 'shape', n = new Set(ms.map(m => m.merged ?? m.id)).size;
   return n === 1 ? `This ${noun}` : `These ${n} ${noun === 'box' ? 'boxes' : `${noun}s`}`;
 }
@@ -238,7 +248,8 @@ function keeping(c, scope, labels) {
   if (!scope?.outputs) return out;
   for (const id of scope.marks ?? marksOf(sc, scope)) {
     const m = sc.byId.get(id), t = Tree.treeOf(App.state.peek(), m.record);
-    const notes = labels.map(l => N.resolve(l, t, sc.view)?.note).filter(n => n && n.view === sc.view && n.pattern.id === m.record);
+    // (A box's at its object, a line's at its relation's own tree.)
+    const notes = labels.map(l => N.resolve(l, t, sc.view)?.note).filter(n => n && n.view === sc.view && Tree.idsIn(n.pattern).size);
     if (notes.length) out.push({ m, notes });
   }
   return out;
@@ -261,6 +272,7 @@ const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(
 function write(tx, c, label, value) {
   const { marks, scopes } = scopesOf(c), scope = scopeOf(scopes);
   if (!scope) return;
+  if (scope.root) return tx.note(label, viewSelf(c.scene()), value);
   const f = TEXT_LABELS.has(label) && label !== 'Format' ? fieldOf(c) : null;
   if (f) return c.styleField(tx, f, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
   const view = c.scene().view, tree = id => Tree.treeOf(App.state.peek(), id), texty = TEXT_LABELS.has(label) && label !== 'Format';
@@ -273,6 +285,7 @@ function write(tx, c, label, value) {
       // As a shape's in PowerPoint: what was this box's own of a field goes with it.
       if (texty) ownFields(tx, m, label);
     }
+    else if (isFoot(m)) refoot(tx, { ...footNote().format, [label]: value });
     else if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, [label]: value } });
   }
 }
@@ -312,12 +325,16 @@ function apply(label, value) {
   if (!c) return;
   preview();
   // A change for a group says at once what of it keeps its own, which the scope's menu then offers to clear; and
-  // where a later style gives some of it otherwise, puts the group's style after it, or says which still decides.
-  const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]), first = firstFor(c, scope, label, value);
-  const says = [kept.length && `${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own`, first.say].filter(Boolean);
+  // where a later style gives some of it otherwise, says which still decides, and offers to put this one after it,
+  // the rows holding their order till that's asked. All text says what no longer takes it, with a way to make it do so.
+  const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]), first = firstFor(c, scope, label, value), under = scope.root ? narrower(c.scene(), label, value) : null;
+  const says = [kept.length && `${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own`, first.say, under?.say].filter(Boolean);
   // (A text property goes to every field, so to more notes than one: said as the one act it is.)
-  const inView = `${Time.looked(label, value, scope.caption)} in ${App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && !!scope.outputs && !fieldOf(c);
-  App.change(tx => { write(tx, c, label, value); first.also?.(tx); if (oneAct) tx.says(inView); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : null });
+  const inView = `${Time.looked(label, value, scope.caption)} in ${scope.root ? lookTaker(c.scene().view) : App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && (!!scope.outputs || !!scope.root) && !fieldOf(c);
+  // (The footer's the chart's, on every page.)
+  const marks = scopesOf(c).marks, ofFoot = !!marks.length && marks.every(isFoot) && Time.looked(label, value, 'the footer');
+  App.change(tx => { write(tx, c, label, value); if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || null,
+    go: () => first.also ? [first.offer, () => App.change(first.also, { dated: false, say: first.done })] : under?.clear ?? null });
   fade();
   // A size the chart can't hold is said, never left to be seen.
   const short = label === 'Size' && (App.scene.peek()?.page.short ?? []);
@@ -345,7 +362,22 @@ function preview(label, value) {
   if (!key) return c.restyle(null);
   if (label === 'Tidy') return c.restyle(c.tidied(), { moves: true });
   if (label === 'Tidy for every date') return c.restyle(c.tidiedEvery(), { moves: true });
-  c.restyle(trying(c, label, value, firstFor(c, scopeOf(scopesOf(c).scopes), label, value).also), label === 'Size' ? { moves: true } : undefined);
+  c.restyle(trying(c, label, value), label === 'Size' || scopeOf(scopesOf(c).scopes)?.root ? { moves: true } : undefined);
+}
+// What keeps its own font or size under All text, a value going there: the styles, boxes and page's own texts a narrower
+// note gives it to. → { say, clear: [label, run] }, or null where it's all of it.
+function narrower(sc, label, value) {
+  const N = App.notes.peek(), rows = chartRows(), notes = new Map(), shapes = [], given = v => label === 'Size' ? Math.abs(v * (sc.page.scale ?? 1) - value) > 0.01 : v !== value;
+  for (const m of sc.marks) for (const it of [...m.texts ?? [], ...(m.caption ? [m.caption] : [])]) { const n = it.settings?.[label]?.note; if (n?.view === sc.view && given(it.look[label])) notes.set(n.note, n); }
+  for (const r of rows) if ('shape' in r && r.view === sc.view && r.format?.[label] !== undefined && r.format[label] !== value) shapes.push(r);
+  const foot = footNote().format?.[label];
+  if (!notes.size && !shapes.length && (foot === undefined || foot === value)) return null;
+  const styled = [...notes.values()], groups = Scene.groupsOf(N, sc.view), named = [...new Set(styled.filter(n => !Tree.idsIn(n.pattern).size).map(n => groups.find(g => g.outputs.some(p => Tree.key(p) === Tree.key(Tree.bare(n.pattern)) || Tree.key(p) === Tree.key(n.pattern)))?.caption ?? N.name(n.pattern)))];
+  const own = styled.filter(n => Tree.idsIn(n.pattern).size).length, those = [...named, ...(own ? [`${own} ${own === 1 ? 'box' : 'boxes'} of their own`] : []), ...shapes.map(r => r.role ?? (r.geometry === 'legend' ? 'the Key' : 'a text box')), ...(foot !== undefined && foot !== value ? ['the footer'] : [])];
+  const more = those.length > 4 ? `${those.slice(0, 4).join(', ')} and ${those.length - 4} more` : listed(those);
+  const noun = { Font: 'font', Size: 'size' }[label];
+  return { say: `${more} ${those.length === 1 && !own && !/s$/.test(those[0]) ? 'keeps its' : 'keep their'} own ${noun}`,
+    clear: [`Make it all ${label === 'Size' ? `${value} pt` : value}`, () => App.change(tx => { styled.forEach(n => tx.remove(n.note)); shapes.forEach(r => { const { [label]: _, ...format } = r.format; tx.update(r.shape, { format }); }); if (foot !== undefined) { const { [label]: _, ...format } = footNote().format; refoot(tx, format); } }, { dated: false, say: `Took the narrower ${noun}s off ${App.notes.peek().nameOf(App.state.peek(), sc.view)}` })] };
 }
 // The chart with a change written on its rows, uncommitted; `more`, what else the change writes.
 function trying(c, label, value, more) {
@@ -364,11 +396,10 @@ function trying(c, label, value, more) {
   const notes = Notes.index(rows.filter(r => 'note' in r));
   return { ...wb, rows: () => rows, notes: () => notes };
 }
-// A look given a group is what each of its marks then has. Where a later style gives some of them otherwise (Funds'
-// fill over the limited partnerships'), the group's style goes after those in Styles, as Styles' own drag puts it,
-// where that changes nothing else drawn; otherwise it's said which style still decides. Worked out once for each
-// scene, scope and value, as pointing at a choice previews it and picking it makes it: { also(tx), say }. It reads
-// only the marks' looks, as the notes give them (Scene.looks), never laying the chart out.
+// Where a later style gives some of a group's marks otherwise (Funds' fill over the limited partnerships'), it's said which
+// still decides; and where putting the group's style after it would change nothing else drawn, that's offered, as Styles'
+// own drag does it: the rows hold their order till it's asked. Worked out once for each scene, scope and value: { say,
+// also(tx), offer, done }. It reads only the marks' looks, as the notes give them (Scene.looks), never laying the chart out.
 const firsts = new WeakMap();
 function firstFor(c, scope, label, value) {
   const sc = c?.scene();
@@ -390,8 +421,8 @@ function firstFor(c, scope, label, value) {
       && two.marks.every(m => { const o = one.byId.get(m.id); return !o?.settings || Object.entries(m.settings ?? {}).every(([l, s]) => l === label || same(s.value, o.settings[l]?.value)); });
     const nameOf = k => groups.find(g => g.style === k)?.name ?? groups.find(g => g.style === k)?.caption, mineName = nameOf([...mine][0]);
     const theirs = listed([...by].map(nameOf).filter(Boolean));
-    out = clean && mineName && theirs ? { also, say: `${mineName} now comes after ${theirs} in Styles` }
-      : { say: `${theirs || 'another style'} still ${by.size > 1 ? 'decide' : 'decides'} it for ${masked.length} of them` };
+    const say = `${theirs || 'another style'} still ${by.size > 1 ? 'decide' : 'decides'} it for ${masked.length} of them`;
+    out = clean && mineName && theirs ? { also, say, offer: `Put ${mineName} after ${theirs}`, done: `${mineName} now comes after ${theirs} in Styles` } : { say };
   }
   memo.set(k, out);
   return out;
@@ -400,9 +431,11 @@ function firstFor(c, scope, label, value) {
 // its caption's).
 function value(label) {
   const m = current?.marks[0];
+  if (current?.scope?.root) { const v = App.notes.peek().resolve(label, viewSelf(current.canvas.scene()))?.value; return label === 'Size' && v != null ? Scene.fromSlide(page(), v) : v ?? (label === 'Font' ? Scene.DEFAULTS.text.Font : undefined); }
   if (current?.aim && !m) return current.aim.swatch[label];
   if (!m) return undefined;
-  if (current.row) return current.row.swatch[label] ?? current.row.caption.look[label];
+  // A Key row's look is its swatch's, and its text what the marks it stands for print at.
+  if (current.row) return (TEXT_LABELS.has(label) ? scopeTexts()[0]?.look?.[label] : undefined) ?? current.row.swatch[label] ?? current.row.caption.look[label];
   // A frame is the style's, drawn round the boxes it reaches.
   if (label === 'Frame') {
     const outs = new Set((current.scope?.outputs ?? []).map(p => Tree.key(p)));
@@ -415,7 +448,19 @@ function value(label) {
 // The marks the scope reaches, and of them the texts a text property of it would change: with a field selected, that
 // field, in the box selected or in each box of the group chosen; for a style of one entry (Jurisdictions), those; else
 // every text of them.
-const scopeMarks = () => { const sc = current.canvas.scene(), scope = current.scope; return scope?.own || !scope?.marks || scope.key === 'frame' || current.row ? current.marks : [...scope.marks].map(id => sc.byId.get(id)).filter(Boolean); };
+const scopeMarks = () => { const sc = current.canvas.scene(), scope = current.scope; return scope?.own || !scope?.marks || scope.key === 'frame' ? current.marks : [...scope.marks].map(id => sc.byId.get(id)).filter(Boolean); };
+// What the marks the scope reaches don't share of a property of their own, so nothing reads as all of them: each value and
+// how many, or null. Only where it goes to more than one, a box's or a line's.
+function differing(label) {
+  if (!current?.marks.length || TEXT_LABELS.has(label)) return null;
+  const by = new Map();
+  for (const m of scopeMarks()) if (m.type === 'box' || m.type === 'line') { const v = m.settings?.[label]?.value; if (v !== undefined) { const k = JSON.stringify(v); by.set(k, { v, n: (by.get(k)?.n ?? 0) + 1 }); } }
+  return by.size > 1 ? [...by.values()].sort((a, b) => b.n - a.n) : null;
+}
+const ARROWS = { none: 'none', end: 'at the end', start: 'at the start', both: 'at both ends' };
+const saidOf = (label, v) => label === 'Weight' ? `${+Scene.toSlide(page(), v).toFixed(2)} pt` : label === 'Arrow' ? ARROWS[v] ?? v : label === 'Dash' ? (DASH_NAMES.find(([d]) => d === v)?.[1] ?? v) : typeof v === 'string' ? (colorName(v) ?? v.toUpperCase()) : String(v);
+// Those values in words: "These differ: 3 at the end, 21 none".
+const differs = label => { const d = differing(label); return d && `These differ: ${d.slice(0, 3).map(x => `${x.n} ${saidOf(label, x.v)}`).join(', ')}${d.length > 3 ? ` and ${d.length - 3} more` : ''}`; };
 function scopeTexts() {
   if (current.texts) return current.texts;
   const f = current.field, scope = current.scope, st = App.state.peek(), only = scope?.swatch?.kind === 'text' ? scope.outputs : null;
@@ -494,16 +539,17 @@ function Slider({ label, k, v, max = 100, step = 1, unit = '%', disabled }) {
 // outline's Weight and Dashes); and last No fill (or outline).
 const NONE = { Fill: 'No fill', Outline: 'No outline' };
 function Palette({ label, none, close, children }) {
-  const v = String(value(label)).toLowerCase(), own = chartColors();
+  const mixed = differs(label), v = mixed ? '' : String(value(label)).toLowerCase(), own = chartColors();
   const swatch = (c, name) => html`<button style=${`background-color:${c}`} aria-pressed=${v === c} autofocus=${v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} />`;
   // Off the swatches, the chart is drawn in the color typed, while it's being typed.
   const rest = el => { const f = el.querySelector('.hex > input'), c = f === document.activeElement && hexOf(f.value); c ? preview(label, c) : preview(); };
   const typed = e => { const f = e.currentTarget; f.toggleAttribute('aria-invalid', !!f.value.trim() && !hexOf(f.value)); rest(f.closest('.palette')); };
-  const entered = e => { const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { close?.(); apply(label, c); } };
+  const entered = e => { const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { e.preventDefault(); e.stopPropagation(); close?.(); apply(label, c); } };
   // The chart's own colors have their row from the start, so nothing moves down as the first comes.
   return html`<div class="palette" onPointerLeave=${e => rest(e.currentTarget)}>${THEME.map((c, i) => swatch(c, THEME_NAMES[i]))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i]))}
     <i />${own.map(c => swatch(c, c.toUpperCase()))}${Array.from({ length: 10 - own.length }, () => html`<span class="room" />`)}
     <div class="more">
+      ${mixed ? html`<div class="menu-head">${mixed}</div>` : null}
       <label class="menu-item"><span class="label">More colors</span>
         <span class="hex">#<input value=${/^#[0-9a-f]{6}$/.test(v) ? v.slice(1).toUpperCase() : ''} maxlength="7" spellcheck="false" autocomplete="off" aria-label="More colors"
           onFocus=${e => e.currentTarget.select()} onInput=${typed} onKeyDown=${entered} /></span></label>
@@ -552,7 +598,7 @@ function aim(g) {
 }
 const aimedAt = g => !!aimed.value && aimed.value.style === g.style && g.outputs.some(p => Tree.key(p) === aimed.value.key);
 // The two parts: the selection, and the group all like it names (the one last chosen, or the narrowest).
-const likeOf = s => { const sc = scopeOf(s.scopes); return !sc ? null : !sc.own ? sc : s.scopes.find(x => x.key === liked.peek()) ?? s.narrowest; };
+const likeOf = s => { const sc = scopeOf(s.scopes); return !sc || sc.root ? null : !sc.own ? sc : s.scopes.find(x => x.key === liked.peek()) ?? s.narrowest; };
 // Ctrl+Shift+A: from one part to the other.
 function toggle() {
   const c = Canvas.active.peek();
@@ -594,22 +640,26 @@ const HEAD_NAMES = [['triangle', 'Triangle'], ['stealth', 'Stealth'], ['open', '
 // A line's arrows, as PowerPoint's: whether each end has one, and at each end its style and size. A style or a size picked
 // for an end gives that end its head, one change.
 function arrowItems() {
-  const now = value('Arrow') === 'auto' ? 'none' : value('Arrow'), heads = value('Arrowhead') ?? {}, has = end => now === end || now === 'both';
+  // What a group is given, where it's Auto: each line takes a head by which way it runs, so none of the others is what it says.
+  const N = App.notes.peek(), view = current?.canvas.scene().view, auto = !!current?.scope?.outputs?.some(p => N.resolve('Arrow', p, view)?.value === 'auto') || current?.aim?.swatch?.Arrow === 'auto', mixed = differs('Arrow');
+  const now = mixed || auto ? null : value('Arrow') === 'auto' ? 'none' : value('Arrow'), heads = value('Arrowhead') ?? {}, has = end => now === end || now === 'both';
   const withEnd = end => has(end) ? now : now === 'none' || !now ? end : 'both';
   const end = (key, name, field, list, glyphOf) => ({ label: name, items: list.map(([v, text]) => {
     const next = { ...heads, [key]: { type: 'triangle', size: 'small', ...heads[key], [field]: v } };
     return { label: text, checked: has(key) && Scene.headOf({ Arrowhead: heads }, key)[field] === v, ...(glyphOf && { glyph: glyphOf(v) }), run: () => applyAll([['Arrowhead', next], ['Arrow', withEnd(key)]]), point: on => on ? preview('Arrowhead', next) : preview() };
   }) });
-  return [...choices('Arrow', [['none', 'None'], ['end', 'At the end'], ['start', 'At the start'], ['both', 'At both ends']], now, arrowGlyph), '-',
+  return [...(mixed ? [{ head: mixed }] : []), ...choices('Arrow', [['none', 'None'], ['end', 'At the end'], ['start', 'At the start'], ['both', 'At both ends']], now, arrowGlyph),
+    ...(current?.scope?.outputs ? choices('Arrow', [['auto', 'Auto, where it doesn’t run down']], auto ? 'auto' : null) : []), '-',
     end('end', 'End style', 'type', HEAD_NAMES, headGlyph), end('end', 'End size', 'size', SIZE_NAMES), end('start', 'Start style', 'type', HEAD_NAMES, headGlyph), end('start', 'Start size', 'size', SIZE_NAMES)];
 }
 function OutlinePop({ close, of }) {
   const ms = current?.marks ?? [], lines = ms.some(m => m.type === 'line' || m.geometry === 'line'), framed = current?.scope?.outputs && ms.some(m => m.type === 'box');
-  const now = +Scene.toSlide(page(), value('Weight') ?? 0.75).toFixed(2), weight = WEIGHTS.find(w => Math.abs(now - w) < 0.01);
+  const mixed = differs('Weight'), now = mixed ? '' : +Scene.toSlide(page(), value('Weight') ?? 0.75).toFixed(2), weight = mixed ? null : WEIGHTS.find(w => Math.abs(now - w) < 0.01);
   return html`<${Palette} label="Outline" none close=${close}>
     <div class="menu-sep" />
+    ${mixed ? html`<div class="menu-head">${mixed}</div>` : null}
     <div class="menu-item withfield"><${Sub} label="Weight" of=${of} items=${() => choices('Weight', WEIGHTS.map(w => [w, `${w} pt`]), weight, weightGlyph)} /><${Typed} label="Weight" v=${now} unit="pt" min=${0.25} step=${0.25} put=${x => apply('Weight', x)} tries=${x => x === null ? preview() : preview('Weight', x)} /></div>
-    <${Sub} label="Dashes" of=${of} items=${() => choices('Dash', DASH_NAMES, value('Dash'), lineGlyph)} />
+    <${Sub} label="Dashes" of=${of} items=${() => { const d = differs('Dash'); return [...(d ? [{ head: d }] : []), ...choices('Dash', DASH_NAMES, d ? null : value('Dash'), lineGlyph)]; }} />
     ${lines ? html`<${Sub} label="Arrows" of=${of} items=${arrowItems} />
       <${Sub} label="Route" of=${of} items=${() => choices('Connector', [['elbow', 'Elbow'], ['straight', 'Straight']], value('Connector'))} />` : null}
     ${framed ? html`<${Sub} label="Frame" of=${of} items=${() => choices('Frame', [['none', 'None'], ['dashed', 'Dashed box'], ['solid', 'Box'], ['bracket', 'Bracket']], value('Frame') ?? 'none', frameGlyph)} />` : null}
@@ -722,7 +772,7 @@ const grown = v => v < 8 ? Math.floor(v + 1e-6) + 1 : STEPS.find(z => z > v + 1e
 const shrunk = v => v <= 8 + 1e-6 ? Math.max(1, Math.ceil(v - 1 - 1e-6)) : [...STEPS].reverse().find(z => z < v - 1e-6) ?? 96;
 function resize(f) {
   const v = shown(value('Size'));
-  if (typeof v === 'number' && current?.marks.length) apply('Size', f(v));
+  if (typeof v === 'number' && (current?.marks.length || current?.scope?.root)) apply('Size', f(v));
 }
 // The size: a field that takes any size typed (11.5), made with Enter, Esc putting it back; and its list.
 function SizeBox({ v, disabled, why }) {
@@ -833,7 +883,7 @@ function pasteLook(look = copied?.look) {
   const c = Canvas.active.peek();
   if (!look || !c?.scene() || App.readOnly.peek()) return false;
   const s = scopesOf(c), scope = scopeOf(s.scopes), sc = c.scene(), view = sc.view, st = App.state.peek();
-  if (!scope) return false;
+  if (!scope || scope.root) return false;
   const textStyle = scope.swatch?.kind === 'text', marks = scope.own ? s.marks : [...scope.marks].map(id => sc.byId.get(id)).filter(Boolean);
   const markLabels = m => textStyle ? [] : (kindOf(m) === 'line' ? LINE_LOOK : BOX_LOOK).filter(l => l in look), texts = m => (m.texts ?? (m.caption ? [m.caption] : [])).filter(it => !it.blank);
   const onlyTexts = textStyle ? (it => scope.outputs.some(p => Tree.fits(st, it.id, p))) : () => true;
@@ -859,7 +909,8 @@ function pasteLook(look = copied?.look) {
       return;
     }
     for (const m of marks) {
-      if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, ...Object.fromEntries([...markLabels(m), ...textLabels].map(l => [l, look[l]])) } });
+      if (isFoot(m)) refoot(tx, { ...footNote().format, ...Object.fromEntries(textLabels.map(l => [l, look[l]])) });
+      else if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, ...Object.fromEntries([...markLabels(m), ...textLabels].map(l => [l, look[l]])) } });
       else give(tx, Tree.treeOf(st, m.record), [m]);
     }
   }, { say: said });
@@ -895,7 +946,13 @@ function clearLook() {
   const c = Canvas.active.peek();
   if (!c?.scene() || App.readOnly.peek()) return false;
   const s = scopesOf(c), scope = scopeOf(s.scopes), sc = c.scene(), view = sc.view, st = App.state.peek(), N = App.notes.peek();
-  if (!scope) return false;
+  if (!scope || scope.root) return false;
+  // The footer's own look is in its note.
+  if (s.marks.length && s.marks.every(isFoot)) {
+    if (!Object.keys(footNote().format ?? {}).length) return Shell.toast('No formatting to clear on the footer') && true;
+    App.change(tx => refoot(tx, {}), { dated: false, say: 'Cleared the footer’s look' });
+    return true;
+  }
   const keys = new Set(scope.outputs ? scope.outputs.map(p => Tree.key(p)) : s.marks.filter(m => m.record).flatMap(m => inMark(st, m)).map(id => Tree.treeOf(st, id)).filter(Boolean).map(t => Tree.key(t)));
   const notes = [...LOOK].flatMap(l => N.notes(l)).filter(n => n.view === view && keys.has(Tree.key(n.pattern)));
   const shapes = scope.own ? s.marks.filter(m => m.type === 'shape' && Object.keys(App.shown.peek().item(App.chart.peek(), m.id)[0]?.format ?? {}).some(l => LOOK.has(l))) : [];
@@ -974,7 +1031,10 @@ const opener = {
 
 // ---- A rounded shape's corner handle, PowerPoint's: yellow, on its top edge where its corner ends, dragged along it ----
 
+let adjusting = false;
 function cornerHandles() {
+  // (Not the one in a hand, whose preview draws the chart as it goes.)
+  if (adjusting) return;
   const c = Canvas.active.peek(), over = c?.root.querySelector('.dc-over');
   over?.querySelectorAll('.dc-adjust').forEach(el => el.remove());
   if (!c?.scene() || App.readOnly.peek() || Shell.wide.peek()) return;
@@ -989,9 +1049,11 @@ function cornerHandles() {
       if (e.button !== 0) return;
       e.preventDefault(); e.stopPropagation();
       el.setPointerCapture(e.pointerId);
+      adjusting = true;
+      el.addEventListener('lostpointercapture', () => { adjusting = false; }, { once: true });
       let v = corner;
       const move = ev => { v = Math.round(Math.min(50, Math.max(0, (c.graph.clientToLocal(ev.clientX, ev.clientY).x - m.x) / s * 100))); place(v); preview('Corner', v); };
-      const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); if (Math.round(corner) !== v) apply('Corner', v); else preview(); };
+      const up = () => { adjusting = false; el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); if (Math.round(corner) !== v) apply('Corner', v); else preview(); };
       el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
     });
   }
@@ -1005,20 +1067,142 @@ const chartViews = () => App.views.peek().filter(v => v.layout === 'chart');
 const viewNamed = id => App.views.peek().find(v => v.id === id)?.name ?? 'this view';
 const chartRows = () => App.shown.peek().rows(App.chart.peek());
 const hasHere = p => App.hasPattern(App.schema.peek(), App.notes.peek(), p);
-// Views take a look, as one change, one Undo, said as one act.
-function giveLook(ids, look, say) {
-  let left = 0;
-  const rows = chartRows();
-  App.change(tx => { for (const id of ids) left = Math.max(left, Notes.takeLook(tx, rows, id, look, { has: hasHere }).left); tx.says(say); },
-    { dated: false, say: () => left ? `${say}, but for ${left} ${left === 1 ? 'setting' : Tree.plural('setting')} of what this chart hasn’t got` : say, empty: () => Shell.toast(`${ids.length > 1 ? 'They already have' : `${viewNamed(ids[0])} already has`} that look`) });
+// A view's look, as it's saved or matched: and where a hand put its Key, how far from which corner of the sheet that is.
+function lookOfView(id) {
+  const rows = chartRows(), key = rows.find(r => 'shape' in r && r.view === id && r.geometry === 'legend');
+  if (key?.x == null || key?.y == null) return Notes.houseLook(rows, id);
+  const sc = sceneOf(id), m = sc.byId.get(key.shape), s = sc.page.scale ?? 1, W = sc.page.sheet.w, H = sc.page.sheet.h;
+  if (!m) return Notes.houseLook(rows, id);
+  const l = m.x * s, t = m.y * s, r = W - l - m.w * s, b = H - t - m.h * s;
+  return Notes.houseLook(rows, id, { corner: { h: l < r ? 'left' : 'right', v: t < b ? 'top' : 'bottom', dx: Math.round(Math.min(l, r) * 2) / 2, dy: Math.round(Math.min(t, b) * 2) / 2 } });
 }
-const matchLook = (id, from) => giveLook([id], Notes.houseLook(chartRows(), from), `Gave ${viewNamed(id)} the look of ${viewNamed(from)}`);
-const applyHouse = (id, s) => giveLook([id], s.look, `Gave ${viewNamed(id)} the house style ${s.name}`);
+const sceneOf = (id, wb = App.shown.peek(), more = {}) => Scene.of(wb, App.chart.peek(), id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), ...more });
+// The chart with a look given a view, uncommitted, its paper left as it is: what a scene on the look's paper places, as
+// the change's own placing does it, as Page setup's does.
+function withLook(id, look) {
+  let rows = chartRows(), n = 0;
+  const same = (r, l, k, view, param) => 'note' in r && r.label === l && (r.view ?? null) === (view ?? null) && (r.param ?? null) === (param ?? null) && Tree.key(r.pattern) === k;
+  Notes.takeLook({ note(l, pattern, v, { view, param } = {}) {
+    if (l === 'Page') return;
+    const k = Tree.key(pattern), at = `·look${++n}`;
+    rows = rows.filter(r => !same(r, l, k, view, param));
+    if (v !== undefined && v !== null) rows.push({ id: at, note: at, label: l, pattern, ...(view && { view }), ...(param && { param }), value: v });
+  }, update(sh, changes) { rows = rows.map(r => r.shape === sh ? { ...r, ...changes } : r); } }, rows, id, look, { has: hasHere });
+  const notes = Notes.index(rows.filter(r => 'note' in r));
+  return { ...App.shown.peek(), rows: () => rows, notes: () => notes };
+}
+// What a look leaves of a view, in words: the styles it says nothing of, and the marks with a look of their own.
+function leftOf(id, look) {
+  const N = App.notes.peek(), has = new Set(look.notes.map(n => Tree.key(Tree.bare(n.pattern)))), rows = Scene.groupsOf(N, id).filter(g => !has.has(g.style)).map(g => g.caption);
+  const own = oneOffs(sceneOf(id));
+  return [...rows.length ? [`${listed(rows)}, which the look doesn’t style`] : [], ...own.length ? [own.length === 1 ? `${own[0].name.replace(/^The /, 'the ')}’s own look` : `the own looks of ${own.length} marks`] : []];
+}
+// Views take a look, as one change, one Undo, said as one act: its paper with what placing them on it does, as Page setup's
+// does, what a hand placed keeping its distance from the sheet's nearest corner. Said with what it leaves, and a Key it now puts over a box.
+// A plan's pages are one chart on several days (dendra.md, The layout), so a look given to one is given to them all.
+const planOf = id => { const p = App.views.peek().find(v => v.id === id)?.plan; return p ? App.views.peek().filter(v => v.plan === p).map(v => v.id) : [id]; };
+const lookTaker = id => planOf(id).length > 1 ? `${viewNamed(id)} and the rest of its plan` : viewNamed(id);
+function giveLook(to, look, say) {
+  let left = 0;
+  const ids = [...new Set(to.flatMap(planOf))], rows = chartRows(), paper = look.page, size = typeof paper === 'string' ? paper : paper?.size, portrait = !!paper?.portrait;
+  const moves = id => { const p = App.notes.peek().resolve('Page', { id, kind: 'View' })?.value ?? 'slide'; return paper && Scene.PAPERS[size] && JSON.stringify(p) !== JSON.stringify(paper); };
+  // (A plan's places are one set: laid on its first page, which the rest follow.)
+  const placed = new Map(ids.filter(id => moves(id) && planOf(id)[0] === id).map(id => [id, sceneOf(id, withLook(id, look), { paper: `${size} ${portrait ? 'portrait' : 'landscape'}` })]));
+  const leaves = ids.map(id => [id, leftOf(id, look)]).filter(([, l]) => l.length);
+  const shown = ids.includes(Shell.view.peek()) && moves(Shell.view.peek());
+  const c = App.change(tx => { for (const id of ids) { if (placed.has(id)) Export.placing(tx, placed.get(id), id); left = Math.max(left, Notes.takeLook(tx, rows, id, look, { has: hasHere }).left); } tx.says(say); },
+    { dated: false, keep: !placed.size, say: () => {
+      // (Of a plan, said once: its places are one set.)
+      const named = id => to.length > 1 ? `${viewNamed(id)}: ` : '', over = ids.filter(id => planOf(id)[0] === id).flatMap(id => Scene.says(sceneOf(id), b => App.notes.peek().shortOf(App.state.peek(), b.record)).filter(t => t.startsWith('The Key overlaps')).slice(0, 1).map(t => named(id) + t));
+      const keeps = leaves.map(([id, l]) => `${ids.length > 1 ? `${viewNamed(id)} keeps` : 'It keeps'} ${listed(l)}`), bits = [...keeps, ...over, ...left ? [`${left} ${left === 1 ? 'setting' : Tree.plural('setting')} of what this chart hasn’t got stayed behind`] : []];
+      return bits.length ? `${say}. ${bits.join('. ')}` : say; },
+      // (A Key now over a box: Tidy sets the chart clear of it. Else what differs from its style, of the page shown.)
+      go: () => { const here = Shell.view.peek(), sc = ids.includes(here) ? sceneOf(here) : null; return !sc ? null : Scene.says(sc).some(t => t.startsWith('The Key overlaps')) ? ['Tidy, to make room', () => Canvas.active.peek()?.tidy()] : oneOffs(sc).length ? ['What differs', selectDiffers] : null; },
+      empty: () => Shell.toast(`${ids.length > 1 ? 'They already have' : `${viewNamed(ids[0])} already has`} that look`) });
+  if (c && shown) Canvas.active.peek()?.zoom('fit');
+}
+const matchLook = (id, from) => giveLook([id], lookOfView(from), `Gave ${lookTaker(id)} the look of ${viewNamed(from)}`);
+const applyHouse = (id, s) => giveLook([id], s.look, `Gave ${lookTaker(id)} the house style ${s.name}`);
 const applyHouseAll = s => giveLook(chartViews().map(v => v.id), s.look, `Gave every chart view the house style ${s.name}`);
-const keepHouse = (name, look) => {
-  const was = houses.peek().find(s => Tree.same(s.name, name));
-  return Store.keepHouseStyle({ id: was?.id ?? Log.newId(), name, look }).then(listHouses).then(() => was);
+const keepHouse = (name, look, id) => {
+  const was = id ? null : houses.peek().find(s => Tree.same(s.name, name));
+  return Store.keepHouseStyle({ id: id ?? was?.id ?? Log.newId(), name, look }).then(listHouses).then(() => was);
 };
+// A name not yet taken in this browser: Firm Standard 2.
+const freeName = name => { for (let i = 2; ; i++) { const n = `${name} ${i}`; if (!houses.peek().some(s => Tree.same(s.name, n))) return n; } };
+
+// ---- What differs from its style: every look entered for one mark on a view ----
+
+const ONE_OFF = new Set([...BOX_LOOK, ...LINE_LOOK, ...TEXT_LOOK, 'Shape', 'Corner']);
+// By mark, what's entered for it alone, of each look property that decides it, its fields' too. → [{ m, name, what: [label said], notes }].
+function oneOffs(sc) {
+  const N = App.notes.peek(), st = App.state.peek(), out = [];
+  for (const m of sc.marks) if (m.type === 'box' || m.type === 'line') {
+    const seen = new Map(), add = (l, s) => { const n = s?.note; if (n?.view === sc.view && ONE_OFF.has(l) && Tree.idsIn(n.pattern).size && !seen.has(n.note)) seen.set(n.note, { l, v: n.value, n }); };
+    for (const [l, s] of Object.entries(m.settings ?? {})) add(l, s);
+    for (const it of m.texts ?? []) for (const [l, s] of Object.entries(it.settings ?? {})) add(l, s);
+    // (Each as it was given: a size or a weight in printed points.)
+    if (seen.size) out.push({ m, name: m.type === 'box' ? N.shortOf(st, m.record) : N.segmentOf(st, m.record), notes: [...seen.values()].map(x => x.n),
+      what: [...new Set([...seen.values()].map(({ l, v }) => `${l} ${l === 'Size' || l === 'Weight' ? `${v} pt` : typeof v === 'boolean' ? (v ? 'on' : 'off') : typeof v === 'object' ? '' : saidOf(l, v)}`.trim()))] });
+  }
+  return out;
+}
+// Lists them, a click selecting each, or them all; and offers to reset them all, as one change.
+function selectDiffers() {
+  const c = Canvas.active.peek(), sc = c?.scene();
+  if (!sc) return;
+  const all = oneOffs(sc), view = viewNamed(sc.view);
+  if (!all.length) return Shell.toast(`Nothing on ${view} differs from its style`);
+  Shell.select(all.map(x => x.m.id));
+  const anchor = document.querySelector('.fb [data-fb="scope"]') ?? document.body;
+  setTimeout(() => Shell.menu(anchor, [{ head: `${all.length} on ${view} ${all.length === 1 ? 'differs' : 'differ'} from ${all.length === 1 ? 'its style' : 'their styles'}` },
+    ...all.map(x => ({ label: x.name, detail: x.what.join(', '), run: () => Shell.select([x.m.id]) })), '-',
+    { label: all.length === 1 ? 'Reset it' : `Reset them all`, disabled: App.readOnly.peek(), run: () => App.change(tx => all.forEach(x => x.notes.forEach(n => tx.remove(n.note))), { dated: false, say: `Reset ${all.length === 1 ? `${all[0].name}’s own look` : `${all.length} marks’ own looks`} in ${view}` }) }], { placement: 'bottom-start' }));
+}
+
+// What a Styles row reaches drawn, how many of those keep their own look, and what another style decides of them all, for
+// its row in the panel; read from the scene's settings, and kept with it, as the panel asks of every row as it's drawn.
+const rowsReach = new WeakMap();
+function reachOfRow(g) {
+  const sc = Canvas.active.peek()?.scene();
+  if (!sc) return { marks: 0, own: 0, masked: [] };
+  const kept = rowsReach.get(sc) ?? rowsReach.set(sc, new Map()).get(sc);
+  if (kept.has(g.key)) return kept.get(g.key);
+  const marks = [...marksOf(sc, g)].map(id => sc.byId.get(id)).filter(Boolean), keys = new Set(g.outputs.map(p => Tree.key(p))), given = g.swatch?.kind === 'box' ? givenTo(sc.view, g) : [], N = App.notes.peek();
+  const own = marks.filter(m => Object.entries(m.settings ?? {}).some(([l, s]) => s?.note?.view === sc.view && ONE_OFF.has(l) && Tree.idsIn(s.note.pattern).size)).length;
+  const masked = !marks.length ? [] : ['Fill', 'Shape', 'Outline'].filter(l => given.includes(l) && marks.every(m => { const n = m.settings?.[l]?.note; return !!n && !keys.has(Tree.key(n.pattern)) && !Tree.idsIn(n.pattern).size; }))
+    .map(l => [l, Scene.styleName(N, Tree.bare(marks[0].settings[l].note.pattern))]);
+  const out = { marks: marks.length, own, masked };
+  kept.set(g.key, out);
+  return out;
+}
+
+// ---- What a house style holds, shown as words and swatches ----
+
+const paperSaid = p => { const size = typeof p === 'string' ? p : p?.size; return `${Scene.PAPERS[size] ?? (p?.w ? `${Math.round(p.w / 96 * 100) / 100} × ${Math.round(p.h / 96 * 100) / 100} in` : 'Slide 16:9')}${p?.portrait ? ', portrait' : ''}`; };
+const fmtSaid = f => Object.entries(f ?? {}).map(([l, v]) => l === 'Font' ? v : l === 'Size' ? `${v} pt` : l === 'Color' ? `color ${String(v).toUpperCase()}` : typeof v === 'boolean' ? (v ? l.toLowerCase() : `not ${l.toLowerCase()}`) : `${l.toLowerCase()} ${v}`).join(', ');
+function holdsOf(look) {
+  const rows = look.notes.map((n, i) => ({ ...n, id: `h${i}`, note: `h${i}`, view: 'look' }));
+  (look.order ?? []).forEach((p, i) => rows.push({ id: `o${i}`, note: `o${i}`, label: 'Order', pattern: p, view: 'look', value: i + 1 }));
+  const N = Notes.index(rows), groups = Scene.groupsOf(N, 'look'), styles = N.styles('look').flatMap(s => s.outputs);
+  const words = g => { const f = styles.find(o => g.outputs.some(p => Tree.key(p) === Tree.key(o.pattern)))?.formats ?? {};
+    return Object.entries(f).filter(([l]) => !['Shown', 'Caption', 'Layer', 'Above'].includes(l)).map(([l, v]) => l === 'Shape' ? shapeWord(v) : l === 'Fill' || l === 'Outline' || l === 'Color' ? `${l.toLowerCase()} ${v === 'none' ? 'none' : String(v).toUpperCase()}` : l === 'Weight' || l === 'Size' ? `${l === 'Size' ? 'size' : 'weight'} ${v} pt` : l === 'Font' ? v : l === 'Arrow' ? (v === 'auto' ? 'arrow auto' : `arrow ${ARROWS[v] ?? v}`) : l === 'Dash' ? (DASH_NAMES.find(([d]) => d === v)?.[1] ?? v).toLowerCase() : typeof v === 'boolean' ? (v ? l.toLowerCase() : `not ${l.toLowerCase()}`) : typeof v === 'object' ? l.toLowerCase() : `${l.toLowerCase()} ${v}`).join(', '); };
+  const k = look.furniture?.key, corner = k?.corner, foot = look.footer;
+  return { rows: [['Paper', paperSaid(look.page)], ['All text', fmtSaid(look.root) || 'Arial'],
+    ...look.furniture?.title?.format ? [['Title', fmtSaid(look.furniture.title.format)]] : [], ...look.furniture?.date?.format ? [['Date', fmtSaid(look.furniture.date.format)]] : [],
+    ...foot ? [['Footer', [foot.text ? `“${foot.text}”` : null, foot.number ? 'page numbers' : null, fmtSaid(foot.format)].filter(Boolean).join(', ')]] : [],
+    ...k ? [['Key', [corner ? `${corner.v} ${corner.h}` : 'placed by the page', k.columns ? `${k.columns} ${k.columns === 1 ? 'column' : 'columns'}` : null, k.hide?.length ? `${k.hide.length} ${k.hide.length === 1 ? 'row' : 'rows'} hidden` : null, Object.values(k.captions ?? {}).length ? `captions ${Object.values(k.captions).join(', ')}` : null].filter(Boolean).join(', ')]] : []],
+    styles: groups.map(g => ({ key: g.key, swatch: g.swatch, caption: k?.captions?.[g.key] ?? g.caption, words: words(g) })) };
+}
+const shapeWord = g => (SHAPES.find(([k]) => k === g)?.[1] ?? g).toLowerCase();
+function showHouse(s) {
+  const h = holdsOf(s.look), Swatch = Inspector.Swatch;
+  Shell.dialog({ title: s.name, width: 560, body: () => html`<div class="holds">
+    ${h.rows.map(([k, v]) => html`<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`)}
+    ${h.styles.length ? html`<div class="menu-head">Styles</div>` : null}
+    ${h.styles.map(g => html`<div class="row"><span class="k">${Swatch ? html`<${Swatch} sw=${g.swatch} />` : null}<span class="cap">${g.caption}</span></span><span class="v">${g.words}</span></div>`)}
+  </div>` });
+}
 function saveHouse(id) {
   let name = '';
   Shell.dialog({ title: 'Save this look as a house style', width: 360, actions: [{ label: 'Cancel', value: false }, { label: 'Save', value: true, primary: true }],
@@ -1028,7 +1212,7 @@ function saveHouse(id) {
       if (!ok || !name) return;
       const taken = houses.peek().some(s => Tree.same(s.name, name));
       if (taken && !await Shell.confirm(`There’s a house style named ${name} in this browser.`, { title: 'Replace it?', ok: 'Replace' })) return;
-      await keepHouse(name, Notes.houseLook(chartRows(), id));
+      await keepHouse(name, lookOfView(id));
       Shell.toast(`Saved the house style ${name}`);
     });
 }
@@ -1052,14 +1236,19 @@ function loadHouse() {
     try { data = JSON.parse(await f.text()); } catch {}
     const look = data?.dendraStyle ? Notes.lookFrom(data.look) : null, name = Tree.clean(String(data?.name ?? '')) || f.name.replace(/(\.dendra-style)?\.json$/i, '');
     if (!look) return Shell.toast(`${f.name} isn’t a house style`);
-    const was = await keepHouse(name, look), s = houses.peek().find(x => Tree.same(x.name, name)), view = Shell.view.peek();
-    Shell.toast(`${was ? 'Replaced' : 'Loaded'} the house style ${name}`, chartViews().some(v => v.id === view) && !App.readOnly.peek() ? { go: [`Apply to ${viewNamed(view)}`, () => applyHouse(view, s)] } : {});
+    // Over a house style of the same name, it asks: a colleague's older file would quietly overwrite the firm's.
+    const taken = houses.peek().find(x => Tree.same(x.name, name)), as = !taken ? name : await Shell.dialog({ title: `There’s a house style named ${name} in this browser`, width: 420,
+      body: () => html`<p>Replace it with the one in ${f.name}, or keep both?</p>`, actions: [{ label: 'Cancel', value: null }, { label: 'Keep both', value: freeName(name) }, { label: 'Replace', value: name, primary: true }] });
+    if (!as) return;
+    const was = await keepHouse(as, look), s = houses.peek().find(x => Tree.same(x.name, as)), view = Shell.view.peek();
+    Shell.toast(`${was ? 'Replaced' : 'Loaded'} the house style ${as}`, chartViews().some(v => v.id === view) && !App.readOnly.peek() ? { go: [`Apply to ${viewNamed(view)}`, () => applyHouse(view, s)] } : {});
   };
   input.click();
 }
 const houseItems = id => {
   const ro = App.readOnly.peek(), writes = ro ? { disabled: true, tip: App.whyNot() } : {};
   return [...houses.value.map(s => ({ label: s.name, items: [
+      { label: 'What it holds', run: () => showHouse(s) }, '-',
       { label: `Apply to ${viewNamed(id)}`, ...writes, run: () => applyHouse(id, s) }, { label: 'Apply to every chart view', ...writes, run: () => applyHouseAll(s) }, '-',
       { label: 'Begin a new chart in it', ...writes, run: () => App.newChart(s.look) }, '-', { label: 'Download', run: () => downloadHouse(s) }, { label: 'Delete', danger: true, run: () => forgetHouse(s) }] })),
     ...(houses.value.length ? ['-'] : []),
@@ -1077,15 +1266,15 @@ function Bar() {
   if (!c || !c.scene() || Shell.wide.value) return html`<div class="fb" hidden=${Shell.wide.value} />`;
   const s = scopesOf(c), scope = scopeOf(s.scopes, chosen.value);
   current = { canvas: c, ...s, scope, field: fieldOf(c) };
-  const none = !s.marks.length && !s.aim, lineOnly = s.marks.length && s.marks.every(m => m.type === 'line' || m.geometry === 'line');
-  const textStyle = s.aim?.swatch?.kind === 'text';
-  const any = !none, boxy = any && !textStyle && !lineOnly && !s.marks.every(m => m.type === 'frame' || m.geometry === 'picture'), ro = App.readOnly.value;
+  const none = !s.marks.length && !s.aim, lineOnly = s.marks.length && s.marks.every(m => m.type === 'line' || m.geometry === 'line'), footOnly = !!s.marks.length && s.marks.every(isFoot);
+  const textStyle = s.aim?.swatch?.kind === 'text', root = !!scope?.root;
+  const any = !none, boxy = any && !textStyle && !lineOnly && !footOnly && !s.marks.every(m => m.type === 'frame' || m.geometry === 'picture'), ro = App.readOnly.value;
   // A picture, or a line of the page's own, has no text to set; the font box stays where it is, off.
   const texty = any && (!s.marks.length || s.marks.some(m => m.type !== 'shape' || !['picture', 'line'].includes(m.geometry)));
   const set = (label, v) => apply(label, v);
   const toggle = label => set(label, !pressed(label));
   const zoom = Math.round(Canvas.zoom.value * 100);
-  const placeable = s.aim ? 0 : s.marks.filter(m => m.type === 'box' || m.type === 'shape').length, layered = !none && !s.aim;
+  const placeable = s.aim ? 0 : s.marks.filter(m => (m.type === 'box' || m.type === 'shape') && !isFoot(m)).length, layered = !none && !s.aim && !footOnly;
   const aligns = [
     { head: 'Text' }, ...[['left', 'Left'], ['center', 'Center'], ['right', 'Right']].map(([a, label]) => ({ label, icon: ALIGN_ICON[a], checked: value('Align') === a, run: () => set('Align', a), tries: ['Align', a] })),
     '-', { head: placeable > 1 ? 'Shapes' : 'To the page' },
@@ -1115,7 +1304,7 @@ function Bar() {
     const kept = scope?.outputs ? keeping(c, scope, givenTo(view, scope)) : [], whose = kept.length && possessive(keepers(kept));
     const what = listed([...new Set(kept.flatMap(k => k.notes.map(n => n.label)))]);
     const clear = kept.length ? [{ label: `Clear ${whose} own ${what}`, disabled: ro,
-      run: () => App.change(tx => kept.forEach(k => k.notes.forEach(n => tx.remove(n.note))), { say: `Cleared ${whose} own ${what}` }) }] : [];
+      run: () => App.change(tx => kept.forEach(k => k.notes.forEach(n => tx.remove(n.note))), { say: `Cleared ${whose} own ${what}` }) }, { label: 'Select what differs', run: selectDiffers }] : [];
     return [s.scopes.filter(x => x.own).map(item), rows.filter(x => !x.name).map(item), headed.flatMap((x, i) => x.style === headed[i - 1]?.style ? [item(x)] : [{ head: x.name }, item(x)]),
       own.length ? [{ head: 'Same field value' }, ...own.map(item)] : [], clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
   };
@@ -1125,7 +1314,7 @@ function Bar() {
   const like = likeOf(s), ownPart = s.scopes.find(x => x.own), armed = painter.value;
   // A font or size the texts it would change don't share is shown blank, as PowerPoint shows one its selection mixes.
   const several = l => texty && new Set(scopeTexts().map(it => it.look?.[l]).filter(v => v !== undefined)).size > 1;
-  const font = !texty ? (any ? '' : 'Arial') : several('Font') ? '' : value('Font'), size = !texty ? (any ? '' : 10) : several('Size') ? '' : shown(value('Size')), align = (texty && value('Align')) || 'center';
+  const font = root ? value('Font') : !texty ? '' : several('Font') ? '' : value('Font'), size = root ? shown(value('Size')) ?? '' : !texty ? '' : several('Size') ? '' : shown(value('Size')), align = (texty && value('Align')) || 'center';
   // What would write, in Viewing: grey, saying why, pointed at or clicked, as + on the tabs does, showing what it reads all
   // the same. The scope, the zoom and Arrange, whose writes its menu greys, write nothing of themselves and go on.
   const why = ro ? App.whyNot() : null, writes = (tip, off) => ro ? { 'aria-disabled': 'true', 'data-tip': why, 'data-keys': null } : { 'data-tip': tip, disabled: off };
@@ -1137,8 +1326,8 @@ function Bar() {
       onClick=${() => armed ? disarm() : arm(true)} onDblClick=${() => ro || arm(false)}>${Shell.icon('painter')}</button>
     <button class="btn icon" data-fb="clear" aria-label="Clear formatting" data-keys="Ctrl+Space" ...${writes('Clear formatting', none)} onClick=${clearLook}>${Shell.icon('eraser')}</button>
     <span class="sep" />
-    <div class=${'scope' + (scope?.own ? ' own' : '') + (none ? ' off' : '')} role="group" aria-label="Format" data-fb="scope" onPointerEnter=${wake}>
-      ${none ? html`<button disabled><span>Nothing selected</span></button>` : null}
+    <div class=${'scope' + (scope?.own ? ' own' : '') + (none && !root ? ' off' : '')} role="group" aria-label="Format" data-fb="scope" onPointerEnter=${wake}>
+      ${root ? html`<button aria-pressed="true" tabindex="-1" data-fb="all" data-tip="Every text on this page that nothing narrower sets"><span>All text</span></button>` : none ? html`<button disabled><span>Nothing selected</span></button>` : null}
       ${ownPart ? html`<button aria-pressed=${!!scope?.own} data-fb="own" data-tip=${like ? 'Just the selection' : null} data-keys=${like ? 'Ctrl+Shift+A' : null}
         onClick=${() => choose(ownPart)}><span>${ownPart.label}</span></button>` : null}
       ${like ? html`<button aria-pressed=${!scope?.own} data-fb="like" data-tour="like" data-keys=${ownPart ? 'Ctrl+Shift+A' : null} onPointerOver=${whole}
@@ -1147,10 +1336,10 @@ function Bar() {
         onClick=${e => Shell.menu(e.currentTarget, scopes(), { placement: 'bottom-end', onClose: () => cue() })} />` : null}
     </div>
     <span class="sep" />
-    <button class="btn dd font" data-fb="font" ...${writes(null, !texty)} onClick=${e => opener.font(e.currentTarget)}><span>${font}</span></button>
-    <${SizeBox} v=${size} disabled=${ro || !texty} why=${why} />
-    <button class="btn icon" data-fb="grow" aria-label="Increase font size" data-keys="Ctrl+Shift+>" ...${writes('Increase font size', !texty)} onClick=${() => resize(grown)}>${Shell.icon('grow')}</button>
-    <button class="btn icon" data-fb="shrink" aria-label="Decrease font size" data-keys="Ctrl+Shift+<" ...${writes('Decrease font size', !texty)} onClick=${() => resize(shrunk)}>${Shell.icon('shrink')}</button>
+    <button class="btn dd font" data-fb="font" ...${writes(root ? 'All text' : lineOnly ? 'The text on these lines' : null, !texty && !root)} onClick=${e => opener.font(e.currentTarget)}><span>${font}</span></button>
+    <${SizeBox} v=${size} disabled=${ro || (!texty && !root)} why=${why} />
+    <button class="btn icon" data-fb="grow" aria-label="Increase font size" data-keys="Ctrl+Shift+>" ...${writes('Increase font size', !texty && !(root && size !== ''))} onClick=${() => resize(grown)}>${Shell.icon('grow')}</button>
+    <button class="btn icon" data-fb="shrink" aria-label="Decrease font size" data-keys="Ctrl+Shift+<" ...${writes('Decrease font size', !texty && !(root && size !== ''))} onClick=${() => resize(shrunk)}>${Shell.icon('shrink')}</button>
     <span class="sep" />
     <button class="btn icon" data-fb="bold" aria-label="Bold" data-keys="Ctrl+B" aria-pressed=${texty && pressed('Bold')} ...${writes('Bold', !texty)} onClick=${() => toggle('Bold')}>${Shell.icon('bold')}</button>
     <button class="btn icon" data-fb="italic" aria-label="Italic" data-keys="Ctrl+I" aria-pressed=${texty && pressed('Italic')} ...${writes('Italic', !texty)} onClick=${() => toggle('Italic')}>${Shell.icon('italic')}</button>
@@ -1161,7 +1350,7 @@ function Bar() {
     <span class="sep" />
     <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape and shadow', !boxy)} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
     <button class="btn dd" aria-label="Fill" data-fb="fill" ...${writes('Fill', !boxy)} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
-    <button class="btn dd" aria-label="Outline" data-fb="outline" ...${writes('Outline', none || textStyle)} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle ? value('Outline') : 'none')}</button>
+    <button class="btn dd" aria-label="Outline" data-fb="outline" ...${writes('Outline', none || textStyle || footOnly)} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle && !footOnly ? value('Outline') : 'none')}</button>
     <span class="sep" />
     <button class="btn dd wide" data-fb="align" ...${writes(null, none)} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
     <button class="btn dd wide" data-fb="order" ...${writes(null, !layered)} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
@@ -1181,7 +1370,7 @@ function mount(el) {
   const stopCue = effect(() => { chosen.value; aimed.value; Shell.selection.value; App.scene.value; if (Canvas.active.value) queueMicrotask(() => cue()); });
   // A rounded shape selected has its corner handle, wherever the chart is drawn on screen.
   const stopCorners = effect(() => { App.scene.value; Shell.selection.value; App.readOnly.value; Shell.wide.value; if (Canvas.active.value) requestAnimationFrame(cornerHandles); });
-  const stopFollow = effect(() => { const c = Canvas.active.value; if (!c) return; c.graph.on('scale', cornerHandles); c.graph.on('translate', cornerHandles); return () => { c.graph.off('scale', cornerHandles); c.graph.off('translate', cornerHandles); }; });
+  const stopFollow = effect(() => { const c = Canvas.active.value; if (!c) return; for (const on of ['scale', 'translate', 'drawn']) c.graph.on(on, cornerHandles); return () => { for (const on of ['scale', 'translate', 'drawn']) c.graph.off(on, cornerHandles); }; });
   // The painter armed shows the brush wherever the pointer is on the chart, and a click there pastes.
   document.documentElement.style.setProperty('--brush', pointer('Paintbrush', 3, 20));
   document.documentElement.style.setProperty('--dropper', pointer('Pipette', 2, 22));
@@ -1205,7 +1394,10 @@ function mount(el) {
     ['format.painter', 'Format painter', null, () => arm(true)],
     ['format.scope', 'This box or all like it', '$mod+Shift+KeyA', toggle, can],
     // The bar's popovers by name, and by the words people look for them by.
-    ['format.font', 'Font…', null, () => open('font'), edit, ['Typeface', 'Font size']],
+    ['format.font', 'Font…', null, () => open('font'), () => onScreen() && !App.readOnly.peek(), ['Typeface', 'Font size']],
+    // What every text on the page takes that nothing narrower sets (dendra.md, Notes): the page's, with nothing selected.
+    ['format.alltext', 'All text…', null, () => { Shell.select([]); setTimeout(() => open('font')); }, () => onScreen() && !App.readOnly.peek(), ['Font of all text', 'Size of all text', 'Every font', 'Theme', 'Theme font', 'Theme fonts', 'Page font', 'Whole page font']],
+    ['look.differs', 'Select what differs from its style…', null, selectDiffers, onScreen, ['One-offs', 'One off', 'Overrides', 'Differs', 'Own look', 'Manual formatting', 'Reset all formatting', 'Direct formatting']],
     ['format.color', 'Text color…', null, () => open('color'), edit, ['Font color', 'Font colour', 'Text colour']],
     ['format.fill', 'Fill…', null, () => open('fill'), edit, ['Fill color', 'Background', 'Shading', 'Transparency']],
     ['format.outline', 'Outline…', null, () => open('outline'), edit, ['Border', 'Line color', 'Line weight', 'Dashes', 'Arrows']],
@@ -1269,7 +1461,7 @@ function describe() {
   const c = Canvas.active.peek();
   if (!c?.scene()) return null;
   const s = scopesOf(c), sc = scopeOf(s.scopes);
-  if (!sc) return null;
+  if (!sc || sc.root) return null;
   const by = c.scene().byId, ids = sc.own ? s.marks.map(m => m.id) : [...sc.marks ?? []], records = [...new Set(ids.map(id => by.get(id)?.record).filter(Boolean))];
   const base = { label: named(c, sc), view: c.scene().view, records };
   return sc.own ? { own: true, ...base } : { own: false, ...base, outputs: sc.outputs, caption: sc.caption, marks: new Set(ids) };
@@ -1284,5 +1476,6 @@ function open(what, at) {
 
 Shell.register('formatbar', { mount, relist: () => listHouses() });
 return { apply, value, colorName, shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
-  copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim, aimedAt };
+  copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim, aimedAt, selectDiffers,
+  reachOf: reachOfRow };
 })();
