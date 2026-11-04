@@ -1450,8 +1450,11 @@ function mount(el) {
     if (f.it.free) return unText(f.m);
     App.change(tx => tx.remove(f.it.id), { say: c => Time.describe(c) });
   }
-  // Every mark of the narrowest group the selection's first box or line is in, as the Key and Styles group them.
+  // Every mark of the group that's lit, a Styles row aimed at or the scope's group chosen, for what's lit is what's meant; or else of
+  // the narrowest group the selection's first box or line is in, as the Key and Styles group them.
   function selectLike() {
+    const lit = FormatBar.lit?.();
+    if (lit?.marks?.size) return void Shell.select([...lit.marks]);
     const m = selected().find(x => x.type === 'box' || x.type === 'line');
     if (!m) return false;
     const gs = groupsAt(scene, m), g = gs.find(x => x.marks.size > 1) ?? gs[0];
@@ -1579,7 +1582,8 @@ function mount(el) {
   // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
   // or from the middle of the box, for Relate…, until the next click. On another box, the two's relations are
   // asked for; on empty page, a new box of a kind, or a line. A handle clicked, not dragged, is a click on its box.
-  function relating(from, start = [from.x + from.w / 2, from.y + from.h / 2], down = null) {
+  // (`only`: With…, asking what's between it and another box, which makes nothing: so Viewing asks it too.)
+  function relating(from, start = [from.x + from.w / 2, from.y + from.h / 2], down = null, only = false) {
     const line = document.createElementNS(NS, 'path'), click = !down;
     line.setAttribute('class', 'dc-relating');
     marks.appendChild(line);
@@ -1590,7 +1594,7 @@ function mount(el) {
     // Begun from a menu, nothing else says what comes next: it's said beside the box, and then beside the pointer, where the eye is; begun by
     // the keys, in their words.
     const others = scene.marks.some(m => m.type === 'box' && m.id !== from.id);
-    const next = click ? over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-tip dc-next', textContent: Shell.keyed() ? (others ? 'Now Tab to the other box and press Enter, or type a new name' : 'Now type its name') : others ? 'Now click the other box' : 'Now click where the other box goes' })) : null;
+    const next = click ? over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-tip dc-next', textContent: Shell.keyed() ? (others ? (only ? 'Now Tab to the other box and press Enter' : 'Now Tab to the other box and press Enter, or type a new name') : 'Now type its name') : others ? 'Now click the other box' : 'Now click where the other box goes' })) : null;
     const beside = m => { const g = graph.localToGraph(m.x + m.w, m.y + m.h / 2); Object.assign(next.style, { left: `${g.x + 8}px`, top: `${g.y - 12}px` }); };
     if (next) beside(from);
     const lit = () => paintStates(new Map([[from.id, ['accent', 1]], ...(target ? [[target.id, ['accent', 1]]] : [])]));
@@ -1617,7 +1621,7 @@ function mount(el) {
       });
       relateNow = {
         take: () => { const m = target; if (!m) return; end(); Shell.emit('relate-open', [from.id, m.id]); },
-        name: typed => { end(); Shell.select([from.id]); const g = graph.localToGraph(from.x + from.w / 2, from.y + from.h + 72), r = root.getBoundingClientRect(); const guide = marks.appendChild(line.cloneNode()); guide.setAttribute('d', `M${start[0]},${start[1]} L${start[0]},${start[1]}`); create(lastKind(), graph.clientToLocal(r.left + g.x, r.top + g.y), { relate: from.id, guide, typed }); },
+        name: typed => { if (only) return; end(); Shell.select([from.id]); const g = graph.localToGraph(from.x + from.w / 2, from.y + from.h + 72), r = root.getBoundingClientRect(); const guide = marks.appendChild(line.cloneNode()); guide.setAttribute('d', `M${start[0]},${start[1]} L${start[0]},${start[1]}`); create(lastKind(), graph.clientToLocal(r.left + g.x, r.top + g.y), { relate: from.id, guide, typed }); },
       };
     }
     // Dropped on another box, the two's relations are asked for, in the two-box panel, a relation ticked there pending
@@ -1630,7 +1634,7 @@ function mount(el) {
       const p = at(ev);
       target = boxAt(p);
       if (target) Shell.emit('relate-open', [from.id, target.id]);
-      else if (!ev.target.closest?.('.dc') || ev.target.closest?.('.dc-edit') || ev.button !== 0) return;
+      else if (only || !ev.target.closest?.('.dc') || ev.target.closest?.('.dc-edit') || ev.button !== 0) return;
       else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) { const guide = marks.appendChild(line.cloneNode()); create(lastKind(), p, { relate: from.id, guide }); }
     };
     const esc = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(); } };
@@ -1653,9 +1657,12 @@ function mount(el) {
     let cell = node ?? edge ?? null;
     if (cell?.getData()?.kind === 'label') cell = graph.getCellById(cell.getData().mark);
     const at = { x: e.clientX, y: e.clientY }, k = cell?.getData()?.kind, p = graph.clientToLocal(at.x, at.y);
-    if (!cell || k === 'page' || k === 'ink') return Shell.menu(at, pageItems(p));
+    if (!cell || k === 'page' || k === 'ink') { pageAt = at; return Shell.menu(at, pageItems(p)); }
     // The mark's menu, and with it selected alone, under it a field's it was on, as a click selects one; with several
     // selected, theirs, wherever on one of them it lands.
+    // A mark of the group that's lit: the group's, as what's lit is what's meant, its menu for all of them.
+    const lit = FormatBar.lit?.();
+    if (lit?.marks?.size > 1 && lit.marks.has(cell.id)) { Shell.select([...lit.marks]); return setTimeout(() => Shell.menu(at, markItems())); }
     const multi = sel.isSelected(cell) && sel.getSelectedCells().length > 1, f = (k === 'box' || k === 'line') && sel.isSelected(cell) && !multi ? fieldUnder(at.x, at.y) : null;
     if (f?.it && f.m.id === cell.id) { pickField(f); return Shell.menu(at, [...markItems(), '-', { head: fieldName(f.it) }, ...fieldItems(f).filter(x => x !== '-' && x.label !== 'Copy' && x.label !== 'Format')]); }
     pickField(null);
@@ -1685,22 +1692,34 @@ function mount(el) {
       ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
       // What a structure chart is made of: its owner and its holding (or what else its first lists call them), as a list's + asks.
       ...(one?.type === 'box' && !ro ? [...addsOf(one), { label: 'Relate…', run: () => relating(one) }] : []),
+      // What's between it and another box, which makes nothing, so reading asks it too.
+      ...(one?.type === 'box' ? [{ label: 'With…', run: () => relating(one, undefined, null, true) }] : []),
       // Their own History.
       ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }, '-', { label: 'Hide in this view', disabled: ro && !App.seeing(), run: () => App.seeing() ? App.see(viewOf(), bound.map(m => m.record), false) : remove() }] : []),
       ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
-      // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring).
-      ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: ro, run: () => App.transferring(one.record) }] : []),
-      ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: 'Insert an entity between…', disabled: ro, run: () => App.interposing(one.record) }] : []),
-      ...(one?.type === 'box' && App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: ro, run: () => App.merging(one.record) }] : []),
+      // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
+      ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
+      ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: 'Insert an entity between…', disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
+      ...(one?.type === 'box' && App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []),
+      // A company's own: each stake in it, sold or ended from the company, not only from its thin line.
+      ...(one?.type === 'box' ? stakeItems(one) : []),
       // (On the Key, what it deletes, the row selected or the Key, in its own label.)
-      { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) },
+      { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
       // What the word for an act hides, offered plainly: a mistake is taken back as never held.
-      ...(bound.length && bound.some(m => App.endOf(m.record) !== false) ? [{ label: 'Delete as a mistake…', danger: true, disabled: ro, run: () => { remove(true); App.neverHeld(); } }] : []),
+      ...(bound.length && bound.some(m => App.endOf(m.record) !== false) ? [{ label: 'Delete as a mistake…', danger: true, disabled: !App.canAsk(), run: () => { remove(true); App.neverHeld(); } }] : []),
       '-', { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
         : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
       '-', { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !(clip?.items.length || clip?.field || clip?.free !== undefined), run: () => paste() },
     ];
+  }
+  // Each stake in a box, by who holds it and how much: a transfer of it, or its end, begun from the company as from its line.
+  function stakeItems(m) {
+    const st = App.entered.peek(), N = App.notes.peek(), stakes = (Tree.index(st).relations.get(m.record) ?? []).map(rid => ({ rid, tr: App.transferable(rid, st) })).filter(({ rid, tr }) => tr?.amount && Tree.objectOf(st, tr.first.at) !== m.record);
+    if (!stakes.length) return [];
+    const said = s => `${N.shortOf(st, Tree.objectOf(st, s.tr.first.at))}, ${Tree.format(st[s.tr.amount].field, st[s.tr.amount].value)}`, off = !App.canAsk();
+    return [{ label: 'Transfer a stake', disabled: off, items: stakes.map(s => ({ label: said(s), run: () => App.transferring(s.rid) })) },
+      { label: 'End a stake', disabled: off, items: stakes.map(s => ({ label: said(s), run: () => Shell.parts.peek().inspector?.ending?.(s.rid) })) }];
   }
   // Add owner…, Add holding…: its search opens under the box, where the eye is, as the list's + opens it.
   const addsOf = m => (Shell.parts.peek().inspector?.adds?.(m.record) ?? []).map(x => ({ label: x.label, run: () => { const g = graph.localToClient(m.x + m.w / 2, m.y + m.h); x.run({ x: g.x, y: g.y + 4 }); } }));
@@ -1764,8 +1783,10 @@ function mount(el) {
     ...[...kinds()].sort().map(k => ({ label: `New ${lowered(k)}`, disabled: still(), run: () => create(k, p) })), '-',
     { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() }, '-',
     { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, '-',
-    { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Tidy', disabled: still(), run: tidy },
+    { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
+    ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-', { label: 'Tidy', disabled: still(), run: tidy },
   ];
+  let pageAt = {};
 
   // ---- States others ask for: highlight, redline, hidden records drawn ----
   // A record not drawn as text lights the box or line it sits in, or the line that stands in for it.
@@ -2147,7 +2168,7 @@ function mount(el) {
         else { tx.remove(id); gone.push(as(m)); }
       }
     };
-    if (doomed.length) return App.deleting(doomed.map(m => m.record), counted(doomed.map(m => as(m))), { source: 'chart', also: rest, done: () => Shell.select([]) });
+    if (doomed.length) return App.deleting(doomed.map(m => m.record), counted(doomed.map(m => as(m))), { source: 'chart', auto: true, also: rest, done: () => Shell.select([]) });
     const c = App.change(rest, { say: () => said(hid, gone, view) });
     if (c) Shell.select([]);
     else if (worked.length) Shell.toast(worked.length > 1 ? 'Formulas work these out' : 'A formula works this out');
@@ -2165,17 +2186,32 @@ function mount(el) {
     const s = parts.join(' and ');
     return s && s[0].toUpperCase() + s.slice(1);
   }
-  // Show only these: every other box the view draws hidden, in one step, and the lines with them, as each is hidden by its
-  // own note; the Hidden list has them.
-  const canShowOnly = () => !!scene && placeable().some(m => m.type === 'box') && (!still() || App.seeing());
+  // Show only these: what's lit, the group a Styles row or the scope has lit, or else the boxes selected. It's a look (dendra.md,
+  // Workbook), a state with a way back: the band says it, with Show all, and Keep makes it the page's.
+  const onlyThese = () => { const lit = FormatBar.lit?.(), by = App.page.peek() ?? scene; return lit?.marks?.size ? [...(FormatBar.litOn?.(lit, by) ?? lit.marks)].map(id => by.byId.get(id) ?? scene.byId.get(id)).filter(m => m?.type === 'box') : placeable().filter(m => m.type === 'box'); };
+  const canShowOnly = () => !!scene && App.canAsk() && onlyThese().length > 0;
   function showOnly() {
-    const ms = placeable().filter(m => m.type === 'box'), keep = new Set(ms.map(m => m.id)), view = viewOf();
-    const rest = scene.marks.filter(m => m.type === 'box' && !m.revealed && !keep.has(m.id));
+    const ms = onlyThese(), view = viewOf(), by = App.page.peek() ?? scene, keep = new Set(ms.map(m => m.id));
     if (!ms.length) return;
-    if (!rest.length) return Shell.toast('These are all the boxes there are', { ms: 2500 });
-    const say = `Showing only ${ms.length === 1 ? called(ms[0]) : `these ${ms.length} boxes`} in ${viewName(view)}`;
-    if (App.seeing()) { App.see(view, rest.map(m => m.record), false); return Shell.toast(say, { ms: 2500 }); }
-    App.change(tx => rest.forEach(m => tx.note('Shown', treeOf(m.record), false, { view })), { dated: false, say });
+    if (!by.marks.some(m => m.type === 'box' && !m.revealed && !keep.has(m.id))) return Shell.toast('These are all the boxes there are', { ms: 2500 });
+    App.showOnly(view, ms.map(m => m.record), `Showed only ${ms.length === 1 ? called(ms[0]) : `these ${ms.length} boxes`}`);
+    FormatBar.aim?.(null);
+  }
+  // Filter…: by what a chart knows of each box, as a table's filter is by what its columns hold: first what by, then its values
+  // ticked, with how many of each. A look: said by the band, with Show all.
+  const FIELD_MAX = 3;
+  function fieldsOf() {
+    const st = App.state.peek(), { entries } = Tree.index(st), boxes = (App.page.peek() ?? scene).marks.filter(m => m.type === 'box' && !m.revealed), n = new Map();
+    // (What's a choice or a yes-or-no first, what most boxes have, as what a chart's filtered by; what's only words after.)
+    const rank = r => ('choice' in r ? 0 : 'tag' in r ? 1 : r.field === 'text' ? 3 : 2);
+    const walk = (id, path, depth) => { for (const e of entries.get(id) ?? []) { const r = st[e]; if (!r?.edge || r.field === 'document') continue; const p = [...path, r.edge], k = p.join(' › '), x = n.get(k) ?? { c: 0, rank: rank(r) + (depth > 1 ? 4 : 0) }; x.c++; n.set(k, x); if (depth < FIELD_MAX) walk(e, p, depth + 1); } };
+    for (const m of boxes) walk(m.record, [], 1);
+    return [{ key: App.KIND, label: 'Kind' }, ...[...n].sort((a, b) => a[1].rank - b[1].rank || b[1].c - a[1].c || a[0].localeCompare(b[0])).map(([key]) => ({ key, label: key }))];
+  }
+  function filter(anchor) {
+    const view = viewOf(), at = anchor ?? { x: root.getBoundingClientRect().left + 60, y: root.getBoundingClientRect().top + 40 }, on = App.lookOf(view)?.filters ?? [];
+    Shell.menu(at, [...fieldsOf().map(f => ({ label: f.label, checked: on.some(x => x.key === f.key), run: () => Shell.popover(at, close => Shell.html`<${ChartFilter} view=${view} field=${f} close=${close} />`, { placement: 'bottom-start' }) })),
+      ...(on.length ? ['-', { label: 'Clear filters', run: () => App.showAll(view) }] : [])], { search: true });
   }
   // What's copied is marks of one view, and their names: pasting a box shows it where it was in the chart, a
   // shape is copied.
@@ -2561,7 +2597,8 @@ function mount(el) {
     // Tab steps through the boxes, or with a field selected, through its box's fields, as a form's.
     'Tab': () => fieldNow() ? stepField(1) : next(1), 'Shift+Tab': () => fieldNow() ? stepField(-1) : next(-1),
     // Delete deletes what's selected, a box or a line as a change pending (App.deleting); a field selected, it clears.
-    'Delete': () => fieldNow() ? clearField() : remove(true), 'Backspace': () => fieldNow() ? clearField() : remove(true),
+    // (Viewing, a what-if is asked for by its word; a key pressed in passing writes nothing and begins nothing.)
+    'Delete': () => still() ? Shell.toast(App.whyNot()) : fieldNow() ? clearField() : remove(true), 'Backspace': () => still() ? Shell.toast(App.whyNot()) : fieldNow() ? clearField() : remove(true),
     'ArrowLeft': () => nudging(-1, 0), 'ArrowRight': () => nudging(1, 0), 'ArrowUp': () => nudging(0, -1), 'ArrowDown': () => nudging(0, 1),
     'Shift+ArrowLeft': () => nudging(-10, 0), 'Shift+ArrowRight': () => nudging(10, 0), 'Shift+ArrowUp': () => nudging(0, -10), 'Shift+ArrowDown': () => nudging(0, 10),
     '$mod+KeyA': () => { sel.reset(graph.getCells().filter(selectable)); },
@@ -2670,7 +2707,7 @@ function mount(el) {
   function holdsFor(base) { const h = holdsOf(base), at = App.pending.peek()?.placing?.(); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
-    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly,
+    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
@@ -2685,6 +2722,31 @@ function mount(el) {
   return canvas;
 }
 
+// A chart's filter, the same control as a table's: a search, Select all, each value ticked with how many boxes have it among those
+// the other filters leave, Blank at the foot, Clear filter and Done; nothing ticked isn't applied, and Done waits for one.
+function ChartFilter({ view, field, close }) {
+  const { useState } = preactHooks, html = Shell.html;
+  App.looks.value;
+  const [q, setQ] = useState(''), [none, setNone] = useState(false), st = App.state.value, page = App.page.value;
+  if (!page) return null;
+  const all = App.lookOf(view)?.filters ?? [], mine = all.find(f => f.key === field.key) ?? null, others = all.filter(f => f !== mine), counts = new Map();
+  for (const m of page.marks) if (m.type === 'box' && !m.revealed && others.every(f => f.values.includes(App.valueAt(st, m.record, f.key)))) { const v = App.valueAt(st, m.record, field.key); counts.set(v, (counts.get(v) ?? 0) + 1); }
+  for (const v of mine?.values ?? []) if (!counts.has(v)) counts.set(v, 0);
+  const vals = [...counts.keys()].sort((a, b) => (a === null) - (b === null) || String(a).localeCompare(String(b), 'en', { numeric: true })), t = q.trim().toLowerCase(), list = t ? vals.filter(v => String(v ?? 'Blank').toLowerCase().includes(t)) : vals;
+  const kept = none ? new Set() : new Set(mine?.values ?? vals), every = list.length > 0 && list.every(v => kept.has(v)), some = list.some(v => kept.has(v));
+  const set = ks => { const v = vals.filter(x => ks.has(x)); setNone(!v.length); if (v.length) App.filterBy(view, field.key, field.label, v.length === vals.length ? null : v); };
+  const toggle = v => { const ks = new Set(kept); if (ks.has(v)) ks.delete(v); else ks.add(v); set(ks); };
+  const flip = () => { const ks = new Set(kept); list.forEach(v => (every ? ks.delete(v) : ks.add(v))); set(ks); };
+  const keys = e => { if (e.key === 'Enter' && t && list.length) { e.preventDefault(); setNone(false); App.filterBy(view, field.key, field.label, list); close(); } };
+  return html`<div class="tfilter">
+    <input type="search" class="tf-find" placeholder="Find" aria-label="Find" value=${q} autofocus spellcheck=${false} onInput=${e => setQ(e.target.value)} onKeyDown=${keys} />
+    <div class="tf-list" role="group" aria-label=${field.label}>
+      ${list.length ? html`<label class="tf-row all"><input type="checkbox" ref=${x => { if (x) x.indeterminate = some && !every; }} checked=${every} onChange=${flip} /><span class="v">Select all</span></label>` : html`<div class="tf-none">No match</div>`}
+      ${list.map(v => html`<label class="tf-row" key=${String(v)}><input type="checkbox" checked=${kept.has(v)} onChange=${() => toggle(v)} /><span class=${'v' + (v === null ? ' muted' : '')}>${v ?? 'Blank'}</span><span class="n">${counts.get(v)}</span></label>`)}
+    </div>
+    <div class="tf-foot"><button type="button" class="btn" disabled=${!mine && !none} onClick=${() => { setNone(false); App.filterBy(view, field.key, field.label, null); }}>Clear filter</button><button type="button" class="btn primary" disabled=${none} onClick=${close}>Done</button></div>
+  </div>`;
+}
 // The other parts call the canvas shown through the shell (Shell.parts.value.canvas).
 const call = name => (...a) => active.peek()?.[name](...a);
 Shell.register('canvas', { mount(el) { const c = mount(el); return () => c.destroy(); }, active: () => active.peek(),
@@ -2713,7 +2775,12 @@ Shell.register('action', { id: 'chart.rotate', name: 'Rotate…', names: ['Rotat
 Shell.register('action', { id: 'chart.tidyEvery', name: 'Tidy for every date', names: ['Tidy all dates', 'Tidy across dates', 'Line up the dates', 'Same places on every date'], enabled: () => here() && !App.readOnly.peek(), run: call('tidyEvery'),
   why: () => !here() ? 'Show a chart first' : App.whyNot() });
 Shell.register('action', { id: 'chart.only', name: 'Show only these', names: ['Hide the rest', 'Only these', 'Keep only these', 'Hide others'], enabled: () => here() && !!active.peek().canShowOnly(), run: call('showOnly'),
-  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() && !App.seeing() ? App.whyNot() : 'Select some boxes first' });
+  why: () => !here() ? 'Show a chart first' : !App.canAsk() ? App.whyNot() : 'Select some boxes first' });
+Shell.register('action', { id: 'chart.showAll', name: 'Show all', names: ['Back to the chart', 'Clear filters', 'Clear filter', 'Unfilter', 'Show everything'], enabled: () => here() && !!App.shownOf(), run: () => App.showAll(active.peek().scene().view),
+  why: () => !here() ? 'Show a chart first' : 'This page shows all it has' });
+// What's between two boxes, offered where someone asks; which makes nothing.
+Shell.register('action', { id: 'chart.with', name: 'With another box…', names: ['With', 'Between', 'Between two boxes', 'Why not', 'Why isn’t', 'Why isnt', 'What holds between', 'Relationship between', 'Compare two'], enabled: () => here() && App.canAsk() && active.peek().selected().some(m => m.type === 'box'), run: call('withAnother'),
+  why: () => !here() ? 'Show a chart first' : !App.canAsk() ? App.whyNot() : 'Select a box first' });
 // A box's size, typed in its panel; so with a shape's.
 Shell.register('action', { id: 'chart.size', name: 'Size…', names: ['Height', 'Width', 'Resize', 'Lock proportions', 'Aspect ratio'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && ['box', 'shape'].includes(active.peek().selected()[0].type),
   run: () => { Shell.showPanel?.(); setTimeout(() => { const f = document.querySelector('.insp [data-place="h"] input') ?? document.querySelector('.insp [data-place="w"] input'); f?.scrollIntoView({ block: 'center' }); f?.focus(); f?.select(); }, 60); },

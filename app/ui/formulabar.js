@@ -1389,7 +1389,8 @@ const FormulaBar = (() => {
       const mine = Object.keys(A.computed).filter(id => A.computed[id].def === def.id && A.records[id]?.args?.length === 2), held = id => { const s = n.edges(Tree.treeOf(A.records, id))[0], r = A.records[id]; return [r.args.find(a => Tree.same(a.edge, s))?.at, r.args.find(a => !Tree.same(a.edge, s))?.at]; };
       if (!mine.length || Tree.same(singular(n.listName(Tree.treeOf(A.records, mine[0]), n.edges(Tree.treeOf(A.records, mine[0]))[0])), def.name)) continue;
       const pairs = mine.map(id => [id, ...held(id)]), under = new Set(pairs.map(x => x[2])), who = pairs.filter(([id, h, o]) => o === about && !under.has(h) && B.records[id]).map(x => x[1]);
-      if (who.length) { const names = who.slice(0, 2).map(h => { const s = n.shortOf(A.records, Tree.objectOf(A.records, h)); return `${s}${s.endsWith('s') ? '’' : '’s'}`; }); return `${names.join(' and ')} ${lower(def.name)} is unchanged`; }
+      // (Of everyone it's true of, so none reads as having changed for not being named.)
+      if (who.length) { const names = who.map(h => { const s = n.shortOf(A.records, Tree.objectOf(A.records, h)); return `${s}${s.endsWith('s') ? '’' : '’s'}`; }); return `${who.length > 3 ? `${names.slice(0, 2).join(', ')} and ${who.length - 2} others’` : sayList(names)} ${lower(def.name)} is unchanged`; }
     }
     return null;
   }
@@ -2011,16 +2012,26 @@ const FormulaBar = (() => {
   // says where it changes nothing, as silence proves nothing; and that it doesn't work, where it doesn't, for what a broken formula
   // would give is no outcome.
   const Delta = ({ p }) => {
+    // (As many as it has room for, what's the preview of never cut for them; the rest are a click away, by "more".)
+    const [fit, setFit] = preactHooks.useState({ of: null, n: 3 }), box = preactHooks.useRef(), n = fit.of === p?.deltas ? fit.n : 3;
+    preactHooks.useLayoutEffect(() => { const el = box.current; if (el && n > 1 && el.scrollWidth > el.clientWidth + 1) setFit({ of: p?.deltas, n: n - 1 }); });
     if (p?.flaws?.some(f => !f.warn)) return html`<span class="fx-delta fx-doesnt"><b class="take">The formula doesn’t work</b></span>`;
-    const ds = p?.deltas.slice(0, 3) ?? [], said = WORDS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => [countedOf(d[k], d.def, d.of[k]), d.of[k]])] : null; }).filter(Boolean), calm = p ? steady(p) : null;
+    const ds = p?.deltas.slice(0, n) ?? [], said = WORDS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => [countedOf(d[k], d.def, d.of[k]), d.of[k]])] : null; }).filter(Boolean), calm = p ? steady(p) : null;
     if (p?.from === 'bar' && !said.length) return html`<span class="fx-delta">No conclusions change</span>`;
     // A transfer to one named as it's typed takes away what reached through the old holder, till the new one has its own.
     const to = p?.from === 'pending' && App.pending.peek()?.verb === 'Transfer' && App.pending.peek().transfer?.to, until = to?.kind && ds.some(d => d.minus) ? `until ${to.name} has ${lower(ownerWord(App.pending.peek().transfer.rid))}` : null;
-    const which = (e, verb, x, of) => Shell.popover(e.currentTarget, () => html`<div class="fx-which"><p>${verb} ${x}</p><ul>${of.map(o => html`<li key=${o.id}>${o.say}</li>`)}</ul></div>`, { placement: 'bottom-end' });
+    // Too long to read as pairs, and all with one record, it's what it means: "31 affiliated persons with Northpine", opening to who, each once.
+    const withOne = of => { if (of.length < 4) return null; const A = R.peek(), B = p?.R2, objects = o => { const X = A.records[o.id] ? A : B, r = X?.records[o.id]; return r?.args ? r.args.map(a => Tree.objectOf(X.records, a.at)) : null; }, sets = of.map(objects); if (sets.some(s => !s)) return null; const one = sets[0].find(x => sets.every(s => s.includes(x))); return one ? { id: one, X: A.records[one] ? A : B, others: sets.map(s => s.find(x => x !== one)) } : null; };
+    const short = one => N().shortOf(one.X.records, one.id);
+    const listed = of => { const one = withOne(of); if (!one) return of.map(o => html`<li key=${o.id}>${o.say}</li>`); const n = new Map(); for (const x of one.others) n.set(x, (n.get(x) ?? 0) + 1); return [...n].map(([x, k]) => html`<li key=${x}>${N().shortOf(one.X.records, x)}${k > 1 ? ', both ways' : ''}</li>`); };
+    const countedAs = (x, of) => { const one = withOne(of); return one ? `${x} with ${short(one)}` : x; };
+    const which = (e, verb, x, of) => Shell.popover(e.currentTarget, () => html`<div class="fx-which"><p>${verb} ${countedAs(x, of)}</p><ul>${listed(of)}</ul></div>`, { placement: 'bottom-end' });
     // What there's no room to say here is a click away, never left out: the smallest may be what's taken away.
-    const rest = p?.deltas.slice(3) ?? [], more = e => Shell.popover(e.currentTarget, () => html`<div class="fx-which">${rest.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => html`<p>${verb} ${countedOf(x[k], x.def, x.of[k])}</p><ul>${x.of[k].map(o => html`<li key=${o.id}>${o.say}</li>`)}</ul>`))}</div>`, { placement: 'bottom-end' });
-    return said.length ? html`<span class="fx-delta">${said.map(([verb, cls, xs], i) => html`<span>${i ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `}${xs.map(([x, of], j) =>
-      html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<button type="button" class="fx-count" aria-haspopup="dialog" onClick=${e => which(e, verb, x, of)}><b class=${cls}>${x}</b></button>`)}${i < said.length - 1 || rest.length ? ';' : ''}</span>`)}${rest.length ? html`<span><button type="button" class="fx-count" aria-haspopup="dialog" onClick=${more}><b>${rest.length} more</b></button></span>` : null}${until ? html`<span>${until}</span>` : null}${calm ? html`<span class="fx-net">· ${calm}</span>` : null}</span>` : null;
+    const rest = p?.deltas.slice(n) ?? [], more = e => Shell.popover(e.currentTarget, () => html`<div class="fx-which">${rest.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => html`<p>${verb} ${countedAs(countedOf(x[k], x.def, x.of[k]), x.of[k])}</p><ul>${listed(x.of[k])}</ul>`))}</div>`, { placement: 'bottom-end' });
+    // (All of them with one record, that's said once, after them all.)
+    const allWith = xs => { const ones = xs.map(([, of]) => withOne(of)), one = ones[0]; return xs.length > 1 && one && ones.every(o => o?.id === one.id) ? one : null; };
+    return said.length ? html`<span class="fx-delta" ref=${box}>${said.map(([verb, cls, xs], i) => html`<span>${i ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `}${xs.map(([x, of], j) =>
+      html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<button type="button" class="fx-count" aria-haspopup="dialog" onClick=${e => which(e, verb, x, of)}><b class=${cls}>${allWith(xs) ? x : countedAs(x, of)}</b></button>`)}${allWith(xs) ? ` with ${short(allWith(xs))}` : ''}${i < said.length - 1 || rest.length ? ';' : ''}</span>`)}${rest.length ? html`<span><button type="button" class="fx-count" aria-haspopup="dialog" onClick=${more}><b>${rest.length} more</b></button></span>` : null}${until ? html`<span>${until}</span>` : null}${calm ? html`<span class="fx-net" title=${calm}>· ${calm}</span>` : null}</span>` : null;
   };
   // What a relation's holder is called, by the list it makes ("an owner"), as a toast offers one.
   const ownerWord = rid => { const recs = R.peek().records, t = Tree.treeOf(recs, rid), one = singular(N().listName(t, N().edges(t)[0])); return `${/^[aeiou]/i.test(one) ? 'an' : 'a'} ${one}`; };
@@ -2149,6 +2160,43 @@ const FormulaBar = (() => {
     return items;
   }
   const whyIsnt = (anchor, id, relation, side) => Shell.menu(anchor, isntHere(id, relation, side), { search: true });
+  // By definition and side, the kinds of what a formula gives there.
+  const sidesKept = new WeakMap();
+  const sidesOf = Rv => { let m = sidesKept.get(Rv); if (m) return m; sidesKept.set(Rv, m = new Map()); const recs = Rv.records; for (const id in Rv.computed) { const r = recs[id]; if (r?.args?.length !== 2 || r.tag === false) continue; for (const a of r.args) { const k = `${Rv.computed[id].def}|${norm(a.edge)}`; (m.get(k) ?? m.set(k, new Set()).get(k)).add(recs[Tree.objectOf(recs, a.at)]?.kind); } } return m; };
+  // The lists a formula could give a record that it gives it none of (dendra.md, Silence): each by its name, with who could be on it, which
+  // Why isn't… opens to. So a question with no one for its answer is answered: "Controllers: none". → [{ name, def, side }]
+  function emptyLists(id, have) {
+    const Rv = R.value, recs = Rv.records, n = N(), t = isObj(recs[id]) && !Tree.isView(recs[id]) ? Tree.treeOf(recs, id) : null, out = [];
+    if (!t) return out;
+    // (A list a record of its kind has somewhere: an entity's Controllers, not an individual's.)
+    const kinds = sidesOf(Rv);
+    for (const d of defs.value.values()) {
+      if (d.id === NEW || d.edges?.length !== 2 || !d.isRelation) continue;
+      const p = noteOf(d.id)?.pattern;
+      if (!p?.args) continue;
+      for (const mine of d.edges) {
+        const loc = p.args.find(a => Tree.same(a.edge, mine))?.loc, other = d.edges.find(e => !Tree.same(e, mine));
+        if (!loc || !other || !Tree.narrower(t, loc) || !kinds.get(`${d.id}|${norm(mine)}`)?.has(recs[id].kind)) continue;
+        // (What a rule gives one or two things only is said of the rest in its own words: notOn.)
+        if (d.type === 'tag' && Tree.same(mine, d.edges[0]) && Formulas.sideObjects(Rv, d.id, d.edges[1]).length <= FEW) continue;
+        const name = n.listName(p, other);
+        if (!have.some(h => Tree.same(h, name)) && !out.some(x => Tree.same(x.name, name))) out.push({ name, def: d.id, side: other });
+      }
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  // Who could be on such a list, as Why isn't… on this list? asks of a list with some on it.
+  function isntOn(anchor, id, def, side) {
+    const Rv = R.peek(), recs = Rv.records, d = defOf(def), other = d?.edges.find(e => !Tree.same(e, side));
+    if (!d) return;
+    const items = Object.keys(recs).filter(x => isObj(recs[x]) && !Tree.isView(recs[x]) && x !== id && Formulas.evaluateRow(Rv, def, 0, { [side]: x, [other]: id })).map(x => ({ label: nameOf(Rv, x), names: [N().shortOf(recs, x)], run: () => {
+      const [a, b] = Tree.same(d.edges[0], side) ? [x, id] : [id, x];
+      Shell.select([x, id]);
+      pickLine(`${def}|${a}|${b}`);
+    } }));
+    if (items.length) Shell.menu(anchor, items, { search: true });
+    else Shell.toast(`Nothing here could be on it`);
+  }
   // Find takes two names: "Fund III Tessellate" selects them both, whose panel and bar say what's between them.
   // Each name is an object's, its name or short name, or the fewest words its name begins with or has.
   function namedIn(q) {
@@ -2202,5 +2250,5 @@ const FormulaBar = (() => {
   const startSaid = kind => kind === 'implies' ? '← implied by: yes where what follows holds, and says nothing elsewhere' : '= gives what follows, yes or no or a value';
   Shell.register('broken', Broken);
   return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, define, into, light: ids => { lit.value = ids; },
-    reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, because, between, pickLine, isntHere, whyIsnt, model, finder, pending, draft, hover, open, saying, brokenSaid, startSaid, limit, notOn };
+    reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, because, between, pickLine, isntHere, whyIsnt, emptyLists, isntOn, model, finder, pending, draft, hover, open, saying, brokenSaid, startSaid, limit, notOn };
 })();
