@@ -1639,6 +1639,10 @@ Shell.register('action', { id: 'record.transfer', name: 'Transfer…', names: ['
 Shell.register('action', { id: 'record.interpose', name: 'Insert an entity between…', names: ['Insert', 'Interpose', 'Holdco', 'Between'],
   enabled: () => !App.readOnly.peek() && !!theOne() && !!App.interposable(theOne()), run: () => App.interposing(theOne()),
   why: notNow('Only an ownership takes one between', 'an ownership') });
+// What a formula gives, overridden by saying so, as the reason in the formula bar offers it.
+const computedTag = () => { const id = theOne(); return id && fx(id) && 'tag' in recs()[id] ? id : null; };
+Shell.register('action', { id: 'record.override', get name() { return computedTag() && !recs()[computedTag()].tag ? 'Attest…' : 'Rule out…'; }, names: ['Rule out', 'Attest', 'Override'],
+  enabled: () => !App.readOnly.peek() && !!computedTag(), run: () => App.overriding(computedTag()), why: notNow('Only what a formula gives is overridden', 'what a formula gives') });
 Shell.register('action', { id: 'record.merge', name: 'Merge into…', names: ['Merger', 'Merged into', 'Merge'],
   enabled: () => !App.readOnly.peek() && !!theOne() && App.endsOf(theOne()).some(e => e.rel), run: () => App.merging(theOne()), why: notNow('Only what can merge merges', 'an entity') });
 Shell.register('action', { id: 'record.delete', get name() { return `${theOne() ? App.deleteVerb([theOne()]) : 'Delete'}…`; }, names: ['Delete', 'Remove', 'Dissolve', 'End'],

@@ -199,6 +199,11 @@ async function run() {
   check('… and its row shows it, a red X', rowOf('Formation Document on File').querySelector('.tag').classList.contains('fails') && !overrideBtn(), rowOf('Formation Document on File').innerHTML.slice(0, 200));
   key(pb(), 'Escape'); await tick(60);
   check('… Esc leaves it as it was', App.wb.changes().length === n1 && st()[onFileId].tag === true && App.computed.value.computed[onFileId] && !pb(), pb()?.textContent);
+  // … and Find reaches it, for what a formula gives that's selected
+  Shell.select([onFileId]); await tick(60);
+  const ruling = await (async () => { Shell.find('rule out'); await tick(150); const out = [...document.querySelectorAll('.findpal .label')].map(x => x.textContent); Shell.closeAll(); await tick(30); return out; })();
+  check('… Find reaches Rule out…, of the computed tag selected', ruling.includes('Rule out…'), ruling.join(' | '));
+  Shell.select(['fund']); await tick(60);
 
   // A choice from its dropdown
   rowOf('Investment Company Status').querySelector('.sel').click(); await tick();

@@ -445,7 +445,12 @@ const App = (() => {
   // What its button says: its verb, or what it's called (Dissolve); a deletion as never held is Delete.
   const actOn = p => p.asks === 'until' && p.day === null ? p.verb : p.act ?? p.verb;
   const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring', Change: 'changing', 'Rule out': 'ruling out', Insert: 'inserting' };
-  const discarded = p => { const act = actOn(p); return `Discarded ${doing[act] ?? (act !== p.verb ? act.toLowerCase().replace(/e$/, '') + 'ing' : p.verb.toLowerCase())} ${p.what}`; };
+  const discarded = p => {
+    // (One value typed is said as a sentence, which is what's discarded; a tag's, or several, by what doing it was.)
+    if (p.typed?.length === 1 && !('tag' in p.typed[0].out)) return `Discarded “${p.what}”`;
+    const act = actOn(p);
+    return `Discarded ${doing[act] ?? (act !== p.verb ? act.toLowerCase().replace(/e$/, '') + 'ing' : p.verb.toLowerCase())} ${p.what}`;
+  };
   function stage(p) {
     if (readOnly.peek()) { Shell.toast('Can’t change the past'); return; }
     // Where the keys were as it was begun: what had them, the row it's in, and its part of the window.
