@@ -429,13 +429,14 @@ const Shell = (() => {
   }
 
   // A menu; with `search`, a field that ranks its items, or that `items(query)` answers. An item `asked` (a new option named
-  // as it's typed, from `more(query)`) is never the one Enter takes of itself: it's chosen, by the pointer or the arrows.
+  // as it's typed, from `more(query)`) is what Enter takes only where it's highlighted: by the pointer or the arrows, or
+  // of itself where nothing else is found.
   function Menu({ f }) {
     const [q, setQ] = useState(f.query ?? '');
     const [act, setAct] = useState(-1);
     const items = typeof f.items === 'function' ? f.items(q.trim()) : f.search && q.trim() ? [...rank(f.items.filter(it => selectable(it) && !it.asked), q), ...(f.more?.(q.trim()) ?? [])] : f.items;
     const live = items.map((it, i) => selectable(it) ? i : -1).filter(i => i >= 0);
-    const active = f.search && q.trim() && act < 0 ? live.find(i => !items[i].asked) ?? -1 : act;
+    const active = f.search && q.trim() && act < 0 ? live.find(i => !items[i].asked) ?? live[0] ?? -1 : act;
     const checks = items.some(it => it && it.checked !== undefined);
     const mi = i => `mi${f.id}-${i}`, el = i => document.getElementById(mi(i));
     const run = it => {
@@ -810,7 +811,8 @@ const Shell = (() => {
       show(next.id);
       ref.current.children[list.indexOf(next)]?.focus();
     };
-    const add = e => vp.add(e.currentTarget).then(id => { if (id) { show(id); editing.value = id; } });
+    // Viewing, or at a past moment, a new view says why it can't be, rather than doing nothing.
+    const add = e => App.readOnly.peek() ? toast(App.whyNot()) : vp.add(e.currentTarget).then(id => { if (id) { show(id); editing.value = id; } });
     const name = v => { if (!App.readOnly.peek()) editing.value = v.id; };
     const all = e => menu(e.currentTarget, list.map(v => ({ label: v.name, checked: v.id === view.peek(), run: () => show(v.id) })), { placement: 'top-end' });
     return html`<div class="sheets" role="tablist" aria-label="Views" ref=${ref} onKeyDown=${onKey} onScroll=${more} onWheel=${e => { if (e.deltaY && !e.deltaX) { e.preventDefault(); ref.current.scrollLeft += e.deltaY * (e.deltaMode ? 16 : 1); } }}>
@@ -820,7 +822,7 @@ const Shell = (() => {
             onBlur=${e => commit(v, e.target.value)} /></div>`
         : html`<button key=${v.id} id=${'tab-' + v.id} class="sheet" role="tab" aria-selected=${v.id === view.value} aria-controls="view" tabindex=${v.id === view.value ? 0 : -1} data-tour=${v.id === view.value ? null : 'sheet'}
             onPointerDown=${e => down(e, v)} onDblClick=${() => name(v)} onContextMenu=${e => tabMenu(e, v)}>${v.name}</button>`)}
-    </div>${over ? html`<button class="btn icon views" aria-haspopup="menu" aria-label="All views" data-tip="All views" onClick=${all}>${icon('chevron')}</button>` : null}<button class="btn icon" aria-label="New view" data-tip="New view" disabled=${App.readOnly.value} onClick=${add}>${icon('plus')}</button>`;
+    </div>${over ? html`<button class="btn icon views" aria-haspopup="menu" aria-label="All views" data-tip="All views" onClick=${all}>${icon('chevron')}</button>` : null}<button class="btn icon" aria-label="New view" data-tip=${App.readOnly.value ? App.whyNot() : 'New view'} aria-disabled=${App.readOnly.value ? 'true' : null} onClick=${add}>${icon('plus')}</button>`;
   }
 
   // ---- The status bar: what needs attention, counted, the worst first; F8 steps through it in that order ----

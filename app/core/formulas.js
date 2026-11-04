@@ -3613,9 +3613,45 @@ function pay({ R, due, day, add }) {
   return year;
 }
 
+// Not tested (dendra.md, Definitions). What a row of a tag's definition can say, [yes, no]: a literal, itself; IF, what its
+// branches say, its condition being what it asks; LET, what its end says; anything else is worked out, and can say either.
+// `←` says only yes.
+function saying(n) {
+  if (n.k === 'lit') return typeof n.v === 'boolean' ? [n.v, !n.v] : [false, false];
+  if (isCall(n, 'LET')) return saying(n.args.at(-1).x);
+  if (!isCall(n, 'IF')) return [true, true];
+  const said = n.args.slice(1).map(a => saying(a.x));
+  return [said.some(s => s[0]), said.some(s => s[1])];
+}
+const sayingOf = new WeakMap();
+function rowsSay(rows) {
+  if (!sayingOf.has(rows)) {
+    const said = rows.map(r => { try { const f = splitFormula(r.formula); return f.kind === 'implies' ? [true, false] : saying(parseCached(f.body, f.offset)); } catch { return [false, false]; } });
+    sayingOf.set(rows, [said.some(s => s[0]), said.some(s => s[1])]);
+  }
+  return sayingOf.get(rows);
+}
+// The schema's specifications of an entry, by its label; and a location with its options taken away, so a record's reads
+// as those of its entry's specifications do, whatever option it has.
+const entriesOf = new WeakMap();
+const specified = (S, edge) => {
+  if (!entriesOf.has(S)) { const m = new Map(); for (const s of Object.values(S)) if (s.args?.length === 1) { const k = normal(s.args[0].edge); if (!m.has(k)) m.set(k, []); m.get(k).push(s.args[0].loc); } entriesOf.set(S, m); }
+  return entriesOf.get(S).get(normal(edge)) ?? [];
+};
+const optionless = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: optionless(a.loc) })) } : t.kind !== undefined ? { kind: t.kind } : {};
+// What a definition's silence says of the tag `edge` at the record `at`, which it covers, at a record of a kind the entry is
+// specified at, and has said nothing of: one that can say both yes and no hasn't tested it, 'untested'; one that can only
+// say yes says 'no'; one that can only say no finds nothing wrong, 'fine'. Null where no definition covers it, or it's said.
+function silence(N, S, recs, at, edge) {
+  const t = recs[at] && !Tree.entryAt(recs, at, edge) && Tree.treeOf(recs, at), n = t && N.resolve('Formula', { args: [{ edge, loc: t }] }), here = n && optionless(t);
+  if (!n || !specified(S, edge).some(l => Tree.narrower(here, optionless(l)))) return null;
+  const [yes, no] = rowsSay(n.value);
+  return yes && no ? 'untested' : yes ? 'no' : no ? 'fine' : null;
+}
+
 return {
   computeState, ground, evaluateRow, diff, check, suggest, evaluateAt, text, attention, pay, renameName, computedId, splitFormula, tidyArrow,
-  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
+  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS), silence,
 };
 
 })();
