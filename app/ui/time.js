@@ -58,22 +58,121 @@ const Time = (() => {
     for (const r of rows) if (r.field === 'date' && r.at && recs[r.at]) add(r.value, [r.edge, whose(recs, r.at, N)]);
     return [...out].sort(([a], [b]) => a.localeCompare(b)).map(([day, m]) => ({ day, items: [...m.values()] }));
   });
-  // The shell draws the date's popover and the ruler under the view from these, and comes back to today, from
-  // a day or from the log as it stood, by the last.
-  Shell.register('time', { When, Ruler, Band, today: () => Shell.time.peek()?.stood ? now() : show(null) });
+  // The shell draws the date's popover and the ruler under the view from these, and comes back from a look at another day
+  // to the day the page keeps, or to today, from a day or from the log as it stood, by the last; `away`, whether there's
+  // anything to come back from.
+  Shell.register('time', { When, Ruler, Band, away, newSinceToday, today: () => Shell.time.peek()?.stood ? now() : kept(Shell.view.peek()) ? Shell.at({ asOf: kept(Shell.view.peek()) }) : show(null) });
 
-  // ---- A view keeping a date ----
+  // ---- A page's day (dendra.md, Views): its As Of if it keeps one; else the session's day ----
   const kept = id => App.views.peek().find(v => v.id === id)?.keeps ?? null;
-  const keep = (id, day) => App.change(tx => tx.note('As Of', viewTree(id), day ?? undefined), { dated: false });
-  // Showing a view that keeps a date shows that day; leaving it for one that doesn't comes back to today.
-  let lastView = null;
-  Shell.on('view-switch', id => {
-    const t = Shell.time.peek(), was = kept(lastView), keeps = kept(id);
-    lastView = id;
-    if (t?.stood) return;
-    if (keeps && t?.asOf !== keeps) Shell.at({ asOf: keeps }, { replace: true });
-    else if (!keeps && was && t?.asOf === was) Shell.at(null, { replace: true });
+  // The day of the pages that keep none: the day shown on one of them, which a look at another day on a page that keeps
+  // one leaves as it was. So nothing about the tab you stand on changes another page.
+  let lastView = null, floating = null, arrived = false;
+  const go = id => {
+    const t = Shell.time.peek(), to = kept(id) ?? floating;
+    if (!t?.stood && (t?.asOf ?? null) !== to) Shell.at(to ? { asOf: to } : null, { replace: true });
+  };
+  // (A page opened by its address, once the workbook is, shows the day it keeps; one that keeps none, the day asked for.)
+  const arrive = () => {
+    const vs = App.views.peek(), v = Shell.view.peek();
+    if (arrived || !vs.length || v !== lastView) return;
+    arrived = true;
+    if (vs.find(x => x.id === v)?.keeps) queueMicrotask(() => go(v));
+    else floating = Shell.time.peek()?.asOf ?? null;
+  };
+  // Showing a view that keeps a date shows that day; leaving it shows the day of the rest.
+  Shell.on('view-switch', id => { lastView = id; if (arrived) go(id); else arrive(); });
+  Shell.effect(() => {
+    const t = Shell.time.value, v = Shell.view.value, vs = App.views.value;
+    if (!arrived) return arrive();
+    if (v === lastView && !t?.stood && !vs.find(x => x.id === v)?.keeps) floating = t?.asOf ?? null;
   });
+  // Whether the day shown is a look: another than the day the page shown keeps.
+  const looking = () => { const t = Shell.time.value, k = App.views.value.find(v => v.id === Shell.view.value)?.keeps; return !!k && !t?.stood && (t?.asOf ?? Log.today()) !== k; };
+  function away() { const t = Shell.time.value; return !t && !looking() ? null : looking() ? 'Back' : t.stood || !App.views.value.find(v => v.id === Shell.view.value)?.keeps ? 'Today' : null; }
+  // The day a page is drawn as of when it isn't the one shown: an export's, each page at its own.
+  const pageDay = id => Shell.time.peek()?.stood ? App.day.peek() : kept(id) ?? floating ?? Log.today();
+  // Keeping a day: what the page shows from then on, which the rest no longer follow; let go, it's the day of the rest.
+  function keep(id, day) {
+    const name = App.views.peek().find(v => v.id === id)?.name;
+    const c = App.change(tx => tx.note('As Of', viewTree(id), day ?? undefined), { dated: false, say: day ? `${name} keeps ${short(day)}` : `${name} keeps no day` });
+    if (!c) return;
+    if (id !== Shell.view.peek()) return;
+    if (day) { floating = null; if ((Shell.time.peek()?.asOf ?? null) !== day) Shell.at({ asOf: day }, { replace: true }); }
+    else floating = Shell.time.peek()?.asOf ?? null;
+  }
+
+  // ---- What a page marks as changed (dendra.md, Changes), a note at the view, and the look it begins in ----
+  const changeNotes = view => App.shown.peek().rows(App.chart.peek()).filter(r => 'note' in r && r.view === view && Scene.isChange(r.pattern));
+  // (After the styles the view has, so what it says of a mark decides, as a look given a group goes after those in Styles; but
+  // before a tag's, so what's failed stays red. `like`, the view a copy's styles are from, which the change has copied.)
+  function styleChanges(tx, view, like = view) {
+    if (changeNotes(like).length) return;
+    for (const [what, look] of Object.entries(Scene.CHANGE_LOOKS)) {
+      const p = Scene.changeOutput(what);
+      for (const [label, v] of Object.entries(look)) tx.note(label, p, v, { view });
+      tx.note('Caption', p, Scene.CHANGE_CAPTIONS[what], { view });
+    }
+    const styles = App.notes.peek().styles(like), tagged = s => s.outputs.some(o => o.pattern.out && 'tag' in o.pattern.out);
+    [...styles.filter(s => !tagged(s)), { pattern: Tree.bare(Scene.changeOutput('New')) }, ...styles.filter(tagged)]
+      .forEach((s, k) => { if (s.order !== k + 1) tx.note('Order', s.pattern, k + 1, { view }); });
+  }
+  const changesSaid = (v, value) => !value ? `Took the changes off ${v.name}` : value.since ? `Showed the changes since ${short(value.since)} in ${v.name}` : `Showed the changes since the page before in ${v.name}`;
+  // Set on a view, its look begun; taken off, its look goes with it where nobody has changed it.
+  function showChanges(id, value) {
+    const v = App.views.peek().find(x => x.id === id);
+    if (!v) return;
+    App.change(tx => {
+      tx.note('Changes', viewTree(id), value ?? undefined);
+      if (value) styleChanges(tx, id);
+      else {
+        const ns = changeNotes(id), asBegun = n => n.label === 'Order' || (n.label === 'Caption' ? Object.values(Scene.CHANGE_CAPTIONS).includes(n.value) : Object.values(Scene.CHANGE_LOOKS).some(l => l[n.label] === n.value));
+        if (ns.every(asBegun)) ns.forEach(n => tx.remove(n.note));
+      }
+    }, { dated: false, say: changesSaid(v, value) });
+  }
+  // The latest of the chart's days before a day: what a comparison with a date begins on.
+  const dayBefore = d => events.peek().map(e => e.day).filter(x => x < d).at(-1) ?? d;
+
+  // ---- A step (dendra.md, Views): a copy of the view keeping a day, its title the name typed ----
+  function StepForm({ choice }) {
+    return html`<div class="step-form">
+      <label class="field"><span>Name</span><input value=${choice.name} spellcheck="false" autofocus ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onInput=${e => { choice.name = e.target.value; }} /></label>
+      <label class="field"><span>Date</span><input value=${choice.text} spellcheck="false" onFocus=${e => e.target.select()} onInput=${e => { choice.text = e.target.value; e.target.classList.remove('bad'); }} /></label>
+    </div>`;
+  }
+  async function nextStep(id = Shell.view.peek()) {
+    if (App.readOnly.peek()) return Shell.toast(App.whyNot());
+    const v = App.views.peek().find(x => x.id === id), from = pageDay(id);
+    if (v?.layout !== 'chart') return Shell.toast('Show a chart first');
+    // (The next of the chart's own days after this page's, the name the next of its kind: each typed over.)
+    const n = 1 + Math.max(0, ...App.views.peek().map(x => +/^Step (\d+)/i.exec(x.name)?.[1] || 0));
+    const choice = { name: `Step ${n}`, text: Tree.formatDate(events.peek().map(e => e.day).find(d => d > from) ?? from) };
+    for (;;) {
+      if (!await Shell.dialog({ title: 'Next step', width: 400, body: () => html`<${StepForm} choice=${choice} />`, actions: [{ label: 'Cancel', value: false }, { label: 'Add', value: true, primary: true }] })) return;
+      const day = Tree.parseDate(choice.text), name = choice.name.trim();
+      if (day && name) {
+        const copy = App.addView(name, undefined, id, null, false, { title: name, say: `Added ${name}, keeping ${short(day)}`, then: (tx, made) => {
+          tx.note('As Of', viewTree(made), day);
+          // (What it's compared with holds still too, and the two are one plan, with one set of places.)
+          if (!v.keeps) tx.note('As Of', viewTree(id), from);
+          if (!v.plan) tx.note('Plan', viewTree(id), id);
+          tx.note('Plan', viewTree(made), v.plan ?? id);
+          tx.note('Changes', viewTree(made), { page: true });
+          styleChanges(tx, made, id);
+        } });
+        if (copy) Shell.show(copy);
+        return;
+      }
+      Shell.toast(!name ? 'A step needs a name' : `“${choice.text}” isn’t a date`);
+    }
+  }
+  const chartShown = () => App.views.peek().find(x => x.id === Shell.view.peek())?.layout === 'chart', free = () => chartShown() && !App.readOnly.peek(), whyNotChart = () => App.readOnly.peek() ? App.whyNot() : 'Show a chart first';
+  Shell.register('action', { id: 'view.step', name: 'Next step…', names: ['Step', 'Step plan', 'New step', 'Add step', 'Compare'], enabled: free, why: whyNotChart, run: () => nextStep() });
+  const COMPARE = ['Changes', 'Compare', 'Highlight', 'What changed', 'Mark changes', 'Redline'];
+  Shell.register('action', { id: 'view.changes', name: 'Show changes since the page before', names: COMPARE, enabled: free, why: whyNotChart, run: () => showChanges(Shell.view.peek(), { page: true }) });
+  Shell.register('action', { id: 'view.changes.since', name: 'Show changes since a date', names: COMPARE, enabled: free, why: whyNotChart, run: () => { Shell.select([]); Shell.showPanel(); showChanges(Shell.view.peek(), { since: dayBefore(App.day.peek()) }); } });
+  Shell.register('action', { id: 'view.changes.off', name: 'Hide changes', names: COMPARE, enabled: () => free() && !!App.views.peek().find(x => x.id === Shell.view.peek())?.changes, why: () => 'This page isn’t showing changes', run: () => showChanges(Shell.view.peek(), null) });
 
   // ---- The date control: today, or a day from a calendar beside the chart's own days ----
   const opened = signal(false);
@@ -123,12 +222,23 @@ const Time = (() => {
       const d = Tree.parseDate(e.target.value);
       if (d) { show(d); close(); } else e.target.classList.add('bad');
     };
+    // At every day, today too, the page can keep it; on a page that keeps one, another day is a look.
+    const can = !App.readOnly.value, tip = can ? null : App.whyNot(), name = view?.name, keeps = view?.keeps ?? null;
+    const keeping = !view || t?.stood ? null : looking() ? html`<div class="date-keep"><span>${name} keeps ${short(keeps)}</span>
+        <button class="btn" disabled=${!can} title=${tip} onClick=${() => keep(view.id, day)}>Keep this instead</button><button class="btn" onClick=${() => Shell.at({ asOf: keeps })}>Back</button></div>`
+      : html`<label class="date-keep" title=${tip}><input type="checkbox" disabled=${!can} checked=${keeps === day} onChange=${e => keep(view.id, e.target.checked ? day : null)} />${keeps === day ? `${name} keeps ${short(day)}` : `Keep ${short(day)} in ${name}`}</label>`;
+    // A day past is that day's facts by today's rules; as it stood, everything as it was (dendra.md, Time).
+    const stoodThen = !t?.stood && day < today ? ever.value.changes.filter(c => c.when.slice(0, 10) <= day).at(-1) : null;
+    const reads = t?.stood ? html`<div class="date-reads">As it stood: everything as it was</div>`
+      : day < today ? html`<div class="date-reads"><span>As of ${short(day)}: that day’s facts, by today’s rules</span>
+        ${stoodThen ? html`<button class="btn" onClick=${() => { close(); stand(stoodThen); }}>As it stood: everything as it was</button>` : null}</div>` : null;
     return html`<div class="date-pop">
       <div class="date-top">
         <button class="btn" aria-pressed=${!t} onClick=${() => show(null)}>Today</button>
         <input aria-label="Date" autofocus value=${text ?? Tree.formatDate(day)} spellcheck="false" onFocus=${e => e.target.select()}
           onInput=${e => { setText(e.target.value); e.target.classList.remove('bad'); toward(Tree.parseDate(e.target.value)); }} onKeyDown=${typed} />
       </div>
+      ${keeping}
       <div class="date-body">
         <${Month} month=${month} setMonth=${setMonth} value=${t?.asOf} marked=${marked} />
         <div class="date-days" ref=${listRef}>
@@ -140,7 +250,7 @@ const Time = (() => {
             </button>`)}`)}
         </div>
       </div>
-      ${t?.asOf && view && !App.readOnly.value ? html`<label class="date-keep"><input type="checkbox" checked=${view.keeps === t.asOf} onChange=${e => keep(view.id, e.target.checked ? t.asOf : null)} />Keep in ${view.name}</label>` : null}
+      ${reads}
     </div>`;
   }
 
@@ -266,7 +376,10 @@ const Time = (() => {
     // (And the Key where the page placed it, all that's changed of its row; and the scale the page keeps.)
     const rest = r => { const { id, kept, ...p } = r; return JSON.stringify(p); }, keptKey = i => i.type === 'shape' && i.was.length && i.now.length && rest(Log.latest(i.was)) === rest(Log.latest(i.now));
     const scaled = i => i.type === 'note' && Log.latest(i.now.length ? i.now : i.was).label === 'Scale';
-    const held = [...items.values()].filter(i => (back || !keeps(i)) && !keptKey(i) && !scaled(i)), rec = i => Log.latest(i.now.length ? i.now : i.was);
+    const rec = i => Log.latest(i.now.length ? i.now : i.was), told = new Set();
+    // (A place put on every page of a plan is said once.)
+    const once = i => { if (i.type !== 'note' || !(['Position', 'Bend'].includes(rec(i).label) || (rec(i).view && typeof Scene !== 'undefined' && Scene.isChange(rec(i).pattern)))) return true; const k = `${rec(i).label}|${Tree.key(rec(i).pattern)}`; return !told.has(k) && !!told.add(k); };
+    const held = [...items.values()].filter(i => (back || !keeps(i)) && !keptKey(i) && !scaled(i) && once(i));
     // (A rule's own History, of what's said at its pattern; a record's, of it and what's at it.)
     const about = i => near.rule ? i.type === 'note' && !rec(i).view && near.rule.has(Tree.key(rec(i).pattern)) && rec(i).label !== 'Order'
       : i.type === 'record' ? near.has(i.id) : i.type === 'note' && [...Tree.idsIn(rec(i).pattern)].some(id => near.has(id));
@@ -782,7 +895,7 @@ const Time = (() => {
   const stand = c => { if (!Shell.time.peek()?.stood) home = Shell.view.peek(); Shell.at({ stood: c.id, at: c.when }); };
   function now() {
     const took = !App.views.peek().some(v => v.id === home);
-    if (Shell.time.peek()?.stood) Shell.at(null);
+    if (Shell.time.peek()?.stood) { Shell.at(null); go(Shell.view.peek()); }
     if (took && home && home !== Shell.view.peek() && App.views.peek().some(v => v.id === home)) Shell.show(home, { replace: true });
     home = null;
   }
@@ -953,12 +1066,36 @@ const Time = (() => {
   // ---- The past looks past: a band across the view, saying the moment shown, and the way back ----
   function Band() {
     const t = Shell.time.value;
+    // A look at another day on a page that keeps one, said where the eye is, as the date control says it.
+    if (looking()) {
+      const v = App.views.value.find(x => x.id === Shell.view.value), can = !App.readOnly.value;
+      return html`<div class="pastband" role="status"><span>${v.name} keeps ${short(v.keeps)}</span><button class="btn" disabled=${!can} title=${can ? null : App.whyNot()} onClick=${() => keep(v.id, App.day.peek())}>Keep this instead</button><button class="btn" onClick=${() => Shell.at({ asOf: v.keeps })}>Back</button></div>`;
+    }
     if (!t?.stood) return null;
     const at = t.at ?? ever.value.byId.get(t.stood)?.when;
     if (!at) return null;
     const d = new Date(at), iso = Tree.isoOf(d);
-    return html`<div class="pastband" role="status"><span>As it stood on ${iso.slice(0, 4) === Log.today().slice(0, 4) ? monthDay(iso) : short(iso)}, ${clock(at)}</span><button class="btn" onClick=${now}>Back to now</button></div>`;
+    return html`<div class="pastband" role="status"><span>As it stood on ${iso.slice(0, 4) === Log.today().slice(0, 4) ? monthDay(iso) : short(iso)}, ${clock(at)}: everything as it was</span><button class="btn" onClick=${now}>Back to now</button></div>`;
   }
 
-  return { events, whose, describe, looked, keep, open: openHistory, of: ofRecords, ofRule, ruleLog, ask: c => ask([c, ...asked.filter(x => x !== c)]), close };
+  // As of a day past, what's changed in a rule since, said where the rule is read: { day, who, stand }, the last change of its
+  // formula made after that day, and a way to everything as it was; null where there's none, or today or a moment past is shown.
+  function ruleSince(p) {
+    const d = App.day.value, t = Shell.time.value;
+    if (t?.stood || d >= Log.today() || !p) return null;
+    const { changes } = ever.value, k = Tree.key(p), undone = new Set(changes.filter(c => c.reverses).map(c => c.reverses));
+    const c = changes.filter(x => !x.reverses && !undone.has(x.id) && x.when.slice(0, 10) > d && x.adds.some(r => 'note' in r && r.label === 'Formula' && !r.view && Tree.key(r.pattern) === k)).at(-1);
+    if (!c) return null;
+    const before = changes.filter(x => x.when.slice(0, 10) <= d).at(-1);
+    return { day: short(Tree.isoOf(new Date(c.when))), who: c.who, stand: before ? () => stand(before) : null };
+  }
+  // What's on the status lists, as of a day to come, that isn't on them as of today: a test of an item; null on any other day.
+  function newSinceToday() {
+    const today = Log.today();
+    if (App.day.peek() <= today || Shell.time.peek()?.stood) return null;
+    const had = new Set(Formulas.attention(App.workAt(today), App.notes.peek(), today).map(a => `${a.id}|${a.edge ?? ''}`));
+    return it => !had.has(`${it.id}|${it.edge ?? ''}`);
+  }
+
+  return { events, whose, describe, looked, keep, pageDay, nextStep, showChanges, dayBefore, ruleSince, newSinceToday, open: openHistory, of: ofRecords, ofRule, ruleLog, ask: c => ask([c, ...asked.filter(x => x !== c)]), close };
 })();

@@ -1943,12 +1943,14 @@ const FormulaBar = (() => {
   // reads this, what reads those, and so on to the end of the chain.
   function Uses({ m }) {
     const uses = R.value.uses ?? {}, readers = id => Object.keys(uses).filter(d => uses[d].includes(id)).map(defOf).filter(Boolean), by = m.def ? readers(m.def.id) : [];
-    if (!by.length) return null;
+    // (As of a day past, where today's rule has changed since.)
+    const rule = m.def && typeof Time !== 'undefined' ? N().notes('Formula').find(n => n.note === m.def.id) : null, since = rule ? Time.ruleSince(rule.pattern) : null;
+    if (!by.length && !since) return null;
     const link = d => html`<button class="fx-link" onClick=${() => openDef(d.id)}>${d.name}</button>`;
     const branch = (ds, seen, close) => html`<ul class="fx-tree">${ds.map(d => html`<li key=${d.id}><button class="lk" onClick=${() => { close(); openDef(d.id); }}>${d.name}</button>${seen.has(d.id) ? null : branch(readers(d.id).filter(x => !seen.has(x.id)), new Set([...seen, d.id]), close)}</li>`)}</ul>`;
     const tree = e => Shell.popover(e.currentTarget, close => html`<div class="fx-used-tree"><p>Used by</p>${branch(by, new Set([m.def.id]), close)}</div>`, { placement: 'top-end' });
-    return html`<span class="fx-used"><button class="fx-link fx-usedby" aria-haspopup="dialog" onClick=${tree}>Used by</button> ${by.slice(0, 3).map((d, i) => html`${i ? ', ' : ''}${link(d)}`)}${by.length > 3
-      ? html`, <button class="fx-link" onClick=${tree}>${by.length - 3} more</button>` : null}</span>`;
+    return html`${since ? html`<span class="fx-used">Today’s rule: changed ${since.day} by ${since.who}${since.stand ? html` <button class="fx-link" onClick=${since.stand}>As it stood</button>` : null}</span>` : null}${by.length ? html`<span class="fx-used"><button class="fx-link fx-usedby" aria-haspopup="dialog" onClick=${tree}>Used by</button> ${by.slice(0, 3).map((d, i) => html`${i ? ', ' : ''}${link(d)}`)}${by.length > 3
+      ? html`, <button class="fx-link" onClick=${tree}>${by.length - 3} more</button>` : null}</span>` : null}`;
   }
 
   // What a pending change does to what formulas give, in plain words, by what each definition gives, the most first:

@@ -1204,6 +1204,55 @@ function run() {
     check('an entry renamed, the field shown beside an output is still shown, by its new name', texts('feeder').includes('98-1702264')
       && wb.notes(C).notes('Shown').some(n => n.param === 'Tax ID') && !wb.notes(C).notes('Shown').some(n => n.param === 'EIN'), texts('feeder'));
   }
+
+  // ---- What's changed (dendra.md, Changes): the view compared with a day, by what it draws; a style like any other ----
+  {
+    const wb = fresh(), D1 = '2037-01-01', D2 = '2037-06-01', V = { id: MAIN, kind: 'View' };
+    const at = d => { const N = wb.notes(C), S = wb.schema(C); return Formulas.computeState(wb.asOf(C, d), N.definitions(S), { relations: N.relations(S), schema: S }); };
+    const drawn = (d, opts = {}) => { const R = at(d); return Scene.of(wb, C, MAIN, d, { state: R.records, computed: R, ...opts }); };
+    const R0 = at(D1), s0 = drawn(D1), percents = s0.marks.filter(m => m.type === 'line' && m.texts.some(it => R0.records[it.id]?.field === 'percent')), [held, ended] = percents;
+    const pct = held.texts.find(it => R0.records[it.id]?.field === 'percent'), box = s0.marks.find(m => m.type === 'box' && !s0.marks.some(l => l.type === 'line' && (l.from === m.id || l.to === m.id) && l.id === ended.id));
+    const tx = wb.edit({ chart: C, who: WHO, day: D2 });
+    tx.update(pct.id, { value: 0.123 });
+    tx.remove(ended.record, D2);
+    const made = tx.add('record', { kind: 'Entity' });
+    tx.add('record', { at: made, edge: 'Name', field: 'text', value: 'Newco, Inc.' });
+    tx.add('record', { args: [{ edge: 'Owner', at: box.record }, { edge: 'Owned', at: made }], tag: true });
+    if (typeof tx.commit() === 'string') throw new Error('no change');
+    const plain = drawn(D2);
+    check('A view that says nothing of changes marks nothing, what’s gone not drawn', !plain.since && !plain.marks.some(m => m.change) && !plain.byId.has(ended.id));
+    const tx2 = wb.edit({ chart: C, who: WHO });
+    tx2.note('Changes', V, { since: D1 });
+    for (const [what, look] of Object.entries(Scene.CHANGE_LOOKS)) { for (const [label, v] of Object.entries(look)) tx2.note(label, Scene.changeOutput(what), v, { view: MAIN }); tx2.note('Caption', Scene.changeOutput(what), Scene.CHANGE_CAPTIONS[what], { view: MAIN }); }
+    if (typeof tx2.commit() === 'string') throw new Error('no note');
+    const s = drawn(D2), m = id => s.byId.get(id), newbox = m(made), line = m(held.id), gone = m(ended.id);
+    check('A box drawn now and not then is New, in the look the style gives it', newbox?.change === 'New' && newbox.settings.Fill.value === Scene.CHANGE_LOOKS.New.Fill && newbox.settings.Outline.value === Scene.CHANGE_LOOKS.New.Outline, newbox?.change);
+    check('A line whose text reads otherwise is Changed, its old figure struck before the new on one line', line?.change === 'Changed' && line.texts[0].was && line.texts[0].text === pct.text && line.texts[0].look.Strike === true && line.texts[1].text === '12.3%' && line.texts[0].lines[0].y === line.texts[1].lines[0].y && line.texts[1].lines[0].x > line.texts[0].lines[0].w, JSON.stringify(line?.texts.map(t => t.text)));
+    check('A line drawn then and not now is Gone, drawn where it stood, in its look, its label struck', gone?.change === 'Gone' && gone.settings.Dash.value === 'dashed' && gone.settings.Outline.value === Scene.CHANGE_LOOKS.Gone.Outline && gone.texts.every(t => t.look.Strike === true), gone?.change);
+    check('What’s gone is under what’s still there, and what’s new over it', s.marks.indexOf(gone) < s.marks.findIndex(x => x.type === 'line' && !x.change) && s.marks.indexOf(line) > s.marks.findIndex(x => x.type === 'line' && !x.change));
+    check('They are Key rows like any other, called alike as one', s.legend.some(r => r.caption === 'New or changed' && r.outputs.length === 2) && s.legend.some(r => r.caption === 'Gone'), s.legend.map(r => r.caption).join());
+    check('A Styles row reaches what’s marked', Scene.reach(wb, C, MAIN, s, newbox.id, s.state).some(r => Scene.isChange(r.output) && r.output.out.choice === 'New'), JSON.stringify(Scene.reach(wb, C, MAIN, s, newbox.id, s.state).map(r => r.caption)));
+    check('Nothing’s marked as of the day compared with, or before', !drawn(D1).marks.some(x => x.change) && !drawn('2036-12-31').marks.some(x => x.change));
+    const before = j(s.marks.filter(x => x.type === 'box' && !x.change).map(b => [b.id, b.x, b.y]));
+    const tx3 = wb.edit({ chart: C, who: WHO });
+    for (const what of ['New', 'Changed']) tx3.note('Fill', Scene.changeOutput(what), '#ccffcc', { view: MAIN });
+    if (typeof tx3.commit() === 'string') throw new Error('no restyle');
+    const s2 = drawn(D2);
+    check('Restyled at its row, what it reaches is drawn so, and nothing moves', s2.byId.get(made).settings.Fill.value === '#ccffcc' && j(s2.marks.filter(x => x.type === 'box' && !x.change).map(b => [b.id, b.x, b.y])) === before, s2.byId.get(made).settings.Fill.value);
+    const look = Notes.houseLook(wb.rows(C), MAIN);
+    check('A look carries it', look.notes.some(n => Scene.isChange(n.pattern) && n.label === 'Fill' && n.value === '#ccffcc'));
+    // Since the page before it: the chart view before it in tab order, as of the day that keeps.
+    const pages = wb.notes(C), order = Object.keys(R0.records).filter(id => Tree.isView(R0.records[id]) && typeof pages.value('Layout', { id, kind: 'View' }) !== 'object').sort((a, b) => (pages.order({ id: a, kind: 'View' }) ?? Infinity) - (pages.order({ id: b, kind: 'View' }) ?? Infinity));
+    const next = order[1], tx4 = wb.edit({ chart: C, who: WHO });
+    tx4.note('Changes', { id: next, kind: 'View' }, { page: true });
+    tx4.note('As Of', V, D1);
+    if (typeof tx4.commit() === 'string') throw new Error('no page');
+    check('Since the page before it is since the day that page keeps', Scene.sinceOf(wb.notes(C), next, R0.records) === D1 && Scene.sinceOf(wb.notes(C), order[0], R0.records) === D1, Scene.sinceOf(wb.notes(C), next, R0.records));
+    const tx5 = wb.edit({ chart: C, who: WHO });
+    tx5.note('Changes', V, { page: true });
+    if (typeof tx5.commit() === 'string') throw new Error('no first page');
+    check('… and the first page has none before it', Scene.sinceOf(wb.notes(C), order[0], R0.records) === null);
+  }
 }
 
 // Canvas.writeNote, without the canvas: a note at exactly this pattern, label and view.
