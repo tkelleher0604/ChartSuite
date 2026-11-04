@@ -47,7 +47,7 @@ Each chart view has a title, an as-of line and a Key on a 16:9 page, in the look
 
 ## What to look at first
 
-- **The status bar:** 2 overdue (AIV-1's Delaware tax, Fund III-A's LEI), 5 errors (David R. Okafor signs where he holds no capacity, four times; AIV-1 isn't in good standing), 2 due soon, and 1 blank where something is required: the date of the email Okafor's presidency of the Manager rests on, which is kept blank to be found.
+- **The status bar:** 2 overdue (AIV-1's Delaware tax, Fund III-A's LEI), 5 errors (David R. Okafor signs where he holds no capacity, four times; AIV-1 isn't in good standing), 2 due soon, and 1 blank where something is required: the date of the email Okafor's presidency of the Manager rests on, which is kept blank to be found; and 1 typed over: the BDC's Tax Classification, Regulated Investment Company where the rule says C Corporation.
 - **Why it holds:**
   1. On 40 Act, select the dashed Close Affiliate line into the BDC from the portfolio companies and blockers. It is all of theirs, drawn as one.
   2. In the inspector, pick Fund III Blocker's.
