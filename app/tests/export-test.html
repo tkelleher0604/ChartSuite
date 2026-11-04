@@ -116,7 +116,7 @@ async function run() {
     check('every box is a shape of its preset geometry, holding its texts as paragraphs', !missing.length, missing.map(b => b.id).join(', '));
     const fund = shapeOf(main.byId.get('fund')), run = tags(fund, 'a:rPr')[0], latin = tags(fund, 'a:latin')[0];
     check('a text keeps its font, weight and color, at the size it has on the slide, 1 pt at least', latin.getAttribute('typeface') === 'Arial' && run.getAttribute('sz') === String(Math.max(100, Math.round(1000 * k))) && run.getAttribute('b') === '1'
-      && tags(run, 'a:srgbClr')[0].getAttribute('val') === '000000', run.outerHTML.slice(0, 120));
+      && tags(run, 'a:srgbClr')[0].getAttribute('val') === 'FFFFFF', run.outerHTML.slice(0, 120));
     const xf = tags(fund, 'a:xfrm')[0], off = tags(xf, 'a:off')[0], ext = tags(xf, 'a:ext')[0], f = main.byId.get('fund'), ox = (W - main.page.w * k) / 2, oy = (H - main.page.h * k) / 2;
     check('a box sits where the scene places it, its page on the middle of its slide', Math.abs(+off.getAttribute('x') - (ox + f.x * k) * EMU) < 2 && Math.abs(+off.getAttribute('y') - (oy + f.y * k) * EMU) < 2
       && Math.abs(+ext.getAttribute('cx') - f.w * k * EMU) < 2, `${off.getAttribute('x')}, ${off.getAttribute('y')}`);
@@ -245,7 +245,7 @@ async function run() {
     const def = lsp && tags(lsp, 'a:defRPr')[0], first = tags(heads[0][0], 'a:rPr')[0];
     check('… on PowerPoint’s Title Only layout, its title placeholder where the first slide’s title is, in its look', !tags(layout, 'parsererror').length
       && tags(layout, 'p:cSld')[0].getAttribute('name') === 'Title Only' && tags(lsp, 'p:ph')[0].getAttribute('type') === 'title' && j(rect(lsp)) === j(rect(heads[0][0]))
-      && def.getAttribute('sz') === first.getAttribute('sz') && def.getAttribute('b') === '1' && tags(def, 'a:latin')[0].getAttribute('typeface') === 'Arial'
+      && def.getAttribute('sz') === first.getAttribute('sz') && def.getAttribute('b') !== '1' && tags(def, 'a:latin')[0].getAttribute('typeface') === 'Georgia'
       && j(textOf(lsp)) === j(['Click to edit Master title style']), lsp && lsp.outerHTML.slice(0, 160));
     const app = xml(await zip.file('docProps/app.xml').async('string')), parts = tags(app, 'vt:lpstr').map(e => said(e.textContent));
     check('its properties are PowerPoint’s: no subject and no PptxGenJS, its fonts, its slides’ titles, its words, widescreen', !tags(app, 'parsererror').length
@@ -300,8 +300,8 @@ async function run() {
     }
     // File › Properties lists the fonts a PDF declares: those its text is set in, and no others.
     const declared = [...(/\/Font <<([^>]*)>>/.exec(raw)?.[1] ?? '').matchAll(/\/(F\d+) /g)].map(m => m[1]), fonts = [...raw.matchAll(/\/BaseFont \/([\w-]+)/g)].map(m => m[1]);
-    check('it declares only the fonts its text is set in, the standard ones, Helvetica for Arial, embedding none', declared.length === used.size && declared.every(f => used.has(f))
-      && j(fonts.sort()) === j(['Helvetica', 'Helvetica-Bold']) && (raw.match(/\/Font <</g) ?? []).length === 1 && !/\/FontFile/.test(raw), `${fonts.join(', ')}; set in ${[...used].join(' ')}`);
+    check('told nothing of this computer’s fonts, it declares only the fonts its text is set in, the standard ones, Helvetica for Arial and Times for the title’s Georgia, embedding none', declared.length === used.size && declared.every(f => used.has(f))
+      && j(fonts.sort()) === j(['Helvetica', 'Helvetica-Bold', 'Times-Roman']) && (raw.match(/\/Font <</g) ?? []).length === 1 && !/\/FontFile/.test(raw), `${fonts.join(', ')}; set in ${[...used].join(' ')}`);
     check('its language is US English, as a screen reader reads it', /\/Lang \(en-US\)/.test(raw), /\/Lang \([^)]*\)/.exec(raw)?.[0] ?? 'no /Lang');
     const shown = streams.flat(), pages = streams.filter(s => s.length);
     check('each page reads its title first, then its date, as a screen reader and a search read it', pages.length === scenes.length
@@ -335,15 +335,15 @@ async function run() {
     const named = (d, n) => tags(d, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === n && tags(sp, 'a:rPr').length);
     const sz = sp => sp && +tags(sp, 'a:rPr')[0].getAttribute('sz');
     const sizes = [...new Set(docs.flatMap(d => tags(d, 'a:rPr').map(r => +r.getAttribute('sz'))))].sort((a, b) => a - b);
-    check('every size in the sample’s deck is a whole or half point; its title, date and Key 20, 11 and 8 pt on every slide', sizes.every(z => z % 50 === 0)
-      && docs.every(d => sz(named(d, 'Title')) === 2000 && sz(named(d, 'Date')) === 1100 && sz(named(d, 'Key')) === 800), sizes.join(' '));
+    check('every size in the sample’s deck is a whole or half point; its title, date and Key 20, 10 and 8 pt on every slide', sizes.every(z => z % 50 === 0)
+      && docs.every(d => sz(named(d, 'Title')) === 2000 && sz(named(d, 'Date')) === 1000 && sz(named(d, 'Key')) === 800), sizes.join(' '));
     // A line the scene breaks where another crosses it is one connector all the same, glued where it starts and
     // where it ends, so it moves with its boxes as one line, and solid: PowerPoint draws a crossing as two solid
     // lines, and a hop of its own would slide off the crossing once a box is moved. No line has a gradient.
     const hex = c => c.slice(1).toUpperCase(), look = m => Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
     const said = slides.flatMap((s, i) => s.marks.filter(m => m.type === 'line' && m.runs).map(l => {
       const idOf = b => tags(docs[i], 'p:sp').find(sp => nameOf(sp) === s.byId.get(b).texts[0].text)?.getElementsByTagName('p:cNvPr')[0].getAttribute('id');
-      const cs = tags(docs[i], 'p:cxnSp').filter(c => tags(c, 'a:stCxn')[0]?.getAttribute('id') === idOf(l.from) && tags(c, 'a:endCxn')[0]?.getAttribute('id') === idOf(l.to));
+      const cs = tags(docs[i], 'p:cxnSp').filter(c => tags(c, 'a:stCxn')[0]?.getAttribute('id') === idOf(l.from) && tags(c, 'a:endCxn')[0]?.getAttribute('id') === idOf(l.to) && !nameOf(c).startsWith('Gap: '));
       return { slide: i + 1, id: l.id, ok: cs.length === 1 && solid(cs[0], hex(look(l).Outline)) };
     }));
     const lns = docs.flatMap(d => tags(d, 'a:ln')), unglued = docs.flatMap(d => tags(d, 'p:cxnSp')).filter(c => !tags(c, 'a:stCxn').length !== !tags(c, 'a:endCxn').length);
@@ -398,14 +398,24 @@ async function run() {
       && tags(up, 'a:headEnd').length === 1 && tags(up, 'a:tailEnd').length === 1, rows.filter(r => !r.el || !solid(r.el, '1F4E79')).map(r => r.id).join(', '));
   }
 
-  // ---- A crossing in the deck: a connector can't be broken, so a patch of white between the line broken and the line crossing it ----
+  // ---- A crossing in the deck: a connector can't be broken, so the line crossing carries a casing of white, glued as it is, so that nothing stays behind as a box is moved ----
   {
     const s = { ...Scene.of(sample, C, views[0], DAY, { state: R2.records, computed: R2 }), name: 'S' };
     const d = xml(await (await JSZip.loadAsync(await Export.write('pptx', [s], 'S'))).file('ppt/slides/slide1.xml').async('string'));
-    const all = [...d.getElementsByTagName('*')].filter(e => ['p:cxnSp', 'p:sp'].includes(e.nodeName)), patch = all.filter(e => e.nodeName === 'p:sp' && nameOf(e) === 'Crossing');
+    const all = [...d.getElementsByTagName('*')].filter(e => e.nodeName === 'p:cxnSp'), casing = all.filter(e => nameOf(e).startsWith('Gap: ')), glued = c => [tags(c, 'a:stCxn')[0]?.getAttribute('id'), tags(c, 'a:endCxn')[0]?.getAttribute('id')];
     const gaps = s.marks.filter(m => m.type === 'line' && m.runs).reduce((n, l) => n + l.runs.length - 1, 0);
-    check('each break in a line drawn is a white patch in the deck, on no connector of its own', gaps > 0 && patch.length > 0 && patch.length <= gaps && patch.every(p => tags(p, 'a:srgbClr')[0]?.getAttribute('val')?.toUpperCase() === 'FFFFFF'), `${patch.length} of ${gaps}`);
-    check('… written after a connector and before the rest', patch.every(p => { const i = all.indexOf(p); return all.slice(0, i).some(e => e.nodeName === 'p:cxnSp') && all.slice(i).some(e => e.nodeName === 'p:cxnSp'); }));
+    check('a line that breaks another has a casing in the deck: a white connector, wider, glued to the same two boxes, and there’s no loose patch', gaps > 0 && casing.length > 0 && casing.every(c => tags(c, 'a:srgbClr')[0]?.getAttribute('val')?.toUpperCase() === 'FFFFFF' && glued(c).every(Boolean)) && !tags(d, 'p:sp').some(p => nameOf(p) === 'Crossing'), `${casing.length} for ${gaps} breaks`);
+    check('… written under its line and over what it breaks', casing.every(c => { const i = all.indexOf(c), line = all.findIndex(o => !nameOf(o).startsWith('Gap: ') && j(glued(o)) === j(glued(c))); return line > i && i > 0; }));
+    // Over a shape filled behind the lines, where white would show, a line crosses plainly.
+    const w = Log.open(SAMPLE), tx = w.edit({ chart: C, who: WHO }); tx.add('shape', { view: views[0], geometry: 'rect', x: 0, y: 0, w: 2000, h: 1200, format: { Fill: '#ffeecc', Layer: -1 } });
+    if (typeof tx.commit() === 'string') throw new Error('no shape');
+    const Nw = w.notes(C), Rw = Formulas.computeState(w.asOf(C, DAY), Nw.definitions(w.schema(C)), { relations: Nw.relations(w.schema(C)) }), sw = { ...Scene.of(w, C, views[0], DAY, { state: Rw.records, computed: Rw }), name: 'S' };
+    const d2 = xml(await (await JSZip.loadAsync(await Export.write('pptx', [sw], 'S'))).file('ppt/slides/slide1.xml').async('string'));
+    check('… and over a shape filled behind the lines, where white would show, it has none', !tags(d2, 'p:cxnSp').some(c => nameOf(c).startsWith('Gap: ')));
+    // A box's text: wrapped by PowerPoint, to the scene's lines, where it can; a triangle's by the scene's breaks.
+    const shapeNamed = n => tags(d, 'p:sp').find(p => nameOf(p) === n), blocker = shapeNamed(s.byId.get('blocker').texts[0].text), fund = shapeNamed(s.byId.get('fund').texts[0].text);
+    check('a box’s text wraps in PowerPoint, one paragraph for each line typed, no line break in it; a triangle’s keeps the scene’s breaks', tags(blocker, 'a:bodyPr')[0].getAttribute('wrap') === 'square' && !tags(blocker, 'a:br').length && tags(blocker, 'a:t')[0].textContent === s.byId.get('blocker').texts[0].text
+      && tags(fund, 'a:bodyPr')[0].getAttribute('wrap') === 'none' && tags(fund, 'a:br').length > 0, new XMLSerializer().serializeToString(tags(blocker, 'a:bodyPr')[0]).slice(0, 160));
   }
 
   // ---- A caption mid-sentence ----
@@ -654,10 +664,10 @@ async function run() {
         { family: 'Arial', fullName: 'Arial', postscriptName: 'ArialMT', style: 'Regular', blob: () => read('arial.ttf') }];
       const raw = new TextDecoder('latin1').decode(await (await Export.write('pdf', [s], 'Fonts', { author: WHO })).arrayBuffer()), said = files.at(-1).also;
       const based = [...raw.matchAll(/\/BaseFont \/([\w+-]+)/g)].map(m => m[1]);
-      check('a PDF of boxes set in Garamond embeds Garamond, this computer’s, upright and italic, and Arial stays Helvetica, its standard font', based.some(f => /^[A-Z]{6}\+Garamond$/.test(f)) && based.some(f => /^[A-Z]{6}\+Garamond-Italic$/.test(f))
-        && based.includes('Helvetica') && !based.some(f => /Arial/.test(f)) && /\/FontFile2/.test(raw) && said === '', `${based.join(', ')}; “${said}”`);
-      // Only the letters used: Garamond whole is near 200 KB.
-      check('… with only the letters it uses', raw.length < 150000, `${raw.length} bytes`);
+      check('a PDF of boxes set in Garamond embeds Garamond, this computer’s, upright and italic, and Arial as much as any', based.some(f => /^[A-Z]{6}\+Garamond$/.test(f)) && based.some(f => /^[A-Z]{6}\+Garamond-Italic$/.test(f))
+        && based.some(f => /^[A-Z]{6}\+ArialMT$/.test(f)) && /\/FontFile2/.test(raw) && !/Arial printed/.test(said), `${based.join(', ')}; “${said}”`);
+      // Only the letters used: Garamond whole is near 200 KB, Arial near 900 KB.
+      check('… with only the letters it uses', raw.length < 300000, `${raw.length} bytes`);
       // A face whose outlines are PostScript's can't be embedded: in Times, and said as it's saved.
       window.queryLocalFonts = async () => [face('Regular', '', 'Garamond', async () => new Blob([new Uint8Array([0x4f, 0x54, 0x54, 0x4f, 0, 0, 0, 0])]))];
       await Export.write('pdf', [s], 'Fonts', { author: WHO });

@@ -268,9 +268,11 @@ function elkPlace(boxes, links, clusters, options, room) {
   const rankIn = n => ranks.get(n.id) ?? (ranks.set(n.id, n.children.map(rankIn).sort(earlier)[0] ?? [Infinity, Infinity]), ranks.get(n.id));
   for (const n of node.values()) n.children.sort((a, b) => earlier(rankIn(a), rankIn(b)));
   const end = (id, k) => ported(inBlock.get(id).block) ? `${nodeOf(id)}|${id}|${k}` : id, seen = new Set(), main = mainOf(links), shape = new Map(boxes.map(b => [b.id, b.shape]));
+  // (With no frames, a line of another relation orders nothing where both its boxes have lines of the main one: a general partner stands with its owners, not among the funds it's general partner of.)
+  const onMain = new Set(clusters.length ? [] : ranked.filter(l => l.trunk === main && tier.get(l.from) < tier.get(l.to)).flatMap(l => [l.from, l.to]));
   ranked.forEach((l, i) => {
     const [s, t] = [end(l.from, 's'), end(l.to, 'n')], e = `${s}>${t}`;
-    if (seen.has(e) || tier.get(l.from) >= tier.get(l.to)) return;
+    if (seen.has(e) || tier.get(l.from) >= tier.get(l.to) || (l.trunk !== main && onMain.has(l.from) && onMain.has(l.to))) return;
     seen.add(e);
     const straight = tier.get(l.to) - tier.get(l.from) > 1 ? '10' : shape.get(l.to) === 'triangle' && l.trunk === main ? '2' : null;
     root.edges.push({ id: `·e${i}`, sources: [s], targets: [t], ...(straight && { layoutOptions: { 'elk.layered.priority.straightness': straight } }) });
@@ -406,8 +408,9 @@ function columns({ boxes, ranked, tier, blocks, inBlock, widthOf, out, main, sta
   }
   for (const [to, ls] of ownersOf) {
     if (ls.length < 2) continue;
-    const only = ls.filter(l => lined(kidsOf.get(l.from)) === 1);
-    if (only.length) stems.push(nearest(only, l => l.from, out.get(to).x + size.get(to).w / 2));
+    // (Of those, first what's only an owner of it: a general partner holding its 1% meets its fund's side, as it does holding none.)
+    const only = ls.filter(l => lined(kidsOf.get(l.from)) === 1), plain = only.filter(l => !ranked.some(o => o.trunk !== main && o.from === l.from && o.to === to));
+    if (only.length) stems.push(nearest(plain.length ? plain : only, l => l.from, out.get(to).x + size.get(to).w / 2));
   }
   let plan = solve(G0, true, null);
   if (!plan) return;

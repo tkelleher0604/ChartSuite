@@ -255,6 +255,8 @@ const bind = text => String(text).replace(SUFFIX, (_, s) => `,\u00a0${s.replace(
 // A name's words kept together: of three or more, its first two stand on one line where they fit one, so it never opens on a word
 // alone that's only part of what it's called ("Calder / Ridge Capital"). Its lines then break where its words allow.
 const opening = (words, t, most) => words.length > 2 && measure(`${words[0]} ${words[1]}`, t) <= most ? [`${words[0]} ${words[1]}`, ...words.slice(2)] : words;
+// A name that opens so all the same, in three lines or more, is a reason to widen (see size).
+const opensAlone = it => !!it?.name && it.lines.length > 2 && !it.lines[0].text.includes(' ');
 // What's bound, wider than `most`, come apart as little as it must: after a role's colon first, then at its suffix,
 // then its numeral's binding, and so on. \u2192 its pieces.
 function apart(w, t, most) {
@@ -392,7 +394,7 @@ function fitPyramid(texts, w, wide) {
     };
     // The shortest, or the fewest lines no more than a line taller than that.
     const h0 = least(), n = shaped(texts, w, h0 + step).flat().length, h = least(n, h0), lines = shaped(texts, w, h);
-    const cap = Math.max((lines[0].length > 4 || lines.flat().some(l => l.split)) && w < wide.lines ? wide.lines : 0, h > w * (wide.ratio ?? 1) && w < wide.tall ? wide.tall : 0);
+    const cap = Math.max((lines[0].length > 4 || lines.flat().some(l => l.split) || opensAlone({ name: texts[0]?.name, lines: lines[0] })) && w < wide.lines ? wide.lines : 0, h > w * (wide.ratio ?? 1) && w < wide.tall ? wide.tall : 0);
     if (!cap) return { w, h: Math.ceil(h), lines };
     w = Math.min(cap, w + 12);
   }
@@ -494,7 +496,7 @@ function size(b, squeeze, at = null, grow = 1) {
       const tb = blockHeight(b.texts.filter(it => it.lines.length));
       h = shape === 'oval' || shape === 'diamond' ? Math.max(48, tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * PAD) : Math.max(44, tb + 2 * PAD + 8);
       // How far it's to widen yet: none, or to a cap.
-      const lines = ((b.texts[0]?.lines.length ?? 0) > 3 || b.texts.some(it => it.lines.some(l => l.split))) && w < wide.lines;
+      const lines = ((b.texts[0]?.lines.length ?? 0) > 3 || b.texts.some(it => it.lines.some(l => l.split)) || opensAlone(b.texts[0])) && w < wide.lines;
       // (A word that would fit a line of its own is never broken: the box is as wide as that needs, up to three times its size.)
       const word = !b.texts.some(it => it.lines.some(l => l.cut)) ? 0 : Math.min(3 * base, Math.max(...b.texts.flatMap(it => String(it.text).split(/\s+/).map(x => measure(x, it.look)))) + 2 * INSET + 1) / (TEXT_AREA[shape] ?? 1);
       return Math.max(lines ? wide.lines : 0, h > w && w < wide.tall ? wide.tall : 0, word > w ? word : 0);
@@ -2036,7 +2038,7 @@ function layoutLegend(m, rows, sheet = 1, k = 1) {
     const h = Math.max(lh, SWATCH.h * u + 2 * u, caption.lines.length * lh);
     stack(caption, caption.column.x, caption.column.width, y + (h - caption.lines.length * lh) / 2);
     // (A triangle as it stands on the chart, as tall as it's wide, in its swatch's room; anything else that room.)
-    const tall = r.swatch.Shape === 'triangle' ? { x: x + (sw - (SWATCH.h + 2) * u) / 2, y: y + h / 2 - (SWATCH.h + 2) * u / 2, w: (SWATCH.h + 2) * u, h: (SWATCH.h + 2) * u } : { x, y: y + h / 2 - SWATCH.h * u / 2, w: sw, h: SWATCH.h * u };
+    const tall = r.swatch.Shape === 'triangle' ? { x: x + (sw - (SWATCH.h + 1) * u) / 2, y: y + h / 2 - (SWATCH.h + 1) * u / 2, w: (SWATCH.h + 1) * u, h: (SWATCH.h + 1) * u } : { x, y: y + h / 2 - SWATCH.h * u / 2, w: sw, h: SWATCH.h * u };
     const row = { key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, x, y, w: colW, h, sw: tall, caption };
     y += h + 5 * u;
     return row;

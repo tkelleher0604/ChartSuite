@@ -2306,8 +2306,9 @@ function mount(el) {
   const tidyable = () => { const ns = placedHere(), byTidy = n => Number.isFinite(n.value?.order), key = App.scene.peek()?.marks.find(m => m.geometry === 'legend');
     return !!tidyBoxes().length || ns.some(n => (Number.isFinite(n.value?.x) && !byTidy(n)) || Number.isFinite(n.value?.along) || n.label === 'Bend') || (ns.some(byTidy) && !!App.scene.peek()?.marks.some(m => m.type === 'box' && !m.entered && !m.revealed))
       || (!!key && !!rowOf(key.id)?.corner && Scene.says(App.scene.peek()).some(t => t.startsWith('The Key overlaps'))); };
-  function tidying() {
-    const base = App.scene.peek(), some = tidyBoxes(), writes = new Map();
+  // (`only`: one box of its own, as its Reset is.)
+  function tidying(only) {
+    const base = App.scene.peek(), some = only ? [base.byId.get(only)].filter(Boolean) : tidyBoxes(), writes = new Map();
     for (const m of some.length ? some : base.marks.filter(m => m.type === 'box' && !m.revealed)) writes.set(m.record, { order: round(m.x), ...(some.length && { around: true }) });
     if (some.length) for (const [id, p] of holdsOf(base)) if (!writes.has(id) && treeOf(id)) writes.set(id, p);
     const ws = [...writes].map(([id, value]) => ({ id, t: treeOf(id), value })).filter(w => w.t), keys = new Set(ws.map(w => Tree.key(w.t)));
@@ -2318,8 +2319,8 @@ function mount(el) {
     return { writes: ws, gone: some.length ? placedHere().filter(bentHere) : [...placedHere().filter(n => !keys.has(Tree.key(n.pattern))), ...scaleHere()], n: some.length, key: key?.id };
   }
   let triedTidy = 0;
-  function tidied() {
-    const { writes, gone, key } = tidying(), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
+  function tidied(only) {
+    const { writes, gone, key } = tidying(only), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
     // (Each note tried is new, as a look tried is, so nothing worked out from another is kept for it.)
     const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))).map(r => key && r.shape === key ? { ...r, kept: null } : r),
       ...writes.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; })];
@@ -2327,9 +2328,9 @@ function mount(el) {
     return { ...wb, rows: () => rows, notes: () => notes, tidy: tidyName() };
   }
   function tidy(o) {
-    const { writes, gone, n } = tidying(), view = viewOf(), base = App.scene.peek();
+    const { writes, gone, n } = tidying(o?.only), view = viewOf(), base = App.scene.peek();
     // (What its preview draws, entered: the place of each box it lays out, in a place's terms, and the Key where it set it.)
-    const laid = holdsOf(Scene.of(tidied(), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true })), keyId = !n && base.marks.find(m => m.geometry === 'legend' && m.byPage)?.id;
+    const laid = holdsOf(Scene.of(tidied(o?.only), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true })), keyId = !n && base.marks.find(m => m.geometry === 'legend' && m.byPage)?.id;
     const entered = w => { if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value }; };
     if (!App.change(tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); }, { say: o?.say ?? (n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'), keep: false, dated: false })) return;
     if (n) return;
