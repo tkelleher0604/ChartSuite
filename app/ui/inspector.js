@@ -987,6 +987,8 @@ function groundSaid(it) {
   // via AIV-1 Blocker, not as if it held them itself.
   if (!to) { const by = from && r[from].args.find(a => a.at !== other)?.at; return by ? [word(row.label), `via ${termOf(by)}`].filter(Boolean).join(', ') : word(row.label); }
   const via = r[to].args.find(a => a.at !== mine)?.at, near = word(because(to)?.label), far = from && word(because(from)?.label);
+  // (Never via the one it's of: the same two the other way round is no way through.)
+  if (via === other) return word(row.label);
   // (What names a role is its: its general partner. What says how isn't: through a controlled company.)
   return `via ${termOf(via)}${near ? `, ${near.includes(':') || /^(?:through|by|via|as|under|more|presumed)\b/i.test(near) ? '' : 'its '}${near}` : ''}${far ? `; ${far} there` : ''}`;
 }

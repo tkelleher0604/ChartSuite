@@ -780,6 +780,8 @@ function ruleYouCanRelyOn() {
   check('… and suggestions offer it', offer.list.some(x => x.kind === 'record' && x.text === '[Calder Ridge Capital BDC, Inc.]'), offer.list.map(x => x.text).join());
   const inList = Formulas.suggest('= IF(ANY(Positions, @.Pos', 25, { computed: A.R, def: A.def }), bare = Formulas.suggest('= IF(ANY(Positions, @.', 22, { computed: A.R, def: A.def });
   check('inside ANY(Positions, @. suggestions list what’s on a position', inList.list.some(x => x.name === 'Position') && !inList.list.some(x => x.name === 'Positions') && !bare.list.some(x => x.name === 'Email') && bare.list.some(x => x.name === 'Position'), [...inList.list, ...bare.list].map(x => x.name).join());
+  const nothing = t => !Formulas.suggest(t, t.length, { computed: A.R, def: A.def }).list.length;
+  check('after a value there’s nothing to offer, nor in the midst of words in quotes', nothing('= [Name] = "Margaret') && nothing('= [Name] = "Margaret Chen"') && nothing('= [Name] ') && nothing('= ABS(2) ') && !nothing('= [Name] = '), '');
   // Renamed, the rule goes with it, on every day.
   const wb2 = A.wb, nameId = Object.keys(A.R.records).find(id => A.R.records[id].edge === 'Name' && A.R.records[id].value === 'Calder Ridge Capital BDC, Inc.'), tx2 = wb2.edit({ chart: C, who: 'Dana Jordan', day: '2037-01-01' });
   tx2.reword('Calder Ridge Capital BDC, Inc.', 'Halyard BDC, Inc.'); tx2.set(nameId, { ...A.R.records[nameId], value: 'Halyard BDC, Inc.' });

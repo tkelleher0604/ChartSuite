@@ -3530,8 +3530,9 @@ function suggest(text, cursor, ctx = {}) {
   const typed = m?.[1] ?? '';
   const after = /^(?:[^\]\[(),.]*\]|[A-Za-z0-9_]*)/.exec(s.slice(cursor))?.[0] ?? '';
   const from = cursor - typed.length, to = cursor + (typed.startsWith('[') || /^[A-Za-z0-9_]/.test(after) ? after.length : 0);
-  // After a number there's nothing to offer: no name follows one.
-  if (!typed && /(?:^|[^\w\]])\$?\d[\d,.]*%?\s*$/.test(before)) return { from, to, list: [] };
+  // After a value (a number, words in quotes, what closes) there's nothing to offer: no name follows one. Nor in the midst of words in quotes.
+  if (!typed && (/(?:^|[^\w\]])\$?\d[\d,.]*%?\s*$/.test(before) || /["\])]\s*$/.test(before))) return { from, to, list: [] };
+  if ((before.match(/"/g) ?? []).length % 2) return { from, to, list: [] };
   const partial = normal(typed.replace(/^\[/, ''));
   const bracket = name => typed.startsWith('[') ? `[${name}]` : nameText(name);
   const functions = Object.keys(FUNCTIONS).map(f => ({ name: f, kind: 'function' }));
