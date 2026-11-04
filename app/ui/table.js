@@ -1674,8 +1674,8 @@ const Table = (() => {
   // What's always kept in a table: what names its rows, a Name or a relation's sides.
   const naming = c => c.type === 'edge' || (c.path?.length === 1 && same(c.title, 'Name'));
   const keptOf = m => { const cs = m.cols.filter(c => c.pattern && naming(c)); return cs.length || m.cols.some(c => !c.pattern) ? cs : m.cols.filter(c => c.pattern).slice(0, 1); };
-  // Show all and Hide all: every column, or every one but what names the rows, shown as one is, saying how many.
-  const showEvery = (m, on) => { const keep = on ? [] : keptOf(m), cs = m.cols.filter(c => c.pattern && !keep.includes(c) && !!c.shown !== on);
+  // Show all and Hide all: every column found, or every one of them but what names the rows, shown as one is, saying how many.
+  const showEvery = (m, on, among) => { const keep = on ? [] : keptOf(m), cs = among.filter(c => !keep.includes(c) && !!c.shown !== on);
     return !!cs.length && showing(cs, on, `${on ? 'Showed' : 'Hid'} ${count(cs.length, 'column')} in ${viewOf(m.view)?.name}`); };
   // A new table opens with what names its rows and a few more, in its own order, and its columns offered beside it: the
   // rest it would show are hidden by the change that makes it.
@@ -2077,8 +2077,8 @@ const Table = (() => {
     const add = e => { if (e.key === 'Enter') { e.preventDefault(); if (addColumn(e.target.value)) e.target.value = ''; } else if (e.key === 'Escape') { e.stopPropagation(); setNaming(false); } };
     return html`<div class="cols" ref=${ref}>
       <input type="search" class="col-find" placeholder="Find" aria-label="Find" value=${q} spellcheck=${false} onInput=${e => setQ([e.target.value, view])} />
-      ${mv.length ? html`<div class="col-all"><button type="button" class="btn ghost" disabled=${!shows || mv.every(c => c.shown)} onClick=${() => showEvery(m, true)}>Show all</button>
-        <button type="button" class="btn ghost" disabled=${!shows || mv.every(c => !c.shown || kept.includes(c))} onClick=${() => showEvery(m, false)}>Hide all</button></div>` : null}
+      ${mv.length ? html`<div class="col-all"><button type="button" class="btn ghost" disabled=${!shows || vis.every(c => c.shown)} onClick=${() => showEvery(m, true, vis)}>Show all</button>
+        <button type="button" class="btn ghost" disabled=${!shows || vis.every(c => !c.shown || kept.includes(c))} onClick=${() => showEvery(m, false, vis)}>Hide all</button></div>` : null}
       <div class="cols-list">
       ${rows.filter(found).map(c => c.pattern
         ? html`<div class="colrow mv" key=${c.key} onPointerDown=${e => down(e, c)}><span class="colgrip" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: GRIP }} />

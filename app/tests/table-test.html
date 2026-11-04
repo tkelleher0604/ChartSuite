@@ -531,10 +531,13 @@ async function run() {
     const tool = label => $$('.tbar .btn').find(b => b.textContent === label);
     const again = async () => { Shell.show(views()[0].id); await tick(100); Shell.show(ent); await until(() => !!Table.grid && $$('.grid .tabulator-row').length > 0); await tick(200); };
     // A heading dragged moves its column at once.
-    const g0 = Table.grid, from = column('Jurisdiction').getElement().getBoundingClientRect(), to = column('Short Name').getElement().getBoundingClientRect();
-    const pe = (type, el, x) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: from.top + 10, button: 0, buttons: 1, pointerId: 7 }));
-    const holder = g0.rowManager.element, upd = g0.updateData;
+    const g0 = Table.grid, holder = g0.rowManager.element, upd = g0.updateData;
     holder.scrollTop = 60; await tick(80);
+    // (Where the headings stand once they've settled, on a slow machine laid out a moment late.)
+    const standing = title => column(title).getElement().getBoundingClientRect().left;
+    for (let was = -1, i = 0; i < 40 && was !== standing('Short Name'); i++) { was = standing('Short Name'); await tick(50); }
+    const from = column('Jurisdiction').getElement().getBoundingClientRect(), to = column('Short Name').getElement().getBoundingClientRect();
+    const pe = (type, el, x) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: from.top + 10, button: 0, buttons: 1, pointerId: 7 }));
     const top0 = holder.scrollTop;
     let updated = 0;
     g0.updateData = function (rows) { updated += rows.length; return upd.apply(this, arguments); };
@@ -2060,6 +2063,17 @@ async function tablesG3() {
   undo(); await tick(300); undo(); await tick(300); undo(); await tick(300);
   check('… and each is one Undo', heads().includes('Tax Classification') && !heads().includes('Entity Type') && N() >= n, heads().join());
 
+  // With something typed in its search, Show all and Hide all are of those it finds.
+  await listed(async () => {
+    const f = $('.cols .col-find'), find = async q => { f.value = q; f.dispatchEvent(new Event('input', { bubbles: true })); await tick(80); }, n1 = N();
+    await find('Registration Number');
+    allBtn('Show all').click(); await tick(400);
+    check('With a search typed, Show all shows what it finds, and no more', N() === n1 + 1 && heads().includes('Registration Number') && heads().length < 12, heads().join());
+    allBtn('Hide all').click(); await tick(400);
+    check('… and Hide all hides it', N() === n1 + 2 && !heads().includes('Registration Number'), heads().join());
+    await find('');
+    undo(); await tick(300); undo(); await tick(300);
+  });
   // A row of the list doesn't move as it's ticked; opened again, what's ticked is first.
   await listed(async () => {
     const r0 = rowNamed('Short Name'), y0 = r0.getBoundingClientRect().top;
