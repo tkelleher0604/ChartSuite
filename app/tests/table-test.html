@@ -103,6 +103,203 @@ const pct = (owner, owned, day) => {
   return p ? s[p].value : null;
 };
 
+// History, undo and trust (dendra.md, Time; the title bar): the chart's History against a record's own; what an entry holds;
+// what a change did to the status; an undo's bar and its words; the past looking past; Viewing; Undo's list; the status list.
+async function historyChecks(ours, fund) {
+  const rows = () => $$('.hist-row'), whats = () => $$('.hist-row .what').map(x => x.textContent), historyAction = Shell.parts.peek().action.find(a => a.id === 'history');
+  const openOf = (c, el = rows().find(x => x.querySelector('.what').textContent === Time.describe(c))) => el;
+  const esc = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  // ---- The chart's is the chart's: what's selected filters nothing, and a filter is said at the top ----
+  const all = rows().length;
+  Shell.select([fund]); await tick(80);
+  check('With a record selected, the chart’s History still lists everything, and says no filter', rows().length === all && !$('.hist-filter .of') && !$('.hist-filter .every'), `${rows().length} of ${all}`);
+  const only = $('.hist-filter .only');
+  check('… offering to narrow to it, a choice in it', /^Only /.test(only?.textContent ?? ''), only?.textContent);
+  only?.click(); await tick(80);
+  check('… which says so at the top in words, with All changes', rows().length > 0 && rows().length < all && /^Changes to Calder Ridge Capital Partners III, L\.P\.$/.test($('.hist-filter .of')?.textContent ?? '') && $('.hist-filter .every')?.textContent === 'All changes', $('.hist-filter')?.textContent);
+  $('.hist-filter .every').click(); await tick(80);
+  check('All changes takes it away', rows().length === all && !$('.hist-filter .of'), rows().length);
+  Shell.select([]); await tick(60);
+  // A record's own begins on its records, and a filter by kind is its own choice.
+  const kindPick = async label => { $('.hist-filter .dd').click(); await tick(40); item(label).click(); await tick(80); };
+  await kindPick('Rules');
+  const ruled = whats();
+  check('Filtered by Rules, it lists changes to what things are, saying so', ruled.length > 0 && ruled.length < all && ruled.some(x => /formula of Ownership Adds Up/.test(x)) && !ruled.some(x => /^Tidied|^Moved /.test(x)) && $('.hist-filter .dd').textContent === 'Rules' && !!$('.hist-filter .every'), ruled.slice(0, 3).join(' / '));
+  await kindPick('Looks and layout');
+  const looked = whats();
+  check('… by Looks and layout, how a view draws them', looked.length > 0 && looked.some(x => /Caption|Showed|Hid/.test(x)) && !looked.some(x => /formula of Ownership Adds Up/.test(x)), looked.slice(0, 3).join(' / '));
+  await kindPick('Records');
+  check('… by Records, the facts', whats().some(x => /^Changed Percentage of Fund III → Corvane/.test(x)) && !whats().some(x => /^Showed |^Hid /.test(x)), whats().slice(0, 3).join(' / '));
+  $('.hist-filter .every').click(); await tick(80);
+
+  // ---- An entry opens: everything it holds, one line each; a formula before and after, a value from and to ----
+  const ruleChange = ours.find(c => c.adds.some(r => r.label === 'Formula') && c.removes.length && /Ownership Adds Up/.test(Time.describe(c)));
+  const ruleRow = () => openOf(ruleChange);
+  ruleRow().querySelector('.what .more').click(); await tick(120);
+  const held = ruleRow().querySelectorAll('.hist-more .ln');
+  check('“and 1 more” opens: what it holds, one line each, in the same words', /, and 1 more$/.test(ruleRow().querySelector('.what').textContent) && [...held].length >= 2 && held[0].textContent === 'Changed the formula of Ownership Adds Up', [...held].map(x => x.textContent).join(' / '));
+  const rule = ruleRow().querySelector('.hist-rule');
+  check('A changed formula shows before and after, the words that changed marked', !!rule?.querySelector('.was .del') && !!rule?.querySelector('.now .add') && /Before/.test(rule.textContent) && /After/.test(rule.textContent) && /COUNT/.test(rule.querySelector('.was .del').textContent), rule?.textContent);
+  check('… and the chevron closes it again', (() => { const b = ruleRow().querySelector('.hist-chev'); return b?.getAttribute('aria-expanded') === 'true'; })());
+  const percent = ours.find(c => /^Changed Percentage of Fund III → Corvane/.test(Time.describe(c))), percentRow = () => openOf(percent);
+  percentRow().querySelector('.hist-chev').click(); await tick(120);
+  check('A value shows from and to', /^From .* to .*$/.test(percentRow().querySelector('.hist-val')?.textContent ?? '') && !!percentRow().querySelector('.hist-val .del') && !!percentRow().querySelector('.hist-val .add'), percentRow().querySelector('.hist-val')?.textContent);
+
+  // ---- Effect on the status: worked out after the panel is drawn, a rule's change first ----
+  await until(() => !!ruleRow().querySelector('.effect'), 8000);
+  const effect = ruleRow().querySelector('.effect')?.textContent ?? '', [, was, now] = /errors (\d+) → (\d+)/.exec(effect) ?? [];
+  check('A change that moves the status says so', +was > +now, effect);
+  const cleared = [...ruleRow().querySelectorAll('.hist-more .st')].find(x => x.textContent === 'Cleared');
+  let n = 0;
+  for (let x = cleared?.nextElementSibling; x?.matches('.ln'); x = x.nextElementSibling) n++;
+  check('… opened, which cleared', n === +was - +now && /^Ownership Adds Up · /.test(cleared?.nextElementSibling.textContent ?? ''), `${n}: ${cleared?.nextElementSibling.textContent}`);
+  check('… with its figure', / not 100%|%, not /.test(cleared?.nextElementSibling.querySelector('.fig')?.textContent ?? ''), cleared?.nextElementSibling.textContent);
+  ruleRow().querySelector('.hist-chev').click(); await tick(60);
+  check('The chevron closes it', !ruleRow().querySelector('.hist-more'));
+
+  // ---- An entry's words never change with the day or the moment shown ----
+  const words = () => ours.map(c => Time.describe(c)).join('|'), w0 = words();
+  Shell.at({ asOf: '2023-07-01' }); await tick(120);
+  const w1 = words();
+  const early = ours.find(c => c.when.startsWith('2026-05')) ?? ours[3];
+  Shell.at({ stood: early.id, at: early.when }); await tick(150);
+  const w2 = words();
+  check('An entry’s words don’t change with the day or moment shown', w1 === w0 && w2 === w0, [w0, w1, w2].map(w => w.length).join());
+
+  // ---- The past looks past ----
+  check('Viewing a past moment, a band says the moment, with Back to now', /^As it stood on \w+ \d+, /.test($('.pastband span')?.textContent ?? '') && $('.pastband .btn')?.textContent === 'Back to now', $('.pastband')?.textContent);
+  $('.pastband .btn').click(); await tick(120);
+  check('… which comes back to now', Shell.time.peek() === null && !$('.pastband'));
+
+  // ---- A record's own: its changes, as itself, each with when it held and when it was typed ----
+  const holding = Object.keys(st()).find(id => st()[id].args?.some(a => a.edge === 'Owned' && App.notes.peek().nameOf(st(), a.at) === 'Corvane Specialty Chemicals Holdings, LLC') && st()[id].args.some(a => App.notes.peek().nameOf(st(), a.at) === 'Calder Ridge Capital Partners III, L.P.'));
+  Time.of([holding]); await tick(120);
+  const ownRows = whats(), meta = $$('.hist-row .meta').map(x => x.textContent);
+  check('A record’s own History says whose it is, begins on its records, and has All changes', /^Changes to Ownership: Fund III → Corvane/.test($('.hist-filter .of')?.textContent ?? '') && $('.hist-filter .dd').textContent === 'Records' && !!$('.hist-filter .every'), $('.hist-filter')?.textContent);
+  check('… each said as itself: when it holds from', ownRows.some(x => /^Fund III’s stake in Corvane .* was set to 49% from Jun 15, 2026$/.test(x)), ownRows.join(' / '));
+  check('… and when it was typed, by whom', meta.every(x => /^typed \w+ \d+, \d{4}, /.test(x)), meta.join(' / '));
+  check('… never a bulk entry under another record’s name', ownRows.every(x => /Fund III|Corvane/.test(x)) && !ownRows.some(x => /, and \d+ more$/.test(x) && !/Corvane/.test(x)), ownRows.join(' / '));
+  historyAction.run(); await tick(120);
+  check('The chart menu’s History, with a record’s own open, goes to everything', !$('.hist-filter .of') && $('.hist-filter .dd').textContent === 'All kinds' && !!$('.inspector .hist'), $('.hist-filter')?.textContent);
+
+  // ---- A rename says from when ----
+  const fundName = Object.keys(st()).find(id => st()[id].at === fund && st()[id].edge === 'Name');
+  Shell.at({ asOf: '2037-03-01' }); await tick(80);
+  const renamed = App.change(tx => tx.update(fundName, { value: 'Calder Ridge Fund III, L.P.' })); await tick(80);
+  check('A rename says from when', / to Calder Ridge Fund III, L\.P\. from Mar 1, 2037$/.test(Time.describe(renamed)), Time.describe(renamed));
+  undo(); await tick(60);
+  Shell.at(null); await tick(80);
+
+  // ---- Undo this change: the bar first, what it reverses and every later change it takes with it ----
+  const a = named('Fund III Blocker') ?? Object.keys(st()).find(id => App.notes.peek().shortOf(st(), id) === 'Fund III Blocker'), b = named('Northpine Software, LLC');
+  Shell.at({ asOf: '2037-01-01' }); await tick(60);
+  let rel = null;
+  const added = App.change(tx => { rel = tx.add('record', { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }); }); await tick(60);
+  const later = App.change(tx => tx.add('record', { at: rel, edge: 'Percentage', field: 'percent', value: 0.05 })); await tick(60);
+  Shell.at(null); await tick(120);
+  const c0 = N(), addedRow = () => openOf(added);
+  addedRow().click(); await tick(150);
+  rows().find(x => x.getAttribute('aria-selected') === 'true').querySelector('.acts .btn').click(); await tick(200);
+  const bar = $('.pendbar');
+  check('Undo this change opens the bar first: nothing is undone yet, and it’s back at now', N() === c0 && !!bar && Shell.time.peek() === null, bar?.textContent);
+  check('… saying what it reverses, and every later change it takes with it, by name', bar?.textContent.includes(Time.describe(added)) && /Takes with it: .*stake in Northpine.* 5% .*\(Dana Jordan, /.test(bar?.textContent ?? ''), bar?.textContent);
+  check('… its row marked', !!addedRow()?.matches('.asked'));
+  esc(); await tick(150);
+  check('Esc takes it back, saying so, with History still open', N() === c0 && !$('.pendbar') && !!$('.inspector .hist') && /^Discarded undoing /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
+  addedRow().click(); await tick(150);
+  rows().find(x => x.getAttribute('aria-selected') === 'true').querySelector('.acts .btn').click(); await tick(200);
+  [...$$('.pendbar .btn')].find(x => x.textContent === 'Undo').click(); await tick(200);
+  check('Its verb makes it, as one change, and what’s at it goes with it', N() === c0 + 1 && App.wb.asOf(C(), '2037-02-01')[rel] === undefined && App.wb.asOf(C(), '2037-02-01')[later.adds[0].record] === undefined);
+  check('… and the later one says so', /gone with what it’s at/.test(openOf(later)?.querySelector('.meta').textContent ?? ''), openOf(later)?.textContent);
+  undo(); await tick(120);
+  // Another's change undone says whose.
+  await tick(60);
+  const ch0 = N(), ruleLater = ours.find(c => c.who !== App.who() && !c.reverses && App.wb.canReverse(c.id) && c.adds.some(r => r.label === 'Formula') && c.removes.length), first = ruleLater.who.split(' ')[0];
+  openOf(ruleLater).click(); await tick(150);
+  rows().find(x => x.getAttribute('aria-selected') === 'true').querySelector('.acts .btn').click(); await tick(200);
+  [...$$('.pendbar .btn')].find(x => x.textContent === 'Undo').click(); await tick(200);
+  const undid = `Undid ${first}’s change: ${Time.describe(ruleLater)}`;
+  check('An undo says it’s an undo, in the toast and in History: whose, and what', N() === ch0 + 1 && $('.toast span')?.textContent === undid && whats().includes(undid), `${$('.toast span')?.textContent} / ${whats()[0]}`);
+  check('… hers struck, saying who undid it', /undone by /.test(openOf(ruleLater)?.querySelector('.meta').textContent ?? '') && openOf(ruleLater)?.matches('.undone'), openOf(ruleLater)?.textContent);
+  rows().find(x => x.querySelector('.what').textContent === undid).querySelector('.what .lk').click(); await tick(150);
+  check('… linked to the change it undid', Shell.time.peek()?.stood === ruleLater.id, JSON.stringify(Shell.time.peek()));
+  $('.pastband .btn').click(); await tick(100);
+  undo(); await tick(120);
+  check('Undone in turn, it says it put hers back, and the two fold away', $('.toast span')?.textContent === `Redid ${first}’s change: ${Time.describe(ruleLater)}` && !openOf(ruleLater)?.matches('.undone'), $('.toast span')?.textContent);
+
+  // ---- Viewing or Editing: nothing writes, but the session's columns; said in the title bar and the chart menu ----
+  const switchBtn = () => $('.titlebar .mode .btn');
+  check('The title bar says Editing', switchBtn()?.textContent === 'Editing');
+  switchBtn().click(); await tick(60);
+  item('Viewing').click(); await tick(120);
+  const v0 = N();
+  check('Viewing: said in the title bar, filled', switchBtn()?.textContent === 'Viewing' && !!$('.titlebar .mode.viewing') && App.readOnly.peek());
+  const refused = App.change(tx => tx.update('fund_ein', { value: '92-5555555' })); await tick(60);
+  check('… and nothing writes: a change, saying why', refused === null && N() === v0 && /^Viewing/.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
+  check('… one pending', (App.stage({ verb: 'Add', what: 'x', make: () => {} }), !App.pending.peek()));
+  check('… Undo', (undo(), N() === v0));
+  check('… and the rest of History', (App.reverse(ours[3].id), App.restore('gp_agent'), N() === v0));
+  $('.titlebar .chartmenu').click(); await tick(60);
+  check('The chart menu says it too', [...$$('.float .menu-seg button')].find(x => x.getAttribute('aria-pressed') === 'true' && /Editing|Viewing/.test(x.textContent))?.textContent === 'Viewing', $$('.float .menu-seg')[0]?.textContent);
+  check('… and New chart waits', item('New chart')?.getAttribute('aria-disabled') === 'true');
+  Shell.closeAll(); await tick(40);
+  // A table's columns, for the session.
+  const own = views().find(v => v.name === 'Ownership')?.id ?? views().find(v => v.layout === 'table').id, wasView = Shell.view.peek();
+  Shell.show(own); await tick(250);
+  const hiddenRow = () => [...$$('.cols .colrow.mv')].find(x => /Percentages In Range/.test(x.textContent));
+  const col = () => column('Percentages In Range'), listing = async () => { if (!$('.cols')) { $$('.tbar .btn').find(x => x.textContent === 'Columns').click(); await tick(60); } };
+  await listing();
+  hiddenRow()?.querySelector('input').click(); await tick(250);
+  await listing();
+  check('Viewing, a column shown shows for the session, and nothing is logged', N() === v0 && !!col() && hiddenRow()?.querySelector('input').checked, `${N()} ${v0}`);
+  hiddenRow()?.querySelector('input').click(); await tick(250);
+  check('… and hides again', N() === v0 && !col());
+  Shell.closeAll(); await tick(40);
+  switchBtn().click(); await tick(60);
+  item('Editing').click(); await tick(150);
+  await listing();
+  hiddenRow()?.querySelector('input').click(); await tick(250);
+  check('In Editing a column shown is the view’s, and logged', N() === v0 + 1 && !!col() && /^Showed Percentages In Range/.test(Time.describe(last())), Time.describe(last()));
+  undo(); await tick(150);
+  Shell.show(wasView); await tick(150);
+  switchBtn().click(); await tick(60);
+  item('Open this chart in Viewing').click(); await tick(120);
+  check('A chart can open in Viewing, remembered in this browser', Shell.store.get(`viewing.${C()}`) === '1' && App.viewing.peek() && App.opensViewing.peek());
+  switchBtn().click(); await tick(60);
+  item('Open this chart in Viewing').click(); await tick(120);
+  switchBtn().click(); await tick(60);
+  item('Editing').click(); await tick(120);
+  check('… till that’s unticked', Shell.store.get(`viewing.${C()}`) === null && !App.viewing.peek() && !App.readOnly.peek());
+
+  // ---- Undo's list ----
+  App.change(tx => tx.update('fund_ein', { value: '92-6666661' })); await tick(40);
+  App.change(tx => tx.update('fund_ein', { value: '92-6666662' })); await tick(40);
+  App.change(tx => tx.update('fund_ein', { value: '92-6666663' })); await tick(40);
+  $('.titlebar .undo-list').click(); await tick(80);
+  const steps = $$('.float .menu.undolist .menu-item');
+  check('The arrow beside Undo lists the steps by their words, the latest first', steps[0]?.textContent === 'Corrected EIN of Fund III to 92-6666663' && steps[1]?.textContent === 'Corrected EIN of Fund III to 92-6666662', steps.slice(0, 3).map(x => x.textContent).join(' / '));
+  hover(steps[1]); await tick(60);
+  check('… pointing at one lights it and the later ones it takes too', $$('.float .menu.undolist .menu-item.on').length === 2, $$('.float .menu.undolist .menu-item.on').length);
+  const u0 = N();
+  steps[1].click(); await tick(150);
+  check('… and picking one undoes back to there', N() === u0 + 2 && st().fund_ein.value === '92-6666661' && /^Undid 2 changes, back to before Corrected EIN of Fund III to 92-6666662$/.test($('.toast span')?.textContent ?? ''), `${st().fund_ein.value} ${$('.toast span')?.textContent}`);
+  [...$$('.toast button')].find(x => x.textContent === 'Redo').click(); await tick(150);
+  check('… its toast’s Redo putting them all back', st().fund_ein.value === '92-6666663' && /^Redid 2 changes/.test($('.toast span')?.textContent ?? ''), `${st().fund_ein.value} ${$('.toast span')?.textContent}`);
+  undo(); await tick(40); undo(); await tick(40); undo(); await tick(60);
+
+  // ---- A change's note, a line of why ----
+  const noted = App.wb.apply({ id: 'noted1', who: 'Dana Jordan', when: new Date().toISOString(), chart: C(), removes: [], adds: [{ id: 'noted1a', record: 'noted1r', at: fund, edge: 'Test Remark', field: 'text', value: 'x' }], note: 'The auditors asked' }); await tick(120);
+  check('A change’s note shows on its entry', typeof noted !== 'string' && openOf(noted)?.querySelector('.note')?.textContent === 'The auditors asked', openOf(noted)?.textContent);
+  App.wb.reverse('noted1', 'Dana Jordan'); await tick(120);
+
+  // ---- The status list: what's one problem is one ----
+  Shell.closeAll(); await tick(40);
+  $('.status .counts .error')?.click(); await tick(100);
+  const heads = $$('.float .menu.needs .menu-head').map(x => x.textContent);
+  check('The status list groups failures of one rule by one person, under a head', heads.some(x => /^Capacity Held · David R\. Okafor \(\d+\)$/.test(x)), heads.join(' / '));
+  check('… each under it where it is, with what’s wrong', $$('.float .menu.needs .menu-item').some(x => /David R\. Okafor for Fund III, via GP III/.test(x.textContent) && /not a managing member/.test(x.textContent)), $$('.float .menu.needs .menu-item')[0]?.textContent);
+  Shell.closeAll(); await tick(40);
+}
 async function run() {
   // ---- The sheet tabs are the View objects, in their Order ----
   check('The tabs are the chart’s views, in their order', views().map(v => v.name).join() === 'Structure,40 Act,Fund III,Management and control,Entities,Ownership,Dates,Documents', views().map(v => v.name).join());
@@ -1274,9 +1471,9 @@ async function run() {
   check('Named mid-session, what was done before is still there to undo', Shell.parts.peek().undo.canUndo() && App.who() === 'Pat Example');
   undo(); await tick(60);
   check('… and Undo takes it back', ein() === ein0, ein());
-  check('Undo’s toast offers Redo', /^Undid: /.test($('.toast span')?.textContent) && $('.toast button')?.textContent === 'Redo', $('.toast')?.textContent);
+  check('Undo’s toast says whose it took back, and offers Redo', /^Undid Dana’s change: /.test($('.toast span')?.textContent) && $('.toast button')?.textContent === 'Redo', $('.toast')?.textContent);
   $('.toast button').click(); await tick(60);
-  check('… which puts it back, and its own toast offers Undo', ein() === '92-1111111' && /^Redid: /.test($('.toast span')?.textContent) && $('.toast button')?.textContent === 'Undo', $('.toast')?.textContent);
+  check('… which puts it back, and its own toast offers Undo', ein() === '92-1111111' && /^Redid Dana’s change: /.test($('.toast span')?.textContent) && $('.toast button')?.textContent === 'Undo', $('.toast')?.textContent);
   undo(); await tick(60);
   check('After an Undo, Redo can put it back', Shell.parts.peek().undo.canRedo());
   App.change(tx => tx.update('fund_ein', { value: '92-2222222' }), { say: 'Changed EIN' }); await tick(60);
@@ -1468,6 +1665,7 @@ async function run() {
   check('… and so does “delete”', got.includes('History › Deleted'), got.join(' / '));
   Shell.closeAll(); await tick();
   history.run(); await tick(60);
+  history.run(); await tick(60);
   check('History itself opens at its changes', listing() === 'Changes', listing());
   history.run(); await tick(60);
   got = await found('close affiliate');
@@ -1601,6 +1799,9 @@ async function run() {
   check('History opens in the inspector’s place, from the chart menu', !!$('.inspector .hist') && Shell.parts.peek().action.some(a => a.id === 'history' && a.menu === 'chart'));
   // Every reversal made here so far is an Undo or a Redo, made straight after what it reverses.
   const reversals = ours.filter(x => x.reverses).length;
+  const folds = $$('.hist-fold');
+  check('A change and its undo cancel: each run of them is one line, which opens', folds.length > 0 && /^\d+ changes? undone$/.test(folds[0].textContent.trim()) && $$('.hist-row').length < ours.length - reversals, folds[0]?.textContent);
+  for (let f; (f = $$('.hist-fold').find(x => x.getAttribute('aria-expanded') !== 'true'));) { f.click(); await tick(40); }
   check('It lists every change, newest first, each Undo and Redo with what it took back', reversals > 0 && $$('.hist-row').length === ours.length - reversals && $$('.hist-row .what')[0].textContent === Time.describe(ours.findLast(x => !x.reverses)),
     `${$$('.hist-row').length} of ${ours.length} less ${reversals}: ${$$('.hist-row .what').slice(0, 3).map(x => x.textContent).join(' / ')}`);
   const struck = $$('.hist-row.undone').map(x => x.textContent);
@@ -1652,9 +1853,7 @@ async function run() {
     && !!$('.titlebar .asof.past [aria-label="Today"]'), $('.titlebar .asof')?.textContent);
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
   check('Esc comes back to now, keeping History open', Shell.time.peek() === null && !!$('.inspector .hist'));
-  Shell.select([fund]); await tick(60);
-  const touching = $$('.hist-row').length;
-  check('With a selection, History narrows to it', touching > 0 && touching < ours.length && !!$('.hist-focus'), `${touching} of ${ours.length}`);
+  await historyChecks(ours, fund);
   Shell.select([]); await tick(60);
   $$('.hist-head .menu-seg button')[1].click(); await tick(60);
   // The sample deleted two registered agents; what this test added and undid was never there.
