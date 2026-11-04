@@ -1251,6 +1251,7 @@ async function run() {
   await pickings();
   await onlyThese();
   await aidsAndTurns();
+  await inViewing();
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
 }
@@ -1612,6 +1613,57 @@ async function onlyThese() {
   Shell.show(blank); await until(() => sc()?.view === blank); await tick(300);
   check('a blank chart begins with no box drawn, and every box on its Hidden list, today still shown', !boxes().length && $$('.insp .hiddenrow').length >= all.length && !Shell.time.peek(), `${boxes().length} ${$$('.insp .hiddenrow').length} ${JSON.stringify(Shell.time.peek())}`);
   await show(charts().find(v => v.id === 'view_main')); Shell.select([]); await tick(150);
+}
+
+// ---- Viewing, nothing writes: a drag moves nothing, an order, a tidy and a bend are refused in its words; and what a chart
+// shows, for the session, in no log, every box left standing where it stood ----
+async function inViewing() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  App.setViewing(true); await tick(250);
+  const n0 = App.wb.changes().length, why = App.whyNot(), last = () => txt($$('.toast').at(-1)), boxes = () => sc().marks.filter(m => m.type === 'box').map(m => m.id).sort();
+  const m0 = sc().byId.get('northpine'), [x0, y0] = [m0.x, m0.y], all = boxes(), page0 = JSON.stringify([sc().page.w, sc().page.h, sc().page.scale]);
+  await drag(m0, 40, 30);
+  const m1 = sc().byId.get('northpine');
+  check('Viewing, a box dragged stays where it stood', m1.x === x0 && m1.y === y0 && App.wb.changes().length === n0, `${m1.x},${m1.y} vs ${x0},${y0}`);
+  Shell.select(['northpine', 'blocker']); await tick(200);
+  for (const [name, run] of [['order', () => cv().order('back')], ['align', () => cv().align('left')], ['tidy for every date', () => cv().tidyEvery()]]) {
+    run(); await tick(120);
+    check(`Viewing, ${name} is refused in its words, and writes nothing`, last() === why && App.wb.changes().length === n0, last());
+  }
+  for (const id of ['chart.tidyEvery', 'chart.size', 'chart.rotate']) {
+    const a = Shell.parts.peek().action.find(x => x.id === id);
+    check(`Viewing, ${id} is greyed in Find, in those words`, !a.enabled() && a.why() === why, a.why());
+  }
+  const line = sc().marks.find(m => m.type === 'line' && m.points.length >= 4 && Math.abs(m.points[1][1] - m.points[2][1]) < 0.5);
+  Shell.select([line.id]); await tick(250);
+  check('Viewing, a line selected has no grips to bend it by', !$$('.dc-bend').length, `${$$('.dc-bend').length}`);
+  const aids0 = JSON.stringify(Canvas.aids.peek());
+  Shell.parts.peek().action.find(x => x.id === 'chart.grid').run(); await tick(100);
+  check('Viewing, Gridlines still come and go, in no log', !!$('.dc-grid') && App.wb.changes().length === n0, aids0);
+  Shell.parts.peek().action.find(x => x.id === 'chart.grid').run(); await tick(100);
+  const keep = ['blocker', 'fund', 'northpine'], at = () => JSON.stringify(keep.map(id => { const m = sc().byId.get(id); return [m.x, m.y, m.w, m.h]; }));
+  const stood = at();
+  Shell.select(keep); await tick(200);
+  const only = Shell.parts.peek().action.find(x => x.id === 'chart.only');
+  check('Viewing, Show only these can be asked', !!only.enabled(), only.why());
+  only.run(); await tick(400);
+  check('… hides the rest for the session, in no log, saying so without an Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 && /^Showing only these 3 boxes/.test(last()) && !/Undo/.test(last()), `${boxes()} | ${last()}`);
+  check('… what\'s left standing where it stood, the page as it was', at() === stood && JSON.stringify([sc().page.w, sc().page.h, sc().page.scale]) === page0, `${at()} vs ${stood}`);
+  Shell.select([]); await tick(250);
+  const row = id => $$('.insp .hiddenrow').find(r => txt(r).startsWith(App.notes.peek().nameOf(App.state.peek(), id)));
+  const off = all.find(id => !keep.includes(id));
+  check('… and the Hidden list has the rest, its ticks live', !!row(off) && !row(off).querySelector('input').disabled && !row(off).querySelector('input').checked, `${!!row(off)}`);
+  row(off)?.querySelector('input').click(); await tick(350);
+  check('a box ticked on comes back, in no log', boxes().includes(off) && App.wb.changes().length === n0 && !!row(off)?.querySelector('input').checked, boxes().join());
+  const hideAll = $$('.insp .hidden-acts button').find(b => txt(b) === 'Hide all');
+  hideAll?.click(); await tick(400);
+  check('Viewing, Hide all hides every box, in no log', !!hideAll && !boxes().length && App.wb.changes().length === n0, boxes().join());
+  $$('.insp .hidden-acts button').find(b => txt(b) === 'Show all')?.click(); await tick(450);
+  check('… and Show all brings every one back', all.every(id => boxes().includes(id)) && App.wb.changes().length === n0, boxes().join());
+  Shell.select(keep); await tick(200); only.run(); await tick(350);
+  App.setViewing(false); await tick(350);
+  check('back in Editing the chart is as it was, nothing having been written', JSON.stringify(boxes()) === JSON.stringify(all) && App.wb.changes().length === n0, boxes().join());
+  Shell.select([]); await tick(150);
 }
 
 // ---- Gridlines, Snap to grid and Rulers, the session's, in no log; a free shape's Rotation, typed or by its handle, carried to the

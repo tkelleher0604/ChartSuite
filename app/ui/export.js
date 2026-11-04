@@ -714,7 +714,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   const views = paper => charts().map(v => {
     const shown = App.scene.peek();
     return { ...(shown?.view === v.id && shown.page.size === paper ? shown
-      : Scene.of(App.shown.peek(), App.chart.peek(), v.id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), paper })), name: v.name };
+      : Scene.of(App.shown.peek(), App.chart.peek(), v.id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), paper, seen: App.seenIn(v.id) })), name: v.name };
   });
   const chartName = () => App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name ?? 'Chart';
   const uri = s => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(s)}`;

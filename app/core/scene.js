@@ -4,10 +4,11 @@
 // The only page it touches is a canvas, to measure text. Units are CSS pixels, 96 to the inch, as the browser
 // and X6 draw them; a Size or a Weight is in points, as Office gives them, each PT pixels.
 //
-// Scene.of(wb, chart, view, day, { state, computed?, reveal, keep, paper?, ahead?, holds? }) →
+// Scene.of(wb, chart, view, day, { state, computed?, reveal, keep, seen?, paper?, ahead?, holds? }) →
 //   { chart, view, day, page: { size, w, h, scale, margin, offset, placed, sheet }, marks, byId, styles, legend, ms }
 // `state` is the computed state's records, and `computed` the engine's whole result, for a free shape whose
-// text is a formula. `reveal`, records the view hides, drawn for a while, and `keep`, a restyle's preview, keep the
+// text is a formula. `reveal`, records the view hides, drawn for a while, `keep`, a restyle's preview, and `seen`, what a
+// session shows or hides over the view's notes (Map record → whether it shows), keep the
 // view as it was last drawn (see the layout). `paper`, a size in PAGES, draws the view on that paper in place of its
 // own page (see the page). `ahead` lays out a state a change previewed would leave, so it's drawn at once when the
 // change is made, and isn't kept as how the view was drawn: a redline is that scene, inked by the canvas, as Enter
@@ -510,7 +511,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const started = now();
   const rows = wb.rows(chart), read = readRows(rows, view), notesAre = `${view}|${read.notes}`;
   const shapeRows = read.shapes.get(view);
-  const preview = !!(opts.keep || opts.reveal?.length), drawnAs = `${chart}|${view}`;
+  const preview = !!(opts.keep || opts.reveal?.length || opts.seen?.size), drawnAs = `${chart}|${view}`;
   const said = new Map(shapeRows.map(r => [r.id, r.role === 'date' && wb.moment ? stoodText(wb.moment) : shapeText(r, opts.computed, day)]));
   // (A Key is drawn from where it's kept or held, either being one: so what its change made was laid out ahead for, and a
   // Key kept elsewhere since is drawn there, as it would be from nothing.)
@@ -606,7 +607,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     if (ends && ends[0] && ends[1] && ends[0] !== ends[1]) {
       const f = formats.get(id);
       if (f.Connector?.value === 'none') { const [from, to] = endsOf(id, ends); addMark({ id: `${id}@${to}`, type: 'text', record: id, host: to, listed: from, cand: {} }); }
-      else if (f.Shown || located.has(id) || reveal.has(id)) addMark({ id, type: 'line', record: id, ends, cand: {} });
+      else if (f.Shown || located.has(id) || reveal.has(id) || opts.seen?.get(id)) addMark({ id, type: 'line', record: id, ends, cand: {} });
     }
     else if (r.at) addMark({ id, type: 'text', record: id, cand: {} });
     else for (const b of new Set(argsOf(r).map(a => boxOf(a.at)).filter(Boolean))) addMark({ id: `${id}@${b}`, type: 'text', record: id, host: b, cand: {} });
@@ -652,7 +653,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   }
   // Where no note says, a box and its name are shown, and nothing else: a new chart's boxes say what they are.
   const named = m => m.type === 'text' && !m.host && isObject(state[state[m.record].at] ?? {}) && Tree.norm(state[m.record].edge ?? '') === 'name';
-  const shownAlone = m => m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown || named(m);
+  const shownAlone = m => (m.type !== 'text' ? opts.seen?.get(m.record) : undefined) ?? (m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown || named(m));
   // Revealed, a hidden box or line is drawn; never a text, which would change the box it's in.
   const drawnMemo = new Map();
   const drawn = m => {
@@ -1006,6 +1007,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const added = b => !!last && !last.at.has(b.id);
     // (A height entered is the box's own, and no part of its rank's.)
     for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle' && !(b.hand && b.pos.h != null)), b => Math.round(b.y / 4)).values()) { level(rank.filter(b => !added(b))); level(rank.filter(added)); level(rank.filter(b => added(b) && b.entered), rank); }
+    // (What a session hides takes nothing from what's left, which stands as tall as it stood, though what made it so has gone.)
+    if (last && opts.seen?.size) for (const b of boxes) { const was = last.boxes.get(b.id); if (was) level([b], [{ h: was.h, texts: [] }]); }
     push(boxes.filter(b => !added(b)), frames, lines.filter(l => l.ranks));
     // And again where that left a line from side to side short of the room its label needs, as the height it runs at
     // moves with the boxes it joins.

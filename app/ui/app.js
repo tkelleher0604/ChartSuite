@@ -50,6 +50,12 @@ const App = (() => {
   // Why it can't be changed now, as a toast says it.
   const whyNot = () => Shell.time.peek()?.stood ? 'Can’t change the past' : 'Viewing: switch to Editing to change this';
   const refuse = () => { Shell.toast(whyNot()); return null; };
+  // Viewing, what a chart shows and hides is the session's, in no log, as a table's columns are, though never of the past: by
+  // view, each record and whether it shows (Scene's `seen`). In Editing, it's a change, the view's.
+  const seen = signal(new Map());
+  const seeing = () => viewing.value && !Shell.time.value?.stood;
+  const seenIn = view => seeing() ? seen.value.get(view) ?? null : null;
+  function see(view, ids, on) { const m = new Map(seen.peek()), v = new Map(m.get(view) ?? []); for (const id of ids) v.set(id, on); m.set(view, v); seen.value = m; }
   const stood = computed(() => {
     const t = Shell.time.value;
     if (!t?.stood) return null;
@@ -1132,7 +1138,9 @@ const App = (() => {
     // It reads the workbook's notes and shapes as well as the state (Scene keeps what's drawn from the same).
     version.value;
     const v = views.value.find(x => x.id === Shell.view.value);
-    return v?.layout !== 'chart' ? null : Scene.of(shown.value, chart.value, v.id, day.value, { state: state.value, computed: result.value });
+    if (v?.layout !== 'chart') return null;
+    const as = { state: state.value, computed: result.value }, drawn = Scene.of(shown.value, chart.value, v.id, day.value, as), looks = seenIn(v.id);
+    return looks?.size ? Scene.of(shown.value, chart.value, v.id, day.value, { ...as, seen: looks }) : drawn;
   });
   // What a table's rows can be: each kind, each relation (its edges, every other label removed), and dates
   // and documents.
@@ -1265,7 +1273,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, viewing, setViewing, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
+    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
     enterAt, putting, put, asksFrom, held: typedOut, overriding, noTone,
   };
 })();

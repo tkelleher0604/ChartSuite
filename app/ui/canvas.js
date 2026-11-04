@@ -455,7 +455,7 @@ function mount(el) {
     if (!base) return;
     const view = base.view, s = styledDrawn, r = !s && redDrawn;
     scene = s || (revealIds && !r) ? Scene.of(s?.wb ?? App.shown.peek(), App.chart.peek(), view, base.day,
-      { state: stateNow(), computed: App.computed.peek(), reveal: s?.wb.tidy ? null : revealIds, ahead: !!s, holds: s && !s.wb.tidy ? holdsOf(base) : null }) : r ? r.scene : base;
+      { state: stateNow(), computed: App.computed.peek(), reveal: s?.wb.tidy ? null : revealIds, seen: App.seenIn(view), ahead: !!s, holds: s && !s.wb.tidy ? holdsOf(base) : null }) : r ? r.scene : base;
     // A record selected that starts later is drawn faint, with its lines, as what's revealed is.
     const later = App.later?.peek();
     if (later && scene !== base) for (const m of scene.marks) if (later[m.record]) m.revealed = true;
@@ -1552,8 +1552,8 @@ function mount(el) {
       ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
       ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }] : []),
       // Their own History.
-      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }, '-', { label: 'Hide in this view', disabled: ro, run: () => remove() }] : []),
-      ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: ro, run: showOnly }] : []),
+      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }, '-', { label: 'Hide in this view', disabled: ro && !App.seeing(), run: () => App.seeing() ? App.see(viewOf(), bound.map(m => m.record), false) : remove() }] : []),
+      ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
       // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring).
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: ro, run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: 'Insert an entity between…', disabled: ro, run: () => App.interposing(one.record) }] : []),
@@ -1988,13 +1988,15 @@ function mount(el) {
   }
   // Show only these: every other box the view draws hidden, in one step, and the lines with them, as each is hidden by its
   // own note; the Hidden list has them.
-  const canShowOnly = () => !!scene && placeable().some(m => m.type === 'box') && !still();
+  const canShowOnly = () => !!scene && placeable().some(m => m.type === 'box') && (!still() || App.seeing());
   function showOnly() {
     const ms = placeable().filter(m => m.type === 'box'), keep = new Set(ms.map(m => m.id)), view = viewOf();
     const rest = scene.marks.filter(m => m.type === 'box' && !m.revealed && !keep.has(m.id));
     if (!ms.length) return;
     if (!rest.length) return Shell.toast('These are all the boxes there are', { ms: 2500 });
-    App.change(tx => rest.forEach(m => tx.note('Shown', treeOf(m.record), false, { view })), { dated: false, say: `Showing only ${ms.length === 1 ? called(ms[0]) : `these ${ms.length} boxes`} in ${viewName(view)}` });
+    const say = `Showing only ${ms.length === 1 ? called(ms[0]) : `these ${ms.length} boxes`} in ${viewName(view)}`;
+    if (App.seeing()) { App.see(view, rest.map(m => m.record), false); return Shell.toast(say, { ms: 2500 }); }
+    App.change(tx => rest.forEach(m => tx.note('Shown', treeOf(m.record), false, { view })), { dated: false, say });
   }
   // What's copied is marks of one view, and their names: pasting a box shows it where it was in the chart, a
   // shape is copied.
@@ -2075,6 +2077,7 @@ function mount(el) {
   const stopNudge = Shell.on('select', () => nudged());
   function align(how) {
     const ms = placeable();
+    if (still()) return Shell.toast(App.whyNot());
     if (!ms.length) return;
     const one = ms.length === 1, b = one ? { x: 0, y: 0, r: scene.page.w, d: scene.page.h }
       : { x: Math.min(...ms.map(m => m.x)), y: Math.min(...ms.map(m => m.y)), r: Math.max(...ms.map(m => m.x + m.w)), d: Math.max(...ms.map(m => m.y + m.h)) };
@@ -2085,6 +2088,7 @@ function mount(el) {
   }
   function distribute(axis) {
     const ms = placeable();
+    if (still()) return Shell.toast(App.whyNot());
     if (ms.length < 3) return;
     const [pos, size] = axis === 'down' ? ['y', 'h'] : ['x', 'w'];
     const sorted = [...ms].sort((a, b) => a[pos] - b[pos]), first = sorted[0], last = sorted[sorted.length - 1];
@@ -2103,6 +2107,7 @@ function mount(el) {
   }
   function order(how) {
     const ms = selected().filter(m => m.type !== 'frame' && m.geometry !== 'group').concat(selected().filter(m => m.geometry === 'group').flatMap(g => g.members.map(id => scene.byId.get(id)).filter(Boolean)));
+    if (still()) return Shell.toast(App.whyNot());
     if (!ms.length) return;
     // One order over everything drawn (dendra.md, Layers). What it would go past, or nothing: then it says so, and nothing's written.
     const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0, view = viewOf(), all = scene.marks.filter(m => m.geometry !== 'group'), them = new Set(ms.map(m => m.id));
@@ -2228,6 +2233,7 @@ function mount(el) {
     return { ...wb, rows: () => rows, notes: () => notes, tidy: 'Tidy for every date' };
   }
   function tidyEvery() {
+    if (still()) return Shell.toast(App.whyNot());
     const { ws, key, keyAt } = everyWrites(), view = viewOf(), out = placedHere();
     if (!App.change(tx => { out.forEach(n => tx.remove(n.note)); ws.forEach(w => tx.note('Position', w.t, w.value, { view })); if (key) tx.update(key, { kept: keyAt.get(key) ?? null }); }, { say: 'Tidied the layout for every date', keep: false, dated: false })) return;
     framed = true; left = null;
@@ -2458,14 +2464,15 @@ for (const [id, name, k, names] of [['chart.grid', 'Gridlines', 'grid', ['Grid',
   Shell.register('action', { id, name, names, enabled: here, run: aidToggle(k) });
 Shell.register('action', { id: 'chart.rotate', name: 'Rotate…', names: ['Rotation', 'Turn', 'Angle'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && active.peek().selected()[0].type === 'shape',
   run: () => { Shell.showPanel?.(); setTimeout(() => { const f = document.querySelector('.insp [data-place="r"] input'); f?.scrollIntoView({ block: 'center' }); f?.focus(); f?.select(); }, 60); },
-  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? 'Can’t change the past' : 'Select one free shape first' });
-Shell.register('action', { id: 'chart.tidyEvery', name: 'Tidy for every date', names: ['Tidy all dates', 'Tidy across dates', 'Line up the dates', 'Same places on every date'], enabled: () => here() && !App.readOnly.peek(), run: call('tidyEvery') });
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one free shape first' });
+Shell.register('action', { id: 'chart.tidyEvery', name: 'Tidy for every date', names: ['Tidy all dates', 'Tidy across dates', 'Line up the dates', 'Same places on every date'], enabled: () => here() && !App.readOnly.peek(), run: call('tidyEvery'),
+  why: () => !here() ? 'Show a chart first' : App.whyNot() });
 Shell.register('action', { id: 'chart.only', name: 'Show only these', names: ['Hide the rest', 'Only these', 'Keep only these', 'Hide others'], enabled: () => here() && !!active.peek().canShowOnly(), run: call('showOnly'),
-  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? 'Can’t change the past' : 'Select some boxes first' });
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() && !App.seeing() ? App.whyNot() : 'Select some boxes first' });
 // A box's size, typed in its panel; so with a shape's.
 Shell.register('action', { id: 'chart.size', name: 'Size…', names: ['Height', 'Width', 'Resize', 'Lock proportions', 'Aspect ratio'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && ['box', 'shape'].includes(active.peek().selected()[0].type),
   run: () => { Shell.showPanel?.(); setTimeout(() => { const f = document.querySelector('.insp [data-place="h"] input') ?? document.querySelector('.insp [data-place="w"] input'); f?.scrollIntoView({ block: 'center' }); f?.focus(); f?.select(); }, 60); },
-  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? 'Can’t change the past' : 'Select one box first' });
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one box first' });
 Shell.register('action', { id: 'chart.relate', name: 'Relate…', names: ['Connect', 'Link', 'Add a relation', 'Draw a line'], enabled: () => here() && !App.readOnly.peek() && !!active.peek().relatable(), run: call('relate'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one box first' });
 
