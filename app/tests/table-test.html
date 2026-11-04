@@ -1824,7 +1824,7 @@ async function tablesG3() {
   const rowNamed = label => $$('.cols .colrow').find(r => r.textContent.trim() === label);
   const toggle = label => listed(async () => { rowNamed(label).querySelector('input').click(); await tick(300); });
   const allBtn = label => $$('.cols .col-all .btn').find(b => b.textContent === label);
-  const fund3 = named('Calder Ridge Capital Partners III, L.P.'), corvane = named('Corvane Specialty Chemicals Holdings, LLC');
+  const fund3 = named('Calder Ridge Capital Partners III, L.P.'), corvane = named('Corvane Specialty Chemicals Holdings, LLC'), same0 = Tree.same;
 
   await addTable('Records', 'Entities', true);
   const v = Shell.view.peek();
@@ -1981,6 +1981,28 @@ async function tablesG3() {
     Shell.show(v); await tick(200);
   }
 
+  // Two lists of one name, seen from one side, say which is which by what they reach, and each holds what the record holds.
+  {
+    const person = named('Margaret A. Chen'), own1 = Object.keys(st()).find(id => st()[id].args?.some(a => a.edge === 'Owner'));
+    App.change(tx => { tx.add('record', { args: [{ edge: 'Client', at: fund3 }, { edge: 'Agent', at: person }], tag: true }); tx.add('record', { args: [{ edge: 'Client', at: fund3 }, { edge: 'Agent', at: own1 }], tag: true }); }, { dated: false }); await tick(300);
+    const lists = Table.model(v).cols.filter(c => c.type === 'list' && same0(c.title, 'Agent'));
+    check('Two lists of one name say what they reach, each its own column', lists.length === 2 && new Set(lists.map(c => c.key)).size === 2 && lists.every(c => c.parent && c.told?.at(-1) === 'Agent'), lists.map(c => `${c.key} ${c.parent}`).join(' | '));
+    const row = Table.model(v).data.find(d => d.id === fund3), held = lists.map(c => row[`f:${c.key}`]);
+    check('… and each holds what the record holds', held.includes('Margaret A. Chen') && held.some(x => / → /.test(x ?? '')), held.join(' | '));
+    undo(); await tick(300);
+  }
+  // A Why column isn't renamed, nor typed over; a file brought back with one writes nothing there.
+  {
+    await addTable(null, 'Dates', true);
+    await toggle('Why');
+    const col = column('Why'), n1 = N(); col.getElement().querySelector('.col-menu').click(); await tick();
+    check('Why has no Rename', !item('Rename column') && !!item('Hide column'));
+    Shell.closeAll(); await tick();
+    check('… and no editor', !col.getDefinition().editor);
+    check('… and nothing but the column is logged', N() === n1);
+    undo(); await tick(200); undo(); await tick(300);
+    Shell.show(v); await tick(200);
+  }
   // No traps: a side takes only some kinds, and a name of another kind says so, never offering a new record of the wrong sort.
   {
     await addTable('Relations', 'Evidence', true);

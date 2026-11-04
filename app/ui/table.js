@@ -1248,7 +1248,7 @@ const Table = (() => {
   // Resolves to every heading's column, or null if cancelled.
   function ask(m, grid, head) {
     const asked = grid[0].map((h, j) => !head[j] && clean(h) ? j : -1).filter(j => j >= 0);
-    const cols = m.cols.filter(c => c.key !== '$entry' && c.key !== '$of');
+    const cols = m.cols.filter(c => c.key !== '$entry' && c.key !== '$of' && c.key !== '$why');
     const label = c => c.parent ? `${c.parent} › ${c.title}` : c.title;
     const choice = asked.map(() => '');
     // Where one heading is left and one column a row is found by, it's that one.
@@ -1365,6 +1365,7 @@ const Table = (() => {
       }
       const lists = [];
       for (const [c, raw] of p.cells) {
+        if (c.key === '$why') continue;   // a file exported and brought back: what's worked out isn't typed
         if (c.type === 'list') { lists.push([c, raw]); continue; }
         if (!clean(raw) || (!was && c.key === '$out')) continue;
         if (c.key === '$entry' || c.key === '$of' || c.type === 'edge') { x.skipped++; continue; }
@@ -1647,7 +1648,7 @@ const Table = (() => {
   // A column with no values yet goes with its notes.
   const dropColumn = c => edit(tx => { note(tx, 'Shown', c, current.view, undefined); note(tx, 'Order', c, current.view, undefined); }, `Deleted column ${c.title}`);
   // An entry's column can be renamed; not a relation's side, nor a row's Name, by which everything names it.
-  const renamable = c => !!c?.pattern && c.type !== 'edge' && c.type !== 'list' && !(c.path?.length === 1 && same(c.title, 'Name'));
+  const renamable = c => !!c?.pattern && c.type !== 'edge' && c.type !== 'list' && c.key !== '$why' && !(c.path?.length === 1 && same(c.title, 'Name'));
   // Renamed, an entry is renamed wherever it's at a row of this kind: its records, its specification, its notes.
   // How it's looked at goes with it: its width, its sort, its filter, its grouping.
   function renameColumn(c, to) {
