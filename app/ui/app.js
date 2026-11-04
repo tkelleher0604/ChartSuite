@@ -80,6 +80,9 @@ const App = (() => {
   // Another day's working-out, as showing it would work it out: what the canvas lays out ahead for a day typed in the
   // date control. Shown then, it's worked out again from the same, which gives this one (Formulas.computeState).
   const workOn = d => chart.peek() ? Formulas.computeState(shown.peek().asOf(chart.peek(), d), definitions.peek(), { relations: relations.peek(), schema: schema.peek() }, worked) : null;
+  // The same, kept with what's entered that day while the log stands: an export's pages, each at its own day.
+  const workedOn = new WeakMap();
+  const workAt = d => { if (d === day.peek()) return result.peek(); const e = shown.peek().asOf(chart.peek(), d); return workedOn.get(e) ?? workedOn.set(e, workOn(d)).get(e); };
   const state = computed(() => result.value.records);
   // A record or a shape a change takes away (a deadline once paid, a shape added and undone) leaves the
   // selection with it, and a Key's row with its Key; a record only not there on the day or at the moment shown
@@ -196,6 +199,7 @@ const App = (() => {
     if (!ids) named = [];
     fn(tx);
     if (keep && tx.size()) for (const k of keepers) k(tx);
+    planned(tx);
     const c = tx.commit();
     if (typeof c === 'string') { Shell.toast(c); return null; }
     if (!c) { empty?.(); return null; }
@@ -209,6 +213,17 @@ const App = (() => {
     if (bare) { keptToday.add(chart.peek()); Shell.at({ asOf: out.day }); }
     if (said) { const off = Shell.toast(bare ? `${said}; showing the chart as of then` : said, { undo, ...(bare ? { go: ['Today', () => Shell.at(null)] } : when ? { go: [`Show ${when}`, () => Shell.at(out.day === Log.today() ? null : { asOf: out.day })] } : more && { go: more }) }); if (when || more) staying = off; }
     return c;
+  }
+  // The pages of a plan are one chart on several days, with one set of places (dendra.md, The layout): what a change puts on
+  // one of them, a place, a bend, a scale or a paper, and how what's changed is marked, it puts on them all.
+  const PLACES = new Set(['Position', 'Bend', 'Scale', 'Page']);
+  function planned(tx) {
+    const pages = views.peek(), peers = id => { const p = pages.find(v => v.id === id)?.plan; return p ? pages.filter(v => v.plan === p && v.id !== id) : []; };
+    if (!pages.some(v => v.plan)) return;
+    const { added, removed } = tx.noted(r => PLACES.has(r.label) || (!!r.view && Scene.isChange(r.pattern))), at = r => JSON.stringify([r.label, r.view ?? r.pattern.id, Tree.key(r.pattern)]), stays = new Set(added.map(at));
+    const put = (r, value) => { for (const q of peers(r.view ?? r.pattern.id)) r.view ? tx.note(r.label, r.pattern, value, { view: q.id }) : tx.note(r.label, viewTree(q.id), value); };
+    for (const r of removed) if (!stays.has(at(r))) put(r, undefined);
+    for (const r of added) put(r, r.value);
   }
   // A chart with nothing to draw on the day shown, every box of it not yet formed, opens on the first day it has one: a fund
   // about to be formed is a chart worth drawing. Only for this window, as a day picked is, and only till the user asks for today.
@@ -608,7 +623,11 @@ const App = (() => {
   // a slip is undone. `what` says what goes; `also`, what else the change does (a free shape deleted with them). End that
   // too, on its bar, adds to it what a check says it breaks (`too`, ending on the one day).
   function deleting(ids, what, o = {}) {
-    const recs = state.peek(), ends = ids.map(id => endOf(id, recs)), asks = ends.some(e => e !== false), words = [...new Set(ends.filter(e => typeof e === 'string'))];
+    const recs = state.peek();
+    // (What a page draws of what's gone is no more there to delete than a box of a day past.)
+    if (ids.every(id => !recs[id])) return Shell.toast(`Not in the chart as of ${Tree.formatDate(day.peek(), 'short')}`);
+    ids = ids.filter(id => recs[id]);
+    const ends = ids.map(id => endOf(id, recs)), asks = ends.some(e => e !== false), words = [...new Set(ends.filter(e => typeof e === 'string'))];
     const end = (tx, d, id, e) => e === false ? tx.remove(id) : d && typeof e === 'string' ? ending(tx, entered.peek(), id, e, d) : tx.remove(id, d);
     // One of a kind with more than one end says which (Dissolution Date, Merger Date), by its menu. An end named for a relation
     // of what it ends (a merger) asks that relation's other side too, in its bar, and makes it.
@@ -1266,7 +1285,7 @@ const App = (() => {
       // notes in it are its records', and stay behind.
       given = p => !!p && ((p.args?.length === 2 && worked.has(sides(p))) || (p.args ?? []).some(a => given(a.loc)));
       look = style ?? Notes.houseLook(src.rows(from), like);
-      for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Scale', 'Page'].includes(r.label) && r.pattern.id === like) && r.label !== 'Footer')
+      for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Changes', 'Plan', 'Scale', 'Page'].includes(r.label) && r.pattern.id === like) && r.label !== 'Footer')
         tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Structure' : r.value, { view: kept.get(r.view), param: r.param });
     }
     const first = kept.get(like) ?? tx.add('record', { kind: 'View' });
@@ -1277,7 +1296,7 @@ const App = (() => {
     return tx.commit();
   }
   // Whether a chart has what a pattern reaches, by its specifications: a house style's styles of what it hasn't don't come.
-  const hasPattern = (S, N, p) => N.fitting(S, p.out && 'tag' in p.out ? Tree.bare(p) : p).length > 0;
+  const hasPattern = (S, N, p) => Scene.isChange(p) || N.fitting(S, p.out && 'tag' in p.out ? Tree.bare(p) : p).length > 0;
   // A chart's page, begun as every page of the sample is: its title, the chart's name, under it the day it's as
   // of, and its Key, which the page sets at the sheet's size and places, as it does every page's; in `look`, where
   // it's begun in one.
@@ -1423,7 +1442,7 @@ const App = (() => {
   const viewsIn = (st, N) => (Tree.index(st).kinds.get('view') ?? []).map(id => {
     const t = viewTree(id), lay = N.value('Layout', t);
     return { id, name: N.nameOf(st, id), layout: lay && typeof lay === 'object' ? 'table' : 'chart', rows: lay?.rows ?? null,
-      keeps: N.value('As Of', t) ?? null, order: N.order(t) ?? Infinity };
+      keeps: N.value('As Of', t) ?? null, changes: N.value('Changes', t) ?? null, plan: N.value('Plan', t) ?? null, order: N.order(t) ?? Infinity };
   }).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
   const viewsNow = computed(() => viewsIn(entered.value, notes.value));
   const views = keptWhile(() => JSON.stringify(viewsNow.value), () => viewsNow.value);
@@ -1463,8 +1482,9 @@ const App = (() => {
   // A new view after the one it copies, or at the end: a chart, or a table of `rows`. A copy takes the
   // original's notes and shapes, but its name. A new chart takes the styles and Shown of the chart shown, or
   // else of the first, but not where it put things, and its page starts afresh. A new table opens with a few of its
-  // columns (Table.opening). `also(tx, id)`, what else the one change makes of it; `blank`, a chart with every box hidden.
-  function addView(name, rows, from, also, blank = false) {
+  // columns (Table.opening). `also(tx, id)`, what else the one change makes of it; `blank`, a chart with every box hidden;
+  // `title`, what a copy's page is titled; `then(tx, id)`, what the change writes last, over what's copied; `say`, its toast.
+  function addView(name, rows, from, also, blank = false, { title, then, say } = {}) {
     const vs = views.peek(), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length, taken = new Set(vs.map(v => Tree.norm(v.name)));
     const like = from ?? (rows === undefined ? (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id : null);
     let n = name, i = 2;
@@ -1482,13 +1502,14 @@ const App = (() => {
         // (What a table's view says at itself, its Why, it says at the copy.)
         if ('note' in r && r.view === like && (from || (r.label !== 'Position' && r.label !== 'Bend'))) { const { note, ...x } = r; tx.add('note', { ...x, ...(x.pattern.id === like && { pattern: t }), view: id }); }
         else if (!from) continue;
-        else if ('shape' in r && r.view === from) { const { shape, ...s } = r; tx.add('shape', { ...s, view: id }); }
-        else if ('note' in r && !r.view && r.pattern.id === from && r.label !== 'Order' && r.label !== 'Name') tx.note(r.label, t, r.value);
+        else if ('shape' in r && r.view === from) { const { shape, ...s } = r; tx.add('shape', { ...s, view: id, ...(title && s.role === 'title' && { text: title }) }); }
+        else if ('note' in r && !r.view && r.pattern.id === from && r.label !== 'Order' && r.label !== 'Name' && r.label !== 'Plan') tx.note(r.label, t, r.value);
       }
       if (!from && rows === undefined) page(tx, id, book.peek().charts().find(c => c.chart === chart.peek())?.name ?? n);
       // A blank start: every box it would draw hidden by its own note, each to tick on from its Hidden list.
       if (blank) { const st = state.peek(), N = notes.peek(); for (const x of Object.keys(st)) if (Tree.isObject(st[x]) && !Tree.isView(st[x]) && N.value('Shown', { kind: st[x].kind }, like) !== false) tx.note('Shown', Tree.treeOf(st, x), false, { view: id }); }
-    }, { dated: false });
+      then?.(tx, id);
+    }, { dated: false, say });
     return id;
   }
   const order = ids => change(tx => ids.forEach((id, k) => tx.note('Order', viewTree(id), k + 1)), { dated: false });
@@ -1502,7 +1523,12 @@ const App = (() => {
   }
   Shell.register('views', {
     list: () => views.value,
-    rename: (id, name) => change(tx => tx.note('Name', viewTree(id), name), { dated: false }),
+    // (A page titled by its name, as a step is, stays so.)
+    rename: (id, name) => change(tx => {
+      const was = views.peek().find(v => v.id === id)?.name, title = book.peek().rows(chart.peek()).find(r => 'shape' in r && r.view === id && r.role === 'title' && r.text === was);
+      tx.note('Name', viewTree(id), name);
+      if (title) tx.update(title.shape, { text: name });
+    }, { dated: false }),
     move: (id, i) => { const ids = views.peek().map(v => v.id).filter(x => x !== id); ids.splice(i, 0, id); order(ids); },
     // A new view of what's picked: its id, or null if none is.
     add: anchor => new Promise(done => {
@@ -1518,6 +1544,7 @@ const App = (() => {
         { label: 'Show', ...writes, items: shows((_, rows) => change(tx => tx.note('Layout', viewTree(id), rows && { rows }), { dated: false }), v) },
         ...(v.layout === 'chart' && typeof FormatBar !== 'undefined' ? ['-', ...FormatBar.lookMenu(id)] : []),
         '-',
+        ...(v.layout === 'chart' && typeof Time !== 'undefined' ? [{ label: 'Next step…', ...writes, run: () => Time.nextStep(id) }] : []),
         { label: 'Duplicate', ...writes, run: () => { const copy = addView(v.name, undefined, id); if (copy) Shell.show(copy); } },
         { label: 'Delete', danger: true, disabled: views.peek().length < 2, ...writes, run: () => change(tx => tx.remove(id), { say: `Deleted ${v.name}`, dated: false }) },
       ];
@@ -1580,7 +1607,7 @@ const App = (() => {
 
   return {
     get wb() { return book.value; },
-    chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
+    chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, workAt, state, needs,
     readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone,
   };
