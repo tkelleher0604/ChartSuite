@@ -398,6 +398,16 @@ async function run() {
       && tags(up, 'a:headEnd').length === 1 && tags(up, 'a:tailEnd').length === 1, rows.filter(r => !r.el || !solid(r.el, '1F4E79')).map(r => r.id).join(', '));
   }
 
+  // ---- A crossing in the deck: a connector can't be broken, so a patch of white between the line broken and the line crossing it ----
+  {
+    const s = { ...Scene.of(sample, C, views[0], DAY, { state: R2.records, computed: R2 }), name: 'S' };
+    const d = xml(await (await JSZip.loadAsync(await Export.write('pptx', [s], 'S'))).file('ppt/slides/slide1.xml').async('string'));
+    const all = [...d.getElementsByTagName('*')].filter(e => ['p:cxnSp', 'p:sp'].includes(e.nodeName)), patch = all.filter(e => e.nodeName === 'p:sp' && nameOf(e) === 'Crossing');
+    const gaps = s.marks.filter(m => m.type === 'line' && m.runs).reduce((n, l) => n + l.runs.length - 1, 0);
+    check('each break in a line drawn is a white patch in the deck, on no connector of its own', gaps > 0 && patch.length > 0 && patch.length <= gaps && patch.every(p => tags(p, 'a:srgbClr')[0]?.getAttribute('val')?.toUpperCase() === 'FFFFFF'), `${patch.length} of ${gaps}`);
+    check('… written after a connector and before the rest', patch.every(p => { const i = all.indexOf(p); return all.slice(0, i).some(e => e.nodeName === 'p:cxnSp') && all.slice(i).some(e => e.nodeName === 'p:cxnSp'); }));
+  }
+
   // ---- A caption mid-sentence ----
   // Said as written where it reads as a defined term, in title case; and where a name begins it, a capital after
   // its first word, or its first word in capitals, kept: the sample's 40 Act captions so retyped.

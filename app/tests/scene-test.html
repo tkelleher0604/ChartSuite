@@ -664,6 +664,27 @@ function run() {
     const labels = sc.flatMap(s => { const ls = s.marks.filter(m => m.type === 'line' && m.labelAt && m.label).map(l => ({ x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h }));
       return ls.flatMap((a, i) => ls.slice(i + 1).filter(b => meets({ x: a.x - 10.6, y: a.y - 10.6, w: a.w + 21.2, h: a.h + 21.2 }, b)).map(b => [a, b])); });
     check('labels stay 8 pt apart', !labels.length, j(labels.slice(0, 2)));
+    // A percentage stays with the box it reads from, on a smaller paper too, where the room over a drop is less.
+    {
+      const wide = [scene(wb), scene(wb, MAIN, { paper: 'legal' }), scene(wb, MAIN, { paper: 'letter' })];
+      const astray = wide.flatMap(s => s.marks.filter(m => m.type === 'line' && m.labelAt && m.label && !m.kin && !m.settings.Dash?.value?.startsWith?.('dash')).filter(m => {
+        const legs = m.points.slice(1).map((p, i) => Math.hypot(p[0] - m.points[i][0], p[1] - m.points[i][1])), len = legs.reduce((a, b) => a + b, 0), along = Layout.pin(m.points, { ...m.labelAt, w: m.label.w, h: m.label.h }).along;
+        return len - along > Math.max(len / 2, 60 / s.page.scale);
+      }).map(m => m.id));
+      check('a percentage is on the half of its line nearest the box it reads from, on any paper', !astray.length, j(astray));
+    }
+    // What's nearer the edge than a printer prints is said, as what's off the sheet is.
+    {
+      const b = (id, x, y) => ({ type: 'box', id, x, y, w: 100, h: 40, texts: [{ text: id }] });
+      const said = Scene.says({ page: { w: 1280, h: 720, scale: 1, short: [] }, marks: [b('Inside', 200, 200), b('Near', 200, 672), b('Off', 1230, 200)] }).join('|');
+      check('a box within a quarter inch of the sheet’s edge is said, one off it as off it, one inside it not', /Near is nearer the edge than a printer prints/.test(said) && /Off runs off the page/.test(said) && !/Off is nearer/.test(said) && !/Inside/.test(said), said);
+    }
+    // A box placed in a frame goes among its frame's boxes, not beside its relatives elsewhere.
+    {
+      const rect = (id, x, y) => ({ id, w: 100, h: 40, shape: 'rect', x, y }), [a, c, d, e] = [rect('a', 40, 40), rect('c', 200, 40), rect('d', 40, 160), rect('e', 200, 160)], n = { id: 'n', w: 100, h: 40, shape: 'rect' };
+      const out = Layout.arrange({ boxes: [a, c, d, e, n], links: [{ from: 'a', to: 'n', trunk: 't' }], clusters: [{ id: 'one', members: ['a', 'c'] }, { id: 'two', members: ['d', 'e', 'n'] }], entered: new Map([a, c, d, e].map(b => [b.id, { x: b.x, y: b.y }])), page: { margin: 20 } });
+      check('a box placed among entered ones stands in its frame’s row, beside its boxes', out.get('n').y === 160 && out.get('n').x > 200, j(out.get('n')));
+    }
 
     // A reveal keeps the chart still: what it adds goes round what's there, on the page.
     const R = computed(wb), st = R.records, base = scene(wb, MAIN);
