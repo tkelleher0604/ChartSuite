@@ -175,9 +175,10 @@ const App = (() => {
   const firstDrawn = () => shown.peek().rows(chart.peek()).filter(r => r.kind && r.kind !== 'View').map(r => heldFrom(r.record)).filter(Boolean).sort()[0] ?? null;
   Shell.ready.then(() => effect(() => {
     if (typeof Scene === 'undefined' || !scene.value || Shell.time.value || keptToday.has(chart.value) || !nothingDrawn()) return;
-    keptToday.add(chart.peek());
-    const d = firstDrawn();
-    if (d) queueMicrotask(() => Shell.at({ asOf: d }));
+    const c = chart.peek(), d = firstDrawn();
+    keptToday.add(c);
+    // (A moment on, as drawing it is; it may be another workbook being opened by then.)
+    if (d) queueMicrotask(() => { if (chart.peek() === c && !Shell.time.peek() && nothingDrawn()) Shell.at({ asOf: d }); });
   }));
   // The start or end entry a change records that takes what it's at out of the chart as of the day shown, where it
   // was: { holds: 'from' or 'until', day }; or null.
