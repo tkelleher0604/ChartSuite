@@ -1551,6 +1551,13 @@ async function layered() {
     check('a Key dropped on a box warns on Export', Scene.says(sc()).some(w => /^The Key overlaps /.test(w) && /Northpine/.test(w)), JSON.stringify(Scene.says(sc())));
     const k = sc().marks.find(m => m.geometry === 'legend'), under = sc().marks.filter(m => m.type === 'line' && m.points.slice(1).some((p, i) => { const q = m.points[i]; return Math.max(p[0], q[0]) > k.x + 1 && Math.min(p[0], q[0]) < k.x + k.w - 1 && Math.max(p[1], q[1]) > k.y + 1 && Math.min(p[1], q[1]) < k.y + k.h - 1 && m.from !== 'northpine' && m.to !== 'northpine'; }));
     check('… and a line goes round it where its way isn’t long', under.length <= 3, under.map(m => m.id).join());
+    // And Tidy, which it's offered, is of the page with one box selected, and gives that Key back to the page, clear of them all.
+    Shell.select(['halvard']); await tick(200);
+    check('… Tidy is on offer, one box selected, called Tidy', cv().tidyable() && cv().tidyName() === 'Tidy', cv().tidyName());
+    cv().tidy(); await tick(600);
+    const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h, keyNow = sc().marks.find(m => m.geometry === 'legend');
+    check('… it clears the Key of every box: the page’s to place again, and it’s said no more', !sc().marks.some(m => m.type === 'box' && hit(m, keyNow)) && !Scene.says(sc()).some(w => /^The Key overlaps /.test(w)) && !Number.isFinite(App.shown.peek().rows(App.chart.peek()).find(r => r.shape === key.id && 'x' in r)?.x), JSON.stringify(Scene.says(sc())));
+    Shell.select([]); await tick(150);
     for (let i = App.wb.changes().length; i > n2; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
   }
   // A percentage clear of an arrowhead (gui3 P-16).
@@ -2040,7 +2047,7 @@ async function format() {
   }, { dated: false });
   await tick(300);
   const filter = notesIn(act, 'Shown').filter(n => n.value === false), frames = notesIn(act, 'Frame').map(n => Tree.key(n.pattern)).sort().join(), caps = notesIn(act, 'Caption').map(n => n.value).sort().join();
-  const placed = rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length, n0 = App.wb.changes().length, keyActWas = shapeIn(act, r => r.geometry === 'legend');
+  const j4 = JSON.stringify, capsWere = notesIn(act, 'Caption').map(n => n.value), placed = rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length, n0 = App.wb.changes().length, keyActWas = shapeIn(act, r => r.geometry === 'legend');
   const oldFill = noteAt(act, 'Fill', FUNDS)?.value, onlyTarget = notesIn(act).find(n => JSON.stringify(n.pattern).includes('Close Affiliate') && n.label !== 'Shown');
   await show(act);
   let items = FormatBar.lookMenu(act.id);
@@ -2053,7 +2060,7 @@ async function format() {
   check('… a style only in the look comes across', noteAt(act, 'Bold', NEW)?.value === true);
   check('… the title and the Key take theirs, their words and places their own', shapeIn(act, r => r.role === 'title').format?.Font === 'Garamond' && shapeIn(act, r => r.geometry === 'legend').columns === 1 && /Affiliates/.test(shapeIn(act, r => r.role === 'title').text) && shapeIn(act, r => r.geometry === 'legend').x === keyActWas.x);
   check('… the view’s own Shown, frames, captions and places stay', notesIn(act, 'Shown').filter(n => n.value === false).length === filter.length && notesIn(act, 'Frame').map(n => Tree.key(n.pattern)).sort().join() === frames
-    && caps.split(',').every(c => notesIn(act, 'Caption').some(n => n.value === c)) && rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length >= placed, caps);
+    && capsWere.every(c => c === 'The BDC' /* (a style both have, whose caption comes with its look) */ || notesIn(act, 'Caption').some(n => n.value === c)) && rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length >= placed, j4([notesIn(act, 'Shown').filter(n => n.value === false).length, filter.length, notesIn(act, 'Frame').map(n => Tree.key(n.pattern)).sort().join() === frames, capsWere.filter(c => !notesIn(act, 'Caption').some(n => n.value === c)), rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length, placed]));
   check('… a style only in the view stays', !onlyTarget || !!notesIn(act).find(n => n.note === onlyTarget.note));
   const ordered = App.notes.peek().styles(act.id).map(s => s.key), inLook = App.notes.peek().styles(st.id).map(s => s.key), there = ordered.filter(k => inLook.includes(k));
   check('… its styles in the look’s order, its own after them', JSON.stringify(there) === JSON.stringify(inLook.filter(k => ordered.includes(k))) && ordered.slice(0, there.length).every(k => inLook.includes(k)));
@@ -2481,15 +2488,17 @@ async function format() {
   const handle = () => $('.dc-over > .dc-adjust');
   check('a rounded shape selected shows its corner handle', !!handle() && sc().byId.get('northpine').shape === 'rounded');
   // A redline that moves the box takes the handle with it, and back.
+  // (On a page the layout places, where its owners gone moves it.)
+  const hereWas = sc().view;
+  await show(charts().find(v => v.id === 'view_fund3')); Shell.select(['northpine']); await tick(300);
   const handleAt = () => [parseFloat(handle().style.left), parseFloat(handle().style.top)], handleWas = handleAt(), nowState = App.state.peek();
-  // (Without its owners, or the top row, so that the page moves it.)
-  const topY = Math.min(...sc().marks.filter(m => m.type === 'box').map(m => m.y)), tops = new Set(sc().marks.filter(m => m.type === 'box' && m.y < topY + 1).map(m => m.record));
-  const without = Object.fromEntries(Object.entries(nowState).filter(([id, r]) => !tops.has(id) && !tops.has(r.at) && !r.args?.some(a => a.at === 'northpine' || tops.has(a.at))));
+  const without = Object.fromEntries(Object.entries(nowState).filter(([, r]) => !r.args?.some(a => a.at === 'northpine')));
   cv().redline({ appear: [], go: [], changed: {}, records: without }); await tick(300);
   const inRed = cv().scene().byId.get('northpine'), handleRed = handleAt(), redAt = cv().graph.localToGraph(inRed.x + Math.min(50, inRed.settings.Corner.value) / 100 * Math.min(inRed.w, inRed.h), inRed.y);
   check('a redline moving a selected rounded box takes its handle along', (handleRed[0] !== handleWas[0] || handleRed[1] !== handleWas[1]) && Math.abs(handleRed[0] - redAt.x) < 1 && Math.abs(handleRed[1] - redAt.y) < 1, `${handleWas} ${handleRed} ${redAt.x},${redAt.y}`);
   cv().redline(null); await tick(300);
   check('… and it comes back with the box', handleAt().join() === handleWas.join(), `${handleAt()} ${handleWas}`);
+  await show(charts().find(v => v.id === hereWas)); Shell.select(['northpine']); await tick(300);
   const hr = handle().getBoundingClientRect(), hx = hr.left + hr.width / 2, hy = hr.top + hr.height / 2, opts = o => ({ bubbles: true, cancelable: true, pointerId: 1, button: 0, ...o });
   handle().setPointerCapture = () => {};
   const ownCorner = () => sc().byId.get('northpine').settings.Corner;

@@ -394,7 +394,7 @@ function fitPyramid(texts, w, wide) {
     };
     // The shortest, or the fewest lines no more than a line taller than that.
     const h0 = least(), n = shaped(texts, w, h0 + step).flat().length, h = least(n, h0), lines = shaped(texts, w, h);
-    const cap = Math.max((lines[0].length > 4 || lines.flat().some(l => l.split) || opensAlone({ name: texts[0]?.name, lines: lines[0] })) && w < wide.lines ? wide.lines : 0, h > w * (wide.ratio ?? 1) && w < wide.tall ? wide.tall : 0);
+    const cap = Math.max((lines[0].length > 4 || lines.flat().some(l => l.split)) && w < wide.lines ? wide.lines : 0, h > w * (wide.ratio ?? 1) && w < wide.tall ? wide.tall : 0, wide.opens && w < wide.opens && opensAlone({ name: texts[0]?.name, lines: lines[0] }) ? wide.opens : 0);
     if (!cap) return { w, h: Math.ceil(h), lines };
     w = Math.min(cap, w + 12);
   }
@@ -466,7 +466,7 @@ function units(para, t, most, name = false) {
 function size(b, squeeze, at = null, grow = 1) {
   const shape = b.settings.Shape.value, own = b.pos?.w && b.pos.w * (b.wider?.own ?? 1), base = (own ?? (shape === 'triangle' ? WIDTH.triangle : shape === 'oval' ? WIDTH.box : WIDTH.box * grow) * (b.wider?.free ?? 1)) * squeeze;
   // (On a paper narrower than its page, which has the room down it, a triangle stands taller for its width.)
-  const wide = { lines: own ?? base * 1.5, tall: base * 2, ratio: 1 / (squeeze * squeeze) };
+  const wide = { lines: own ?? base * 1.5, tall: base * 2, ratio: 1 / (squeeze * squeeze), opens: b.texts[0]?.typedAt == null && !own ? base * 1.25 : 0 };
   let w = at ?? base, h;
   // Sized by a hand, a box is the size it was given, its text as it falls in that; a height typed stands, as a width does.
   if (b.exact) {
@@ -496,10 +496,10 @@ function size(b, squeeze, at = null, grow = 1) {
       const tb = blockHeight(b.texts.filter(it => it.lines.length));
       h = shape === 'oval' || shape === 'diamond' ? Math.max(48, tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * PAD) : Math.max(44, tb + 2 * PAD + 8);
       // How far it's to widen yet: none, or to a cap.
-      const lines = ((b.texts[0]?.lines.length ?? 0) > 3 || b.texts.some(it => it.lines.some(l => l.split)) || opensAlone(b.texts[0])) && w < wide.lines;
+      const lines = ((b.texts[0]?.lines.length ?? 0) > 3 || b.texts.some(it => it.lines.some(l => l.split))) && w < wide.lines;
       // (A word that would fit a line of its own is never broken: the box is as wide as that needs, up to three times its size.)
       const word = !b.texts.some(it => it.lines.some(l => l.cut)) ? 0 : Math.min(3 * base, Math.max(...b.texts.flatMap(it => String(it.text).split(/\s+/).map(x => measure(x, it.look)))) + 2 * INSET + 1) / (TEXT_AREA[shape] ?? 1);
-      return Math.max(lines ? wide.lines : 0, h > w && w < wide.tall ? wide.tall : 0, word > w ? word : 0);
+      return Math.max(lines ? wide.lines : 0, h > w && w < wide.tall ? wide.tall : 0, word > w ? word : 0, wide.opens && w < wide.opens && opensAlone(b.texts[0]) ? wide.opens : 0);
     };
     for (let cap; (cap = lay());) w = Math.min(cap, w + 12);
     // And a little wider, nobody having sized it, where that takes a line off its name: a fifth at most, the least that does.

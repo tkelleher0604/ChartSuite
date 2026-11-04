@@ -751,7 +751,7 @@ function run() {
       const others = today.marks.filter(m => m.type === 'line').filter(l => j(faint.byId.get(l.id)?.points) !== j(l.points)).map(l => l.id);
       return { to, ok: j(place(faint)) === j(place(final)) && j(own(faint, faint.byId.get(o).points)) === j(own(final, final.byId.get(o).points)) && !others.length, faint: [place(faint), own(faint, faint.byId.get(o).points)], final: [place(final), own(final, final.byId.get(o).points)], others };
     };
-    const asTheyWillBe = [['fund', true, 660, 60], ['tessellate', true, 1020, 640], ['aivblk', false, 300, 780], ['feeder', true, 880, 100]].map(a => asLater(...a));
+    const asTheyWillBe = [['fund', true, 660, 60], ['tessellate', true, 1020, 640], ['aivblk', false, 300, 790], ['feeder', true, 880, 100]].map(a => asLater(...a));
     check('a box that starts later, selected, is drawn where it will be, its line on the route it will have, nothing else moving', asTheyWillBe.every(x => x.ok), j(asTheyWillBe.filter(x => !x.ok)));
   }
 
