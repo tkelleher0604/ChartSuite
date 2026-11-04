@@ -1625,7 +1625,9 @@ async function insertHolds() {
   check('(the line to insert into)', !!line, '');
   if (!line) return;
   const before = new Set(sc().marks.filter(m => m.type === 'box').map(m => m.id));
-  const others = s => JSON.stringify(s.marks.filter(m => m.type === 'box' && before.has(m.id) && !['blocker', 'halvard'].includes(m.id)).map(m => [m.id, m.x, m.y, m.w, m.h]));
+  const below = new Set(['blocker']);
+  for (let more = true; more;) { more = false; for (const l of sc().marks) if (l.type === 'line' && below.has(l.from) && !below.has(l.to)) { below.add(l.to); more = true; } }
+  const others = s => JSON.stringify(s.marks.filter(m => m.type === 'box' && before.has(m.id) && !below.has(m.id)).map(m => [m.id, m.x, m.y, m.w, m.h]));
   const held0 = others(sc()), page0 = JSON.stringify([sc().page.w, sc().page.h, sc().page.scale, sc().page.offset]);
   App.interposing(line.record); await tick(150);
   const f = $('.float .menu-find'); f.textContent = 'Lantern Midco, LLC'; f.dispatchEvent(new Event('input', { bubbles: true })); await tick(150);
@@ -1638,10 +1640,11 @@ async function insertHolds() {
   check('… standing square over the lower, under the upper, no line running across it', !!mid && Math.abs(mid.x - low.x) < 1 && mid.y > fund.y + fund.h && mid.y + mid.h < low.y && !crossed.length, `${crossed.map(m => m.id)}`);
   Shell.parts.peek().undo.undo(); await tick(350);
   // A box past the margin, the scale and the rest as they were.
-  const hal = sc().byId.get('halvard'), keep0 = JSON.stringify(sc().marks.filter(m => m.type === 'box' && m.id !== 'halvard').map(m => [m.id, m.x, m.y]));
+  const grouped = new Set(sc().marks.filter(m => m.geometry === 'group').flatMap(g => g.members));
+  const hal = sc().marks.filter(m => m.type === 'box' && !grouped.has(m.id)).sort((a, b) => b.y + b.h - a.y - a.h)[0], rest = () => JSON.stringify(sc().marks.filter(m => m.type === 'box' && m.id !== hal.id).map(m => [m.id, m.x, m.y])), keep0 = rest();
   await drag(hal, 0, (sc().page.h - hal.y + 10) * cv().graph.zoom());
-  const past = sc().byId.get('halvard');
-  check('a box dragged past the margin stays, the page and every other box as they were, and Export says so with the rest of what\'s amiss', past.y > sc().page.h && JSON.stringify(sc().marks.filter(m => m.type === 'box' && m.id !== 'halvard').map(m => [m.id, m.x, m.y])) === keep0 && JSON.stringify([sc().page.w, sc().page.h, sc().page.scale, sc().page.offset]) === page0 && Scene.says(sc(), () => 'H').includes('H runs off the page'), `${past.y} ${sc().page.h} ${JSON.stringify(Scene.says(sc()))}`);
+  const past = sc().byId.get(hal.id);
+  check('a box dragged past the margin stays, the page and every other box as they were, and Export says so with the rest of what\'s amiss', past.y > sc().page.h && rest() === keep0 && JSON.stringify([sc().page.w, sc().page.h, sc().page.scale, sc().page.offset]) === page0 && Scene.says(sc(), () => 'H').includes('H runs off the page'), `${past.y} ${sc().page.h} ${JSON.stringify(Scene.says(sc()))}`);
   Shell.parts.peek().undo.undo(); await tick(350);
   Shell.select([]); await tick(150);
   for (const [name, run] of [['Tidy', () => cv().tidy()], ['Tidy for every date', () => cv().tidyEvery()]]) {
