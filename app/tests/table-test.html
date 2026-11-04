@@ -2262,6 +2262,8 @@ async function tablesG3() {
     const s = st(), bdc = named('Calder Ridge Capital BDC, Inc.'), close = Object.keys(s).find(id => s[id].args?.some(a => a.edge === 'BDC') && s[id].args.some(a => a.edge === 'Close Affiliate'));
     Table.openList('Close Affiliates', close, bdc); await tick(200);
     check('… and a computed list with no table yet says why it can’t open, making none', N() === n1 && Shell.view.peek() === v && /^Viewing/.test($$('.toast span').at(-1)?.textContent ?? ''), $$('.toast span').at(-1)?.textContent);
+    $('.foot > .btn.icon[aria-label="New view"]').click(); await tick(80);
+    check('… and so does a new view: no list to pick from, and nothing made', N() === n1 && !$('.float .menu') && /^Viewing/.test($$('.toast span').at(-1)?.textContent ?? '') && /^Viewing/.test($('.foot > .btn.icon[aria-label="New view"]').dataset.tip), $('.foot > .btn.icon[aria-label="New view"]').dataset.tip);
     mode().click(); await tick(60); item('Editing').click(); await tick(250);
     check('Back to Editing, the view’s columns are as they were', heads().join() === before, heads().join());
   }
