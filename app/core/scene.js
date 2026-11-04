@@ -1036,9 +1036,15 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const framing = id => [...frames.values()].filter(f => inFrame(frames, f).includes(id)).map(f => f.id).join();
     clearTops(boxes, lines.filter(l => l.ranks && framing(l.from) === framing(l.to)), given);
     frameBounds(frames, boxes);
+    // (A place kept where it's beyond the margins was put there, a box moved to make room for one inserted, as a hand puts one:
+    // it stays, and the page says so. One the layout has moved beyond them from a place within them holds the page.)
+    if (held && !held.fit) for (const b of boxes) if (b.entered && !b.hand) {
+      const x = (b.pos.x + (held.x ?? 0)) * ceil, y = (b.pos.y + (held.y ?? 0)) * ceil, w = (b.pos.w ?? b.w) * ceil, h = (b.pos.h ?? b.h) * ceil;
+      b.hand = x < MARGIN - 0.5 || y < MARGIN - 0.5 || x + w > sheet.w - MARGIN + 0.5 || y + h > sheet.h - MARGIN + 0.5;
+    }
     // (Sizes typed, and the boxes alone too big for the scale they're laid out for: no need to route them to know.)
     if (typedTexts.length && !last && !whole) {
-      const B = bounds(held ? boxes.filter(b => !b.hand) : boxes), most = Math.max(0, Math.min((room.w + 1) / Math.max(1, B.w), (room.h + 1) / Math.max(1, B.h)));
+      const B = bounds(held && !held.fit ? boxes.filter(b => !b.hand) : boxes), most = Math.max(0, Math.min((room.w + 1) / Math.max(1, B.w), (room.h + 1) / Math.max(1, B.h)));
       if (most < ceil - 1e-9) return { s: most, ceil, faults: Infinity, bent: Infinity, around: Infinity };
     }
     const stand = !!last || boxes.some(b => b.entered), tops = boxes.map(b => b.y);
@@ -1798,8 +1804,9 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
   }
   const meets = (a, b, pad = 0) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
   const fits = r => r.x >= M - 0.5 && r.y >= M - 0.5 && r.x + r.w <= W - M + 0.5 && r.y + r.h <= H - M + 0.5;
-  // What holds the page to it: all of it, where the view keeps no scale; else what the layout places.
-  const hx = held?.x ?? 0, hy = held?.y ?? 0, mine = held ? rects.filter(r => !r.hand) : rects, some = mine.length > 0, E = bounds(mine);
+  // What holds the page to it: all of it, where the view keeps no scale or it's just been fit to its page (`fit`); else what the
+  // layout places.
+  const hx = held?.x ?? 0, hy = held?.y ?? 0, mine = held && !held.fit ? rects.filter(r => !r.hand) : rects, some = mine.length > 0, E = bounds(mine);
   const at = (s, force, footed = false, over = false) => {
     // (The Key, as wide as `w` where that's given, set no larger than the names it explains: see keyAt.)
     const u = 1 / s, k = r => r.geometry === 'legend' && r.format?.Size == null ? keyAt(boxes, s) : 1;

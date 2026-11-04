@@ -773,21 +773,17 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       else if (r.x != null) tx.update(r.shape, { x: half(m.x), y: half(m.y), ...(r.w != null && { w: half(m.w) }), ...(r.h != null && { h: half(m.h) }), ...(r.points && { points: m.points.map(([x, y]) => [half(x), half(y)]) }) });
     }
   }
-  // Fit to page: what a hand put beyond the margins is brought in, as one change. A box whose middle is off the sheet goes back
-  // to the layout, which places it beside its relatives, among what stands; every other a hand put is kept as the layout's
-  // are, so the page holds it too, the kept scale falling as far as that needs.
+  // Fit to page: what's beyond the margins is brought in, as one change. A box whose middle is off the sheet goes back to the
+  // layout, which places it beside its relatives, among what stands; and the page holds all the rest, the scale it keeps
+  // falling as far as that needs, its note `fit` till the next change keeps it so.
   function fitToPage(id = Shell.view.peek()) {
     if (App.readOnly.peek()) return Shell.toast('Can’t change the past');
-    const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), p = now.page, M = p.margin, N = App.notes.peek(), boxes = now.marks.filter(m => m.type === 'box' && !m.revealed);
+    const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), p = now.page, M = p.margin, boxes = now.marks.filter(m => m.type === 'box' && !m.revealed);
     if (boxes.every(b => b.x >= M - 1 && b.y >= M - 1 && b.x + b.w <= p.w - M + 1 && b.y + b.h <= p.h - M + 1)) return Shell.toast('The chart already fits its page');
     const away = b => { const x = b.x + b.w / 2, y = b.y + b.h / 2; return x < 0 || y < 0 || x > p.w || y > p.h; };
     App.change(tx => {
       tx.note('Scale', viewAt(id), { scale: p.scale, x: p.offset.x, y: p.offset.y, fit: true });
-      for (const b of boxes) {
-        const t = Tree.treeOf(App.state.peek(), b.record), old = N.position(t, id);
-        if (!Number.isFinite(old?.x) || old.kept) continue;
-        tx.note('Position', t, away(b) ? undefined : { ...old, kept: true }, { view: id });
-      }
+      for (const b of boxes.filter(away)) tx.note('Position', Tree.treeOf(App.state.peek(), b.record), undefined, { view: id });
     }, { dated: false, keep: false, say: 'Fit the chart to its page' });
     Canvas.active.peek()?.zoom('fit');
   }

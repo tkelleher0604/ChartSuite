@@ -2034,7 +2034,10 @@ function mount(el) {
     if (!base || still() || active.peek() !== canvas || base.view !== viewShown || Shell.view.peek() !== base.view || !root.clientWidth) return;
     const view = base.view, holds = holdsOf(base), at = { id: view, kind: 'View' };
     if (JSON.stringify(tx.noteAt('Scale', at)?.value) !== JSON.stringify(holds.page)) tx.note('Scale', at, holds.page);
+    const placed = placedNow;
+    placedNow = new Set();
     for (const [id, p] of holds) {
+      if (placed.has(id)) continue;
       const t = treeOf(id);
       if (!t) { const was = rowOf(id)?.kept; if (rowOf(id) && (was?.x !== p.x || was?.y !== p.y)) tx.update(id, { kept: p }); continue; }
       const old = tx.noteAt('Position', t, { view })?.value;
@@ -2201,7 +2204,9 @@ function mount(el) {
     out.set(id, { x, y, w: round(b.w), kept: true });
     return out;
   }
-  function between(tx, at, kind) { const base = App.scene.peek(); for (const [x, p] of placesBetween(base, at)) tx.note('Position', x === at.id ? { id: x, kind } : treeOf(x), p, { view: base.view }); }
+  // (What it places, the same change doesn't keep where it stood: see keep.)
+  let placedNow = new Set();
+  function between(tx, at, kind) { const base = App.scene.peek(), places = placesBetween(base, at); placedNow = new Set(places.keys()); for (const [x, p] of places) tx.note('Position', x === at.id ? { id: x, kind } : treeOf(x), p, { view: base.view }); }
   // What a change pending keeps where it stands, and what it places itself, over any place entered.
   function holdsFor(base) { const h = holdsOf(base), at = App.pending.peek()?.placing?.(); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
