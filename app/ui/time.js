@@ -798,7 +798,7 @@ const Time = (() => {
     worked.value;
     const { recs } = E, N = notesNow(), of = (focus.value ?? []).filter(id => recs[id]);
     const near = of.length ? Tree.dependents(recs, of) : null;
-    const nameOf = id => { const [what, whose] = said(recs, id, N); return recs[id].args ? `${what}: ${whose}` : whose || what; };
+    const nameOf = id => { const [what, whose] = said(recs, id, N); return recs[id].args ? `${what}: ${whose}` : Tree.isObject(recs[id]) || !whose ? whose || what : `${what} of ${whose}`; };
     const touches = c => [...c.adds, ...c.removes.map(id => E.rows.get(id)).filter(Boolean)]
       .some(r => near.has(r.record) || ('note' in r && [...Tree.idsIn(r.pattern)].some(id => near.has(id))));
     const linesOf = c => near ? read(c, near) : reading(c);
