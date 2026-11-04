@@ -530,7 +530,7 @@ const App = (() => {
         : html`<span class="word">${word}</span>`}
       ${always ? null : later && !change ? dayLink(day) : html`<span class="hug"><input ref=${input} class="cell date" value=${text ?? (day ? Tree.formatDate(day, 'short') : '')} aria-label=${words[0]}
         spellcheck=${false} autocomplete="off" aria-invalid=${day === undefined || bad ? 'true' : null} onFocus=${e => { setTyping(true); e.target.select(); }} onBlur=${() => { setTyping(false); if (day) setText(null); }} onKeyDown=${key}
-        onInput=${e => { if (text === null) was.current = day; setText(e.target.value); set(Tree.parseDate(Tree.clean(e.target.value)) ?? undefined); }} /></span>${change && day && day > shown && !typing ? html` <button type="button" class="lk" onClick=${() => Shell.at({ asOf: day })}>Show the chart then</button>` : null}`}</span>`;
+        onInput=${e => { if (text === null) was.current = day; setText(e.target.value); set(Tree.parseDate(Tree.clean(e.target.value)) ?? undefined); }} /></span>${change && day && day > shown ? html` <button type="button" class="lk" onClick=${() => Shell.at({ asOf: day })}>Show the chart then</button>` : null}`}</span>`;
   }
   // A day a change holds from or until, said where it's after the day shown: a link to the chart then, where it's drawn.
   const dayLink = d => html`<button type="button" class="lk" onClick=${() => Shell.at(d === Log.today() ? null : { asOf: d })}>${Tree.formatDate(d, 'short')}</button>`;
