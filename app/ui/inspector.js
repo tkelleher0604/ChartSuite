@@ -1302,8 +1302,8 @@ function ViewPanel() {
       ${v.layout === 'chart' ? html`<div class="row"><div class="k">Changes</div><div class="v ctl"><${Choice} fixed label="Changes" r=${{ choice: !v.changes ? 'None' : v.changes.since ? 'Since a date' : 'Since the page before' }} options=${['None', 'Since the page before', 'Since a date']}
         put=${out => Time.showChanges(v.id, out.choice === 'None' ? null : out.choice === 'Since a date' ? { since: v.changes?.since ?? Time.dayBefore(App.day.peek()) } : { page: true })} /></div></div>
         ${v.changes?.since ? html`<div class="row in"><div class="k">Since</div><div class="v ctl"><${Field} r=${{ field: 'date', value: v.changes.since }} datatype="date" label="Since" put=${out => out && Time.showChanges(v.id, { since: out.value })} /></div></div>` : null}` : null}
-      ${v.plan ? html`<div class="row"><div class="k">Places</div><div class="v ctl"><${Choice} fixed label="Places" r=${{ choice: 'Shared by the plan' }} options=${['Shared by the plan', 'This page’s own']}
-        put=${out => { if (out.choice !== 'Shared by the plan') App.change(tx => tx.note('Plan', t, undefined), { dated: false, say: `Gave ${v.name} places of its own` }); }} /></div></div>` : null}
+      ${v.plan ? html`<div class="row"><div class="k">Look and places</div><div class="v ctl"><${Choice} fixed label="Look and places" r=${{ choice: 'Shared by the plan' }} options=${['Shared by the plan', 'This page’s own']}
+        put=${out => { if (out.choice !== 'Shared by the plan') App.change(tx => tx.note('Plan', t, undefined), { dated: false, say: `Gave ${v.name} its own look and places` }); }} /></div></div>` : null}
     </div>
     ${hiddenFirst ? html`<${HiddenList} key=${v.id} v=${v} />` : null}
     ${v.layout === 'chart' && stylesOf(v.id).length ? html`<${Section} title="Styles"><div class="styles"><${Styles} v=${v.id} /></div></${Section}>` : null}
@@ -1706,9 +1706,8 @@ function Inspector() {
   const sel = Shell.selection.value, key = sel.join();
   useLayoutEffect(() => {
     const s = host?.closest('.inspector'), top = backTo?.key === key ? backTo.top : null;
-    // (Again once it's drawn, as its strip takes its room only then; and the browser's scroll anchoring off till it has, which
-    // would otherwise move it on by that room where a busy window draws it late.)
-    if (s && top !== null) { s.style.overflowAnchor = 'none'; s.scrollTop = top; requestAnimationFrame(() => { s.scrollTop = top; }); setTimeout(() => { s.style.overflowAnchor = ''; }, 400); }
+    // (Again once it's drawn, as its strip takes its room only then.)
+    if (s && top !== null) { s.scrollTop = top; requestAnimationFrame(() => { s.scrollTop = top; }); }
     else if (s && aimed !== key) s.scrollTop = 0;
     aimed = null; backTo = null;
   }, [key]);

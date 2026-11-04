@@ -214,14 +214,14 @@ const App = (() => {
     if (said) { const off = Shell.toast(bare ? `${said}; showing the chart as of then` : said, { undo, ...(bare ? { go: ['Today', () => Shell.at(null)] } : when ? { go: [`Show ${when}`, () => Shell.at(out.day === Log.today() ? null : { asOf: out.day })] } : more && { go: more }) }); if (when || more) staying = off; }
     return c;
   }
-  // The pages of a plan are one chart on several days, with one set of places (dendra.md, The layout): what a change puts on
-  // one of them, a place, a bend, a scale, a paper or All text, and how what's changed is marked, it puts on them all.
-  const PLACES = new Set(['Position', 'Bend', 'Scale', 'Page']), allText = r => !r.view && Notes.ROOT.includes(r.label) && r.pattern.kind === 'View' && !!r.pattern.id;
+  // The pages of a plan are one chart on several days, with one look and one set of places (dendra.md, The layout): what a
+  // change puts on one of them, a place, a bend, a scale, a paper or a look, it puts on them all. A box's free text is its page's.
+  const PLACES = new Set(['Position', 'Bend', 'Scale', 'Page']), allText = r => !r.view && Notes.ROOT.includes(r.label) && r.pattern.kind === 'View' && !!r.pattern.id, look = r => !!r.view && r.label !== 'Text' && Notes.looksLike(r);
   function planned(tx) {
     const pages = views.peek(), peers = id => { const p = pages.find(v => v.id === id)?.plan; return p ? pages.filter(v => v.plan === p && v.id !== id) : []; };
     if (!pages.some(v => v.plan)) return;
-    const { added, removed } = tx.noted(r => PLACES.has(r.label) || allText(r) || (!!r.view && Scene.isChange(r.pattern))), at = r => JSON.stringify([r.label, r.view ?? r.pattern.id, Tree.key(r.pattern)]), stays = new Set(added.map(at));
-    const put = (r, value) => { for (const q of peers(r.view ?? r.pattern.id)) r.view ? tx.note(r.label, r.pattern, value, { view: q.id }) : tx.note(r.label, viewTree(q.id), value); };
+    const { added, removed } = tx.noted(r => PLACES.has(r.label) || allText(r) || look(r)), at = r => JSON.stringify([r.label, r.view ?? r.pattern.id, r.param ?? null, Tree.key(r.pattern)]), stays = new Set(added.map(at));
+    const put = (r, value) => { for (const q of peers(r.view ?? r.pattern.id)) r.view ? tx.note(r.label, r.pattern, value, { view: q.id, param: r.param }) : tx.note(r.label, viewTree(q.id), value); };
     for (const r of removed) if (!stays.has(at(r))) put(r, undefined);
     for (const r of added) put(r, r.value);
   }
