@@ -833,7 +833,9 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   const pageNow = id => { const p = App.notes.peek().resolve('Page', viewAt(id))?.value ?? 'slide', named = typeof p === 'object' ? p.size : p; return { paper: PAPERS[named] ? named : null, portrait: !!p?.portrait }; };
   const OWN = 'own';
   // A page as of its own day (Time.pageDay): the day it keeps, or else the day of the pages that keep none.
-  const scene = (id, paper) => { const d = Time.pageDay(id), R = App.workAt(d); return Scene.of(App.shown.peek(), App.chart.peek(), id, d, { state: R.records, computed: R, seen: App.seenIn(id), ...(paper && { paper }) }); };
+  const scene = (id, paper) => { const d = Time.pageDay(id), R = App.workAt(d); return Scene.of(App.shown.peek(), App.chart.peek(), id, d, { state: R.records, computed: R, seen: App.seenIn(id, R.records), ...(paper && { paper }) }); };
+  // A page a look narrows goes as it's shown, and says so: how many of its boxes, by what.
+  const narrowed = id => { const d = Time.pageDay(id), R = App.workAt(d), kept = App.seenIn(id, R.records); if (!kept) return null; const as = { state: R.records, computed: R }, on = s => s.marks.filter(m => m.type === 'box' && !m.revealed).length, all = on(Scene.of(App.shown.peek(), App.chart.peek(), id, d, as)), now = on(Scene.of(App.shown.peek(), App.chart.peek(), id, d, { ...as, seen: kept })), by = App.lookWordsOf(id); return `${App.views.peek().find(v => v.id === id)?.name} shows ${now} of ${all} boxes${by.length ? `, filtered by ${by.join(', ')}` : ', by Show only'}.`; };
   // The chart views, in tab order, each as its scene is on that paper, or on its own page: the one shown is App's there,
   // but for a look at another day than it keeps.
   const views = paper => charts().map(v => {
@@ -989,6 +991,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       ${table?.says ? html`<p class="ex-says">${table.says(all)}</p>` : null}
       ${broke ? html`<p class="ex-says ex-broken" role="alert">${broke}</p>` : null}
       ${open.length ? html`<p class="ex-says ex-off">Still open on this chart: ${open.map((c, i) => html`${i ? ', ' : ''}<span class=${'said-' + c.kind}>${c.said}</span>`)} <button type="button" class="btn" onClick=${() => { close(false); setTimeout(() => Shell.listProblems(open[0].kind)); }}>See them</button></p>` : null}
+      ${drawn ? ids.map(narrowed).filter(Boolean).map(t => html`<p class="ex-says ex-off">${t}</p>`) : null}
       ${oneOff ? html`<p class="ex-says">${PAPERS[paper]} for this file only. ${stay.length === 1 && stay[0] ? `The page stays ${PAPERS[stay[0]]}.` : 'The pages stay as they are.'}</p>` : null}
       ${said.length ? html`<div class="ex-warns">
         ${said.filter(x => !x.off).slice(0, 4).map(x => html`<p class="ex-says">${named(x)}</p>`)}
