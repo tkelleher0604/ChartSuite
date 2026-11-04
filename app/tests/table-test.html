@@ -2151,7 +2151,7 @@ async function tablesG3() {
     quietBox.getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(100);
     check('A blank a rule says no by its silence ticks nothing, and says so on hover', N() === n && quietBox.getElement().dataset.tip === 'No: worked out by a formula', `${N() - n} ${quietBox.getElement().dataset.tip}`);
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Private Fund');
-    check('… and it exports as No', ws[XLSX.utils.encode_cell({ r: Table.grid.getRows('active').findIndex(r => r.getData().id === corvane) + 1, c: j })]?.v === 'No');
+    check('… and it exports as No', ws[XLSX.utils.encode_cell({ r: Table.grid.getRows('active').findIndex(r => r.getData().id === corvane) + 2, c: j })]?.v === 'No');
     column('Private Fund').getElement().querySelector('.col-menu').click(); await tick();
     item('Filter…').click(); await tick(80);
     check('… and its filter says Yes and No', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join() === 'Yes,No', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join());
@@ -2193,7 +2193,7 @@ async function tablesG3() {
     check('Dates can show Why, as the reason says it', heads().at(-1) === 'Why' && !!reason && row[f] === reason, `${heads().join()} ${row[f]}`);
     const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Why');
     const i = Table.grid.getRows('active').findIndex(r => r.getData().id === row.id);
-    check('… and it exports, whole', ws[XLSX.utils.encode_cell({ r: 0, c: j })]?.v === 'Why' && ws[XLSX.utils.encode_cell({ r: i + 1, c: j })]?.v === reason, ws[XLSX.utils.encode_cell({ r: i + 1, c: j })]?.v);
+    check('… and it exports, whole', ws[XLSX.utils.encode_cell({ r: 1, c: j })]?.v === 'Why' && ws[XLSX.utils.encode_cell({ r: i + 2, c: j })]?.v === reason, ws[XLSX.utils.encode_cell({ r: i + 2, c: j })]?.v);
     check('… and History says it as a column', Time.describe(last()) === `Showed Why in ${views().find(x => x.id === Shell.view.peek()).name}`, Time.describe(last()));
     const bdc = named('Calder Ridge Capital BDC, Inc.'), s = st(), close = Object.keys(s).find(id => s[id].args?.some(a => a.edge === 'BDC') && s[id].args.some(a => a.edge === 'Close Affiliate'));
     n = N();
