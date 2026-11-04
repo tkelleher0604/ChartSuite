@@ -655,6 +655,8 @@ const App = (() => {
       return { edge, rel, say: list ? `${list[0]}${lowered(list.slice(1))}…` : edge };
     });
   }
+  // Whether a relation is what a record's end records (a Merger, by its Merger Date).
+  const endsAct = (rid, recs = state.peek()) => { const N = notes.peek(), noun = recs[rid]?.args && N.nameOf(recs, rid); return !!noun && N.notes('End').some(n => n.pattern.args?.[0]?.edge && Tree.same(n.pattern.args[0].edge.replace(/\s+(date|day)$/i, ''), noun)); };
   // The other side of a merger, asked in its bar: a search of who can be there.
   function Merging({ p, auto }) {
     const { useRef, useLayoutEffect } = preactHooks, at = useRef(), m = p.merge, recs = m?.base?.() ?? state.value, N = notes.value;
@@ -1608,7 +1610,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, workAt, state, needs,
-    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
+    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone,
   };
 })();

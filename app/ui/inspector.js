@@ -902,8 +902,12 @@ function detail(it) {
   const entered = !fx(it.rid), span = entered && !at.some(([, e]) => e.field === 'date') && App.spanOf(it.rid);
   const lead = at.find(([id, e]) => FIGURES.has(e.field) && !fx(id)), rows = lead ? App.shown.value.item(App.chart.value, lead[0]) : [], now = rows.find(v => Log.validOn(v, App.day.value)), next = rows.find(v => v.since > App.day.value);
   const since = [span?.from?.day, now?.since].filter(Boolean).sort().at(-1);
-  if (since) facts.push({ text: `since ${short(since)}` });
-  if (span?.until) facts.push({ text: `until ${short(span.until.day)}` });
+  // (What a record's end records, a merger, is no period: it's its day.)
+  if (span?.until && App.endsAct(it.rid)) facts.push({ text: short(span.until.day) });
+  else {
+    if (since) facts.push({ text: `since ${short(since)}` });
+    if (span?.until) facts.push({ text: `until ${short(span.until.day)}` });
+  }
   if (next) facts.unshift({ text: `${T.outputText(next)} from ${short(next.since)}`, coming: true });
   const ev = relatives(it.rid).docs.find(d => linkOf(d.obj)), why = !role && !figure && !facts.length && because(it.rid), ground = why && groundSaid(it);
   // A role stated of a relation a check fails at doesn't hold, and is drawn so where it's stated (Okafor's "Managing Member").

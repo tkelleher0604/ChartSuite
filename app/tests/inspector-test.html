@@ -1572,6 +1572,8 @@ async function saysWhen(C, keep) {
   check('… and stays said: its toast asks what those holders received', !!asks && Time.act(mg1)?.type === 'merger', document.querySelector('.toast')?.textContent);
   asks?.click(); await tick(120);
   const amAsked = $$('section').find(s => s.dataset.key === 'merged');
+  const amMergedRow = [...document.querySelectorAll('.insp .row.rel')].find(x => /^Northpine/.test(x.textContent) && !x.closest('.merged'));
+  check('… a merger in its list is said by its day, no period', !!amMergedRow && !/since|until/i.test(amMergedRow.textContent) && /20\d\d/.test(amMergedRow.textContent), amMergedRow?.textContent);
   check('… as the survivor’s panel does, each by what it held and what it holds there, or Add', Shell.selection.peek().join() === 'corvane' && /What did they receive\?/.test(amAsked?.textContent ?? '') && /held 64%/.test(amAsked?.textContent ?? '') && /held 12%/.test(amAsked?.textContent ?? '') && /here/.test(amAsked?.textContent ?? '') && !!amAsked?.querySelector('.add-entry'), amAsked?.textContent);
   App.amending(mg1); await tick(120);
   await type(pb('.from input'), 'March 1, 2037'); await tick(100);
