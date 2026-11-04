@@ -938,7 +938,8 @@ const Table = (() => {
     owed = !el.offsetParent;
     if (owed) return;
     // What it shows is worked out from these: shown again with them as they were, the grid is as it was.
-    const from = [view, p, typed, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value, App.viewing.value, viewed.value];
+    // (The log's version among them: a change from a later day leaves the chart as of today as it was, but Dates lists it.)
+    const from = [view, p, typed, App.version.value, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value, App.viewing.value, viewed.value];
     if (table && ready && !flight && drewFrom?.every((x, i) => x === from[i])) return settle();
     holdRows(view);
     const now = model(view);
@@ -965,9 +966,10 @@ const Table = (() => {
     drewFrom = from;
     // Rows keep their place while they're edited; a sort or a filter applies again only when asked, or to rows that come
     // (an import's, a paste's: resort), or a row typed once it's left (leave). (Only a redlined grid has rows redlined.)
-    // What's redlined comes into view as it begins: a row that comes or goes; a value that changes, only where no row is in
-    // hand, so a preview never takes the grid from the row being worked on.
-    const hand = Shell.selection.peek()[0], t = table, lit = p ? [] : since(now), red = new Set(m.red ? m.data.filter(isRed).map(r => r.id) : []), first = m.red && !reds.size && !red.has(hand) && (m.data.find(r => r._red) ?? (inGrid(hand) ? null : m.data.find(isRed)))?.id;
+    // What's redlined comes into view as it begins, where the grid has the keys: a row that comes or goes; a value that changes,
+    // only where no row is in hand. So a preview never takes the grid from the row being worked on, nor moves it for what's
+    // being done elsewhere.
+    const hand = Shell.selection.peek()[0], t = table, lit = p ? [] : since(now), red = new Set(m.red ? m.data.filter(isRed).map(r => r.id) : []), first = m.red && !reds.size && inside && !red.has(hand) && (m.data.find(r => r._red) ?? (inGrid(hand) ? null : m.data.find(isRed)))?.id;
     const f = flight = { again: false };
     // Only the rows that say something else are updated, as Tabulator measures every row it's given again; a row that
     // comes (back, by Undo, or pasted) goes where its records put it, after the row before it, not at the end.
@@ -1411,7 +1413,7 @@ const Table = (() => {
     input.click();
   };
   function Importer({ start, done }) {
-    const tables = importTables(), [text, setText] = useState(start.text ?? ''), [file, setFile] = useState(start.file ?? null);
+    const tables = importTables(), [text, setText] = useState(start.text ?? ''), [file, setFile] = useState(start.file ?? null), go = useRef();
     const [to, setTo] = useState(start.view ?? null), [first, setFirst] = useState(null), [keys, setKeys] = useState(null);
     const grid = tsv(noDay(text)), fits = tables.map(v => [v.id, fitOf(v.id, grid[0] ?? [])]), best = fits.reduce((a, b) => b[1] > a[1] ? b : a, [null, 0]);
     const here = tables.find(v => v.id === Shell.view.peek())?.id, view = to ?? (fits.find(([v]) => v === here)?.[1] ? here : best[1] ? best[0] : here ?? tables[0]?.id);
@@ -1419,11 +1421,13 @@ const Table = (() => {
     if (!m) return null;
     const row1 = first ?? firstRowIs(m, grid, file), auto = guessed(m, grid, row1), chosen = keys ?? auto, cols = importable(m);
     const load = (t, name) => { setText(t); setFile(name ?? null); setFirst(null); setKeys(null); setTo(start.view ?? null); };
+    // A file read, Enter imports it, as Ctrl+Enter does what's typed or pasted in the box.
+    preactHooks.useLayoutEffect(() => { if (file) go.current?.focus(); }, [file]);
     const asColumns = chosen.map(k => k && k !== 'new' ? m.cols.find(c => c.key === k) ?? null : null);
     const missing = !m.isKind ? keysOf(m, m.cols).find(k => !asColumns.includes(k))?.title : keysOf(m, asColumns).length ? null : 'Name';
     const shown = (row1 === 'head' ? grid.slice(1) : grid), width = chosen.length;
     const pickBox = html`<button type="button" class="btn" onClick=${() => pickRows(load)}>${file ? 'Another file…' : 'Choose a file…'}</button>`;
-    return html`<div class="imp">
+    return html`<div class="imp" onKeyDown=${e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !go.current?.disabled) { e.preventDefault(); go.current?.click(); } }}>
       ${file ? null : html`<textarea class="imp-rows" rows="4" aria-label="Rows" placeholder="Rows" spellcheck=${false} ref=${x => x && !x.dataset.on && (x.dataset.on = 1, x.focus())} value=${text}
           onInput=${e => { setText(e.target.value); setFirst(null); setKeys(null); }} />`}
       <div class="imp-bar">${grid.length ? html`<label>Into <select class="import-to" aria-label="Into" onChange=${e => { setTo(e.target.value); setFirst(null); setKeys(null); }}>${tables.map(t => html`<option value=${t.id} selected=${t.id === view}>${t.name}</option>`)}</select></label>
@@ -1439,7 +1443,7 @@ const Table = (() => {
         ${shown.length > 6 ? html`<div class="imp-more">${shown.length - 6} more</div>` : null}`}
       <div class="imp-foot">${grid.length && missing ? html`<span class="imp-miss">No ${missing} column</span>` : null}
         <button type="button" class="btn" onClick=${() => done(null)}>Cancel</button>
-        <button type="button" class="btn primary" disabled=${!shown.length || !!missing} onClick=${() => done({ view, grid, keys: chosen, first: row1, file })}>Import</button></div>
+        <button ref=${go} type="button" class="btn primary" disabled=${!shown.length || !!missing} onClick=${() => done({ view, grid, keys: chosen, first: row1, file })}>Import</button></div>
     </div>`;
   }
   function importDialog(start = {}) {
@@ -2789,11 +2793,24 @@ const Table = (() => {
         if (!col) { if (more) setTimeout(() => land(more - 1), 25); return; }
         const rows = shownRows(), sel = Shell.selection.peek()[0], active = table.modules.selectRange?.getActiveCell()?.row.getData().id;
         const row = rows.find(r => r.getData().id === sel) ?? rows.find(r => r.getData().id === active) ?? rows[0];
-        if (row) { hold(row.getCell(col)); reveal(row.getData().id); }
-        focus();
-        into(col);
+        if (!row) return void focus();
+        table.scrollToRow(row.getData().id, 'nearest', false).catch(() => {}).then(() => { hold(row.getCell(col)); focus(); into(col); });
       };
       land();
+    };
+    at();
+  }
+  // A date's row in Dates, selected, the keys on its date to type over.
+  function goDate(view, id) {
+    letGo();
+    if (Shell.view.peek() !== view) Shell.show(view);
+    Shell.select([id]);
+    const at = (tries = 200) => {
+      if (!(real?.view === view && built?.view === view && ready && el?.offsetParent)) { if (tries) setTimeout(() => at(tries - 1), 25); return; }
+      const col = table.getColumns().find(c => c.getField());
+      if (!inGrid(id) || !col) return void focus();
+      // (In view first: a row not drawn takes no cell made active.)
+      table.scrollToRow(id, 'nearest', false).catch(() => {}).then(() => { if (inGrid(id)) table.addRange(table.getRow(id).getCell(col)); focus(); });
     };
     at();
   }
@@ -2810,7 +2827,7 @@ const Table = (() => {
     const dates = App.views.peek().find(v => v.layout === 'table' && v.rows === 'date');
     if (dates) for (const id of Object.keys(st)) if (st[id].field === 'date') {
       const whose = Time.whose(st, st[id].args ? id : st[id].at, N), what = N.nameOf(st, id);
-      out.push({ of: '§dates', label: `${what} · ${whose}`, names: [`${what} ${whose}`, `${whose} ${what}`], detail: 'Date', why: Tree.formatDate(st[id].value, 'short'), run: () => { Shell.show(dates.id); Shell.select([id]); setTimeout(focus, 60); } });
+      out.push({ of: '§dates', label: `${what} · ${whose}`, names: [`${what} ${whose}`, `${whose} ${what}`], detail: 'Date', why: Tree.formatDate(st[id].value, 'short'), run: () => goDate(dates.id, id) });
     }
     found = { R, N, S, view, out };
     return out;

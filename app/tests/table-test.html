@@ -2413,6 +2413,11 @@ async function tablesAsk() {
   await show('Ownership'); await show('Dates');
   check('… and once the grid’s been left, it’s in its month', Table.grid.getRow(dateId).getData()._g === '2037-05', Table.grid.getRow(dateId).getData()._g);
   undo(); await tick(200);
+  // A change from a later day leaves today's chart as it was, and Dates lists it as it's made.
+  const n5b = Table.grid.getRows().length, later = entry(stake0(), 'Percentage');
+  App.change(tx => tx.update(later, { value: 0.51 }), { dated: '2037-06-01' }); await tick(300);
+  check('A change from a later day comes into Dates as it’s made', Table.grid.getRows().length === n5b + 1 && Table.grid.getRows().some(r => /^Percentage changes to 51%/.test(r.getData()['f:$entry'] ?? '')), `${Table.grid.getRows().length} of ${n5b}`);
+  undo(); await tick(200);
   // The New row by the keys, and a list's arrows.
   await show('Entities');
   const newRow = $('.nr-name'), lastId = Table.grid.rowManager.getDisplayRows().filter(r => r.type === 'row').at(-1).getData().id;
