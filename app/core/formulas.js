@@ -3556,8 +3556,8 @@ function attention(R, N, day, within = 30) {
   soon.setDate(soon.getDate() + within);
   const by = Tree.isoOf(soon), checks = N.notes('Check').length > 0;
   const required = N.notes('Required').filter(n => !n.view && n.pattern.args?.length === 1).map(n => n.pattern.args[0]);
-  const edges = new Map();
-  for (const r of Object.values(recs)) if (r.at) { let s = edges.get(r.at); if (!s) edges.set(r.at, s = new Set()); s.add(normal(r.edge)); }
+  const edges = new Map(), anyone = new Set();
+  for (const r of Object.values(recs)) if (r.at) { let s = edges.get(r.at); if (!s) edges.set(r.at, s = new Set()); s.add(normal(r.edge)); anyone.add(normal(r.edge)); }
   for (const [id, r] of Object.entries(recs)) {
     if ('field' in r) {
       if (r.field === 'date' && (R.computed[id] || R.covered[id]) && r.value <= by) items.push({ kind: r.value < day ? 'overdue' : 'soon', id });
@@ -3569,7 +3569,8 @@ function attention(R, N, day, within = 30) {
     const has = edges.get(id), blank = new Set();
     for (const a of required) {
       const e = normal(a.edge);
-      if (has?.has(e) || blank.has(e) || !Tree.narrower(t, a.loc) || !requiredAt(N, t, a.edge)) continue;
+      // (What no record of the chart has is no blank of this one: a chart with no funds isn't asked what vehicle each box is.)
+      if (!anyone.has(e) || has?.has(e) || blank.has(e) || !Tree.narrower(t, a.loc) || !requiredAt(N, t, a.edge)) continue;
       blank.add(e);
       items.push({ kind: 'blank', id, edge: a.edge });
     }

@@ -494,9 +494,55 @@ async function run() {
     check('… in the PDF too, the scene’s SVG being what it draws', Export.svg(slide, { pdf: true }).includes('Privileged and confidential'));
     const two = await JSZip.loadAsync(await Export.write('pptx', [{ ...on2, name: 'b' }, { ...slide, name: 'a' }], 'Footed', { author: WHO })), numbers = await Promise.all([1, 2].map(async i => { const d = xml(await two.file(`ppt/slides/slide${i}.xml`).async('string')); return textOf(tags(d, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === 'Page number'))[0]; }));
     check('… a page’s number its place in the file', j(numbers) === j(['1', '2']), j(numbers));
+    // In the deck, the master's footer and a real number: each slide's placeholders taking their place and look from there.
+    const master = xml(await two.file('ppt/slideMasters/slideMaster1.xml').async('string')), layout = xml(await two.file('ppt/slideLayouts/slideLayout1.xml').async('string')), slide1 = xml(await two.file('ppt/slides/slide1.xml').async('string'));
+    const phOf = (d, type) => tags(d, 'p:sp').find(sp => sp.getElementsByTagName('p:ph')[0]?.getAttribute('type') === type);
+    check('the deck’s master and layout hold the footer and the slide number', ['ftr', 'sldNum'].every(t => !!phOf(master, t) && !!phOf(layout, t)) && tags(master, 'a:t').includes(undefined) === false && /Privileged and confidential/.test(new XMLSerializer().serializeToString(phOf(master, 'ftr'))));
+    const onSlide = phOf(slide1, 'sldNum'), footSlide = phOf(slide1, 'ftr');
+    check('… a slide’s number a field, so a slide moved renumbers', onSlide?.getElementsByTagName('a:fld')[0]?.getAttribute('type') === 'slidenum' && textOf(onSlide)[0] === '1', new XMLSerializer().serializeToString(onSlide ?? slide1).slice(0, 300));
+    check('… and its footer in the master’s look, where it is: no font of its own', !!footSlide && !tags(footSlide, 'a:latin').length && !tags(footSlide, 'a:off').length && textOf(footSlide)[0] === 'Privileged and confidential' && phOf(slide1, 'ftr').getElementsByTagName('p:ph')[0].getAttribute('idx') === phOf(layout, 'ftr').getElementsByTagName('p:ph')[0].getAttribute('idx'), new XMLSerializer().serializeToString(footSlide ?? slide1).slice(0, 400));
+    check('… and no slide’s master says footers are off', /<p:hf sldNum="1" hdr="0" ftr="1" dt="0"\/>/.test(await two.file('ppt/slideMasters/slideMaster1.xml').async('string')));
     // What's amiss with a page is said: a free shape over a box on a paper where it now stands on one.
     const says = Scene.says({ ...slide, marks: slide.marks.map(m => m.id === logo ? { ...m, x: slide.byId.get('fund').x, y: slide.byId.get('fund').y } : m) }, null, null);
     check('a shape over a box is said', says.some(t => t.endsWith(`overlaps ${slide.byId.get('fund').texts[0].text}`)), j(says));
+  }
+
+  // ---- All text: a Font note at the view itself is every text on its page no narrower note reaches, and the theme's font in the deck ----
+  {
+    const w = Log.open(SAMPLE), main = views[0], at = { id: main, kind: 'View' }, tx = w.edit({ chart: C, who: WHO });
+    tx.note('Font', at, 'Georgia'); tx.note('Footer', { kind: 'View' }, { text: 'Privileged', number: true });
+    const note = tx.add('shape', { view: main, geometry: 'text', text: 'A new note', x: 400, y: 60 });
+    writeNote(tx, w.notes(C), 'Font', { args: [{ edge: 'Jurisdiction', loc: {} }] }, main, 'Courier New');
+    if (typeof tx.commit() === 'string') throw new Error('no font');
+    const Rw = (() => { const N = w.notes(C), S = w.schema(C); return Formulas.computeState(w.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); })();
+    const s = Scene.of(w, C, main, DAY, { state: Rw.records, computed: Rw }), texts = s.marks.flatMap(m => [...m.texts ?? [], ...(m.caption ? [m.caption] : []), ...(m.rows ?? []).map(r => r.caption)]);
+    const bad = texts.filter(it => it.look.Font !== 'Georgia' && !(it.look.Font === 'Courier New' && w.notes(C).nameOf(Rw.records, it.id) !== null));
+    check('All text: every text on the page in that font, the title, date, Key, footer, number, a text box and what’s on a line, but what a narrower note gives', !bad.length && texts.some(it => it.look.Font === 'Courier New') && ['title', 'date', 'footer', 'number'].every(r => s.marks.find(m => m.role === r)?.texts[0].look.Font === 'Georgia') && s.byId.get(note).look.Font === 'Georgia', bad.slice(0, 3).map(it => `${it.text} ${it.look.Font}`).join());
+    check('… only on that page', Scene.of(w, C, views[2], DAY, { state: Rw.records, computed: Rw }).marks.find(m => m.role === 'title').texts[0].look.Font !== 'Georgia');
+    const zip = await JSZip.loadAsync(await Export.write('pptx', [{ ...s, name: 'Structure' }], 'Rooted', { author: WHO })), theme = await zip.file('ppt/theme/theme1.xml').async('string');
+    check('… in the deck it’s the theme’s font, major and minor', /<a:majorFont><a:latin typeface="Georgia"/.test(theme) && /<a:minorFont><a:latin typeface="Georgia"/.test(theme), theme.match(/<a:m\w+Font><a:latin[^>]*>/g)?.join());
+    // A look carries it, and a file does too.
+    const look = Notes.houseLook(w.rows(C), main);
+    check('… a look carries it, and a file', look.root?.Font === 'Georgia' && Notes.lookFrom(JSON.parse(JSON.stringify(look))).root.Font === 'Georgia', j(look.root));
+    // A text on its own in the deck, without a run's face: what's typed later is in the theme's.
+    const NOTE = 'Garamond', asked = window.queryLocalFonts, g = Log.open(SAMPLE), tg = g.edit({ chart: C, who: WHO });
+    tg.note('Font', { id: main, kind: 'View' }, NOTE);
+    if (typeof tg.commit() === 'string') throw new Error('no font');
+    const Rg = (() => { const N = g.notes(C), S = g.schema(C); return Formulas.computeState(g.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); })(), sg = { ...Scene.of(g, C, main, DAY, { state: Rg.records, computed: Rg }), name: 'x' };
+    // A PDF that couldn't use the font says so, by name, with what to do, never silently Times.
+    window.queryLocalFonts = async () => { throw new DOMException('no', 'NotAllowedError'); };
+    await Export.write('pdf', [sg], 'NoRead', { author: WHO });
+    check('a PDF the browser wouldn’t let read its fonts says which printed as what, and what to do', /Garamond printed as Times: this browser hasn’t let it read your fonts/.test(files.at(-1).also), `“${files.at(-1).also}”`);
+    window.queryLocalFonts = async () => [];
+    await Export.write('pdf', [sg], 'NoRead', { author: WHO });
+    check('… as where it’s told nothing', /Garamond printed as Times: this browser/.test(files.at(-1).also), `“${files.at(-1).also}”`);
+    window.queryLocalFonts = async () => [{ family: 'Arial', fullName: 'Arial', postscriptName: 'ArialMT', style: 'Regular', blob: async () => new Blob([]) }];
+    await Export.write('pdf', [sg], 'NoRead', { author: WHO });
+    check('… and one this computer hasn’t got', /Garamond printed as Times: it isn’t on this computer/.test(files.at(-1).also), `“${files.at(-1).also}”`);
+    window.queryLocalFonts = undefined;
+    await Export.write('pdf', [sg], 'NoRead', { author: WHO });
+    check('… and a browser that can’t be asked', /Garamond printed as Times/.test(files.at(-1).also), `“${files.at(-1).also}”`);
+    window.queryLocalFonts = asked;
   }
 
   // ---- The looks: Strike, Spacing, Valign, Transparency, Shadow and Corner, and the fonts, each a word in the
@@ -578,7 +624,7 @@ async function run() {
       // A face whose outlines are PostScript's can't be embedded: in Times, and said as it's saved.
       window.queryLocalFonts = async () => [face('Regular', '', 'Garamond', async () => new Blob([new Uint8Array([0x4f, 0x54, 0x54, 0x4f, 0, 0, 0, 0])]))];
       await Export.write('pdf', [s], 'Fonts', { author: WHO });
-      check('… and where Garamond can’t be embedded, it’s Times, and saving it says so', files.at(-1).also === ', with Garamond printed as Times', `“${files.at(-1).also}”`);
+      check('… and where Garamond can’t be embedded, it’s Times, and saving it says so, and what to do', /^\. Garamond printed as Times: it can’t be embedded/.test(files.at(-1).also), `“${files.at(-1).also}”`);
       window.queryLocalFonts = asked;
     }
   }

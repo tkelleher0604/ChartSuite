@@ -53,12 +53,12 @@ const script = f => scripts.get(f) ?? scripts.set(f, new Promise((ok, fail) => d
 const LIBS = { pptx: () => script('pptxgenjs/pptxgen.bundle.js'), pdf: () => script('jspdf/jspdf.umd.min.js').then(() => script('svg2pdf/svg2pdf.umd.min.js')) };
 
 // Saved where the browser saves downloads, and said so by its name, as every other act of the window says what it did.
-function save(blob, name, also = '') {
+function save(blob, name, also = '', stays = false) {
   if (api.onFile) return api.onFile(blob, name, also);
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  if (typeof Shell !== 'undefined') Shell.toast(`Downloaded ${name}${also}`);
+  if (typeof Shell !== 'undefined') Shell.toast(`Downloaded ${name}${also}`, stays ? { ms: 30000 } : {});
 }
 
 // ---- Text, as the scene sets it ----
@@ -103,7 +103,7 @@ const METRIC = new Set(['arial', 'helvetica', 'liberation sans', 'arimo', 'times
 const GENERIC = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui']);
 const stackOf = f => Scene.fontFamily(f).split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(s => !GENERIC.has(s.toLowerCase()));
 // The fonts the PDF's standard ones are for, and how they set a line: the standard font, its widths jsPDF's.
-const PLAIN = { family: t => STANDARD(t.Font), width: standardWidth, missed: [] };
+const PLAIN = { family: t => STANDARD(t.Font), width: standardWidth, missed: [], unread: false };
 // Whether this computer may let its fonts be read: where it has, or hasn't yet been asked.
 async function mayRead() {
   if (typeof window.queryLocalFonts !== 'function') return false;
@@ -170,21 +170,23 @@ async function fontFile(face) {
   return s;
 }
 // What the texts of `scenes` are set in, looked up in this computer's fonts (`local`, as installed() gives them):
-// { family(t), width(t, text, size), add(doc), missed }: the font family a PDF names a text's font by, its face
-// first; how wide the face sets a line; each face given to a jsPDF document; and the fonts set in a standard font
-// that this computer's own face would have drawn, had it been read, as the canvas does.
+// { family(t), width(t, text, size), add(doc), missed, unread }: the font family a PDF names a text's font by, its face
+// first; how wide the face sets a line; each face given to a jsPDF document; the fonts set in a standard font, none of
+// them one with a standard font's widths, each { font, why }: `read` where the browser wouldn't let its fonts be read
+// (`local` null or empty), `absent` where this computer hasn't it, `embed` where it can't be embedded; and whether they weren't read.
 async function fontsOf(scenes, local) {
   const looks = new Map();
   for (const s of scenes) for (const m of s.marks)
     for (const it of [...(m.texts ?? []), ...(m.caption ? [m.caption] : []), ...(m.rows ?? []).map(r => r.caption)]) looks.set(`${it.look.Font}|${styleOf(it.look)}`, it.look);
-  const faces = new Map(), files = new Map(), missed = new Set();
+  const faces = new Map(), files = new Map(), missed = new Map(), unread = !local?.size;
   for (const [k, t] of looks) {
-    const stack = stackOf(t.Font), family = local ? stack.find(f => local.has(f.toLowerCase())) : stack[0];
-    if (!family || METRIC.has(family.toLowerCase())) continue;
-    const face = local && faceOf(local.get(family.toLowerCase()), styleOf(t));
+    const stack = stackOf(t.Font), family = unread ? stack[0] : stack.find(f => local.has(f.toLowerCase()));
+    if (METRIC.has((family ?? stack[0]).toLowerCase())) continue;
+    if (!family) { missed.set(t.Font, 'absent'); continue; }
+    const face = !unread && faceOf(local.get(family.toLowerCase()), styleOf(t));
     if (face && !files.has(face.postscriptName)) files.set(face.postscriptName, await fontFile(face).catch(() => null));
     if (face && files.get(face.postscriptName)) faces.set(k, { family, ps: face.postscriptName });
-    else missed.add(t.Font);
+    else missed.set(t.Font, unread ? 'read' : 'embed');
   }
   // Each named in the file, as a reader lists it, by its face's PostScript name, tagged as a subset is (DENDRA+Garamond-Italic).
   const add = doc => [...faces].forEach(([k, f], i) => {
@@ -198,11 +200,16 @@ async function fontsOf(scenes, local) {
   return {
     family: t => { const f = faceFor(t); return f ? `'${f.family}', ${STANDARD(t.Font)}` : STANDARD(t.Font); },
     width: (t, text, size) => { const f = faceFor(t); if (!f) return standardWidth(t, text, size); metrics.setFont(f.family, styleOf(t)); return metrics.getStringUnitWidth(text) * size; },
-    add, missed: [...missed],
+    add, missed: [...missed].map(([font, why]) => ({ font, why })),
   };
 }
 // A PDF's preview, before this computer's fonts are read: each in the face the canvas draws it in, where they may be.
 const ASKED = { family: t => Scene.fontFamily(t.Font), width: () => 0, missed: [] };
+// What's said of fonts a PDF couldn't use, each by its name, as what's printed in its place, and what to do.
+const AS_STANDARD = { helvetica: 'Helvetica', times: 'Times', courier: 'Courier' }, listed = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
+const FONT_WHY = { read: 'this browser hasn’t let it read your fonts: allow fonts for this page in the address bar, then export again',
+  absent: 'it isn’t on this computer: install it, or choose a font this computer has', embed: 'it can’t be embedded in a PDF: choose another font, or export to PowerPoint, which names it' };
+const fontsSaid = missed => Object.entries(Object.groupBy(missed, m => m.why)).map(([why, ms]) => `${listed(ms.map(m => `${m.font} printed as ${AS_STANDARD[STANDARD(m.font)]}`))}: ${FONT_WHY[why]}`).join('. ');
 const stroke = (s, w = s.Weight) => none(s.Outline) ? 'stroke="none"'
   : `stroke="${s.Outline}" stroke-width="${n(w * PT)}"${Scene.dash(s.Dash, w) ? ` stroke-dasharray="${Scene.dash(s.Dash, w)}"` : ''}${s.Dash === 'dotted' ? ' stroke-linecap="round"' : ''}`;
 const g = (x, y, inner) => `<g transform="translate(${n(x)} ${n(y)})">${inner}</g>`;
@@ -259,7 +266,8 @@ const FRAME = { stroke: '#595959' };
 const frameDash = kind => kind === 'solid' || kind === 'bracket' ? 'solid' : kind === 'dotted' ? 'dotted' : 'dashed';
 const bracket = (w, h) => `M0.5,${n(h)} V${n(h - 5)} H${n(w - 0.5)} V${n(h)}`;
 function swatch(sw, { x, y, w, h }) {
-  if (sw.kind === 'line') return route([[x, y + h / 2], [x + w, y + h / 2]], { ...sw, Arrow: 'none' });
+  // (Its arrowheads as its lines', but Auto, which is by which way a line runs.)
+  if (sw.kind === 'line') return route([[x, y + h / 2], [x + w, y + h / 2]], { ...sw, Arrow: sw.Arrow === 'auto' ? 'none' : sw.Arrow });
   if (sw.kind === 'frame') return g(x, y, body('rect', w, h, { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }));
   const t = sw.Shape === 'triangle';
   return g(x, t ? y - 1 : y, body(sw.Shape ?? 'rect', w, t ? h + 2 : h, sw));
@@ -348,6 +356,28 @@ const ALIGN = { left: 'l', center: 'ctr', right: 'r' };
 // The page's own texts, by the names PowerPoint's Selection Pane gives them; any other shape, as a box is, by
 // what it says.
 const ROLE = { title: 'Title', date: 'Date', footer: 'Footer', number: 'Page number' };
+// The footer and its number as a deck holds them: the master's placeholders, and each slide's, which take their place and
+// look from there, so a footer changed on the master is changed on every slide; its number a field, so a slide moved
+// renumbers. A slide says its own place or look only where its sheet or the page's font makes it other than the master's.
+const FOOT = { footer: { type: 'ftr', master: 3, layout: 10 }, number: { type: 'sldNum', master: 4, layout: 11 } };
+const NUM_FIELD = '{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}';
+const RUN_LOOK = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color'];
+function footMaster(m, r, k, level) {
+  const f = FOOT[m.role], t = m.texts[0].look, ph = `type="${f.type}" sz="quarter" idx="${level === 'master' ? f.master : f.layout}"`, id = m.role === 'footer' ? 3 : 4, name = m.role === 'footer' ? 'Footer Placeholder' : 'Slide Number Placeholder';
+  const nv = `<p:nvSpPr><p:cNvPr id="${id}" name="${name} ${id - 1}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph ${ph}/></p:nvPr></p:nvSpPr>`;
+  const run = m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum"><a:rPr lang="en-US"/><a:t>‹#›</a:t></a:fld>` : `<a:r><a:rPr lang="en-US"/><a:t>${esc(m.texts[0].text)}</a:t></a:r>`;
+  if (level === 'layout') return `<p:sp>${nv}<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>${run}</a:p></p:txBody></p:sp>`;
+  const font = esc(t.Font), rPr = `sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''}`;
+  return `<p:sp>${nv}<p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr wrap="none" rtlCol="0" anchor="t"/><a:lstStyle><a:lvl1pPr algn="${ALIGN[t.Align] ?? 'l'}"><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc><a:defRPr ${rPr}><a:solidFill><a:srgbClr val="${hex(t.Color)}"/></a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:defRPr></a:lvl1pPr></a:lstStyle><a:p>${run}</a:p></p:txBody></p:sp>`;
+}
+// On a slide, `master` being what its master says of it: { r, look, k }.
+function footSlide(id, m, r, k, master) {
+  const f = FOOT[m.role], it = m.texts[0], t = it.look, same = RUN_LOOK.every(l => master.look[l] === t[l]) && master.k === k, moved = ['x', 'y', 'w', 'h'].some(d => E(master.r[d]) !== E(r[d]));
+  const font = esc(t.Font), rPr = same ? '<a:rPr lang="en-US" dirty="0"/>' : `<a:rPr lang="en-US" sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ' b="0"'}${t.Italic ? ' i="1"' : ' i="0"'}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"><a:solidFill><a:srgbClr val="${hex(t.Color)}"/></a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr>`;
+  const line = l => m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum">${rPr}<a:t>${esc(l.text)}</a:t></a:fld>` : `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`;
+  const ps = typed(it).map(ls => `<a:p>${ls.map(line).join(`<a:br>${rPr}</a:br>`)}</a:p>`).join('');
+  return `<p:sp><p:nvSpPr>${cNvPr(id, ROLE[m.role])}<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${f.type}" sz="quarter" idx="${f.layout}"/></p:nvPr></p:nvSpPr><p:spPr>${moved ? xfrm(E(r.x), E(r.y), E(r.w), E(r.h)) : ''}</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${ps}</p:txBody></p:sp>`;
+}
 // A shape's name, and with `descr` its alt text.
 const cNvPr = (id, name, descr) => `<p:cNvPr id="${id}" name="${esc(name)}"${descr ? ` descr="${esc(descr)}"` : ''}/>`;
 const E = v => Math.round(v * 914400);                 // inches as EMU
@@ -364,9 +394,16 @@ async function pptx(scenes, title, author, say) {
   const W = Math.max(...scenes.map(s => s.page.sheet.w)), H = Math.max(...scenes.map(s => s.page.sheet.h));
   p.defineLayout({ name: 'Dendra', width: W / 96, height: H / 96 });
   p.layout = 'Dendra';
-  p.theme = { headFontFace: 'Arial', bodyFontFace: 'Arial' };
+  // The theme's fonts are the page's own (dendra.md, Notes), so what's typed in the deck later stays in style: the first page's, where they differ.
+  const themeFont = scenes[0]?.page.look?.Font ?? 'Arial';
+  p.theme = { headFontFace: themeFont, bodyFontFace: themeFont };
   Object.assign(p, { title, subject: '', author, company: '' });
-  const finish = scenes.map(s => { const k = fit(s.page); return slide(p, s, { k, ox: (W - s.page.w * k) / 2, oy: (H - s.page.h * k) / 2 }, say); });
+  // The master's footer and number, where a page has them: as the first that does draws them.
+  const placed = s => { const k = fit(s.page); return { k, ox: (W - s.page.w * k) / 2, oy: (H - s.page.h * k) / 2 }; };
+  const footAt = (m, { k, ox, oy }) => ({ x: (ox + m.x * k) / 96, y: (oy + m.y * k) / 96, w: m.w * k / 96, h: m.h * k / 96 });
+  const feet = {};
+  for (const s of scenes) for (const m of s.marks) if (FOOT[m.role] && !feet[m.role]) feet[m.role] = { m, ...placed(s), r: footAt(m, placed(s)), look: m.texts[0].look };
+  const finish = scenes.map(s => slide(p, s, placed(s), say, feet));
   const zip = await JSZip.loadAsync(await p.write({ outputType: 'arraybuffer' }));
   const edit = async (f, change) => zip.file(f, change(await zip.file(f).async('string')));
   const slides = await Promise.all(finish.map((done, i) => zip.file(`ppt/slides/slide${i + 1}.xml`).async('string').then(done)));
@@ -374,9 +411,11 @@ async function pptx(scenes, title, author, say) {
   // Type kerned at every size, as the scene measures it, so each line is as wide as the scene sets it:
   // PowerPoint's own default kerns only from 12 pt.
   for (const f of ['ppt/presentation.xml', 'ppt/slideMasters/slideMaster1.xml']) await edit(f, x => x.replaceAll('kern="1200"', 'kern="100"'));
-  const titles = slides.map(x => TITLE.exec(x)?.[0]), first = titles.find(Boolean);
+  const titles = slides.map(x => TITLE.exec(x)?.[0]), first = titles.find(Boolean), footed = ['footer', 'number'].filter(r => feet[r]);
   await edit('ppt/slideLayouts/slideLayout1.xml', x => x.replace('<p:cSld name="DEFAULT">', `<p:cSld name="${first ? 'Title Only' : 'Blank'}">`)
-    .replace('</p:grpSpPr></p:spTree>', `</p:grpSpPr>${first ? layoutTitle(first) : ''}</p:spTree>`));
+    .replace('</p:grpSpPr></p:spTree>', `</p:grpSpPr>${first ? layoutTitle(first) : ''}${footed.map(r => footMaster(feet[r].m, feet[r].r, feet[r].k, 'layout')).join('')}</p:spTree>`));
+  if (footed.length) await edit('ppt/slideMasters/slideMaster1.xml', x => x.replace('</p:grpSpPr></p:spTree>', `</p:grpSpPr>${footed.map(r => footMaster(feet[r].m, feet[r].r, feet[r].k, 'master')).join('')}</p:spTree>`)
+    .replace(/<p:hf [^>]*\/>/, `<p:hf sldNum="${feet.number ? 1 : 0}" hdr="0" ftr="${feet.footer ? 1 : 0}" dt="0"/>`));
   await edit('docProps/app.xml', x => properties(x, slides, titles, W === 1280 && H === 720 ? 'Widescreen' : 'Custom'));
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
 }
@@ -490,7 +529,7 @@ function together(scene) {
 // names lines' relations, and with the entries their labels say, describes them. → what finishes the slide's
 // XML once the deck is written, when every shape has its number (PptxGenJS numbers a slide's shapes in the
 // order they're added, from 2): each stand-in replaced by what it stands for.
-function slide(p, scene, { k, ox, oy }, say) {
+function slide(p, scene, { k, ox, oy }, say, feet = {}) {
   const sl = p.addSlide(), parts = [], ids = new Map();
   let count = 0;
   const X = x => (ox + x * k) / 96, Y = y => (oy + y * k) / 96, L = v => v * k / 96, rect = m => ({ x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h) });
@@ -583,7 +622,7 @@ function slide(p, scene, { k, ox, oy }, say) {
       // Each row a swatch and its caption, both named as the row is.
       for (const r of m.rows) {
         const sw = r.swatch, box = { x: m.x + r.sw.x, y: m.y + r.sw.y, w: r.sw.w, h: r.sw.h }, name = r.caption.text;
-        if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: 'none', Connector: 'straight' }, null, name);
+        if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: sw.Arrow === 'auto' ? 'none' : sw.Arrow, Connector: 'straight' }, null, name);
         else if (sw.kind === 'frame') shape(rect(box), 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }, name);
         else shape(rect(sw.Shape === 'triangle' ? { ...box, y: box.y - 1, h: box.h + 2 } : box), sw.Shape ?? 'rect', sw, name);
         textBox([r.caption], m.x, m.y, PAGE);
@@ -591,6 +630,7 @@ function slide(p, scene, { k, ox, oy }, say) {
       return [rect(m)];
     });
     if (m.geometry === 'group') return [];
+    if (FOOT[m.role] && feet[m.role]) { put(id => footSlide(id, m, rect(m), k, feet[m.role])); return [rect(m)]; }
     const text = m.geometry === 'text' || m.geometry === 'frame';
     shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.texts[0]?.text ?? 'Shape',
       { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate });
@@ -654,12 +694,12 @@ const numbered = scenes => scenes.map((s, i) => !s.marks.some(m => m.role === 'n
 // any it couldn't embed are said as it's saved: "with Garamond printed as Times". A size the chart can't hold is said too.
 async function write(format, sheets, name, { author = '', R = null, N = null } = {}) {
   const scenes = numbered(sheets), title = scenes.length === 1 ? titleOf(scenes[0]) || name : name;
-  const local = format === 'pdf' && typeof window.queryLocalFonts === 'function' ? installed() : null;
-  const fonts = local ? await LIBS.pdf().then(async () => fontsOf(scenes, await local)) : PLAIN;
+  const local = format === 'pdf' ? installed() : null;
+  const fonts = format === 'pdf' ? await LIBS.pdf().then(async () => fontsOf(scenes, await local)) : PLAIN;
   const blob = format === 'pdf' ? await pdf(scenes, title, author, fonts) : await pptx(scenes, title, author, (rels, caption, entries) => R && N ? sentence(R.records, N, rels, caption, entries) : null);
-  const as = { helvetica: 'Helvetica', times: 'Times', courier: 'Courier' }, list = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
   const short = [...new Set(scenes.flatMap(s => (s.page.short ?? []).map(f => `${f.what} print at ${+f.printed.toFixed(2)} pt: the chart doesn't fit at ${f.typed}`)))];
-  save(blob, `${fileName(name)}.${format}`, `${fonts.missed.length ? `, with ${list(fonts.missed.map(f => `${f} printed as ${as[STANDARD(f)]}`))}` : ''}${short.length ? `. ${short.join('; ')}` : ''}`);
+  // Never silently another font: said by name, with what to do, and it stays till it's read.
+  save(blob, `${fileName(name)}.${format}`, `${fonts.missed.length ? `. ${fontsSaid(fonts.missed)}` : ''}${short.length ? `. ${short.join('; ')}` : ''}`, fonts.missed.length > 0);
   return blob;
 }
 
@@ -820,7 +860,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   let tries = 0;
   const footed = (wb, value) => { const id = `·footer${++tries}`, rows = [...wb.rows(App.chart.peek()).filter(r => !('note' in r && r.label === 'Footer')), ...(value ? [{ id, note: id, label: 'Footer', pattern: { kind: 'View' }, value }] : [])], notes = Notes.index(rows.filter(r => 'note' in r));
     return { ...wb, rows: () => rows, notes: () => notes }; };
-  const asFooter = (text, number) => text.trim() || number ? { text: text.trim(), number } : null;
+  // (With its look, which the ribbon gave it, as the footer selected on the page: see the format bar.)
+  const asFooter = (text, number) => text.trim() || number ? { text: text.trim(), number, ...(footer().format && { format: footer().format }) } : null;
   const turned = (paper, portrait) => `${paper} ${portrait ? 'portrait' : 'landscape'}`;
   function Setup({ choice, view }) {
     const [paper, setPaper] = useState(choice.paper), [portrait, setPortrait] = useState(choice.portrait), [text, setText] = useState(choice.text), [number, setNumber] = useState(choice.number);
@@ -864,6 +905,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   }
   api.setup = setup;
   api.fit = fitToPage;
+  api.placing = placing;
   const here = () => charts().some(v => v.id === Shell.view.peek()), free = () => here() && !App.readOnly.peek(), not = () => App.readOnly.peek() ? App.whyNot() : 'Show a chart first';
   Shell.register('action', { id: 'page.setup', name: 'Page setup…', names: ['Paper', 'Page size', 'Legal', 'Letter', 'Tabloid', 'A4', 'A3', 'Slide size', 'Landscape', 'Portrait', 'Orientation', 'Margins', 'Footer', 'Page number', 'Header and footer'], enabled: free, why: not, run: () => setup() });
   Shell.register('action', { id: 'page.fit', name: 'Fit to page', names: ['Fit chart', 'Scale to fit', 'Shrink to fit', 'Off the page'], enabled: free, why: not, run: () => fitToPage() });

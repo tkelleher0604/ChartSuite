@@ -69,6 +69,10 @@ const DEFAULTS = {
 };
 const TEXT_PROPS = Object.keys(TEXT);
 const HAS = Object.fromEntries(Object.entries(DEFAULTS).map(([k, d]) => [k, new Set(Object.keys(d))]));
+// What a note at the view itself can say of every text on the page (dendra.md, Notes); the footer and its number, the
+// chart's own (see the page); and how a box of no form is drawn, which no row of the Key is by itself.
+const ROOT = ['Font', 'Size'], FOOTER = '·footer', NUMBER = '·number';
+const FORMLESS = { Outline: { value: '#7f7f7f', note: null }, Dash: { value: 'square-dot', note: null } };
 // What a swatch shows: the properties of a box or line that tell marks apart, a frame's kind, or a text's
 // look. A frame's caption says on the chart what it is, so the legend leaves frames out.
 const KEYED = { box: ['Shape', 'Fill', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'], frame: ['Frame'],
@@ -755,10 +759,12 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
   }
 
+  // The page's own Font and Size (dendra.md, Views), a note at the view itself: every text no narrower note reaches.
+  const ofPage = Object.fromEntries(ROOT.map(l => [l, N.resolve(l, { id: view, kind: 'View' })]).filter(([, r]) => r));
   const settle = (m, defaults) => {
     m.settings = {};
     for (const [label, d] of Object.entries(defaults)) {
-      const c = m.cand[label];
+      const c = m.cand[label] ?? ofPage[label];
       m.settings[label] = c ? { value: c.value, note: c.note } : { value: d, note: null };
     }
   };
@@ -880,18 +886,30 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
   // The footer, the chart's, at no view (dendra.md, The page), and its number, a view's place among the chart's views: the
   // sheet's own, as its title is.
-  const footing = N.resolve('Footer', { id: view, kind: 'View' })?.value;
-  const footRows = !footing ? [] : [...footing.text ? [{ id: '·footer', shape: '·footer', geometry: 'text', role: 'footer', text: footing.text }] : [],
-    ...footing.number ? [{ id: '·number', shape: '·number', geometry: 'text', role: 'number', text: String(1 + Object.keys(state).filter(id => Tree.isView(state[id]) && typeof N.value('Layout', { id, kind: 'View' }) !== 'object')
-      .sort((a, b) => (N.order({ id: a, kind: 'View' }) ?? Infinity) - (N.order({ id: b, kind: 'View' }) ?? Infinity) || (a < b ? -1 : 1)).indexOf(view)) }] : []];
+  const footing = N.resolve('Footer', { id: view, kind: 'View' })?.value, footLook = footing?.format && { format: footing.format };
+  const footRows = !footing ? [] : [...footing.text ? [{ id: FOOTER, shape: FOOTER, geometry: 'text', role: 'footer', text: footing.text, ...footLook }] : [],
+    ...footing.number ? [{ id: NUMBER, shape: NUMBER, geometry: 'text', role: 'number', text: String(1 + Object.keys(state).filter(id => Tree.isView(state[id]) && typeof N.value('Layout', { id, kind: 'View' }) !== 'object')
+      .sort((a, b) => (N.order({ id: a, kind: 'View' }) ?? Infinity) - (N.order({ id: b, kind: 'View' }) ?? Infinity) || (a < b ? -1 : 1)).indexOf(view)), ...footLook }] : []];
   for (const r of footRows) said.set(r.id, r.text);
-  const onPage = [...shapeRows.filter(r => r.geometry !== 'legend' || legendRows.length), ...footRows];
+  // A free shape's text takes the page's Font and Size too, where its own row doesn't say.
+  const pageLook = Object.fromEntries(Object.entries(ofPage).map(([l, r]) => [l, r.value]));
+  const onPage = [...shapeRows.filter(r => r.geometry !== 'legend' || legendRows.length), ...footRows].map(r => ofPage.Font || ofPage.Size ? { ...r, format: { ...pageLook, ...r.format } } : r);
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
   // order gives, where no note says. Its label is its own text, then the texts drawn on it; a line revealed
   // has none, as what reveals it names it. A line that says its relation's name says it as the Key does, its
-  // row's caption, so one relation is spelled one way on the page.
-  const captioned = new Map(legendRows.flatMap(r => r.outputs.map(o => [key(o), r.caption])));
+  // row's caption, its own where the Key has one, so one relation is spelled one way on the page.
+  const theKey = onPage.find(r => r.geometry === 'legend');
+  const captioned = new Map(legendRows.flatMap(r => r.outputs.map(o => [key(o), theKey?.captions?.[r.key] ?? r.caption])));
+  // A box of no form (dendra.md, Styles): one no style gives a look, with nothing at the entry a row of the Key goes by, whose
+  // look is that row's exactly, would pass as what the row says it is. So it isn't drawn so.
+  const hiddenRows = new Set(theKey?.hide ?? []), formless = [];
+  for (const b of boxes) if (!b.revealed && KEYED.box.every(k => !b.settings[k].note)) {
+    const has = edge => (Tree.index(state).entries.get(b.record) ?? []).some(e => same(state[e].edge, edge));
+    const row = legendRows.find(r => !hiddenRows.has(r.key) && r.swatch.kind === 'box' && r.outputs[0].args?.length === 1 && !has(r.outputs[0].args[0].edge)
+      && ['Shape', 'Fill', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'].every(k => JSON.stringify(b.settings[k].value) === JSON.stringify(r.swatch[k])));
+    if (row) { formless.push({ record: b.record, what: row.name ?? styleName(N, Tree.bare(row.outputs[0])) }); Object.assign(b.settings, FORMLESS); }
+  }
   const keyedBy = l => KEYED.line.map(k => l.settings[k].note).find(n => n && captioned.has(key(n.pattern)));
   for (const l of lines) {
     const r = state[l.record], t = tree(l.record), text = lineText(r, l.settings.Format.value, N.name(t)), keyed = isTag(r) && r.tag && text && keyedBy(l);
@@ -1164,9 +1182,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const furnished = () => furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? keyRow.kept ?? null, ceil, held, own: ownPage });
     let laid = furnished();
     // A Key a hand put on the page: no line runs under it where the router has another way.
-    const dropped = !last && laid.shapes.find(m => m.geometry === 'legend' && !laid.places.has(m.row));
+    const dropped = !last && laid.shapes.find(m => m.geometry === 'legend' && (!laid.places.has(m.row) || !!theKey?.corner));
     if (dropped) {
-      const q = { x: dropped.x - laid.dx, y: dropped.y - laid.dy, w: dropped.w, h: dropped.h }, under = l => l.points?.some((p, i) => i && Math.max(p[0], l.points[i - 1][0]) > q.x && Math.min(p[0], l.points[i - 1][0]) < q.x + q.w && Math.max(p[1], l.points[i - 1][1]) > q.y && Math.min(p[1], l.points[i - 1][1]) < q.y + q.h);
+      const stands = laid.places.get(dropped.row) ?? dropped, q = { x: stands.x - laid.dx, y: stands.y - laid.dy, w: dropped.w, h: dropped.h }, under = l => l.points?.some((p, i) => i && Math.max(p[0], l.points[i - 1][0]) > q.x && Math.min(p[0], l.points[i - 1][0]) < q.x + q.w && Math.max(p[1], l.points[i - 1][1]) > q.y && Math.min(p[1], l.points[i - 1][1]) < q.y + q.h);
       const long = ps => ps.slice(1).reduce((s, p, k) => s + Math.hypot(p[0] - ps[k][0], p[1] - ps[k][1]), 0), runUnder = lines.filter(under);
       // (A way that isn't twice as long, and a little: a Key dropped in the chart's midst leaves its lines be, rather than send them round the page.)
       if (runUnder.length) {
@@ -1259,7 +1277,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // hold it (see furnish).
   if (at.dx || at.dy) for (const m of [...boxes, ...frames.values(), ...lines]) move(m, at.dx, at.dy);
   const offset = last ? last.page.offset : { x: at.dx, y: at.dy }, placed = last ? last.page.placed : !!at.placed;
-  const page = { size: sheet.size, w: sheet.w / s, h: sheet.h / s, scale: s, margin: MARGIN / s, offset, placed, sheet: { w: sheet.w, h: sheet.h }, short: [], ...(onPaper && { paper: true }), ...(sheet.portrait && { portrait: true }) };
+  const page = { size: sheet.size, w: sheet.w / s, h: sheet.h / s, scale: s, margin: MARGIN / s, offset, placed, sheet: { w: sheet.w, h: sheet.h }, short: [], look: pageLook, formless, ...(onPaper && { paper: true }), ...(sheet.portrait && { portrait: true }) };
 
   // Arrow Auto: an arrowhead where the line doesn't run down from its Above side.
   for (const l of lines) if (l.settings.Arrow.value === 'auto') l.settings.Arrow = { value: l.down ? 'none' : 'end', note: l.settings.Arrow.note };
@@ -1338,8 +1356,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
 }
 // A free shape from a row not yet kept, as a scene would draw it: how big a new one will be.
 function shapeOf(row, scene) {
-  const s = scene.page.scale ?? 1, k = row.geometry === 'legend' && row.format?.Size == null ? keyAt(scene.marks.filter(m => m.type === 'box'), s) : 1;
-  const m = freeShape({ shape: '·new', ...row }, row.text ?? '', 1 / s, k);
+  const s = scene.page.scale ?? 1, k = row.geometry === 'legend' && row.format?.Size == null && scene.page.look?.Size == null ? keyAt(scene.marks.filter(m => m.type === 'box'), s) : 1;
+  const m = freeShape({ shape: '·new', ...row, format: { ...scene.page.look, ...row.format } }, row.text ?? '', 1 / s, k);
   if (m.geometry === 'legend') layoutLegend(m, scene.legend, 1 / s, k);
   return m;
 }
@@ -1741,12 +1759,15 @@ function groupsOf(N, view, only = null) {
   const called = (p, sw) => sw.kind === 'text' && (!p.out || 'field' in p.out) ? Tree.plural(outputName(N, p)) : outputName(N, p);
   // Outputs as their option list has them: by the Order noted at each, then by name.
   const listOrder = ps => ps.map(p => [p, N.optionOrder(p) ?? Infinity, outputName(N, p)]).sort((a, b) => a[1] - b[1] || a[2].localeCompare(b[2])).map(([p]) => p);
+  // (A text's swatch is in the page's own font and size, where its output doesn't say.)
+  const ofPage = ROOT.map(l => [l, N.value(l, { id: view, kind: 'View' })]).filter(([, v]) => v !== undefined);
   N.styles(view).forEach((s, order) => {
     const looks = new Map(), keyed = s.outputs.filter(o => Object.keys(o.formats).some(k => k !== 'Shown')), name = styleName(N, s.pattern);
     const alone = keyed.length === 1 && same(outputName(N, keyed[0].pattern), name) && same(own(keyed[0].pattern) ?? name, name);
     for (const o of keyed) {
       if (only && !only.has(key(o.pattern))) continue;
       const sw = swatchOf(o.pattern, o.formats), off = o.formats.Shown === false;
+      if (sw.kind === 'text') for (const [l, v] of ofPage) if (!(l in o.formats)) sw[l] = v;
       const k = JSON.stringify([sw, off, sw.kind === 'frame' && captionOf(N, o.pattern, view)]);
       (looks.get(k) ?? looks.set(k, { style: s.key, order, name: alone ? null : name, swatch: sw, off, outputs: [] }).get(k)).outputs.push(o.pattern);
     }
@@ -1960,6 +1981,17 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     const R = t => ({ x: (E.x + dx) * s, y: t, w: E.w * s, h: E.h * s }), clearOfFree = r => !free.some(q => meets(q, r, 21));
     if (!force && boxes.length && some && !fits(R(top))) return null;
     if (key) {
+      // In a corner, by name or as far from one as a look's Key stood: there, however large it is, under the title where it
+      // would run over it. What a hand or a look puts there the page doesn't move, nor anything for it, unless the layout
+      // alone places the chart, which is then set clear of it, the scale falling as far as that needs.
+      const corner = rows.find(r => r.id === key.row).corner;
+      if (corner) {
+        const kw = key.w * s, kh = key.h * s, kx = corner.h === 'left' ? corner.dx ?? M : W - (corner.dx ?? M) - kw, heads = [title, date].filter(Boolean).map(m => M - INSET + ((m.column?.x ?? 0) + widest(m.texts)) * s);
+        const ky = corner.v === 'top' ? Math.max(corner.dy ?? M, kx < Math.max(0, ...heads) ? y + 8 : 0) : H - (corner.dy ?? M) - kh, q = { x: kx, y: ky, w: kw, h: kh };
+        if (!force && !held && boxes.length && set(top).some(c => meets(c, q, 21))) return null;
+        places.set(key.row, q);
+        alongside = q;
+      }
       // Beside the title, its captions wrapping to the room there, where the chart is clear of it; or, where the
       // layout places the chart, moved toward the left as far as it must be, or starting under it; unless it goes at
       // the chart's foot (`footed`).
@@ -1971,7 +2003,7 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
       const r = { x: W - M - side.w * s, y: M, w: side.w * s, h: side.h * s };
       // Where a change kept it, on the sheet (`keptAt`), while that's clear of what the layout places and what's over it
       // there, and nothing a hand put stands on it: what a hand puts near it moves it no more than it moves anything.
-      if (keptAt && !footed) {
+      if (keptAt && !footed && !corner) {
         const under = keptAt.y < y, k = under ? side : key, kw = k.w * s, q = { x: Math.min(keptAt.x, W - M - kw), y: Math.min(keptAt.y, H - M - k.h * s), w: kw, h: k.h * s };
         if (fits(q) && !free.some(f => meets(f, q)) && !set(top).some(c => meets(c, q, c.hand ? 0 : 21)) && (!under || q.x >= W - M - room - 0.5)) { places.set(key.row, q); shapes[shapes.indexOf(key)] = key = k; alongside = q; }
       }
@@ -2095,6 +2127,7 @@ const toSlide = (page, v) => v * (page?.scale ?? 1), fromSlide = (page, v) => v 
 function says(scene, name, paper) {
   const p = scene.page, boxes = scene.marks.filter(m => m.type === 'box' && !m.revealed), called = b => name?.(b) ?? b.texts[0]?.text ?? 'A box', out = [], W = p.w, H = p.h;
   for (const f of p.short ?? []) out.push(`${f.what} print at ${+f.printed.toFixed(2)} pt${paper ? ` on ${paper}` : ''}: the chart doesn't fit at ${f.typed}`);
+  for (const f of p.formless ?? []) { const b = scene.byId.get(f.record); if (b) out.push(`${called(b)} has no ${f.what}`); }
   for (const b of boxes) if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > W + 0.5 || b.y + b.h > H + 0.5) out.push(`${called(b)} runs off the page`);
   const over = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
   const WHAT = { legend: 'The Key', picture: 'The picture', title: 'The title', date: 'The date', footer: 'The footer', number: 'The page number' };
@@ -2106,7 +2139,7 @@ function says(scene, name, paper) {
 
 return {
   of, looks, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
-  toSlide, fromSlide, says, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize,
+  toSlide, fromSlide, says, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };
 })();

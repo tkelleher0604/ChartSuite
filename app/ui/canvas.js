@@ -25,7 +25,14 @@ const fieldLit = signal(null);
 const fieldPicked = signal(null);
 const BLUE = '#1f5fbf', RED = '#c2372b';
 // Cells that draw no mark of their own, so nothing selects or moves them: the page, a line's label, a redline's ink.
-const UNMARKED = new Set(['page', 'label', 'ink', 'foot']);
+const UNMARKED = new Set(['page', 'label', 'ink']);
+// The footer and its number, the chart's own and the sheet's: selected and formatted as any text is, but placed by the page.
+const footOf = m => m?.role === 'footer' || m?.role === 'number';
+const footNote = () => App.notes.peek().resolve('Footer', { kind: 'View' })?.value ?? {};
+// An entry wherever it is, as a Shown or Format note at it reaches each box that has it.
+const entryAnywhere = edge => ({ args: [{ edge, loc: {} }] });
+// Taking one away: the footer's words, or the numbers; with neither left, the note and its look.
+const unfoot = (tx, m) => { const { format, ...f } = footNote(), now = m.role === 'footer' ? { ...f, text: '' } : { ...f, number: false }; tx.note('Footer', { kind: 'View' }, now.text || now.number ? { ...now, ...(format && { format }) } : undefined); };
 // As far out as the canvas goes: a chart of hundreds of boxes still fits.
 const LEAST = 0.02;
 const ANCHOR = { left: 'start', center: 'middle', right: 'end' };
@@ -306,7 +313,13 @@ function croppedImage(m) {
 }
 function swatchMarkup(sw, box) {
   const { x, y, w, h } = box;
-  if (sw.kind === 'line') return { tagName: 'path', attrs: { d: `M${x},${y + h / 2} H${x + w}`, stroke: paint(sw.Outline), 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash(sw.Dash, sw.Weight), fill: 'none' } };
+  if (sw.kind === 'line') {
+    const ink = paint(sw.Outline), my = y + h / 2, line = { tagName: 'path', attrs: { d: `M${x},${my} H${x + w}`, stroke: ink, 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash(sw.Dash, sw.Weight), fill: 'none' } };
+    // Its arrowheads as its lines' (Auto is by which way a line runs, so none here).
+    const head = (tip, end) => { const { len, wide } = Scene.headSize(Scene.headOf(sw, end), px(sw.Weight)), d = end === 'end' ? -1 : 1; return { tagName: 'path', attrs: { d: `M${tip},${my} L${tip + d * len},${my - wide / 2} L${tip + d * len},${my + wide / 2} Z`, fill: ink, stroke: 'none' } }; };
+    const heads = [...['end', 'both'].includes(sw.Arrow) && ink !== 'none' ? [head(x + w, 'end')] : [], ...['start', 'both'].includes(sw.Arrow) && ink !== 'none' ? [head(x, 'start')] : []];
+    return heads.length ? { tagName: 'g', children: [line, ...heads] } : line;
+  }
   if (sw.kind === 'frame') return { tagName: 'rect', attrs: { x, y, width: w, height: h, fill: 'none', stroke: '#595959', 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash('dashed', sw.Weight) } };
   const shape = sw.Shape ?? 'rect', sh = shape === 'triangle' ? h + 2 : h, sy = shape === 'triangle' ? y - 1 : y;
   const { selector, ...body } = bodyMarkup(shape, w, sh, sw, null, { transform: `translate(${x},${sy})` });
@@ -322,14 +335,15 @@ function legendMarkup(m, s) {
   ];
 }
 
-// A Key row's caption typed: a row of one output captions that output in this view, wherever it's named (a caption
-// typed as its own name is no caption); a row merging outputs that look alike takes a caption of the Key's own, so no
-// output's caption changes.
+// A Key row's caption typed is the Key's own (dendra.md, The legend), so a frame's heading, or what any other place calls
+// the output, stays as it was: typed as the row's own word again, it's no caption.
 function keyCaption(tx, m, r, text) {
-  const scene = active.peek().scene(), view = scene.view, N = App.notes.peek(), { [r.key]: _, ...rest } = m.captions ?? {}, own = Tree.clean(text), base = scene.legend.find(x => x.key === r.key)?.caption;
-  if (r.outputs.length > 1) return tx.update(m.id, { captions: own && own !== base ? { ...rest, [r.key]: own } : rest });
-  tx.note('Caption', r.outputs[0], own && own !== Scene.outputName(N, r.outputs[0]) ? own : undefined, { view });
-  if (r.key in (m.captions ?? {})) tx.update(m.id, { captions: rest });
+  const scene = active.peek().scene(), { [r.key]: _, ...rest } = m.captions ?? {}, own = Tree.clean(text), base = scene.legend.find(x => x.key === r.key)?.caption;
+  tx.update(m.id, { captions: own && own !== base ? { ...rest, [r.key]: own } : rest });
+}
+// The Key put in a corner by name, within the margins; or back to where the page places it.
+function keyCorner(tx, id, corner) {
+  tx.update(id, { corner: corner ? { h: corner[1], v: corner[0] } : null, x: null, y: null, kept: null });
 }
 
 // ---- The canvas ----
@@ -368,7 +382,7 @@ function mount(el) {
     interacting: view => {
       const k = view.cell.getData()?.kind;
       if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still(), edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
-      return { nodeMovable: !pointing && !still() && !rowDrag && (!UNMARKED.has(k) || k === 'label') };
+      return { nodeMovable: !pointing && !still() && !rowDrag && k !== 'foot' && (!UNMARKED.has(k) || k === 'label') };
     },
   });
   // A Key's row dragged moves that row among the rest, a line showing where it would go, never the Key: which is
@@ -818,7 +832,7 @@ function mount(el) {
     if ([...places.keys()].some(id => scene.byId.get(id)?.type === 'box')) for (const [id, p] of stoodFor(scene, places)) { tx.note('Position', treeOf(id), p, { view }); baked.add(id); }
     for (const [id, p] of places) {
       const m = scene.byId.get(id);
-      if (!m) continue;
+      if (!m || footOf(m)) continue;
       if (m.type === 'box') {
         // (A drag lands on the half pixel; what's typed is kept as typed.)
         const old = n.position(treeOf(m.record), view), o = origin(page), r = p.typed ? v => v : round;
@@ -827,7 +841,8 @@ function mount(el) {
         const points = rowOf(id)?.points, r = p.typed ? v => v : round;
         if (points) { tx.update(id, { x: round(p.x), y: round(p.y), ...(p.dx !== undefined && { points: points.map(([x, y]) => [round(x + p.dx), round(y + p.dy)]) }) }); continue; }
         const w = Math.min(p.w ?? m.w, page.w), h = Math.min(p.h ?? m.h, page.h);
-        tx.update(id, { x: r(clamp(p.x, 0, page.w - w)), y: r(clamp(p.y, 0, page.h - h)), ...((p.w !== undefined || p.h !== undefined) && { w: r(w), h: r(h) }) });
+        // (A Key put by hand is in no corner by name now.)
+        tx.update(id, { x: r(clamp(p.x, 0, page.w - w)), y: r(clamp(p.y, 0, page.h - h)), ...((p.w !== undefined || p.h !== undefined) && { w: r(w), h: r(h) }), ...(rowOf(id)?.corner && { corner: null }) });
       }
     }
   }
@@ -1027,9 +1042,16 @@ function mount(el) {
       if (!r) return;
       it = r.caption;
       rect = { x: m.x + r.x + r.sw.w + 6, y: m.y + r.y, w: r.w - r.sw.w - 6, h: r.h + 2 };
-      // A row of one output captions that output in this view, wherever it's named. A row merging outputs
-      // that look alike takes a caption of the legend's own, so no output's caption changes.
+      // The Key's own: no other place's word for it changes.
       save = text => App.change(tx => keyCaption(tx, m, r, text));
+    } else if (m.role === 'number') {
+      return Export.setup();
+    } else if (m.role === 'footer') {
+      // The chart's footer's words, on every chart view.
+      it = m.texts[0];
+      rect = { x: m.x, y: m.y, w: Math.max(m.w, 240), h: m.h };
+      raw = footNote().text;
+      save = text => App.change(tx => { const { format, ...f } = footNote(), t = text.trim(); tx.note('Footer', { kind: 'View' }, t || f.number ? { ...f, text: t, ...(format && { format }) } : undefined); }, { dated: false, say: 'Set the footer' });
     } else if (m.type === 'shape' && !['line', 'picture', 'group'].includes(m.geometry)) {
       const legend = m.geometry === 'legend';
       it = legend ? m.texts[0] : m.texts[0] ?? { look: m.look, text: '', lines: [] };
@@ -1183,7 +1205,7 @@ function mount(el) {
   graph.on('node:dblclick', ({ e, node }) => {
     const k = node.getData()?.kind;
     if (k === 'page') return addAt(e);
-    if (k === 'foot') return Export.setup();
+    if (k === 'foot') return edit(node.id, e.target);
     // A field double-clicked is typed in, a line's label's too; the room of a box that was selected already starts
     // a free text there.
     if (k === 'box' || k === 'label') {
@@ -1594,10 +1616,15 @@ function mount(el) {
   // then hiding and deleting it, its order and grouping, and the clipboard.
   function markItems() {
     const ms = selected(), one = ms.length === 1 ? ms[0] : null, bound = ms.filter(m => m.type === 'box' || m.type === 'line'), ro = still();
+    // The footer: its words, its font and its page's setup; the page places it.
+    if (ms.length && ms.every(footOf)) return [...(one?.role === 'footer' ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => edit(one.id) }] : []), ...formatItems(ms, ro), { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', { label: 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) }];
+    // The Key: in a corner by name, or where the page places it.
+    const inCorner = one?.geometry === 'legend' && !keyRow() && !ro ? [{ label: 'Put in a corner', items: [['Top left', 'top', 'left'], ['Top right', 'top', 'right'], ['Bottom left', 'bottom', 'left'], ['Bottom right', 'bottom', 'right']].map(([label, v, h]) => {
+      const now = rowOf(one.id)?.corner; return { label, checked: now?.v === v && now?.h === h && (now.dx ?? scene.page.margin * scene.page.scale) === scene.page.margin * scene.page.scale, run: () => App.change(tx => keyCorner(tx, one.id, [v, h]), { dated: false, say: `Put the Key in the ${label.toLowerCase()} corner` }) }; }).concat(['-', { label: 'Where the page places it', checked: !rowOf(one.id)?.corner && rowOf(one.id)?.x == null, run: () => App.change(tx => keyCorner(tx, one.id, null), { dated: false, say: 'Let the page place the Key' }) }]) }, '-'] : [];
     const text = one?.type === 'shape' && !['line', 'picture', 'group'].includes(one.geometry), fielded = bound.length && bound.length === ms.length;
     const worded = one && (one.type === 'box' || (one.type === 'line' && one.texts?.some(isField)));
     return [
-      ...(text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []),
+      ...(text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []), ...inCorner,
       ...(fielded ? [...(worded ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => edit(one.id) }] : []),
         { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }] : []), '-'] : []),
       ...formatItems(ms, ro),
@@ -1665,6 +1692,8 @@ function mount(el) {
       ...(all ? [{ label: `Hide from ${named(all)}`, disabled: ro, run: () => hideField(f, all),
         // Pointed at, the boxes it reaches are cued on the chart, as the scope's are (the format bar's cue).
         point: on => canvas.cue?.(on && all.marks ? [...all.marks] : null) }] : []),
+      ...(f.it.free ? [] : [{ label: 'In every box that has it', checked: fields.everywhere(fieldName(f.it)), disabled: ro, run: () => fields.setEverywhere(fieldName(f.it), !fields.everywhere(fieldName(f.it))) },
+        { label: 'With its name', checked: fields.captioned(fieldName(f.it)), disabled: ro, run: () => fields.setCaptioned(fieldName(f.it), !fields.captioned(fieldName(f.it))) }]),
       '-', { label: 'Format', disabled: ro, items: [
         { label: 'Bold', checked: !!t.Bold, run: () => restyle('Bold', !t.Bold) }, { label: 'Italic', checked: !!t.Italic, run: () => restyle('Italic', !t.Italic) },
         { label: 'Underline', checked: !!t.Underline, run: () => restyle('Underline', !t.Underline) }] },
@@ -1956,7 +1985,7 @@ function mount(el) {
 
   // ---- Commands ----
   const selected = () => keysOfSelection().map(k => scene.byId.get(keyParts(k)[0])).filter(Boolean);
-  const placeable = () => selected().flatMap(m => m.geometry === 'group' ? m.members.map(id => scene.byId.get(id)) : [m]).filter(m => m && (m.type === 'box' || m.type === 'shape'));
+  const placeable = () => selected().flatMap(m => m.geometry === 'group' ? m.members.map(id => scene.byId.get(id)) : [m]).filter(m => m && (m.type === 'box' || m.type === 'shape') && !footOf(m));
   // A new shape goes into free space, never over what's drawn: near the middle of what's on screen, as
   // PowerPoint puts one; a text box, a frame and a key in the page's bands round the chart, where they have room, so
   // none lands in the chart's midst; a key at the bottom right, in two columns. A text box typed in has room for a line
@@ -2017,6 +2046,8 @@ function mount(el) {
         else if (m.type === 'frame') { tx.note('Frame', m.output, undefined, { view }); hid.push(as(m)); }
         else if (m.geometry === 'legend' && rowKey) { tx.update(id, { hide: [...m.hide, rowKey] }); hid.push({ type: 'row', name: m.rows.find(x => x.key === rowKey)?.caption.text }); }
         else if (m.geometry === 'group') { tx.remove(id); for (const x of m.members) if (scene.byId.get(x)?.type === 'shape') tx.remove(x); gone.push(as(m)); }
+        // (The footer's the chart's, on every page: taken off one by one, as Page setup does.)
+        else if (footOf(m)) { if (marks.length === 1 || marks.every(([, , x]) => footOf(x))) { unfoot(tx, m); gone.push(as(m)); } }
         else { tx.remove(id); gone.push(as(m)); }
       }
     };
@@ -2030,7 +2061,7 @@ function mount(el) {
   // Northpine Software, LLC.
   const lineOf = id => { const N = App.notes.peek(), st = App.state.peek(); return `${N.nameOf(st, id)}: ${N.segmentOf(st, id)}`; };
   const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? lineOf(m.record) : m.type === 'frame' ? `the ${m.caption.text} frame`
-    : `the ${SHAPE[m.geometry] ?? 'shape'}`;
+    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : `the ${SHAPE[m.geometry] ?? 'shape'}`;
   const counted = ms => ms.length === 1 ? ms[0].name : ms.every(m => m.type === 'box') ? `${ms.length} boxes` : ms.every(m => m.type === 'line') ? `${ms.length} lines` : `${ms.length} items`;
   function said(hid, gone, view) {
     const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row');
@@ -2467,6 +2498,18 @@ function mount(el) {
   const fields = {
     shown: (id, edge, at = id) => { const m = marked(id); return !!m && shows(m, edge, at); },
     show: (id, edge, on, at = id) => { const m = marked(id); return m && setField([m], edge, on, scoped(m), at); },
+    showHere: (id, edge, on, at = id) => { const m = marked(id); return m && setField([m], edge, on, { own: true }, at); },
+    // In every box that has it, as more get it too: a note at the entry wherever it is (dendra.md, Fields); a choice
+    // alone wouldn't say what it is ("High"), so it says so ("Risk Rating: High"), unless a note says how it reads.
+    everywhere: edge => App.notes.peek().value('Shown', entryAnywhere(edge), viewOf()) === true,
+    setEverywhere: (edge, on) => App.change(tx => {
+      const view = viewOf(), p = entryAnywhere(edge), N = App.notes.peek();
+      tx.note('Shown', p, on ? true : undefined, { view });
+      if (on && N.resolve('Format', p, view) === null && Object.values(App.schema.peek()).some(s => s.args?.length === 1 && Tree.same(s.args[0].edge, edge) && 'choice' in s.out)) tx.note('Format', p, 'label', { view });
+      if (!on && N.value('Format', p, view) === 'label') tx.note('Format', p, undefined, { view });
+    }, { dated: false, say: `${on ? 'Showed' : 'Stopped showing'} ${edge} in every box that has it` }),
+    captioned: edge => App.notes.peek().value('Format', entryAnywhere(edge), viewOf()) === 'label',
+    setCaptioned: (edge, on) => App.change(tx => tx.note('Format', entryAnywhere(edge), on ? 'label' : undefined, { view: viewOf() }), { dated: false, say: `${on ? 'Named' : 'Stopped naming'} ${edge} where it’s shown` }),
     light: key => { if (litKey !== key) { litKey = key; paintFields(); } },
     over(cx, cy) {
       const p = cx == null ? null : graph.clientToLocal(cx, cy), m = p && [...scene.marks].reverse().find(b => b.type === 'box' && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
@@ -2545,5 +2588,5 @@ Shell.register('action', { id: 'chart.size', name: 'Size…', names: ['Height', 
 Shell.register('action', { id: 'chart.relate', name: 'Relate…', names: ['Connect', 'Link', 'Add a relation', 'Draw a line'], enabled: () => here() && !App.readOnly.peek() && !!active.peek().relatable(), run: call('relate'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one box first' });
 
-return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt, aids, aidToggle, keyCaption };
+return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt, aids, aidToggle, keyCaption, keyCorner };
 })();
