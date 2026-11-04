@@ -1318,10 +1318,9 @@ function mount(el) {
   }
   // A choice's options at a record, in their list's order: its kind's, or where it hasn't the entry, every kind's.
   function optionsOf(at, edge) {
-    const t = treeOf(at), N = App.notes.peek(), all = Object.values(App.schema.peek()).filter(x => x.args?.length === 1 && Tree.same(x.args[0].edge, edge) && 'choice' in x.out);
-    const fit = all.filter(x => t && Tree.narrower(t, x.args[0].loc)), specs = fit.length ? fit : all.filter(x => !x.args[0].loc.args);
-    const rank = o => N.optionOrder({ out: { choice: o }, args: Tree.bare(specs[0]).args }) ?? Infinity;
-    return [...new Set(specs.map(s => s.out.choice))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+    const t = treeOf(at), all = Object.values(App.schema.peek()).filter(x => x.args?.length === 1 && Tree.same(x.args[0].edge, edge) && 'choice' in x.out);
+    const fit = all.filter(x => t && Tree.narrower(t, x.args[0].loc));
+    return App.notes.peek().optionsOf(fit.length ? fit : all.filter(x => !x.args[0].loc.args));
   }
   // The entries a mark's record has, or could have by its kind's: their labels, in the inspector's order.
   function entriesOf(m) {

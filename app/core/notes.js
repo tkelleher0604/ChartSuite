@@ -9,7 +9,7 @@ const { narrower, shapeOf, weight, key, bare, paramKey, treeOf, isObject, isChoi
 // The format properties, how a view draws what a note reaches: every label but the model's others (dendra.md,
 // Notes), so a new property is only a word in the scene's defaults and its drawing. A Text note, a box's free text,
 // is a note of its own, not a look.
-const OTHERS = new Set(['Name', 'Description', 'Order', 'Required', 'Check', 'Start', 'End', 'Formula', 'Caption', 'Position', 'Bend', 'Layout', 'As Of', 'Page', 'Scale', 'Footer', 'Text']);
+const OTHERS = new Set(['Name', 'Description', 'Order', 'Required', 'Fixed', 'Check', 'Start', 'End', 'Formula', 'Caption', 'Position', 'Bend', 'Layout', 'As Of', 'Page', 'Scale', 'Footer', 'Text']);
 const FORMATS = { has: label => typeof label === 'string' && !OTHERS.has(label) };
 const typeOfSpec = t => !t ? 'tag' : 'field' in t.out ? 'field' : 'choice' in t.out ? 'choice' : 'tag';
 // Words begun mid-sentence, in lower case but for initials (GP, BDC); and the preposition a list's name ends
@@ -184,6 +184,7 @@ function index(rows) {
     return labelled.get(recs).get(of(O, r.edge)) > 1 ? placeOf(recs, r.at) : shortOf(recs, O);
   }
 
+  const optionOrder = p => (byLabel.get('Order') ?? []).find(n => !n.view && n.pattern.out && narrower(n.pattern, p))?.value;
   return {
     resolve, value, name, listName, edges, formats, fields, styles, definitions, relations, fitting, relationPattern,
     nameOf, shortOf, sides, placed, segmentOf, placeOf, whereOf,
@@ -194,8 +195,17 @@ function index(rows) {
     order: t => value('Order', t.out ? bare(t) : t),
     // Where an option sits in its list: the Order noted at it in no view, or at it where its entry is specified;
     // none, and the list goes on by name.
-    optionOrder: p => (byLabel.get('Order') ?? []).find(n => !n.view && n.pattern.out && narrower(n.pattern, p))?.value,
+    optionOrder,
+    // The options of these specifications of one entry, as its dropdown, its filter and its table list them: by the Order
+    // noted at each, then in the order they were made, as the specifications are.
+    optionsOf(specs) {
+      const args = specs[0]?.args, all = [...new Set(specs.filter(s => 'choice' in s.out).map(s => s.out.choice))];
+      const rank = new Map(all.map(o => [o, optionOrder({ out: { choice: o }, args: bare(specs[0]).args }) ?? Infinity]));
+      return !args ? [] : all.map((o, i) => [o, i]).sort(([a, i], [b, j]) => rank.get(a) === rank.get(b) ? i - j : rank.get(a) - rank.get(b)).map(([o]) => o);
+    },
     required: t => value('Required', t) === true,
+    // That what's entered there doesn't change over time, as a number given once doesn't: typed over, it's corrected.
+    fixed: t => value('Fixed', t) === true,
     // A Check note on a definition: one ruled out is a check failed. On an entry typed by hand: its "no" needs attention.
     check: t => value('Check', t) === true && !!resolve('Formula', t),
     heeds: t => value('Check', t) === true && !resolve('Formula', t),

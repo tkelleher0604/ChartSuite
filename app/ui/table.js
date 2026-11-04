@@ -200,6 +200,21 @@ const Table = (() => {
     for (let i = 0; i < Math.max(a.base.length, b.base.length); i++) { const d = (a.base[i] ?? -2) - (b.base[i] ?? -2); if (d) return d; }
     return a.key.localeCompare(b.key);
   }
+  // Months as Dates has them: what's overdue first, then from this month on, then back from it.
+  const monthsIn = (gs, month) => { const keys = [...new Set(gs)], ahead = keys.filter(k => k !== 'overdue' && k >= month).sort(), past = keys.filter(k => k !== 'overdue' && k < month).sort().reverse();
+    return [...(keys.includes('overdue') ? ['overdue'] : []), ...ahead, ...past]; };
+  // Rows stay under the cursor (dendra.md, A table view). Saved, a value re-sorts nothing, as the grid's own rows keep their
+  // place through an edit; but a date has a place by its day, its month's group and its order there, so a row that would
+  // go elsewhere, here or anywhere in Dates, stays where it stood, each by the group and the day it had, till the grid is
+  // left: another view, another day, or a record selected from outside it.
+  let still = null, stillIn = null, stillAt = null, stillVersion = null;
+  function holdRows(view) {
+    const v = App.version.peek(), at = `${view}|${App.chart.peek()}|${JSON.stringify(Shell.time.peek())}`;
+    if (stillAt !== at) { still = null; stillIn = view; stillAt = at; }
+    else if (!still && stillVersion !== v && real?.view === view && real.rows === 'date' && real.data[0]?._g !== undefined && !real.named) still = new Map(real.data.map(r => [r.id, { g: r._g, at: r._at }]));
+    stillVersion = v;
+  }
+  function letGo() { if (still) { still = null; rebuild(); } }
   function model(view, R = App.computed.value, S = App.schema.value, look = lookOf(view), rows = viewOf(view)?.rows) {
     const st = R.records, N = App.notes.value;
     if (!rows) return null;
@@ -327,13 +342,12 @@ const Table = (() => {
     const f0 = cols[0] && field(cols[0]), by = cols.find(c => c.key === look.group);
     if (rows === 'date' && by) data.sort((a, b) => a[f0].localeCompare(b[f0]));
     else if (rows === 'date') {
-      const month = today.slice(0, 7);
-      for (const r of data) r._g = r._m[f0].due ? 'overdue' : r[f0].slice(0, 7);
-      const keys = [...new Set(data.map(r => r._g))];
-      const ahead = keys.filter(k => k !== 'overdue' && k >= month).sort(), past = keys.filter(k => k !== 'overdue' && k < month).sort().reverse();
-      groups = [...(keys.includes('overdue') ? ['overdue'] : []), ...ahead, ...past];
+      // (A row a change has just moved stays where it was, till the grid's left: holdRows.)
+      const month = today.slice(0, 7), held = view === stillIn ? still : null;
+      for (const r of data) { const k = held?.get(r.id); r._g = k?.g ?? (r._m[f0].due ? 'overdue' : r[f0].slice(0, 7)); r._at = k?.at ?? r[f0]; }
+      groups = monthsIn(data.map(r => r._g), month);
       const at = new Map(groups.map((g, i) => [g, i]));
-      data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b[f0].localeCompare(a[f0]) : a[f0].localeCompare(b[f0])));
+      data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b._at.localeCompare(a._at) : a._at.localeCompare(b._at)));
     // (The row being typed stays where it's typed, under the rest, till it's left.)
     } else if (f0) data.sort((a, b) => (a.id === keeping) - (b.id === keeping) || text(typeOf(cols[0], a), a[f0]).localeCompare(text(typeOf(cols[0], b), b[f0])));
     // Grouped by a column, the rows fall under its values, in the order it sorts them, Blank last.
@@ -381,13 +395,31 @@ const Table = (() => {
       if (!w) return { ...r, _red: 'add' };
       const _m = { ...r._m };
       for (const c of then.cols) { const f = field(c), v = w[f] ?? null; if (v !== r[f]) _m[f] = { ..._m[f], was: v }; }
-      return { ...r, _m, _fails: w._fails };
+      // Under a change pending a row stays in the group it's in, so the grid holds still as it's previewed.
+      return { ...r, _m, _fails: w._fails, ...(w._g !== undefined && { _g: w._g, _at: w._at }) };
     });
     const kept = new Set(then.data.map(r => r.id));
     for (const w of now.data) if (!kept.has(w.id)) data.push({ ...w, _red: 'go' });
-    return { ...then, data, red: true, fails: now.fails };
+    const used = new Set(data.map(r => r._g));
+    const groups = !then.groups ? null : then.rows === 'date' && !then.named ? monthsIn([...used], App.day.peek().slice(0, 7))
+      : [...then.groups, ...(now.groups ?? []).filter(g => !then.groups.includes(g))].filter(g => used.has(g));
+    return { ...then, data, groups, red: true, fails: now.fails, ...(then.named && { named: new Map([...(now.named ?? []), ...then.named]), grec: new Map([...(now.grec ?? []), ...(then.grec ?? [])]) }) };
   }
   const isRed = r => !!r._red || Object.values(r._m).some(m => 'was' in m);
+  // Values typed, pending, in their rows as they were typed, whatever the day they're from: one from a later day changes
+  // nothing as of the day shown, but it's still what's waiting, and it's not to be typed twice.
+  function typedIn(m, now, typed) {
+    let out = null;
+    for (const t of typed) if (!t.out.args) for (const d of now.data) for (const c of now.cols) {
+      const f = field(c);
+      if (d._m[f]?.id !== t.id) continue;
+      const rows = (out ?? m).data, i = rows.findIndex(r => r.id === d.id), row = rows[i], x = row?._m[f], v = valueOf(t.out);
+      if (!x || 'was' in x || row[f] === v) continue;
+      out ??= { ...m, red: true, data: m.data.slice() };
+      out.data[i] = { ...row, [f]: v, _m: { ...row._m, [f]: { ...x, was: d[f] ?? null } } };
+    }
+    return out ?? m;
+  }
   // The schema as a pending change would leave it, so a heading pasted that the chart hasn't got is a column.
   function schemaWith(p) {
     const S = App.schema.value, recs = p.change.records ?? {};
@@ -406,6 +438,12 @@ const Table = (() => {
   const filed = v => { const l = Tree.linkOf(v); return l.folder ? l.folder.split('/').join(' › ') : l.library || l.host || l.short; };
   const YES = /^(yes|y|true|x|✓|✔|1)$/i, NO = /^(no|n|false|0)$/i;
   const meta = cell => cell.getRow().getData()._m[cell.getField()];
+  // What's really at a cell, under what a change pending shows there.
+  const atCell = cell => (current?.red && real?.data.find(r => r.id === cell.getRow().getData().id)?._m[cell.getField()]) || meta(cell);
+  // A change pending of values typed, in the chart shown (App.put): the grid goes on being typed in, each going with it. Any
+  // other keeps the grid as it would leave it, till it's made or discarded.
+  const running = () => { const p = App.pending.peek(); return !!p?.typed && p.chart === App.chart.peek(); };
+  const locked = () => !!current?.red && !running();
 
   // What a cell's marks mean, on hover: italic is worked out, the corner is typed over what's worked out, and n/a untested.
   function markTip(c, m, v) {
@@ -458,18 +496,20 @@ const Table = (() => {
     onRendered(() => { grow(input, cell); input.focus(); if (!first) input.select(); else input.setSelectionRange(input.value.length, input.value.length); });
     let done = false;
     const bad = () => { input.classList.add('bad'); input.setAttribute('aria-invalid', 'true'); return false; };
-    const keep = () => {
+    const keep = o => {
       if (done) return true;
       if (!readable(cell, input.value)) return bad();
       done = true;
       cancel();
-      put(cell, input.value);
+      put(cell, input.value, o);
       return true;
     };
     input.addEventListener('keydown', e => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); if (!readable(cell, input.value)) return bad(); const cs = ranged; done = true; cancel(); fillWith(cell, input.value, cs); }
       else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); if (keep()) move(e.shiftKey ? 'up' : 'down'); }
       else if (e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); if (keep()) move(e.shiftKey ? 'left' : 'right'); }
+      // F6 keeps it and goes on to the day it asks, where it asks one.
+      else if (e.key === 'F6' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); if (keep({ auto: true })) back(); }
       else if (e.key === 'Escape') { e.stopPropagation(); done = true; cancel(); back(); }
     });
     input.addEventListener('blur', () => { if (!keep()) { done = true; cancel(); } });
@@ -517,7 +557,7 @@ const Table = (() => {
     const close = () => { pop.remove(); removeEventListener('scroll', place, true); };
     const place = () => { if (input.isConnected) paint(); else close(); };
     // Taken, the cell is written as one typed in is (put), or every cell of the range (fillWith); left blank, it's cleared.
-    const take = (value, then) => { if (done) return; done = true; close(); cancel(); if (then === 'fill') fillWith(cell, value, ranged); else { put(cell, value); if (then) move(then); else back(); } };
+    const take = (value, then) => { if (done) return; done = true; close(); cancel(); if (then === 'fill') fillWith(cell, value, ranged); else { put(cell, value, then === 'day' ? { auto: true } : undefined); if (then && then !== 'day') move(then); else back(); } };
     const leave = () => { if (done) return; done = true; close(); cancel(); back(); };
     input.addEventListener('input', () => { typing = true; grow(input, cell); draw(); });
     input.addEventListener('keydown', e => {
@@ -525,6 +565,7 @@ const Table = (() => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); if (items.length) { lit = lit < 0 ? (e.key === 'ArrowDown' ? 0 : items.length - 1) : (lit + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; paint(); } }
       else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); if (it) take(it.value, 'fill'); }
       else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); if (it) take(it.value, go); else if (!q) take('', go); }
+      else if (e.key === 'F6' && !e.shiftKey && it) { e.preventDefault(); e.stopPropagation(); take(it.value, 'day'); }
       else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); leave(); }
       else if (e.key === 'Home' || e.key === 'End' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.stopPropagation();
     });
@@ -641,16 +682,17 @@ const Table = (() => {
   const heading = c => `${c.head?.length > 1 ? `<span class="up">${esc(c.head.slice(0, -1).join(' › '))}</span>` : ''}<span class="t">${esc(c.title)}</span>`
     + `<span class="funnel" role="button" aria-label="Filter" data-tip="Filter">${FUNNEL}</span>`
     + `<button type="button" class="col-menu" tabindex="-1" aria-haspopup="menu" aria-label="${esc(c.title)}" data-tip="Column menu" data-keys="Alt+↓">${CHEVRON}</button>`;
-  function columnDefs(m, look = lookOf(m.view)) {
+  // (`widths`, by field: built again under a redline, a column keeps the width it had, so no width changes under a preview.)
+  function columnDefs(m, look = lookOf(m.view), widths = null) {
     const defs = m.cols.filter(drawn).map(c => {
-      const editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of' && c.key !== '$why', right = NUMERIC.has(c.type) ? 'right' : 'left', width = look.widths?.[c.key];
+      const editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of' && c.key !== '$why', right = NUMERIC.has(c.type) ? 'right' : 'left', width = widths?.get(field(c)) ?? look.widths?.[c.key];
       return {
         title: c.title, titleDownload: headed(c), field: field(c), minWidth: c.type === 'tag' ? 56 : 72, maxInitialWidth: 340, ...(width && { width }), ...(c.key === '$why' && { variableHeight: true }),
         titleFormatter: () => heading(c),
         hozAlign: right, headerHozAlign: right, cssClass: 'c-' + (c.key === '$why' ? 'why' : c.type === 'edge' ? 'edge' : c.type) + (look.filters?.[c.key] ? ' filtered' : '') + (look.sort?.key === c.key ? ' sorted' : ''),
         sorter: sorter(c),
         formatter: formatter(c),
-        editable: cell => !App.readOnly.peek() && !current?.red && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
+        editable: cell => !App.readOnly.peek() && !locked() && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
         editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? chooser(c) : editor(c, put),
         accessorClipboard: (v, d) => plain(typeOf(c, d), read(c, d, v)), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), read(c, d, v))),
       };
@@ -761,7 +803,7 @@ const Table = (() => {
     // moves no row under the pointer; in another, with nothing.
     const look = lookOf(m.view), h = table?.rowManager.element;
     const was = table && ready && built?.view === m.view ? { ...scrolled(table), top: h.scrollTop, tall: Math.max(...table.getColumns().map(c => c.getElement().offsetHeight)),
-      fields: table.getColumns().map(c => c.getField()).filter(Boolean), pins: pinsOf(table).map(c => c.getField()) } : null;
+      fields: table.getColumns().map(c => c.getField()).filter(Boolean), pins: pinsOf(table).map(c => c.getField()), widths: new Map(table.getColumns().filter(c => c.getField()).map(c => [c.getField(), c.getWidth()])) } : null;
     if (!was) chosen = keeping = null;
     if (table) { table.destroy(); table = null; }
     ready = false;
@@ -776,7 +818,7 @@ const Table = (() => {
     const t = table = new Tabulator(host, {
       // A column is sized at its heading's edge, as Excel's is, and a row is only its cells. A field is a column's
       // key as it stands, dots and all. The grid is laid out again as settle says, not as Tabulator watches its size.
-      index: 'id', data: m.data, columns: columnDefs(m, look), columnDefaults: { resizable: 'header' }, nestedFieldSeparator: false, height: '100%', layout: 'fitDataSlack', autoResize: false,
+      index: 'id', data: m.data, columns: columnDefs(m, look, m.red ? was?.widths : null), columnDefaults: { resizable: 'header' }, nestedFieldSeparator: false, height: '100%', layout: 'fitDataSlack', autoResize: false,
       placeholder: m.isKind ? `No ${plural(m.noun)}` : 'No rows',
       rowHeader: { formatter: 'rownum', headerSort: false, resizable: false, frozen: true, hozAlign: 'right', width: 48, minWidth: 48, cssClass: 'rn' },
       selectableRange: 1, selectableRangeColumns: true, selectableRangeRows: true, selectableRangeInitializeDefault: false,
@@ -877,14 +919,15 @@ const Table = (() => {
   const sameRow = (a, b) => !!b && Object.keys(a).length === Object.keys(b).length
     && Object.keys(a).every(k => a[k] === b[k] || (typeof a[k] === 'object' && a[k] !== null && (k === '_m' ? sameIn(a[k], b[k]) : JSON.stringify(a[k]) === JSON.stringify(b[k]))));
   function refresh() {
-    const view = Shell.view.value, v = viewOf(view), p = FormulaBar.pending.value;
+    const view = Shell.view.value, v = viewOf(view), p = FormulaBar.pending.value, q = App.pending.value, typed = q?.typed && q.chart === App.chart.peek() ? q.typed : null;
     if (!el || v?.layout !== 'table') return;
     // A grid is built and drawn only in its slot shown; asked for while it's hidden, it's done once the slot shows.
     owed = !el.offsetParent;
     if (owed) return;
     // What it shows is worked out from these: shown again with them as they were, the grid is as it was.
-    const from = [view, p, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value, App.viewing.value, viewed.value];
+    const from = [view, p, typed, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value, App.viewing.value, viewed.value];
     if (table && ready && !flight && drewFrom?.every((x, i) => x === from[i])) return settle();
+    holdRows(view);
     const now = model(view);
     real = now;
     // A table whose rows aren't chosen yet.
@@ -896,6 +939,7 @@ const Table = (() => {
       for (const c of m.cols) if (App.pending.peek()?.cols?.has(c.key)) c.pasted = true;
       entitle(m);
     }
+    if (typed) m = typedIn(m, now, typed);
     current = m;
     shownM.value = m;
     // Under a table whose rows are a kind's or a relation's, a row for a new one, where the chart can be changed.
@@ -944,7 +988,8 @@ const Table = (() => {
       // A group's sums and checks say what its rows now hold.
       if (m.groups) for (const g of t.getGroups()) g._group.generateGroupHeaderContents();
       mark();
-      if (first) reveal(first);
+      // (What's redlined comes into view, unless the row in hand is among it.)
+      if (first && !red.has(Shell.selection.peek()[0])) reveal(first);
       flash(lit);
       regain();
       stay();
@@ -970,12 +1015,14 @@ const Table = (() => {
     if (owed) return refresh();
     const t = table;
     if (!t || !ready || flight || t.modules.edit?.currentCell) return;
-    const h = t.element.clientHeight;
+    const h = t.element.clientHeight, shrunk = h < (tall.get(t) ?? 0);
     // (Built with its slot hidden, it's never been fitted, and has no rows drawn to fit it to: it's drawn afresh.)
     if (laid.get(t) !== widthOf(t)) t.redraw(!laid.has(t));
     else if (tall.get(t) !== h) t.rowManager.redraw();
     else return;
     tall.set(t, h);
+    // (The bar come up under it, the cell being typed down stays in view.)
+    if (shrunk && running()) { const a = t.modules.selectRange?.getActiveCell(); if (a) reveal(a.row.getData().id); }
     regain();
   }
 
@@ -1061,7 +1108,15 @@ const Table = (() => {
     const sr = table.modules.selectRange;
     if (table.modules.edit?.currentCell) return;
     if (e.target.closest?.('.tabulator-header')) return;
+    // Esc from the cells drops what's waiting on the bar, as it does from the bar.
+    if (e.key === 'Escape' && running()) { e.preventDefault(); e.stopPropagation(); App.discard(); return; }
     if (/^(Arrow|Page|Home$|End$|Tab$|Enter$|F2$)/.test(e.key) && !sr?.activeRange) { e.preventDefault(); e.stopPropagation(); activate(true); return; }
+    // Down from the last row goes on to the new one under it.
+    if (e.key === 'ArrowDown' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && el?.classList.contains('adds') && shownRows().at(-1)?.getData().id === sr.getActiveCell()?.row.getData().id) {
+      e.preventDefault(); e.stopPropagation();
+      rowEl?.querySelector('input, button')?.focus();
+      return;
+    }
     // Alt+Down opens the active cell's column's menu, as it opens a heading's filter in Excel; the cell stays where it is.
     if (e.key === 'ArrowDown' && e.altKey && !current?.red) {
       e.preventDefault(); e.stopPropagation();
@@ -1107,33 +1162,53 @@ const Table = (() => {
   // [row, edge, name] }, a relation's side moved; or { list: [row, column, names] }, a list's relatives named. Null where
   // it writes nothing; false where it can't be read.
   function writing(cell, raw) {
-    const c = columnOf(cell), m = meta(cell), st = App.state.peek(), r = m?.id && st[m.id], entered = !!m?.id && m.id in App.entered.peek();
+    const c = columnOf(cell), m = atCell(cell), st = App.state.peek(), r = m?.id && st[m.id], entered = !!m?.id && m.id in App.entered.peek(), row = cell.getRow().getData().id;
     if (!c || !m) return null;
-    if (c.type === 'edge') return clean(raw) ? { side: [cell.getRow().getData().id, c.edge, raw] } : null;
+    // Typed back to what it is, what's waiting of it goes (App.put).
+    const back = id => App.held(id) !== undefined ? { back: id } : null;
+    if (c.type === 'edge') {
+      const args = clean(raw) && sideTo(st, row, c.edge, raw);
+      if (!args) return null;
+      return JSON.stringify(args) === JSON.stringify(st[row].args) ? back(row) : { side: [row, c.edge, raw], typed: { id: row, slot: st[row], out: { args, ...outputOf(st[row]) } } };
+    }
     if (c.key === '$why') return null;
-    if (c.type === 'list') return m.at && !c.fx && !c.choice && namesIn(raw).join('\n') !== (m.names ?? []).join('\n') ? { list: [cell.getRow().getData().id, c, raw] } : null;
+    if (c.type === 'list') return m.at && !c.fx && !c.choice && namesIn(raw).join('\n') !== (m.names ?? []).join('\n') ? { list: [row, c, raw] } : null;
     const s = clean(raw);
-    if (!s) return entered ? { gone: m.id } : null;
+    if (!s) return back(m.id) ?? (entered ? { gone: m.id } : null);
     const out = value(typeFor(c, r, s), s);
     if (!out) return false;
-    if (entered && JSON.stringify(valueOf(out)) === JSON.stringify(valueOf(r))) return null;
+    if (r && JSON.stringify(valueOf(out)) === JSON.stringify(valueOf(r))) return back(m.id);
     const p = placed(m, c, out);
-    return p ? { put: p } : null;
+    return p ? { put: p, typed: { id: m.id ?? null, slot: r || { at: m.at, edge: c.path?.at(-1) }, out } } : null;
   }
-  // What several cells write, as one change: a correction, or with a day shown, from that day on. Relatives named in a
+  // A record's output alone.
+  const outputOf = r => 'choice' in r ? { choice: r.choice } : 'tag' in r ? { tag: r.tag } : 'field' in r ? { field: r.field, value: r.value } : {};
+  // What several cells write. A value is typed as in the panel, by the one rule (App.put): where it asks from when, it waits
+  // on the window's bar, redlined here, with all else typed in the run, from the one day asked; what asks nothing is made at
+  // once, as one change, from the day shown or else corrected, a first value or a date among them. Relatives named in a
   // list's cells relate it as a paste does, a change pending (stage), and those it no longer names end, as Delete… asks.
-  function write(ws, say) {
+  // `auto`: the keys go to the day, where one's asked.
+  function write(ws, say, { auto = false } = {}) {
     ws = ws.filter(Boolean);
-    if (!ws.length || App.readOnly.peek() || current?.red) return false;
-    const lists = ws.filter(w => w.list);
+    if (!ws.length || App.readOnly.peek() || locked()) return false;
+    const lists = ws.filter(w => w.list), st = App.state.peek();
     ws = ws.filter(w => !w.list);
     if (lists.length) stage(real, () => ({ keys: [], plan: lists.map(({ list: [row, c, raw] }) => ({ row, key: [], cells: [[c, raw]] })) }), { verb: 'Add' });
+    const waits = w => !!w.back || (w.typed && (App.held(w.typed.id) !== undefined || App.asksFrom(w.typed.id, w.typed.out)));
+    const asked = ws.filter(waits);
+    ws = ws.filter(w => !waits(w));
+    asked.forEach((w, i) => {
+      ran = true;
+      if (w.back) App.put(w.back, st[w.back], false);
+      else App.put(w.typed.id, w.typed.slot, w.typed.out, { auto: auto && i === asked.length - 1 });
+    });
     if (!ws.length) return true;
-    const st = App.state.peek(), records = Object.fromEntries(ws.filter(w => w.put).map(w => w.put));
+    const records = Object.fromEntries(ws.filter(w => w.put).map(w => w.put));
     return edit(tx => { fill(tx, records); ws.forEach(w => w.gone ? tx.remove(w.gone) : w.side && side(tx, st, ...w.side)); }, say);
   }
+  let ran = false;   // the grid began what's waiting on the bar, so the keys come back to it after
   // A value typed or chosen in a cell.
-  function put(cell, raw) { const w = writing(cell, raw); return w === false ? false : !w || write([w]); }
+  function put(cell, raw, o) { const w = writing(cell, raw); return w === false ? false : !w || write([w], undefined, o); }
   const value = (type, s) => {
     if (type === 'choice') return { choice: s };
     if (type === 'tag') return YES.test(s) ? { tag: true } : NO.test(s) ? { tag: false } : null;
@@ -1147,32 +1222,41 @@ const Table = (() => {
     if (c.key === '$out' || !m.at) return null;
     return [Log.newId(), { at: m.at, edge: c.path?.at(-1) ?? App.state.peek()[m.id].edge, ...out }];
   }
-  // A relation's side moved to another object, found by name.
-  function side(tx, st, row, edge, name) {
+  // A relation's sides with one moved to another object, found by name; null where the name finds none.
+  function sideTo(st, row, edge, name) {
     const o = onRelation(current, edge) ? sideRecords(current, edge).find(x => same(x.name, name))?.id : find(st, name, sideKinds(current, edge)), to = o && follow(st, o, sideLoc(current, edge));
-    if (to) tx.update(row, { args: st[row].args.map(a => same(a.edge, edge) ? { edge: a.edge, at: to } : a) });
+    return to ? st[row].args.map(a => same(a.edge, edge) ? { edge: a.edge, at: to } : a) : null;
   }
-  // A tag's box: blank, attested, ruled out, and blank again. A box a formula covers is no click from a false fact: worked
-  // out or typed over, clicked or by Space, it opens its reason, where overriding it is a command of its own; one it has said
-  // nothing of, or not tested, has no reason to open and writes nothing.
+  function side(tx, st, row, edge, name) {
+    const args = sideTo(st, row, edge, name);
+    if (args) tx.update(row, { args });
+  }
+  // A tag's box: blank, attested, ruled out, and blank again, each typed as a value is (App.put), asking from when where it
+  // has history to keep. A box a formula covers is no click from a false fact: worked out or typed over, clicked or by Space,
+  // it opens its reason, where overriding it is a command of its own; one it has said nothing of, or not tested, has no reason
+  // to open and writes nothing.
   function flip(cell) {
-    const m = meta(cell), c = columnOf(cell), v = cell.getValue(), entered = m.id in App.entered.value;
-    if (!m.at || current.red || v === NA || m.quiet) return;
+    const m = atCell(cell), c = columnOf(cell), v = cell.getValue(), r = m.id && App.state.peek()[m.id];
+    if (!m.at || locked() || v === NA || m.quiet) return;
     if (m.fx || App.computed.peek().covered?.[m.id]) {
       const row = cell.getRow().getData().id;
       if (!Shell.selection.peek().includes(row)) Shell.select([row]);
       return Shell.emit('why-open', m.id);
     }
     if (App.readOnly.peek() || (c.check && v !== false)) return;
-    if (v === false && entered) edit(tx => tx.remove(m.id));
-    else { const p = placed(m, c, { tag: v !== true }); if (p) enter(Object.fromEntries([p])); }
+    const next = v === true ? false : v === false ? null : true, held = !!m.id && App.held(m.id) !== undefined;
+    if (held && (next === null || r?.tag === next)) { App.put(m.id, r, false); return; }
+    if (next === null) { if (m.id in App.entered.peek()) edit(tx => tx.remove(m.id)); return; }
+    write([{ put: placed(m, c, { tag: next }), typed: { id: m.id ?? null, slot: r || { at: m.at, edge: c.path?.at(-1) }, out: { tag: next } } }]);
   }
-  // Clears the cells of the range: the values entered there go, as one change; a list's relatives end, as Delete… asks.
+  // Clears the cells of the range: the values entered there go, as one change; what's waiting of them on the bar goes from
+  // it; a list's relatives end, as Delete… asks.
   function clear() {
-    const ids = new Set(), entered = App.entered.value, lists = [];
+    const ids = new Set(), entered = App.entered.value, lists = [], st = App.state.peek();
     for (const r of table.getRanges()) for (const cell of r.getCells().flat()) {
-      const m = cell.getField() && meta(cell);
+      const m = cell.getField() && atCell(cell);
       if (columnOf(cell)?.type === 'list') lists.push(writing(cell, ''));
+      else if (m?.id && App.held(m.id) !== undefined) App.put(m.id, st[m.id], false);
       else if (m?.id && m.id in entered && columnOf(cell).type !== 'edge' && columnOf(cell).key !== '$out') ids.add(m.id);
     }
     if (lists.some(Boolean)) write(lists);
@@ -1470,9 +1554,14 @@ const Table = (() => {
     const say = !x.values && !x.rows.length ? ch => Time.describe(ch)
       : [x.values && `${file ? 'Imported' : 'Pasted'} ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
         .filter(Boolean).join(', ').replace(/^a/, 'A').replace(/^Added/, file ? 'Imported' : 'Added') + (file ? ` from ${file}` : '');
-    const asks = [...x.rows, ...x.rels].some(id => App.asksDay(x.records[id], recs));
+    // By the one rule (App.put): a value over one with history to keep asks from when, as one typed there does.
+    const over = Object.keys(x.records).filter(id => App.asksFrom(id, x.records[id]));
+    const asks = over.length > 0 || [...x.rows, ...x.rels].some(id => App.asksDay(x.records[id], recs));
     const make = (tx, d, p) => { fill(tx, x.records); for (const id of x.ends) tx.remove(id, p?.asks === 'from' ? d : App.day.peek()); };
-    if (single && !x.rows.length && !x.made.length && !x.rels.length && !x.ends.length && !asks) { App.change(tx => make(tx), { say }); return back(); }
+    if (single && !x.rows.length && !x.made.length && !x.rels.length && !x.ends.length) {
+      if (over.length) { ran = true; const [id] = over; App.put(id, st[id], x.records[id]); return back(); }
+      if (!asks) { App.change(tx => make(tx), { say }); return back(); }
+    }
     const shownCols = new Set(m.cols.filter(drawn).map(c => c.key));
     // What it does, in the redline's ink, as the bar says it; what's left out, which it doesn't do, plain. The names it
     // adds, each a choice: those close to one the chart has, every one, asking; then the rest, three in all.
@@ -1773,7 +1862,7 @@ const Table = (() => {
       e.classList.toggle('sorted', !!c && l.sort?.key === c.key);
     }
   }
-  const group = c => { setLook(current.view, { group: c?.key }); rebuild(); };
+  const group = c => { still = null; setLook(current.view, { group: c?.key }); rebuild(); };
   const freeze = n => { setLook(current.view, { frozen: n === 1 ? undefined : n }); rebuild(); };
   function keepWidth(col) {
     const m = current, c = m?.byField.get(col.getField());
@@ -2384,7 +2473,7 @@ const Table = (() => {
   // Home and End go to the row's first and last cells, with Ctrl the grid's; Alt+Down opens the column's menu; Ctrl+D
   // and Ctrl+R fill down and right.
   function keydown(e) {
-    if (!table || table.modules.edit?.currentCell || e.target.closest('.tabulator-header') || current?.red) return;
+    if (!table || table.modules.edit?.currentCell || e.target.closest('.tabulator-header') || locked()) return;
     const cell = table.modules.selectRange?.getActiveCell()?.getComponent(), mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
     if (!cell) return;
     const rows = table.getRows('active'), cols = table.getColumns().filter(c => c.getField()), r0 = table.getRanges()[0];
@@ -2451,8 +2540,10 @@ const Table = (() => {
       const offs = [
         effect(() => { if (!Shell.gliding.value) preactSignals.untracked(settle); }),
         effect(() => { App.state.value; App.notes.value; App.schema.value; Shell.time.value; refresh(); }),
+        // What the grid began on the bar done with, the keys come back to it (App.after puts them in the view).
+        effect(() => { if (App.pending.value?.typed || !ran) return; ran = false; setTimeout(() => setTimeout(() => { const a = document.activeElement; if (el?.offsetParent && (!a || a === document.body || a.id === 'view')) focus(); })); }),
         // The rows of the records selected are marked; selected elsewhere, the first is brought into view, its row the keys'.
-        effect(() => { const ids = Shell.selection.value, id = ids[0]; mark(); if (!picking) preactSignals.untracked(() => track(id)); if (keeping && ids.length && !ids.includes(keeping)) setTimeout(leave); }),
+        effect(() => { const ids = Shell.selection.value, id = ids[0]; mark(); if (!picking) preactSignals.untracked(() => track(id)); if (keeping && ids.length && !ids.includes(keeping)) setTimeout(leave); if (still && !picking && !inside) setTimeout(letGo); }),
       ];
       return () => { offs.forEach(f => f()); sized.disconnect(); shown.disconnect(); preact.render(null, tools); preact.render(null, rowEl); table?.destroy(); table = null; el = cells = rowEl = pins = null; };
     },

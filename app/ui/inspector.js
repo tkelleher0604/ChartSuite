@@ -97,10 +97,7 @@ function filingIn(R, due) {
 
 // The specifications of entries with this edge at locations like t, and what one takes there.
 const specsAt = (t, edge) => Object.values(App.schema.value).filter(s => s.args?.length === 1 && T.same(s.args[0].edge, edge) && T.narrower(t, s.args[0].loc));
-function optionsOf(specs) {
-  const p = specs[0] && T.bare(specs[0]), rank = o => N().optionOrder({ out: { choice: o }, args: p.args }) ?? Infinity;
-  return [...new Set(specs.filter(s => 'choice' in s.out).map(s => s.out.choice))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-}
+const optionsOf = specs => N().optionsOf(specs);
 function kindAt(t, edge) {
   const specs = specsAt(t, edge), s = specs[0];
   return !s ? { type: 'field', datatype: null } : 'field' in s.out ? { type: 'field', datatype: s.out.field } : 'choice' in s.out ? { type: 'choice', options: optionsOf(specs) } : { type: 'tag' };
@@ -1612,6 +1609,7 @@ function GeneralView({ p, style }) {
       ${rel ? n.edges(p).map(e => html`<div class="row" key=${'l' + e}><div class="k">${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
       ${kind || rel ? null : checkRow('Required', n.required(p), on => flag('Required', p, on))}
+      ${kind || rel || dated ? null : checkRow('Changes over time', !n.fixed(p), on => flag('Fixed', p, on ? undefined : true))}
       ${dated ? ['Start', 'End'].map(l => checkRow(l, l === 'Start' ? n.isStart(dp) : n.isEnd(dp), on => flag(l, dp, on))) : null}
       ${adds.length ? html`<${AddRow} items=${() => adds} />` : null}
     </div>
