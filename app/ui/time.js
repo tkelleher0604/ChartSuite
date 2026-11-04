@@ -318,7 +318,14 @@ const Time = (() => {
     App.version.value;
     const wb = App.wb, c = App.chart.value, rows = new Map(), by = new Map(), mine = [], changes = wb.changes().filter(ch => ch.chart === c);
     for (const ch of wb.changes()) for (const r of ch.adds) { rows.set(r.id, r); by.set(r.id, ch.id); if (ch.chart === c) mine.push(r); }
-    return { rows, by, recs: recordsOf(mine), changes, byId: new Map(changes.map(ch => [ch.id, ch])), at: new Map(changes.map((ch, i) => [ch.id, i])), live: new Set(wb.rows(c).map(r => r[Log.typeOf(r)])) };
+    // Every version of a name that's had more than one, and which changes had it: an entry names a record as it was named then.
+    const named = new Map();
+    changes.forEach((ch, i) => {
+      for (const r of ch.adds) if ('record' in r && r.at && (Tree.same(r.edge ?? '', 'Name') || Tree.same(r.edge ?? '', 'Short Name'))) { if (!named.has(r.record)) named.set(r.record, []); named.get(r.record).push({ row: r, from: i, to: Infinity }); }
+      for (const id of ch.removes) { const r = rows.get(id), v = r && named.get(r.record)?.find(x => x.row.id === id); if (v) v.to = i; }
+    });
+    for (const [id, vs] of named) if (vs.length < 2) named.delete(id);
+    return { rows, by, recs: recordsOf(mine), changes, named, thens: new Map(), byId: new Map(changes.map(ch => [ch.id, ch])), at: new Map(changes.map((ch, i) => [ch.id, i])), live: new Set(wb.rows(c).map(r => r[Log.typeOf(r)])) };
   });
   // The chart's notes as they are now, whatever moment or day is shown, so an entry's words never change with where you're
   // standing; and the names of what its definitions work out.
@@ -375,7 +382,21 @@ const Time = (() => {
     c.adds.forEach(r => put(r, 'now'));
     return items;
   }
-  const recsFor = c => { const { recs: logged } = ever.peek(), own = recordsOf(c.adds); return Object.keys(own).every(id => id in logged) ? logged : { ...logged, ...own }; };
+  // The records a change is read in: every record's latest version, and its name as the log had it just after that change, on
+  // the day it was made. So what's typed in 2024 says the name of 2024, whatever it's been renamed since (dendra.md, History).
+  const recsFor = c => {
+    const E = ever.peek(), own = recordsOf(c.adds), base = Object.keys(own).every(id => id in E.recs) ? E.recs : { ...E.recs, ...own };
+    if (!E.named.size) return base;
+    const i = E.at.get(c.id), day = Tree.isoOf(new Date(c.when)), over = [];
+    for (const [id, vs] of E.named) {
+      const live = vs.filter(v => v.from <= i && i < v.to), v = live.find(x => Log.validOn(x.row, day)) ?? live.at(-1);
+      if (v && base[id] && v.row.value !== base[id].value) over.push([id, v.row.value]);
+    }
+    if (!over.length) return base;
+    const k = JSON.stringify(over) + (base === E.recs ? '' : c.id);
+    if (!E.thens.has(k)) { const then = { ...base }; for (const [id, value] of over) then[id] = { ...then[id], value }; E.thens.set(k, then); }
+    return E.thens.get(k);
+  };
   function read(c, near = null) {
     // A reason given afterwards is a change that says so, with no rows: it's said by what it's about.
     if (c.about) { const of = ever.peek().byId.get(c.about); return near ? [] : [{ text: `Gave a reason for: ${of ? headOf(read(of)) : 'a change'}`, sub: [] }]; }
@@ -990,6 +1011,46 @@ const Time = (() => {
       parts: [html`<span class=${redo ? 'add' : 'del'}>${what}</span>`, ...(taken.length ? [html`Takes with it: ${taken.map((t, i) => html`${i ? '; ' : ''}<span class="del">${t}</span>`)}`] : [])] });
   }
 
+  // History narrowed by who made a change, the days it was made on, and the words in it (dendra.md, History).
+  const byWho = signal(null), byDays = signal(null), byWords = signal('');
+  const typedOn = c => Tree.isoOf(new Date(c.when));
+  const upTo = s => s?.length === 4 ? `${s}-12-31` : s?.length === 7 ? `${s}-31` : s;
+  const ago = n => { const d = new Date(); d.setDate(d.getDate() - n); return Tree.isoOf(d); };
+  const onDays = (c, d = byDays.peek()) => !d || ((!d.from || typedOn(c) >= d.from) && (!d.to || typedOn(c) <= upTo(d.to)));
+  const hasWords = (c, w) => { const says = l => [l.text, ...(l.sub ?? []).map(says)].join(' '); return !w || Tree.norm([...reading(c).map(says), c.who, ...App.wb.reasons(c.id).map(r => r.text)].join(' ')).includes(w); };
+  const narrowed = e => (!byWho.peek() || e.change.who === byWho.peek()) && onDays(e.change) && hasWords(e.change, Tree.norm(byWords.peek()));
+  const daysMenu = e => { const at = e.currentTarget, between = () => Shell.popover(at, close => html`<${Between} close=${close} />`, { placement: 'bottom-start' });
+    Shell.menu(at, [...[['Any day', null], ['Last 30 days', { from: ago(30), said: 'Last 30 days' }], ['Last 90 days', { from: ago(90), said: 'Last 90 days' }], [`This year`, { from: Log.today().slice(0, 4), said: 'This year' }]].map(([label, d]) => ({ label, checked: (byDays.peek()?.said ?? 'Any day') === label, run: () => { byDays.value = d; } })), { label: 'Between…', checked: !!byDays.peek()?.between, run: () => setTimeout(between) }]); };
+  function Between({ close }) {
+    const d = byDays.peek(), [from, setFrom] = useState(d?.from ? short(d.from) : ''), [to, setTo] = useState(d?.to ? short(d.to) : '');
+    const read = s => (s.trim() ? Tree.parseKnown(s) ?? undefined : null), a = read(from), b = read(to);
+    const ok = () => { if (a === undefined || b === undefined) return; byDays.value = a || b ? { from: a, to: b, between: true, said: `${a ? short(a) : '…'} to ${b ? short(b) : '…'}` } : null; close(); };
+    const key = e => { if (e.key === 'Enter') { e.preventDefault(); ok(); } };
+    return html`<div class="hist-between"><label>From <input class="cell date" autofocus spellcheck=${false} value=${from} aria-invalid=${a === undefined ? 'true' : null} onInput=${e => setFrom(e.target.value)} onKeyDown=${key} /></label>
+      <label>To <input class="cell date" spellcheck=${false} value=${to} aria-invalid=${b === undefined ? 'true' : null} onInput=${e => setTo(e.target.value)} onKeyDown=${key} /></label>
+      <button type="button" class="btn primary" onClick=${ok}>Done</button></div>`;
+  }
+  // The log as a document an examiner can open: what History lists now, narrowed as it's narrowed, each change with who made it and
+  // when, when it holds, why, what it did to the status and what it holds, undone ones saying so; by Excel.
+  async function exportLog(list) {
+    const N = notesNow(), rows = [], stop = Shell.toast(`Writing ${list.length} changes…`, { ms: 60000 });
+    try {
+      for (const e of list) {
+        const c = e.change, lines = reading(c);
+        let fx = known(c);
+        if (!fx && !undone(e) && !c.about && movesStatus(c)) { try { fx = effectOf(c); } catch {} await new Promise(r => setTimeout(r)); }
+        const holds = lines.length > 1 || lines.some(l => l.sub.length) ? lines.flatMap(l => [l.text, ...l.sub.map(s => `  ${s.text}`)]).join('\n') : '';
+        rows.push([new Date(c.when), c.who, describe(c), App.wb.reasons(c.id).map(r => r.own ? r.text : `${r.text} (${r.who}, ${short(Tree.isoOf(new Date(r.when)))})`).join('\n'),
+          fx?.moved.map(x => `${SAID[x.k]} ${x.was} → ${x.now}`).join(', ') ?? '', struck(e) ? `Undone${e.by && !struck(e.by) ? ` by ${e.by.change.who}` : ''}` : '', holds]);
+      }
+      const narrow = [byWho.peek(), byDays.peek()?.said, byWords.peek() && `“${byWords.peek()}”`, focus.peek() && (focus.peek().rule ? `changes to ${focus.peek().name}` : `changes to ${focus.peek().map(id => N.nameOf(ever.peek().recs, id)).join(', ')}`), kind.peek() !== 'all' && KINDS.find(([x]) => x === kind.peek())[1]].filter(Boolean);
+      const chartName = App.wb.charts().find(x => x.chart === App.chart.peek())?.name ?? 'Chart';
+      await Table.plainFile({ name: `${chartName} - History`, sheet: 'History', title: `History of ${chartName}: ${list.length} ${list.length === 1 ? 'change' : 'changes'}${narrow.length ? `, ${narrow.join(', ')}` : ''}. Exported ${short(Log.today())}${App.who() ? ` by ${App.who()}` : ''}.`,
+        head: ['Recorded', 'Who', 'What', 'Why', 'Status', 'Undone', 'What it holds'], rows, widths: [18, 18, 60, 40, 22, 14, 80], when: [0], wrap: [2, 3, 4, 6] });
+    } catch (x) { Shell.toast(x?.message || 'Couldn’t export'); } finally { stop(); }
+  }
+  // A reason given and undone stays on what it was about, struck, as an undone change does.
+  const takenBack = c => entries.peek().filter(e => e.change.about === c.id && struck(e)).map(e => ({ note: e.change.note, who: (e.by?.change ?? e.chain.at(-1)).who }));
   function History() {
     const t = Shell.time.value, E = ever.value, m = mode.value, ref = useRef(), k = kind.value, sel = Shell.selection.value, unfold = unfolded.value, opened = opens.value, viewing = App.viewing.value, asking = App.pending.value?.reverse;
     worked.value;
@@ -999,7 +1060,8 @@ const Time = (() => {
     const touches = c => [...c.adds, ...c.removes.map(id => E.rows.get(id)).filter(Boolean)]
       .some(r => rule ? 'note' in r && !r.view && rule.rule.has(Tree.key(r.pattern)) && r.label !== 'Order' : near.has(r.record) || ('note' in r && [...Tree.idsIn(r.pattern)].some(id => near.has(id))));
     const linesOf = c => near && !c.amends ? read(c, near) : reading(c);
-    const changes = m === 'all' ? entries.value.filter(e => standing(e) && (k === 'all' || kindsOf(e.change).has(k)) && (!near || (touches(e.change) && linesOf(e.change).length))).reverse() : [];
+    byWho.value; byDays.value; byWords.value;
+    const changes = m === 'all' ? entries.value.filter(e => standing(e) && (k === 'all' || kindsOf(e.change).has(k)) && (!near || (touches(e.change) && linesOf(e.change).length)) && narrowed(e)).reverse() : [];
     const gone = m === 'deleted' ? deleted().filter(d => !near || near.has(d.item)) : [];
     useLayoutEffect(() => { ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' }); }, [t?.stood]);
     // What the status did, worked out after the panel is drawn: what's opened or picked first, then rules, then the rest.
@@ -1014,7 +1076,8 @@ const Time = (() => {
     let lastDay = null;
     const row = e => {
       // An entry struck offers to redo it; what's in the log for it now is its last.
-      const c = e.change, last = lastOf(e), off = struck(e), on = t?.stood === c.id, lines = linesOf(c), u = reversalOf(c), fx = known(c), has = lines.length > 1 || lines.some(l => l.sub.length || l.rows || l.was != null) || !!fx?.moved.length || !!fx?.which?.length || !!e.was, shows = opened.has(c.id);
+      // (One change reads as holding one number of things wherever it's read: what's about a record first, then the rest.)
+      const c = e.change, last = lastOf(e), off = struck(e), on = t?.stood === c.id, lines = linesOf(c), every = near && !c.amends ? reading(c) : lines, u = reversalOf(c), fx = known(c), has = every.length > 1 || lines.some(l => l.sub.length || l.rows || l.was != null) || !!fx?.moved.length || !!fx?.which?.length || !!e.was, shows = opened.has(c.id);
       // What it was before it was changed, each step, each a click from the chart as it stood then.
       const before = []; for (let w = e.was; w; w = w.was) before.push(w);
       // A change that can be changed says so where it's read; one a later change rests on says that, as its Undo does.
@@ -1028,14 +1091,15 @@ const Time = (() => {
       return html`${head}<div class=${'hist-row' + (off || dark ? ' undone' : '') + (asking === last.id ? ' asked' : '')} role="button" aria-selected=${on} onClick=${() => on ? now() : stand(c)}>
         ${has ? html`<button class="hist-chev" aria-expanded=${shows} aria-label=${shows ? 'Less' : 'What it holds'} data-tip=${shows ? 'Less' : 'What it holds'} onClick=${open_}>${Shell.icon(shows ? 'chevron-up' : 'chevron')}</button>` : null}
         <div class="what">${u ? html`${u.word}: <button class="lk" onClick=${ev => { ev.stopPropagation(); stand(u.root); }}>${describe(u.root)}</button>`
-          : lines.length > 1 ? html`${lines[0].text}, <button class="lk more" onClick=${open_}>and ${lines.length - 1} more</button>` : lines[0]?.text ?? 'Changed the chart'}</div>
+          : every.length > 1 ? html`${lines[0]?.text ?? every[0].text}, <button class="lk more" onClick=${open_}>and ${every.length - 1} more</button>` : lines[0]?.text ?? 'Changed the chart'}</div>
         ${App.wb.reasons(c.id).map(r => html`<div class="note">${r.text}${r.own ? null : html`<span class="by"> · ${r.who}, ${short(Tree.isoOf(new Date(r.when)))}</span>`}</div>`)}
-        <div class="meta">${near ? `typed ${short(Tree.isoOf(new Date(c.when)))}, ${c.who}` : `${c.who} · ${clock(c.when)}`}${off ? ' · undone' : dark ? ' · gone with what it’s at' : ''}${undoneBy ? html` by ${e.by ? html`<button class="lk" onClick=${ev => { ev.stopPropagation(); stand(e.by.change); }}>${undoneBy}</button>` : undoneBy}` : null}${act ? html` · <button class="lk change" aria-disabled=${bar ? 'true' : null} data-tip=${bar ? `A later change rests on it: ${describe(bar)}` : null} onClick=${ev => { ev.stopPropagation(); if (bar) stand(bar); else { now(); App.amending(c); } }}>Change…</button>` : null}${!viewing && !off && !c.about && !u ? html` · <button class="lk why-add" onClick=${ev => { ev.stopPropagation(); giving.value = c.id; }}>Why…</button>` : null}</div>
+        ${takenBack(c).map(r => html`<div class="note taken"><s>${r.note}</s><span class="by"> · taken back${r.who ? ` by ${r.who}` : ''}</span></div>`)}
+        <div class="meta">${near ? `typed ${short(Tree.isoOf(new Date(c.when)))}, ${clock(c.when)}, ${c.who}` : `${c.who} · ${clock(c.when)}`}${off ? ' · undone' : dark ? ' · gone with what it’s at' : ''}${undoneBy ? html` by ${e.by ? html`<button class="lk" onClick=${ev => { ev.stopPropagation(); stand(e.by.change); }}>${undoneBy}</button>` : undoneBy}` : null}${act ? html` · <button class="lk change" aria-disabled=${bar ? 'true' : null} data-tip=${bar ? `A later change rests on it: ${describe(bar)}` : null} onClick=${ev => { ev.stopPropagation(); if (bar) stand(bar); else { now(); App.amending(c); } }}>Change…</button>` : null}${!viewing && !off && !c.about && !u ? html` · <button class="lk why-add" onClick=${ev => { ev.stopPropagation(); giving.value = c.id; }}>Why…</button>` : null}</div>
         ${giving.value === c.id ? html`<${Reason} id=${c.id} done=${() => { giving.value = null; }} />` : null}
         ${fx?.moved.length ? html`<div class="effect">${fx.moved.map(x => `${SAID[x.k]} ${x.was} → ${x.now}`).join(' · ')}</div>` : null}
         ${fx?.said ? html`<div class="effect said">${fx.said}</div>` : null}
         ${shows ? html`<div class="hist-more" onClick=${ev => ev.stopPropagation()}>
-          ${lines.map(l => html`${lines.length > 1 ? html`<div class="ln">${l.text}</div>` : null}${lineMore(l)}${l.sub.map(s => html`<div class="ln sub">${s.text}</div>${lineMore(s)}`)}`)}
+          ${every.map(l => html`${every.length > 1 ? html`<div class="ln">${l.text}</div>` : null}${lineMore(l)}${l.sub.map(s => html`<div class="ln sub">${s.text}</div>${lineMore(s)}`)}`)}
           ${before.length ? html`<div class="st">Before</div>${before.map(w => html`<div class="ln sub"><button class="lk" onClick=${() => stand(w.change)}>${describe(w.change)}</button> <span class="fig">${w.change.who}, ${short(Tree.isoOf(new Date(w.change.when)))}</span>${App.wb.reasons(w.change.id).map(r => html`<div class="note">${r.text}</div>`)}</div>`)}` : null}
           ${(fx?.which ?? []).map(w => html`<div class="st">${w.said}</div>${w.names.map(n => html`<div class="ln sub">${n}</div>`)}`)}
           ${fx?.cleared.length ? html`<div class="st">Cleared</div>${fx.cleared.map(w => html`<div class="ln sub">${[w.what, w.where].filter(Boolean).join(' · ')}${w.figure ? html` <span class="fig">${w.figure}</span>` : null}</div>`)}` : null}
@@ -1059,7 +1123,10 @@ const Time = (() => {
         ${of.length || rule ? html`<div class="of">Changes to ${rule ? rule.name : of.map(nameOf).join(', ')}</div>` : null}
         <div class="by">${m === 'all' ? html`<button class="btn ghost dd" aria-haspopup="menu" onClick=${kinds}>${KINDS.find(([x]) => x === k)[1]}</button>` : null}
           ${selected.length && !of.length && !rule ? html`<button class="btn ghost only" onClick=${() => { focus.value = selected; }}>Only ${selected.length === 1 ? nameOf(selected[0]) : `these ${selected.length}`}</button>` : null}
-          ${of.length || rule || (k !== 'all' && m === 'all') ? html`<button class="btn every" onClick=${everything}>All changes</button>` : null}</div>
+          ${m === 'all' ? html`<button class="btn ghost dd" aria-haspopup="menu" onClick=${ev => Shell.menu(ev.currentTarget, [{ label: 'Anyone', checked: !byWho.value, run: () => { byWho.value = null; } }, ...[...new Set(ever.value.changes.map(c => c.who))].sort().map(w => ({ label: w, checked: byWho.value === w, run: () => { byWho.value = w; } }))])}>${byWho.value ?? 'Anyone'}</button>
+            <button class="btn ghost dd" aria-haspopup="menu" onClick=${daysMenu}>${byDays.value?.said ?? 'Any day'}</button>` : null}
+          ${of.length || rule || ((k !== 'all' || byWho.value || byDays.value || byWords.value) && m === 'all') ? html`<button class="btn every" onClick=${everything}>All changes</button>` : null}</div>
+        ${m === 'all' ? html`<div class="hist-find"><input type="search" class="cell" placeholder="Find" aria-label="Find in History" spellcheck=${false} value=${byWords.value} onInput=${ev => { byWords.value = ev.target.value; }} /><button class="btn ghost" onClick=${() => exportLog(changes)} data-tip="What’s listed here, as a sheet">Export…</button></div>` : null}
       </div>` : null}
       <div class="hist-list" ref=${ref}>
         ${m === 'all' ? runs.map(({ undone: cancels, es }) => {
@@ -1097,7 +1164,7 @@ const Time = (() => {
     worked.value;
     return all.map(e => ({ change: e.change, who: e.change.who, when: e.change.when, reasons: App.wb.reasons(e.change.id), fx: known(e.change), head: e.change.says ?? headOf(read(e.change, { rule: k })) }));
   }
-  const everything = () => { focus.value = null; kind.value = 'all'; };
+  const everything = () => { focus.value = null; kind.value = 'all'; byWho.value = null; byDays.value = null; byWords.value = ''; };
   // History takes the inspector's place while it's open: the chart's, everything, from the chart menu, or a record's own.
   // Esc takes back an undo being asked, comes back from a change picked to now, and then closes it.
   function openHistory(list) {

@@ -8,7 +8,7 @@
 .grid .tabulator .tabulator-tableholder .tabulator-table { min-width: 100%; }   /* rows to the edge, whatever the columns */
 .grid .tabulator .tabulator-tableholder:focus-visible { outline: none; }
 .grid .tabulator .tabulator-header { background: var(--paper); border-bottom-color: var(--rule-2); }
-.grid .tabulator .tabulator-header .tabulator-col { min-height: var(--heading, 0); background: var(--paper); border-right-color: var(--rule); cursor: grab; }
+.grid .tabulator .tabulator-header .tabulator-col { min-height: max(var(--heading, 0px), 49px); background: var(--paper); border-right-color: var(--rule); cursor: grab; }
 .grid .tabulator .tabulator-header .tabulator-col:active { cursor: grabbing; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content { position: relative; padding: 4px 8px; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-title { line-height: 20px; padding-right: 26px; }
@@ -144,7 +144,18 @@
 .imp-grid tr.to th { background: var(--paper-2, var(--hover)); }
 .imp-grid select { max-width: 180px; }
 .imp-grid td.out { color: var(--ink-3); }
-.imp-more { color: var(--ink-3); }
+.imp-more { justify-self: start; }
+.imp-grid td { cursor: text; }
+.imp-grid td:hover { background: var(--hover); }
+.imp-grid td.new { box-shadow: inset 0 -2px 0 var(--due); }
+.imp-grid td.bad { box-shadow: inset 0 -2px 0 var(--no); color: var(--no); }
+.imp-grid tr.held td { background: color-mix(in srgb, var(--no) 8%, transparent); }
+.imp-grid tr.flag td { white-space: normal; color: var(--no); padding-top: 0; font-size: 12px; cursor: default; }
+.imp-grid tr.flag td:hover { background: none; }
+.imp-grid tr.flag .lk { color: var(--accent); }
+.imp-grid td.typing { padding: 0; }
+.imp-grid td.typing input { width: 100%; min-width: 80px; }
+.imp-says { margin-right: auto; color: var(--ink-3); }
 .imp-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .imp-miss { margin-right: auto; color: var(--no); }
 dialog.dlg .dlg-foot:empty { display: none; }
@@ -179,11 +190,17 @@ dialog.dlg .dlg-foot:empty { display: none; }
 
 /* ---- Above the grid: its columns, and how it's sorted, filtered and grouped, each said while it's on ---- */
 .grid > .tools { flex: none; }
-.tbar { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 12px 0 8px; border-bottom: 1px solid var(--rule); background: var(--paper); user-select: none; }
-.tbar > .btn { height: var(--row); padding: 0 8px; color: var(--ink-2); }
+.tbar { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 12px 0 8px; border-bottom: 1px solid var(--rule); background: var(--paper); user-select: none; overflow: hidden; }
+.tbar > .btn { height: var(--row); padding: 0 8px; color: var(--ink-2); flex: 0 1 auto; min-width: 44px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tbar > .btn:hover { color: var(--ink); }
 .tbar > .btn.on { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent-ink); font-weight: 500; }
-.tbar > .tcount { margin-left: auto; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tbar > .tcount { flex: none; margin-left: auto; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tbar > .tout.ended { gap: 4px; flex: none; }
+.tbar > .tout { overflow: hidden; flex: 0 2 auto; }
+.tbar > .tout > * { flex: none; }
+.tbar > .tout > b { flex: 0 1 auto; }
+.grid .tabulator .tabulator-row.ended .tabulator-cell { color: var(--ink-3); font-style: italic; }
+.grid .marks-blanks .tabulator-row .tabulator-cell.empty { background-color: color-mix(in srgb, var(--due) 18%, transparent); }
 /* The record selected a row the filters leave out: said, with Clear filters, before the count. */
 .tbar > .tout { display: flex; align-items: center; min-width: 0; margin-left: auto; padding-left: 12px; color: var(--ink-2); white-space: nowrap; }
 .tbar > .tout > b { min-width: 0; margin-right: .3em; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--ink); }
@@ -312,6 +329,12 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .hist-filter > .by { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: var(--row); margin-left: -8px; }
 .hist-filter .only { display: block; max-width: 100%; overflow: hidden; color: var(--ink-2); white-space: nowrap; text-overflow: ellipsis; }
 .hist-filter .every { margin-left: auto; }
+.hist-find { display: flex; align-items: center; gap: 4px; padding: 2px 0 4px; }
+.hist-find > input { flex: 1; min-width: 0; }
+.hist-between { display: grid; gap: 8px; padding: 8px; }
+.hist-between label { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 8px; }
+.hist-between .btn { justify-self: end; }
+.hist-row .note.taken { color: var(--ink-3); }
 .hist-row > .hist-chev { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r); background: none; color: var(--ink-3); }
 .hist-row > .hist-chev:hover { background: var(--hover); color: var(--ink); }
 .hist-row > .hist-chev > svg { width: 14px; height: 14px; }

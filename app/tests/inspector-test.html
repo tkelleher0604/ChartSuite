@@ -690,7 +690,7 @@ async function run() {
   const zeta = Object.keys(st()).find(k => st()[k].kind === 'Entity' && N().nameOf(st(), k) === 'Zeta Holdings');
   const viewName = N().nameOf(st(), view), offToast = toastText();
   check('a new owner named in a list’s Add, where the view hides its kind, stays off it, the toast saying so', !!zeta && !shownAt(zeta) && !App.scene.peek()?.byId.has(zeta) && nP() === nH + 2 && offToast === `Zeta Holdings isn’t on ${viewName}`, `${zeta} ${nP() - nH} ${offToast}`);
-  [...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Show')?.click(); await tick(60);
+  [...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Put on the chart')?.click(); await tick(60);
   check('… with Show, its own note the other way', shownAt(zeta) && App.scene.peek()?.byId.has(zeta), zeta);
   Shell.parts.value.undo.undo(); await tick(60);
   Shell.parts.value.undo.undo(); await tick(60);
@@ -974,7 +974,7 @@ async function run() {
   // … and what holds only on another day, said so, gone to as any is, its panel saying when
   let farOff; App.change(tx => { farOff = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: farOff, edge: 'Name', field: 'text', value: 'Far Off Holdings, LLC' }); tx.add('record', { at: farOff, edge: 'Formation Date', field: 'date', value: '2037-05-04' }); }); await tick(60);
   const farFound = Shell.parts.peek().find.flatMap(s => s.items()).find(x => x.key === farOff);
-  check('Find reaches what holds only from a later day, saying so', farFound?.label === 'Far Off Holdings, LLC' && /from May 4, 2037/.test(farFound?.detail ?? ''), JSON.stringify(farFound));
+  check('Find reaches what holds only from a later day, saying so', farFound?.label === 'Far Off Holdings, LLC' && /from May 4, 2037/.test(farFound?.why ?? ''), JSON.stringify(farFound));
   farFound?.run(); await tick(60);
   check('… and goes to it, its panel saying when', Shell.selection.peek().join() === farOff && /May 4, 2037/.test(document.querySelector('.insp')?.textContent ?? ''), document.querySelector('.insp')?.textContent);
   Shell.select([]); Shell.parts.value.undo.undo(); await tick(60);
@@ -1012,12 +1012,12 @@ async function run() {
     const soonBtn = document.querySelector('.status .counts > .soon');
     if (soonBtn) {
       soonBtn.click(); await tick(120);
-      const seg = () => [...document.querySelectorAll('.float .menu.needs .menu-seg button')], listed = () => document.querySelectorAll('.float .menu.needs .menu-item').length, n30 = listed();
-      check('The status list of what’s due soon says its 30 days', seg()[0]?.textContent === 'Next 30 days' && seg()[0]?.getAttribute('aria-pressed') === 'true' && seg()[1]?.textContent === 'Next 90 days', seg().map(b => b.textContent).join());
-      seg()[1]?.click(); await tick(120);
-      const days = [...document.querySelectorAll('.float .menu.needs .menu-item .detail')].map(d => new Date(d.textContent).getTime());
-      check('… and Next 90 days is a click away, the soonest first', listed() >= n30 && seg()[1]?.getAttribute('aria-pressed') === 'true' && days.every((d, i) => !i || days[i - 1] <= d), `${n30} → ${listed()}`);
-      Shell.closeAll(); await tick(40);
+      const seg = () => [...document.querySelectorAll('.openlist .ol-days button')], listed = () => document.querySelectorAll('.openlist .ol-row').length, n30 = listed();
+      check('The status list of what’s due soon says its 30 days', seg()[0]?.textContent === 'Next 30 days' && seg()[0]?.getAttribute('aria-pressed') === 'true' && seg()[2]?.textContent === 'Next 90 days', seg().map(b => b.textContent).join());
+      seg()[2]?.click(); await tick(120);
+      const days = [...document.querySelectorAll('.openlist .ol-row .fig')].map(d => new Date(d.textContent).getTime());
+      check('… and Next 90 days is a click away, the soonest first', listed() >= n30 && seg()[2]?.getAttribute('aria-pressed') === 'true' && days.every((d, i) => !i || days[i - 1] <= d), `${n30} → ${listed()}`);
+      document.querySelector('.openlist .btn.icon')?.click(); await tick(40);
     }
   }
   const filing = formD.querySelector('.btn.ver.filed');
@@ -1530,7 +1530,7 @@ async function saysWhen(C, keep) {
   key(document.activeElement, 'Enter'); await tick(80);
   const elena = Object.keys(st()).find(k => st()[k].kind === 'Individual' && N().nameOf(st(), k) === 'Elena Vasquez');
   check('a person added from a list, by a relation the view doesn’t draw, stays off the page, the toast saying so, with Show', !!elena && !App.scene.peek().byId.has(elena) && N().resolve('Shown', Tree.treeOf(st(), elena), here2)?.value === false
-    && spoken(document.querySelector('.toast span')) === `Elena Vasquez isn’t on ${N().nameOf(st(), here2)}` && [...document.querySelectorAll('.toast button')].some(b => b.textContent === 'Show'), document.querySelector('.toast')?.textContent);
+    && spoken(document.querySelector('.toast span')) === `Elena Vasquez isn’t on ${N().nameOf(st(), here2)}` && [...document.querySelectorAll('.toast button')].some(b => b.textContent === 'Put on the chart'), document.querySelector('.toast')?.textContent);
   Shell.parts.value.undo.undo(); await tick(60);
   Shell.parts.value.undo.undo(); await tick(60);
 

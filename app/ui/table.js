@@ -212,8 +212,24 @@ const Table = (() => {
     stillVersion = v;
   }
   function letGo() { if (still) { still = null; rebuild(); } }
+  // What's ended by the day shown, of records and relations (dendra.md, A table view): each { id, day, last, then }, then the chart as of its
+  // last day. Kept while the log and the day stand.
+  let ending = null;
+  function endedBy() {
+    const wb = App.shown.peek(), c = App.chart.peek(), day = App.day.peek(), version = App.version.peek();
+    if (ending?.wb === wb && ending.c === c && ending.day === day && ending.version === version) return ending.out;
+    const entered = App.entered.peek(), seen = new Set(), out = [], then = new Map(), asOf = d => then.get(d) ?? then.set(d, wb.asOf(c, d)).get(d);
+    for (const r of wb.rows(c)) if ('record' in r && !seen.has(r.record) && (Tree.isObject(r) ? r.kind !== 'View' : r.args?.length > 1) && !entered[r.record]) {
+      seen.add(r.record);
+      const off = App.heldUntil(r.record, day);
+      if (off) out.push({ id: r.record, day: off.day, last: off.last, then: asOf(off.last) });
+    }
+    ending = { wb, c, day, version, out };
+    return out;
+  }
   function model(view, R = App.computed.value, S = App.schema.value, look = lookOf(view), rows = viewOf(view)?.rows) {
-    const st = R.records, N = App.notes.value;
+    let st = R.records;
+    const N = App.notes.value;
     if (!rows) return null;
     const isDatatype = typeof rows === 'string', isKind = !isDatatype && !rows.args;
     const order = (p, path) => path.map((_, i) => N.order(below(p, path.slice(0, i + 1))) ?? Infinity);
@@ -241,6 +257,18 @@ const Table = (() => {
         cols.push(...N.edges(rows).map((edge, i) => ({ key: '@' + norm(edge), edge, title: edge, type: 'edge', pattern: rows, param: edge, base: [-1, i] })));
         const out = typed({ key: '$out', title: N.name(rows), base: [-1, 1e9] }, specs);
         if (out.type !== 'tag') cols.push(out);
+      }
+    }
+    // What's ended, which a table as of a day leaves out, says how many; asked for, its rows are read as of its last day, faint.
+    const endedHere = isDatatype || R !== App.computed.value ? [] : endedBy().filter(e => e.then[e.id] && (isKind ? same(e.then[e.id].kind ?? '', rows.kind) : !!e.then[e.id].args && Tree.fits(e.then, e.id, rows)));
+    const endedOn = new Map();
+    if (look.ended && endedHere.length) {
+      st = { ...st };
+      for (const e of endedHere) {
+        const I = Tree.index(e.then), put = x => { if (!e.then[x] || x in st) return; st[x] = e.then[x]; (I.entries.get(x) ?? []).forEach(put); Tree.argsOf(e.then[x]).forEach(a => put(a.at)); };
+        put(e.id);
+        ids = [...ids, e.id];
+        endedOn.set(e.id, e.day);
       }
     }
     if (base) {
@@ -310,8 +338,11 @@ const Table = (() => {
     // The checks failing at each record, by their labels: in it, a record ruled out where a Check note says that's a problem.
     const fails = new Map();
     if (R === App.computed.value) for (const a of App.needs.value) if (a.kind === 'error' && !a.error && st[a.id]) { const o = Tree.objectOf(st, a.id); fails.set(o, [...new Set([...(fails.get(o) ?? []), st[a.id].edge])]); }
+    // A blank said not to be ours reads so.
+    const notOurs = new Set(App.blanksApart.value.filter(b => !b.ours).map(b => `${b.id}|${norm(b.edge)}`));
     const today = App.day.value, data = ids.map(id => {
       const row = { id, _m: {}, _red: null };   // _red: 'add' or 'go' while a change is pending (redlined)
+      if (endedOn.has(id)) row._ended = endedOn.get(id);
       for (const c of cols) {
         const m = cellOf(id, c), r = m.id && st[m.id], f = field(c), type = typeIn(c, r);
         // A tag no row has said: what its definition's silence says (Formulas.silence).
@@ -322,7 +353,7 @@ const Table = (() => {
         const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
         // What's coming stands beside the value it'll replace (dendra.md, Time).
         const next = c.type !== 'tag' && m.id && App.shown.value.item(App.chart.value, m.id).find(x => x.since > today);
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(next && { next: `${Tree.outputText(next)} from ${Tree.formatDate(next.since, 'short')}` }), ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(notOurs.size && m.v == null && c.title && notOurs.has(`${c.up ? st[id]?.at : id}|${norm(c.title)}`) && { notours: true }), ...(next && { next: `${Tree.outputText(next)} from ${Tree.formatDate(next.since, 'short')}` }), ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
       }
       row._ruled = st[id].tag === false;
       row._fails = fails.get(id) ?? null;
@@ -367,7 +398,8 @@ const Table = (() => {
     }
 
     const noun = (isDatatype ? Tree.DATATYPES[rows] : isKind ? rows.kind : N.name(rows)).toLowerCase();
-    const m = { view, rows, isKind, isDatatype, base, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, named, grec, fails, later, noun };
+    const m = { view, rows, isKind, isDatatype, base, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, named, grec, fails, later, noun,
+      ended: endedHere.map(e => ({ id: e.id, day: e.day, name: isKind ? N.nameOf(e.then, e.id) : Time.whose(e.then, e.id, N) })) };
     entitle(m);
     return m;
   }
@@ -467,6 +499,9 @@ const Table = (() => {
       el.classList.toggle('over', !!m?.over);
       el.classList.toggle('due', !!m?.due);
       el.classList.toggle('none', c.type !== 'edge' && !c.key.startsWith('$') && !m?.at);
+      // (What's blank, for Blanks to mark.)
+      el.classList.toggle('empty', v === null && c.type !== 'tag' && !c.key.startsWith('$') && !m?.notours);
+      if (m?.notours) return '<span class="notours">Not ours</span>';
       el.classList.toggle('pend', !!m && 'was' in m && c.type !== 'tag' && m.was !== null && v !== null);
       if (tip) el.dataset.tip = tip; else delete el.dataset.tip;
       if (m?.next && !('was' in m)) { if (!tip) el.dataset.tip = m.next; return `${shown(v, m)} <span class="nx">${esc(m.next)}</span>`; }
@@ -695,7 +730,7 @@ const Table = (() => {
         hozAlign: right, headerHozAlign: right, cssClass: 'c-' + (c.key === '$why' ? 'why' : c.type === 'edge' ? 'edge' : c.type) + (look.filters?.[c.key] ? ' filtered' : '') + (look.sort?.key === c.key ? ' sorted' : ''),
         sorter: sorter(c),
         formatter: formatter(c),
-        editable: cell => !App.readOnly.peek() && !locked() && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
+        editable: cell => !App.readOnly.peek() && !locked() && !cell.getRow().getData()._ended && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
         editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? chooser(c) : editor(c, put),
         accessorClipboard: (v, d) => plain(typeOf(c, d), v), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), v)),
       };
@@ -842,6 +877,7 @@ const Table = (() => {
         e.classList.toggle('fails', !!d._fails);
         const rn = e.querySelector('.tabulator-cell.rn');
         if (rn) { if (d._fails) rn.dataset.tip = d._fails.join(', '); else delete rn.dataset.tip; }
+        e.classList.toggle('ended', !!d._ended);
         e.classList.toggle('picked', picked.has(d.id));
         e.classList.toggle('red-add', d._red === 'add');
         e.classList.toggle('red-go', d._red === 'go');
@@ -860,7 +896,8 @@ const Table = (() => {
     // narrow first column had wrapped, so the grid ran on three times its rows' height, blank.
     t.rowManager.normalizeHeight = function () { this.renderer.rerenderRows(); };
     t.on('cellEditCancelled', () => back());
-    t.on('cellClick', (e, cell) => { if (e.target.closest('.tag')) flip(cell); });
+    t.on('cellClick', (e, cell) => { if (e.target.closest('.tag') && !cell.getRow().getData()._ended) flip(cell); });
+    host.classList.toggle('marks-blanks', !!look.blanks);
     t.on('rangeChanged', range => { remember(range); soon(); tally(); });
     t.on('rangeAdded', range => { remember(range); if (quiet.has(range)) quiet.delete(range); else soon(); tally(); });
     t.on('rangeRemoved', tally);
@@ -1386,9 +1423,15 @@ const Table = (() => {
       return out;
     }
     const taken = new Set(), of = j => grid.map(r => clean(r[j] ?? '')).filter(Boolean);
+    // By what most of it holds, as a stray row is no reason to leave a column out: the choice most of it's an option of, those
+    // shown first; a percentage; a date, its first column that's a date.
+    const most = (vs, ok) => vs.filter(ok).length * 2 > vs.length, free = t => [...cols.filter(x => x.type === t && !taken.has(x.key) && x.shown), ...cols.filter(x => x.type === t && !taken.has(x.key) && !x.shown)];
     for (let j = 0; j < width; j++) {
-      const vs = of(j), c = vs.length && (cols.find(x => x.type === 'choice' && x.shown && !taken.has(x.key) && vs.every(v => x.options?.some(o => same(o, v))))
-        ?? (vs.every(v => Tree.classify(v) === 'percent') ? cols.find(x => x.type === 'percent' && !taken.has(x.key)) : null));
+      const vs = of(j);
+      if (!vs.length) continue;
+      const isOption = x => v => x.options?.some(o => same(o, v)), hits = x => vs.filter(isOption(x)).length;
+      const choice = free('choice').filter(x => most(vs, isOption(x))).sort((a, b) => hits(b) - hits(a))[0];
+      const c = choice ?? (most(vs, v => Tree.classify(v) === 'percent') ? free('percent')[0] : most(vs, v => Tree.classify(v) === 'date') ? free('date')[0] : null);
       if (c) { out[j] = c.key; taken.add(c.key); }
     }
     const keys = keysOf(m, m.cols).filter(k => !taken.has(k.key));
@@ -1409,19 +1452,49 @@ const Table = (() => {
     input.click();
   };
   function Importer({ start, done }) {
-    const tables = importTables(), [text, setText] = useState(start.text ?? ''), [file, setFile] = useState(start.file ?? null), go = useRef();
+    const tables = importTables(), [text, setTextOnly] = useState(start.text ?? ''), [file, setFile] = useState(start.file ?? null), go = useRef();
     const [to, setTo] = useState(start.view ?? null), [first, setFirst] = useState(null), [keys, setKeys] = useState(null);
-    const grid = tsv(noDay(text)), fits = tables.map(v => [v.id, fitOf(v.id, grid[0] ?? [])]), best = fits.reduce((a, b) => b[1] > a[1] ? b : a, [null, 0]);
+    // The rows as fixed here (null till one is), and the cell being typed in.
+    const [fixed, setFixed] = useState(null), [typing, setTyping] = useState(null), [all, setAll] = useState(false);
+    const setText = t => { setTextOnly(t); setFixed(null); setTyping(null); };
+    const grid = fixed ?? tsv(noDay(text)), fits = tables.map(v => [v.id, fitOf(v.id, grid[0] ?? [])]), best = fits.reduce((a, b) => b[1] > a[1] ? b : a, [null, 0]);
     const here = tables.find(v => v.id === Shell.view.peek())?.id, view = to ?? (fits.find(([v]) => v === here)?.[1] ? here : best[1] ? best[0] : here ?? tables[0]?.id);
     const m = preactHooks.useMemo(() => view && model(view), [view]);
     if (!m) return null;
-    const row1 = first ?? firstRowIs(m, grid, file), auto = guessed(m, grid, row1), chosen = keys ?? auto, cols = importable(m);
+    const row1 = first ?? firstRowIs(m, grid, file), auto = guessed(m, grid, row1), chosen = (keys ?? auto).slice(0, Math.max(1, ...grid.map(r => r.length))), cols = importable(m);
     const load = (t, name) => { setText(t); setFile(name ?? null); setFirst(null); setKeys(null); setTo(start.view ?? null); };
     // A file read, Enter imports it, as Ctrl+Enter does what's typed or pasted in the box.
     preactHooks.useLayoutEffect(() => { if (file) go.current?.focus(); }, [file]);
     const asColumns = chosen.map(k => k && k !== 'new' ? m.cols.find(c => c.key === k) ?? null : null);
     const missing = !m.isKind ? keysOf(m, m.cols).find(k => !asColumns.includes(k))?.title : keysOf(m, asColumns).length ? null : 'Name';
-    const shown = (row1 === 'head' ? grid.slice(1) : grid), width = chosen.length;
+    const base = row1 === 'head' ? 1 : 0, shown = grid.slice(base), width = chosen.length;
+    // What's wrong with a row, before anything's made. More values than the rows have columns: a comma has cut one, so it's held
+    // back, with its mend, till it's fixed. A value that doesn't read as its column's: left out, and said why. One that's none
+    // of a choice's options: a new option, unless it's mended to one.
+    const lengthOf = r => { let n = r.length; while (n && !clean(r[n - 1] ?? '')) n--; return n; };
+    const counted = new Map(); for (const r of shown) counted.set(lengthOf(r), (counted.get(lengthOf(r)) ?? 0) + 1);
+    // (What the rows have: as many as its headings; or else what most have, which it takes two rows to say.)
+    const most = [...counted].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0], usual = base ? lengthOf(grid[0]) : most?.[1] >= 2 ? most[0] : 0, over = r => usual > 0 && lengthOf(r) > usual;
+    const cutAt = r => { const j = r.findIndex((v, i) => i > 0 && FORM.test(clean(v))); return j > 0 ? j - 1 : 0; };
+    const put = (i, row) => { const g = grid.map(r => r.slice()); g[base + i] = row; setFixed(g); setTyping(null); };
+    const mend = (r, i) => { const j = cutAt(r); put(i, [...r.slice(0, j), `${clean(r[j])}, ${clean(r[j + 1])}`, ...r.slice(j + 2)]); };
+    const colAt = j => chosen[j] && chosen[j] !== 'new' ? m.cols.find(c => c.key === chosen[j]) ?? null : null;
+    const reading = (c, raw) => { const s = clean(raw);
+      if (!s || !c || c.type === 'edge' || c.type === 'list') return {};
+      if (c.type === 'choice') return c.options?.some(o => same(o, s)) ? {} : { tone: 'new', why: `New option of ${called(c)}` };
+      const v = value(c.type, s);
+      return !v ? { tone: 'bad', why: `“${s}”: ${Tree.notA(c.type)}` } : c.type === 'date' ? { as: Tree.formatDate(v.value, 'short') } : {}; };
+    const options = (c, raw, i, j, r, at) => { const s = clean(raw), l = loose(s), far = o => { const x = loose(o); return x === l ? 0 : x.includes(l) || l.includes(x) ? 1 : 2; };
+      Shell.menu(at, [...[...(c.options ?? [])].sort((a, b) => far(a) - far(b)).map(o => ({ label: o, run: () => put(i, r.map((x, k) => k === j ? o : x)) })), ...(s && !c.options?.some(o => same(o, s)) ? ['-', { label: `New option: ${s}`, checked: true, run: () => {} }] : [])], { search: (c.options?.length ?? 0) > 7 }); };
+    const held = shown.filter(over), going = shown.filter(r => !over(r)), wrongs = going.flatMap(r => r.map((v, j) => reading(colAt(j), v)).filter(x => x.tone === 'bad')).length;
+    const newOnes = [...new Set(going.flatMap(r => r.flatMap((v, j) => reading(colAt(j), v).tone === 'new' ? [`${clean(v)}`] : [])))];
+    const LIMIT = 200, rows = all ? shown : shown.slice(0, LIMIT);
+    const cellOf = (r, i, j) => { const raw = r[j] ?? '', c = colAt(j), said = reading(c, raw);
+      if (typing?.i === i && typing?.j === j) return html`<td class="typing"><input class="cell" aria-label=${c ? called(c) : `Column ${j + 1}`} value=${raw} spellcheck=${false} ref=${x => { if (x && !x.dataset.on) { x.dataset.on = 1; x.focus(); x.select(); } }}
+        onKeyDown=${e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); put(i, r.map((x, k) => k === j ? e.target.value : x)); } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setTyping(null); } }}
+        onBlur=${e => { if (typing) put(i, Array.from({ length: Math.max(r.length, j + 1) }, (_, k) => k === j ? e.target.value : r[k] ?? '')); }} /></td>`;
+      return html`<td class=${(chosen[j] ? '' : 'out') + (said.tone ? ' ' + said.tone : '')} data-tip=${said.why ?? null} tabindex="0" role="button" aria-label=${`${clean(raw) || 'Blank'}${said.why ? `, ${said.why}` : ''}`}
+        onClick=${e => (c?.type === 'choice' ? options(c, raw, i, j, r, e.currentTarget) : setTyping({ i, j }))} onKeyDown=${e => { if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); e.stopPropagation(); e.currentTarget.click(); } }}>${said.as ?? clean(raw)}</td>`; };
     const pickBox = html`<button type="button" class="btn" onClick=${() => pickRows(load)}>${file ? 'Another file…' : 'Choose a file…'}</button>`;
     return html`<div class="imp" onKeyDown=${e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !go.current?.disabled) { e.preventDefault(); go.current?.click(); } }}>
       ${file ? null : html`<textarea class="imp-rows" rows="4" aria-label="Rows" placeholder="Rows" spellcheck=${false} ref=${x => x && !x.dataset.on && (x.dataset.on = 1, x.focus())} value=${text}
@@ -1435,11 +1508,13 @@ const Table = (() => {
             <option value="" selected=${!k}>Leave out</option>
             ${cols.map(c => html`<option value=${c.key} selected=${k === c.key}>${called(c)}</option>`)}
             ${row1 === 'head' ? html`<option value="new" selected=${k === 'new'}>New column</option>` : null}</select></th>`)}</tr></thead>
-          <tbody>${shown.slice(0, 6).map(r => html`<tr>${Array.from({ length: width }, (_, j) => html`<td class=${chosen[j] ? '' : 'out'}>${clean(r[j] ?? '')}</td>`)}</tr>`)}</tbody></table></div>
-        ${shown.length > 6 ? html`<div class="imp-more">${shown.length - 6} more</div>` : null}`}
-      <div class="imp-foot">${grid.length && missing ? html`<span class="imp-miss">No ${missing} column</span>` : null}
+          <tbody>${rows.map((r, i) => { const wrong = r.map((v, j) => reading(colAt(j), v)).filter(x => x.tone === 'bad'), cut = over(r);
+            return html`<tr class=${cut ? 'held' : ''}>${Array.from({ length: width }, (_, j) => cellOf(r, i, j))}</tr>
+              ${cut || wrong.length ? html`<tr class="flag"><td colspan=${width}>${cut ? html`<span>${lengthOf(r)} values, where the rows have ${usual}: held back</span> <button type="button" class="lk" onClick=${() => mend(r, i)}>Read as “${clean(r[cutAt(r)])}, ${clean(r[cutAt(r) + 1])}”</button>` : wrong.map(x => html`<span>${x.why}: left out</span> `)}</td></tr>` : null}`; })}</tbody></table></div>
+        ${shown.length > rows.length ? html`<button type="button" class="lk imp-more" onClick=${() => setAll(true)}>${shown.length - rows.length} more</button>` : null}`}
+      <div class="imp-foot">${grid.length && missing ? html`<span class="imp-miss">No ${missing} column</span>` : html`<span class="imp-says">${[held.length && count(held.length, 'row') + ' held back', wrongs && count(wrongs, 'value') + ' left out', newOnes.length && (newOnes.length > 3 ? count(newOnes.length, 'new option') : `New: ${list(newOnes)}`)].filter(Boolean).join(' · ')}</span>`}
         <button type="button" class="btn" onClick=${() => done(null)}>Cancel</button>
-        <button ref=${go} type="button" class="btn primary" disabled=${!shown.length || !!missing} onClick=${() => done({ view, grid, keys: chosen, first: row1, file })}>Import</button></div>
+        <button ref=${go} type="button" class="btn primary" disabled=${!shown.length || held.length === shown.length || !!missing} onClick=${() => done({ view, grid: grid.filter(r => !held.includes(r)), keys: chosen, first: row1, file, held: held.map(r => clean(r.find(v => clean(v)) ?? '')) })}>Import</button></div>
     </div>`;
   }
   function importDialog(start = {}) {
@@ -1500,7 +1575,9 @@ const Table = (() => {
   // a new one of it.
   function changeOf(m, { keys, plan }, as = new Map()) {
     const st = App.state.peek(), entered = App.entered.peek(), records = {}, made = new Map(), kids = new Map();
-    const x = { records, values: 0, rows: [], made: [], skipped: 0, matched: 0, cols: new Set(), rels: [], ends: [], wrong: [] };
+    const x = { records, values: 0, rows: [], made: [], skipped: 0, left: [], matched: 0, cols: new Set(), rels: [], ends: [], wrong: [] };
+    // What's left out, each by what it was and where, so it's said which.
+    const leave = (p, c, raw) => { x.skipped++; x.left.push({ row: p.key?.filter(Boolean).join(' → ') || '', col: c ? called(c) : '', raw: clean(raw) }); };
     const refused = said => { if (said && !x.wrong.includes(said)) x.wrong.push(said); return !!said; };
     const put = (rec, id = Log.newId()) => { records[id] = rec; return id; };
     const make = (name, kind, kinds, row = false, names = [kind]) => {
@@ -1526,14 +1603,14 @@ const Table = (() => {
       const was = !!row;
       if (was) x.matched++;
       if (!row) {
-        if (!p.key.length || p.key.some(k => !k)) { x.skipped += p.cells.filter(([, raw]) => clean(raw)).length; continue; }
+        if (!p.key.length || p.key.some(k => !k)) { p.cells.filter(([, raw]) => clean(raw)).forEach(([c, raw]) => leave(p, c, raw)); continue; }
         if (m.isKind) {
           row = made.get(loose(p.key[0]));
           if (!row) { row = make(p.key[0], m.rows.kind, new Set([norm(m.rows.kind)]), true); x.rows.push(row); }
         } else {
           const other = new Map(keys.map((k, i) => [norm(k.edge), has(k.edge, p.key[i])]));
           const args = keys.map((k, i) => ({ edge: k.edge, at: sideAt(k.edge, p.key[i], other) }));
-          if (args.some(a => !a.at)) { x.skipped += p.cells.length; continue; }
+          if (args.some(a => !a.at)) { p.cells.forEach(([c, raw]) => leave(p, c, raw)); continue; }
           const own = p.cells.find(([c]) => c.key === '$out');
           row = put({ args, ...(own ? value(own[0].type, clean(own[1])) ?? { tag: true } : { tag: true }) });
           x.rows.push(row);
@@ -1545,18 +1622,18 @@ const Table = (() => {
         if (c.type === 'list') { lists.push([c, raw]); continue; }
         // (A file exported and brought back: n/a is what a rule hasn't tested, and says nothing to type.)
         if (!clean(raw) || clean(raw) === NA || (!was && c.key === '$out')) continue;
-        if (c.key === '$entry' || c.key === '$of' || c.type === 'edge') { x.skipped++; continue; }
+        if (c.key === '$entry' || c.key === '$of' || c.type === 'edge') { leave(p, c, raw); continue; }
         const path = c.key === '$value' || c.key === '$out' ? null : c.path;
         let at = c.up ? st[row]?.at : row;
         if (path) for (const e of path.slice(0, -1)) at = at && childAt(at, e);
         const id = path ? at && childAt(at, path.at(-1)) : row, r = id && (records[id] ?? st[id]);
         const out = at && value(typeIn(c, r), clean(raw));
-        if (!out) { x.skipped++; continue; }
+        if (!out) { leave(p, c, raw); continue; }
         if (r && JSON.stringify(valueOf(out)) === JSON.stringify(valueOf(r))) continue;
         if (r && id in entered) records[id] = { ...entered[id], ...out };
         else if (records[id]) records[id] = { ...records[id], ...out };
         else if (path) kids.set(`${at}|${norm(path.at(-1))}`, put({ at, edge: path.at(-1), ...out }));
-        else { x.skipped++; continue; }
+        else { leave(p, c, raw); continue; }
         // A value is counted where it changes a row that was there; one in a row it adds is that row's.
         if (was) x.values++;
         x.cols.add(c.key);
@@ -1567,7 +1644,7 @@ const Table = (() => {
       for (const [c, raw] of lists) {
         let at = c.up ? (records[row] ?? st[row])?.at : row;
         for (const e of c.minePath) at = at && childAt(at, e);
-        if (!at || c.fx || c.choice) { if (clean(raw)) x.skipped++; continue; }
+        if (!at || c.fx || c.choice) { if (clean(raw)) leave(p, c, raw); continue; }
         const had = st[at] ? relativesIn(st, at, c) : [], want = [];
         for (const name of namesIn(raw)) {
           const o = asId(name) ?? find(st, name, c.kinds) ?? made.get(loose(name)) ?? (refused(wrongKind(c.kinds, c.kindNames, name)) ? null : make(name, as.get(loose(name))?.kind ?? listKind(m, c), c.kinds, false, c.kindNames));
@@ -1575,7 +1652,7 @@ const Table = (() => {
         }
         for (const o of want) if (!had.some(h => h.obj === o)) {
           const to = follow({ ...st, ...records }, o, c.otherLoc);
-          if (to) x.rels.push(put({ args: [{ edge: c.mine, at }, { edge: c.other, at: to }], tag: true })); else x.skipped++;
+          if (to) x.rels.push(put({ args: [{ edge: c.mine, at }, { edge: c.other, at: to }], tag: true })); else leave(p, c, raw);
         }
         for (const h of had) if (!want.includes(h.obj)) x.ends.push(h.rid);
         x.cols.add(c.key);
@@ -1615,7 +1692,10 @@ const Table = (() => {
   // is, from the day it was asked from. A list's cells typed or pasted are the same, their verb Add: what they relate is
   // added from the day asked, and what they no longer name ends then; naming none, they're a deletion, which asks until
   // when. One cell pasted that only changes a value is made at once, as one typed is, Undo taking it back ----
-  function stage(m, planOf, { file = null, as = new Map(), verb = null, single = false } = {}) {
+  // What was left out of an import, by name, as its bar and History say it: one or two whole, more counted.
+  const leftWord = l => [l.col && `${l.col} “${l.raw}”`, l.row && `of ${l.row}`].filter(Boolean).join(' ') || `“${l.raw}”`;
+  const leftWords = x => x.left.length && x.left.length <= 2 ? x.left.map(leftWord).join(' and ') : count(x.skipped, 'value');
+  function stage(m, planOf, { file = null, as = new Map(), verb = null, single = false, held = [] } = {}) {
     const r = planOf(as);
     if (typeof r === 'string') return Shell.toast(r);
     const x = changeOf(m, r, as), st = App.state.peek(), N = App.notes.peek(), source = 'paste ' + m.view, was = App.pending.peek();
@@ -1626,7 +1706,7 @@ const Table = (() => {
       if (as.size && was?.source === source) App.discard();
       if (x.wrong.length) { Shell.toast(x.wrong.join('. ')); return back(); }
       if (x.ends.length) { App.deleting(x.ends, x.ends.length > 1 ? count(x.ends.length, N.nameOf(st, x.ends[0]).toLowerCase()) : rel(x.ends[0]), { source }); return back(); }
-      return Shell.toast(x.skipped ? `Left out ${count(x.skipped, 'value')}` : `Nothing new to ${file ? `import from ${file}` : 'paste'}`);
+      return Shell.toast(x.skipped ? `Left out ${leftWords(x)}` : `Nothing new to ${file ? `import from ${file}` : 'paste'}`);
     }
     // What it adds is named, a few by their names, or how many: a row a person might have meant is never only a count.
     const made = x.made.filter(o => !o.row).map(o => o.name), noun = m.noun, recs = { ...st, ...x.records }, few = x.rows.length <= 3;
@@ -1634,7 +1714,7 @@ const Table = (() => {
     const rowsSaid = !few ? [] : m.isKind ? x.made.filter(o => o.row).map(o => o.name) : x.rows.map(id => N.placed(recs, id).map(s => s.join + s.text).join(''));
     const added = [!few && count(x.rows.length, noun), ...rowsSaid, ...related, ...(made.length > 3 ? [...made.slice(0, 2), `${made.length - 2} more`] : made)].filter(Boolean);
     const say = !x.values && !x.rows.length ? ch => Time.describe(ch)
-      : [x.values && `${file ? 'Imported' : 'Pasted'} ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `${count(x.skipped, 'value')} left out`]
+      : [x.values && `${file ? 'Imported' : 'Pasted'} ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `left out ${leftWords(x)}`, held.length && `${count(held.length, 'row')} held back (${list(held)})`]
         .filter(Boolean).join(', ').replace(/^a/, 'A').replace(/^Added/, file ? 'Imported' : 'Added') + (file ? ` from ${file}` : '');
     // By the one rule (App.put): a value over one with history to keep asks from when, as one typed there does.
     const over = Object.keys(x.records).filter(id => App.asksFrom(id, x.records[id]));
@@ -1643,7 +1723,7 @@ const Table = (() => {
     const brand = Object.keys(x.records).filter(id => 'kind' in x.records[id]);
     let off = [];
     const make = (tx, d, p) => { fill(tx, x.records); for (const id of x.ends) tx.remove(id, p?.asks === 'from' ? d : App.day.peek()); off = brand.length ? App.keepOff(tx, brand) : []; };
-    const offered = () => (off.length ? ['Show', () => App.change(tx => brand.forEach(id => tx.note('Shown', { id, kind: x.records[id].kind }, true, { view: off[0].id })), { say: c => Time.describe(c) })] : null);
+    const offered = () => (off.length ? ['Put on the chart', () => App.change(tx => brand.forEach(id => tx.note('Shown', { id, kind: x.records[id].kind }, true, { view: off[0].id })), { say: c => Time.describe(c) })] : null);
     if (single && !x.rows.length && !x.made.length && !x.rels.length && !x.ends.length) {
       if (over.length) { ran = true; const [id] = over; App.put(id, st[id], x.records[id]); return back(); }
       if (!asks) { App.change(tx => make(tx), { say }); return back(); }
@@ -1665,13 +1745,13 @@ const Table = (() => {
     const more = asked.length + plain.length - listed.length;
     const ended = x.ends.length > 2 ? [count(x.ends.length, N.nameOf(st, x.ends[0]).toLowerCase())] : x.ends.map(rel);
     const parts = [x.values && ink(count(x.values, 'value')), !few && ink(`${x.rows.length} new ${plural(noun)}`), ...(few && !m.isKind ? rowsSaid.map(t => ink(`new ${noun} ${t}`)) : []),
-      ...related.map(ink), ...ended.map(t => html`<span class="del">${t}</span>`), ...listed.map(named), more && ink(`${more} more`), x.skipped && `${count(x.skipped, 'value')} left out`, ...x.wrong,
+      ...related.map(ink), ...ended.map(t => html`<span class="del">${t}</span>`), ...listed.map(named), more && ink(`${more} more`), x.skipped && html`<button type="button" class="lk" aria-haspopup="menu" onClick=${e => Shell.menu(e.currentTarget, x.left.map(l => ({ label: leftWord(l) })), { placement: 'top-start' })}>${count(x.skipped, 'value')} left out</button>`, held.length && `${count(held.length, 'row')} held back`, ...x.wrong,
       // An import says how many of its rows are records the chart has already.
       file && x.matched && `${x.matched} already in the chart`].filter(Boolean);
     const entered = App.entered.peek();
     // What it's at: the records it writes over, those it adds at, and those it ends.
     const needs = [...new Set([...Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]), ...x.ends])].filter(id => id in entered);
-    App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
+    App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, ...(x.left.length && { note: `Left out: ${x.left.map(leftWord).join('; ')}` }), cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
       ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : over.length ? App.day.peek() : App.begins() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
@@ -1694,7 +1774,8 @@ const Table = (() => {
   const canWrite = () => !App.readOnly.peek() && !current?.red;
   // Columns shown or hidden, every way there is of asking: in Editing, the view's, as one change; Viewing, the session's.
   const showing = (cs, on, say = ch => Time.describe(ch)) => App.viewing.peek() ? seeColumns(current.view, cs, on) : edit(tx => cs.forEach(c => note(tx, 'Shown', c, current.view, on)), say);
-  const show = (c, on) => showing([c], on);
+  // A column ticked comes at once, and whatever else the grid was doing, it's drawn: a tick never says what the grid doesn't.
+  const show = (c, on) => { const out = showing([c], on), view = current?.view; if (on) setTimeout(() => { if (current?.view === view && el?.offsetParent && table && ready && !table.getColumns().some(x => x.getField() === field(c))) { drewFrom = null; refresh(); } }, 120); return out; };
   // Whether columns can be shown and hidden: in Editing, as a change; Viewing, for the session.
   const canShow = () => canWrite() || (App.viewing.peek() && !Shell.time.peek()?.stood && !current?.red);
   // The columns in this order, as Order notes in the view, as one change: those given, then the rest as they were;
@@ -1882,13 +1963,14 @@ const Table = (() => {
   const valuesIn = (c, d) => c.type === 'list' ? (d._m[field(c)]?.names?.length ? d._m[field(c)].names : [null]) : (v => [blank(v) ? null : v])(d[field(c)]);
   const later = (day, n) => { const [y, mo, d] = day.split('-').map(Number); return Tree.isoOf(new Date(y, mo - 1, d + n)); };
   function rangeOf(r, today = App.day.peek()) {
-    return r.range === 'overdue' ? { to: later(today, -1) } : typeof r.range === 'number' ? { from: today, to: later(today, r.range) } : { from: r.from, to: r.to };
+    return r.range === 'overdue' ? { to: later(today, -1) } : typeof r.range === 'number' ? { from: r.overdue ? null : today, to: later(today, r.range) } : { from: r.from, to: r.to };
   }
-  const rangeWords = r => r.range === 'overdue' ? 'overdue' : typeof r.range === 'number' ? `next ${r.range} days`
+  const rangeWords = r => r.range === 'overdue' ? 'overdue' : typeof r.range === 'number' ? `${r.overdue ? 'overdue and ' : ''}next ${r.range} days`
     : `${r.from ? Tree.formatDate(r.from, 'short') : '…'} to ${r.to ? Tree.formatDate(r.to, 'short') : '…'}`;
   function filterOf(m, l = lookOf(m.view)) {
     const fs = Object.entries(l.filters ?? {}).map(([k, vs]) => [m.cols.find(c => c.key === k), vs]).filter(([c, vs]) => c && !(Array.isArray(vs) && !vs.length)).map(([c, vs]) => {
-      if (!Array.isArray(vs)) { const { from, to } = rangeOf(vs), f = field(c); return d => !blank(d[f]) && (!from || d[f] >= from) && (!to || d[f] <= to); }
+      // (Overdue is of what falls due: what's only past isn't late.)
+      if (!Array.isArray(vs)) { const { from, to } = rangeOf(vs), f = field(c), late = vs.range === 'overdue' || vs.overdue; return d => { if (blank(d[f])) return false; const v = Tree.firstDay(d[f]); return (!from || v >= from) && (!to || v <= to) && (!late || v >= App.day.peek() || !!d._m[f]?.due || vs.range !== 'overdue' && !vs.overdue); }; }
       const ok = new Set(vs.map(v => JSON.stringify(v)));
       return d => valuesIn(c, d).some(v => ok.has(JSON.stringify(v)));
     });
@@ -2153,11 +2235,12 @@ const Table = (() => {
     const keys = e => { if (e.key === 'Enter' && t && list.length) { e.preventDefault(); setNone(false); filterBy(c, list.map(x => x.v)); close(); } };
     const today = App.day.peek(), between = ranged && on.range === 'between';
     const day = (label, k) => html`<input class="cell date" aria-label=${label} spellcheck=${false} autocomplete="off" value=${on?.[k] ? Tree.formatDate(on[k], 'short') : ''}
-      onChange=${e => { const d = Tree.parseDate(clean(e.target.value)); if (d || !clean(e.target.value)) filterBy(c, { ...on, [k]: d ?? null }); else e.target.setAttribute('aria-invalid', 'true'); }} />`;
+      onChange=${e => { const d = Tree.firstDay(Tree.parseKnown(clean(e.target.value))); if (d || !clean(e.target.value)) filterBy(c, { ...on, [k]: d ?? null }); else e.target.setAttribute('aria-invalid', 'true'); }} />`;
     return html`<div class="tfilter" onKeyDown=${listKeys}>
       <input type="search" class="tf-find" placeholder="Find" aria-label="Find" value=${q} autofocus spellcheck=${false} onInput=${e => setQ(e.target.value)} onKeyDown=${keys} />
       ${c.type === 'date' ? html`<div class="tf-ranges" role="radiogroup" aria-label="Days">
-        ${RANGES.map(([r, label]) => html`<label class="tf-row"><input type="radio" name="tf-range" checked=${ranged && on.range === r} onChange=${() => filterBy(c, { range: r })} /><span class="v">${label}</span></label>`)}
+        ${(c.key === '$value' || c.fx || m.data.some(r => r._m[field(c)]?.due) ? RANGES : RANGES.filter(([r]) => r === 'never')).map(([r, label]) => html`<label class="tf-row"><input type="radio" name="tf-range" checked=${ranged && on.range === r} onChange=${() => filterBy(c, { range: r, ...(typeof r === 'number' && on?.overdue && { overdue: true }) })} /><span class="v">${label}</span></label>`)}
+        ${ranged && typeof on.range === 'number' ? html`<label class="tf-row with-late"><input type="checkbox" checked=${!!on.overdue} onChange=${e => filterBy(c, { range: on.range, ...(e.target.checked && { overdue: true }) })} /><span class="v">And what’s overdue</span></label>` : null}
         <label class="tf-row"><input type="radio" name="tf-range" checked=${between} onChange=${() => filterBy(c, { range: 'between', from: today, to: later(today, 30) })} /><span class="v">Between…</span></label>
         ${between ? html`<div class="tf-between">${day('From', 'from')}<span>and</span>${day('To', 'to')}</div>` : null}
       </div>` : null}
@@ -2188,7 +2271,7 @@ const Table = (() => {
     const m = shownM.value, view = Shell.view.value;
     if (!m || m.view !== view) return null;
     const l = lookOf(view), by = k => m.cols.find(c => c.key === k);
-    const sortC = l.sort && by(l.sort.key), groupC = l.group && m.named && by(l.group), fs = Object.keys(l.filters ?? {}).map(by).filter(Boolean);
+    const sortC = l.sort && by(l.sort.key) && drawn(by(l.sort.key)) ? by(l.sort.key) : null, groupC = l.group && m.named && by(l.group), fs = Object.keys(l.filters ?? {}).map(by).filter(Boolean);
     const total = m.data.filter(r => r._red !== 'add').length, showing = table && ready ? table.getRows('active').filter(r => r.getData()._red !== 'add').length : total;   // the rows as kept, not copies of them
     // The record selected (in Find, say) a row the filters leave out: it stays selected, and the bar says so.
     const sel = Shell.selection.value[0], passes = fs.length && gridFilter(m, l), out = passes && m.data.find(r => r.id === sel && r._red !== 'add' && !passes(r));
@@ -2199,6 +2282,8 @@ const Table = (() => {
       <button type="button" data-tool="group" class=${"btn ghost dd" + (groupC ? " on" : "")} aria-haspopup="menu" onClick=${e => groupMenu(e.currentTarget)}>${groupC ? `Grouped by ${headed(groupC)}` : m.rows === "date" ? "Grouped by month" : "Group"}</button>
       ${fs.length ? html`<button type="button" class="btn ghost" onClick=${clearFilters}>Clear filters</button>` : null}
       ${m.isDatatype ? null : html`<button type="button" class="btn ghost" disabled=${App.readOnly.value} onClick=${importFile}>Import…</button>`}
+      <button type="button" data-tool="blanks" class=${'btn ghost' + (l.blanks ? ' on' : '')} aria-pressed=${!!l.blanks} onClick=${() => { setLook(view, { blanks: l.blanks ? undefined : true }); cells?.querySelector('.tabulator')?.parentElement?.classList.toggle('marks-blanks', !l.blanks); }}>Blanks</button>
+      ${m.ended?.length ? html`<span class="tout ended" role="status"><span>${l.ended ? `With ${m.ended.length} ended` : `${m.ended.length} ended left out`}</span><button type="button" class="lk" data-tip=${m.ended.slice(0, 6).map(e => `${e.name}, ${Tree.formatDate(e.day, 'short')}`).join('; ')} onClick=${() => { setLook(view, { ended: l.ended ? undefined : true }); drewFrom = null; refresh(); }}>${l.ended ? 'Leave out' : 'Include'}</button></span>` : null}
       ${out ? html`<span class="tout" role="status"><b>${rowName(sel)}</b> is filtered out<span class="sep">·</span><button type="button" class="lk" onClick=${() => { clearFilters(); setTimeout(() => track(sel)); }}>Clear filters</button></span>` : null}
       ${m.later?.length ? html`<span class="tout later" role="status">${m.later.length} ${m.later.length === 1 ? 'starts' : 'start'} later:${' '}<button type="button" class="lk" onClick=${() => Shell.at({ asOf: m.later[0].day })}><b>${m.later[0].name}</b>, ${Tree.formatDate(m.later[0].day, 'short')}</button>${m.later.length > 1 ? ` and ${m.later.length - 1} more` : ''}</span>` : null}
       <span class="tcount">${m.rows?.args && App.definitions.value.some(d => d.edges && App.broken.value.reach.has(d.id) && Tree.same(d.name, App.notes.value.name(m.rows))) ? html`<span class="no">Can’t be relied on</span> · ` : null}${showing !== total ? `${showing} of ${count(total, m.noun)}` : count(total, m.noun)}</span>
@@ -2247,11 +2332,11 @@ const Table = (() => {
   const pathed = c => c.parent ? html`<span class="up">${c.parent} › </span>${c.title}` : c.title;
   function Columns({ view }) {
     looked.value;
-    const ref = useRef(), opened = useRef(null), [typingName, setNaming] = useState(false), [found0, setQ] = useState(['', view]);
+    const ref = useRef(), [typingName, setNaming] = useState(false), [found0, setQ] = useState(['', view]);
     const m = shownM.value, q = found0[1] === view ? found0[0] : '';   // what's typed is the view's: another table starts afresh
     if (!m || m.view !== view) return null;
-    if (opened.current?.view !== view) opened.current = { view, first: new Set(m.cols.filter(c => c.shown).map(c => c.key)) };
-    const first = opened.current.first, rows = [...m.cols.filter(c => first.has(c.key)), ...m.cols.filter(c => !first.has(c.key))];
+    // (The table's own order, every time it's opened, so a row is where it was: none moves for being ticked.)
+    const rows = m.cols;
     // Found as they're typed, as a long list's fields are; dragged among those found, each lands among them all, after the
     // row it's dropped after, and among the ticked or the rest as that row is.
     // (A list is found by what it holds as well as what it's called: Taxed For, by "annual tax".)
@@ -2260,9 +2345,8 @@ const Table = (() => {
     const down = (e, c) => {
       if (!writes || e.target.closest('input, button')) return;
       Shell.drag(e, { item: e.currentTarget, items: [...ref.current.querySelectorAll('.colrow.mv')], onDrop: (from, i) => {
-        const a = vis[from], rest = vis.filter(x => x !== a), o = mv.filter(x => x !== a), before = rest[i - 1], next = rest[i], near = before ?? next;
+        const a = vis[from], rest = vis.filter(x => x !== a), o = mv.filter(x => x !== a), before = rest[i - 1], next = rest[i];
         o.splice(before ? o.indexOf(before) + 1 : next ? o.indexOf(next) : o.length, 0, a);
-        if (near) { if (first.has(near.key)) first.add(a.key); else first.delete(a.key); }
         place(o, undefined, undefined, a);
       } });
     };
@@ -2357,7 +2441,7 @@ const Table = (() => {
     // And related to nothing a page draws, it isn't placed on it: the toast offers Show (App.keepOff).
     let off = [];
     if (!App.change(tx => { id = keeping = tx.add('record', { kind: m.rows.kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: s }); off = App.keepOff(tx, [id]); },
-      { say: () => (off.length ? `${s} isn’t on ${off[0].name}` : null), go: () => (off.length ? ['Show', () => App.change(tx => tx.note('Shown', { id, kind: m.rows.kind }, true, { view: off[0].id }), { say: c => Time.describe(c) })] : null) })) { keeping = null; return; }
+      { say: () => (off.length ? `${s} isn’t on ${off[0].name}` : null), go: () => (off.length ? ['Put on the chart', () => App.change(tx => tx.note('Shown', { id, kind: m.rows.kind }, true, { view: off[0].id }), { say: c => Time.describe(c) })] : null) })) { keeping = null; return; }
     input.value = '';
     landed(id, () => {
       if (e.key !== 'Tab') return reveal(id);
@@ -2486,12 +2570,16 @@ const Table = (() => {
   }
 
   // ---- A cell's menu: what applies to the cells selected and their rows ----
+  const m0ours = (id, c) => { const st = App.state.peek(), o = c.up ? st[id]?.at : id; return st[o]?.kind ? o : null; };
   function rowMenu(e, row) {
     const cell = row.getCells().find(x => x.getElement().contains(e.target) && x.getField()), c = cell && columnOf(cell);
     const ids = [...new Set([row.getData().id, ...[...picked].filter(inGrid)])].filter(id => id in App.entered.value);
     const writes = canWrite(), d = ids.length && writes && deletion(ids), cs = cellsOf(), many = new Set(cs.map(x => x.getRow())).size > 1;
     const settles = typeof Inspector !== 'undefined' && Inspector.settling?.(row.getData().id);
+    // A blank cell of a record's own value or list: what says it isn't ours (dendra.md, Ours to track).
+    const cm = cell && meta(cell), oursAt = c && !c.key.startsWith('$') && c.type !== 'tag' && m0ours(row.getData().id, c), says = oursAt && cell.getValue() === null && App.notOurs(oursAt, c.title);
     Shell.menu({ x: e.clientX, y: e.clientY }, [
+      ...(writes && oursAt && cell.getValue() === null ? [{ label: says ? 'Ours after all…' : 'Not ours…', run: () => App.sayNotOurs(oursAt, c.title, !says) }, '-'] : []),
       // A deadline's row: what settles it (Paid…, Filed…), as its panel's button does.
       ...(settles ? [settles, '-'] : []),
       { label: 'Copy', keys: '$mod+KeyC', run: () => table.copyToClipboard('range') },
@@ -2672,6 +2760,14 @@ const Table = (() => {
     focus,
   });
 
+  // What a file of the table writes, as its Export and its first line say it: its rows, filtered by what, sorted how, and what's ended that it leaves out.
+  function rowsWords(all = false) {
+    const m = current, l = lookOf(m.view), by = k => m.cols.find(c => c.key === k), n = table.getRows().length, shown = table.getRows('active').length;
+    const said = k => { const c = by(k), on = l.filters[k]; if (!c) return null; if (!Array.isArray(on)) return `${headed(c)} (${rangeWords(on)})`; const vs = on.map(v => v === null ? 'Blank' : c.type === 'list' ? v : text(c.type, v)); return `${headed(c)} (${vs.length > 3 ? `${vs.length} values` : vs.join(', ')})`; };
+    const fs = Object.keys(l.filters ?? {}).map(said).filter(Boolean), s = !all && l.sort && by(l.sort.key), sorted = s && drawn(s) ? s : null;
+    const left = !l.ended && m.ended?.length ? `; leaves out ${m.ended.length} ended (${m.ended.length > 2 ? count(m.ended.length, m.noun) : m.ended.map(e => `${e.name}, ${Tree.formatDate(e.day, 'short')}`).join('; ')})` : '';
+    return `${all || shown === n ? `All ${count(n, m.noun)}` : `${shown} of ${count(n, m.noun)}, filtered by ${list(fs)}`}${sorted ? `, sorted by ${headed(sorted)}` : ''}${left}`;
+  }
   // ---- Export: what the table shows, in its order, as an Excel workbook or as CSV, while a table is shown ----
   const VENDOR = new URL('../../vendor/', SCRIPT);
   let sheetjs = null;
@@ -2688,27 +2784,59 @@ const Table = (() => {
   // money money, a date a date; a link to a document a link, named as the grid names it; a tag Yes or No. Its columns as
   // wide as the grid's, with Excel's filter on its headings. A row a change pending would add isn't there yet, and a value it
   // would change is as it is.
+  // What's marked stays marked (dendra.md, A table view): what's overdue or due soon, a failed check's cell, a blank that's
+  // required or, with Blanks on, any, what's typed over, with a note of who and why, by a fill; each row's status in a column of
+  // its own where any has one; and the file says what it is in its first line, its day, its chart and table, and what it's narrowed to.
+  function statusOf(m, d, kinds, blanks) {
+    const out = [], say = kinds.get(d.id);
+    if (d._ended) out.push(`Ended ${Tree.formatDate(d._ended, 'short')}`);
+    if (say?.has('overdue')) out.push('Overdue');
+    if (say?.has('soon')) out.push('Due soon');
+    if (d._fails) out.push(`Fails ${d._fails.join(', ')}`);
+    const errs = kinds.get(`at:${d.id}`);
+    if (errs) out.push(`Fails ${[...errs].join(', ')}`);
+    const miss = blanks.filter(b => b.id === d.id).map(b => b.edge);
+    if (miss.length) out.push(`Blank: ${miss.join(', ')}`);
+    return out.join('; ');
+  }
   function sheet(X, all = false) {
-    const m = current, cols = table.getColumns().filter(c => c.getField()).map(col => [col, m.byField.get(col.getField())]).filter(([, c]) => c);
+    const m = current, cols = table.getColumns().filter(c => c.getField()).map(col => [col, m.byField.get(col.getField())]).filter(([, c]) => c), look = lookOf(m.view);
     const rows = (all ? table.getRows() : table.getRows('active')).map(r => r.getData()).filter(d => d._red !== 'add');
     const value = (d, c) => { const mm = d._m[field(c)]; return mm && 'was' in mm ? mm.was : d[field(c)]; };
-    const ws = { A1: { t: 's', v: App.asOfWords().line } }, at = (r, j) => X.utils.encode_cell({ r, c: j });
+    const needs = App.needs.peek(), st = App.state.peek(), kinds = new Map(), requires = needs.filter(a => a.kind === 'blank' && !a.error);
+    for (const a of needs) { if (!kinds.has(a.id)) kinds.set(a.id, new Set()); kinds.get(a.id).add(a.kind); if (a.kind === 'error' && !a.error && st[a.id]?.at) { const k = `at:${st[a.id].at}`; if (!kinds.has(k)) kinds.set(k, new Set()); kinds.get(k).add(st[a.id].edge); } }
+    const failing = new Set(needs.filter(a => a.kind === 'error' && !a.error).map(a => a.id)), marks = new Map(), N = App.notes.peek();
+    const line = [App.asOfWords().line, [App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name, viewOf(m.view)?.name].filter(Boolean).join(', '), rowsWords(all)].filter(Boolean).join(' · ');
+    const ws = { A1: { t: 's', v: line } }, at = (r, j) => X.utils.encode_cell({ r, c: j });
+    const status = rows.map(d => statusOf(m, d, kinds, requires)), withStatus = status.some(Boolean), statusAt = cols.length;
     cols.forEach(([, c], j) => {
       ws[at(1, j)] = { t: 's', v: headed(c) };
       rows.forEach((d, i) => {
-        const v = value(d, c), type = typeOf(c, d);
-        if (blank(v)) return;
-        ws[at(i + 2, j)] = type === 'tag' ? { t: 's', v: text('tag', v) }
+        const v = value(d, c), type = typeOf(c, d), ref = at(i + 2, j), mm = d._m[field(c)], f = c.path?.at(-1) ?? c.title;
+        const mark = mm?.id && kinds.get(mm.id)?.has('overdue') ? 'overdue' : mm?.id && kinds.get(mm.id)?.has('soon') ? 'soon' : mm?.id && failing.has(mm.id) ? 'fail' : mm?.over ? 'over' : c.key === '$why' ? 'wrap' : null;
+        if (mark) marks.set(ref, mark);
+        if (mm?.over) { const by = App.enteredBy(mm.id); ws[ref] = { c: [{ a: by?.who ?? '', t: `${markTip(c, mm, v)}${by ? `. ${by.who}, ${Tree.isoOf(new Date(by.when))}${by.note ? `: ${by.note}` : ''}` : ''}` }] }; }
+        if (blank(v)) {
+          const ours = mm?.notours, required = requires.some(b => b.id === d.id && same(b.edge, f));
+          if (ours) ws[ref] = { t: 's', v: 'Not ours' };
+          else if (required || (look.blanks && mm?.at && c.key !== '$why')) { ws[ref] = { t: 's', v: '' }; marks.set(ref, 'blank'); }
+          return;
+        }
+        ws[ref] = { ...(ws[ref] ?? {}), ...(type === 'tag' ? { t: 's', v: text('tag', v) }
           : typeof v === 'number' && NUMERIC.has(type) ? { t: 'n', v, ...(type === 'percent' ? { z: pct(v) } : type === 'money' ? { z: `"$"#,##0${Number.isInteger(v) ? '' : '.00'}` } : {}) }
           : type === 'date' && /^\d{4}(-\d\d){0,2}$/.test(v) ? { t: 'n', v: serial(Tree.firstDay(v)), z: v.length === 4 ? 'yyyy' : v.length === 7 ? 'mmm yyyy' : 'mmm d, yyyy' }
           : type === 'document' ? { t: 's', v: c.filed ? filed(v) : Tree.format('document', v), l: { Target: String(v) } }
-          : { t: 's', v: text(type, v) };
+          : { t: 's', v: text(type, v) }) };
       });
     });
-    ws['!ref'] = X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length + 1, c: Math.max(0, cols.length - 1) } });
-    ws['!cols'] = cols.map(([col]) => ({ wpx: Math.round(col.getWidth()) }));
-    ws['!autofilter'] = { ref: X.utils.encode_range({ s: { r: 1, c: 0 }, e: { r: rows.length + 1, c: Math.max(0, cols.length - 1) } }) };
+    if (withStatus) { ws[at(1, statusAt)] = { t: 's', v: 'Status' }; status.forEach((s, i) => { if (s) { ws[at(i + 2, statusAt)] = { t: 's', v: s }; marks.set(at(i + 2, statusAt), /Overdue|Fails/.test(s) ? 'fail' : /Due soon|Blank/.test(s) ? 'soon' : 'wrap'); } }); }
+    const last = Math.max(0, cols.length - 1 + (withStatus ? 1 : 0));
+    ws['!ref'] = X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length + 1, c: last } });
+    // (Why wraps, as wide as a line of it reads, so a page wide holds it at a size that can be read.)
+    ws['!cols'] = [...cols.map(([col, c]) => ({ wpx: c.key === '$why' ? 420 : Math.round(col.getWidth()) })), ...(withStatus ? [{ wpx: 180 }] : [])];
+    ws['!autofilter'] = { ref: X.utils.encode_range({ s: { r: 1, c: 0 }, e: { r: rows.length + 1, c: last } }) };
     ws['!margins'] = { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
+    ws['!marks'] = marks;
     return ws;
   }
   async function workbook(all = false) {
@@ -2722,19 +2850,52 @@ const Table = (() => {
   // The file as Excel opens it: what SheetJS doesn't write, written into its parts: its headings bold, its day and headings
   // frozen with the columns the grid keeps in view, and turned to print one page wide.
   async function excelFile(all = false) {
-    const X = await loadSheetJS(), bytes = X.write(await workbook(all), { bookType: 'xlsx', type: 'array', compression: true }), zip = X.CFB.read(new Uint8Array(bytes), { type: 'array' });
+    const X = await loadSheetJS(), wb = await workbook(all), marks = wb.Sheets[wb.SheetNames[0]]['!marks'] ?? new Map();
+    return marked(X, X.write(wb, { bookType: 'xlsx', type: 'array', compression: true }), { frozen: Math.min(frozenOf(lookOf(current.view)), table.getColumns().filter(c => c.getField()).length), marks });
+  }
+  // The looks a cell is marked with, each kept to what it was (a date a date): what's late or failing red, what's soon or blank amber, what's typed over amber,
+  // each wrapped where it's long, so the printed page reads.
+  const MARKS = { overdue: { fill: 'FFF8D7DA', ink: 'FF9C0006' }, fail: { fill: 'FFF8D7DA', ink: 'FF9C0006', wrap: true }, soon: { fill: 'FFFFF2CC', wrap: true }, blank: { fill: 'FFFFEB9C' }, over: { fill: 'FFFFE699' }, wrap: { wrap: true } };
+  // What SheetJS doesn't write, written into the parts of a file it wrote: its first two rows' headings bold, its day and headings frozen with
+  // the columns kept in view, what's marked marked, and turned to print one page wide.
+  function marked(X, bytes, { frozen = 0, marks = new Map() }) {
+    const zip = X.CFB.read(new Uint8Array(bytes), { type: 'array' });
     const part = name => X.CFB.find(zip, `/${name}`), read = p => new TextDecoder().decode(p.content), write = (p, s) => { p.content = new TextEncoder().encode(s); p.size = p.content.length; };
     const styles = part('xl/styles.xml'), page = part('xl/worksheets/sheet1.xml');
     if (!styles || !page) return bytes;
-    // A bold font, the sheet's own with <b/>, and a cell format of it.
-    let s = read(styles), bold = 0;
-    s = s.replace(/<fonts count="(\d+)"([^>]*)>([\s\S]*?)<\/fonts>/, (_, n, rest, inner) => { bold = +n; return `<fonts count="${bold + 1}"${rest}>${inner}<font><b/>${inner.match(/<font>([\s\S]*?)<\/font>/)?.[1] ?? ''}</font></fonts>`; });
-    let xf = 0;
-    s = s.replace(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/, (_, n, inner) => { xf = +n; return `<cellXfs count="${+n + 1}">${inner}<xf numFmtId="0" fontId="${bold}" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>`; });
-    write(styles, s);
-    const frozen = Math.min(frozenOf(lookOf(current.view)), table.getColumns().filter(c => c.getField()).length), corner = X.utils.encode_cell({ r: 2, c: frozen });
-    const pane = `<pane ${frozen ? `xSplit="${frozen}" ` : ''}ySplit="2" topLeftCell="${corner}" activePane="${frozen ? 'bottomRight' : 'bottomLeft'}" state="frozen"/>`;
+    // A bold font, the sheet's own with <b/>, and a cell format of it; each mark's fill and ink.
+    let s = read(styles), bold = 0, plainFont = '';
+    const fonts = [], fills = [], xfs = [];
+    s = s.replace(/<fonts count="(\d+)"([^>]*)>([\s\S]*?)<\/fonts>/, (_, n, rest, inner) => { bold = +n; plainFont = inner.match(/<font>([\s\S]*?)<\/font>/)?.[1] ?? ''; fonts.push(`<font><b/>${plainFont}</font>`); return `<fonts§${n}§${rest}>${inner}</fonts>`; });
+    const fontOf = ink => { fonts.push(`<font>${plainFont.replace(/<color\b[^>]*\/>/, '')}<color rgb="${ink}"/></font>`); return bold + fonts.length - 1; };
+    let fillBase = 2;
+    s = s.replace(/<fills count="(\d+)"([^>]*)>([\s\S]*?)<\/fills>/, (_, n, rest, inner) => { fillBase = +n; return `<fills§${n}§${rest}>${inner}</fills>`; });
+    const fillOf = argb => { fills.push(`<fill><patternFill patternType="solid"><fgColor rgb="${argb}"/><bgColor indexed="64"/></patternFill></fill>`); return fillBase + fills.length - 1; };
+    const looks = new Map(Object.entries(MARKS).map(([k, v]) => [k, { fill: v.fill ? fillOf(v.fill) : 0, font: v.ink ? fontOf(v.ink) : 0, wrap: !!v.wrap }]));
+    let xf = 0, base = [];
+    s = s.replace(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/, (_, n, inner) => { xf = +n; base = inner.match(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g) ?? []; return `<cellXfs§${n}>${inner}</cellXfs>`; });
+    xfs.push(`<xf numFmtId="0" fontId="${bold}" fillId="0" borderId="0" xfId="0" applyFont="1"/>`);
+    const made = new Map(), xfOf = (from, mark) => {
+      const k = `${from}|${mark}`;
+      if (made.has(k)) return made.get(k);
+      const l = looks.get(mark), num = base[from]?.match(/numFmtId="(\d+)"/)?.[1] ?? '0';
+      xfs.push(`<xf numFmtId="${num}" fontId="${l.font}" fillId="${l.fill}" borderId="0" xfId="0" applyNumberFormat="1"${l.font ? ' applyFont="1"' : ''}${l.fill ? ' applyFill="1"' : ''}${l.wrap ? ' applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>' : '/>'}`);
+      made.set(k, xf + xfs.length - 1);
+      return xf + xfs.length - 1;
+    };
+    const pane = `<pane ${frozen ? `xSplit="${frozen}" ` : ''}ySplit="2" topLeftCell="${X.utils.encode_cell({ r: 2, c: frozen })}" activePane="${frozen ? 'bottomRight' : 'bottomLeft'}" state="frozen"/>`;
     let w = read(page);
+    // What's marked, and where it's blank, a cell with nothing in it, as a blank is.
+    if (marks.size) w = w.replace(/<c r="([A-Z]+\d+)"([^>]*?)(\/>|>([\s\S]*?)<\/c>)/g, (all, ref, attrs, rest) => {
+      const mark = marks.get(ref);
+      if (!mark) return all;
+      const from = +(attrs.match(/\bs="(\d+)"/)?.[1] ?? 0), n = xfOf(from, mark), a = attrs.replace(/\s*\bs="\d+"/, '');
+      return mark === 'blank' ? `<c r="${ref}" s="${n}"/>` : `<c r="${ref}" s="${n}"${a}${rest}`;
+    });
+    s = s.replace(/<fonts§(\d+)§([^>]*)>([\s\S]*?)<\/fonts>/, (_, n, rest, inner) => `<fonts count="${+n + fonts.length}"${rest}>${inner}${fonts.join('')}</fonts>`);
+    s = s.replace(/<fills§(\d+)§([^>]*)>([\s\S]*?)<\/fills>/, (_, n, rest, inner) => `<fills count="${+n + fills.length}"${rest}>${inner}${fills.join('')}</fills>`);
+    s = s.replace(/<cellXfs§(\d+)>([\s\S]*?)<\/cellXfs>/, (_, n, inner) => `<cellXfs count="${+n + xfs.length}">${inner}${xfs.join('')}</cellXfs>`);
+    write(styles, s);
     w = /<sheetPr\b[^>]*\/>/.test(w) ? w.replace(/<sheetPr\b([^>]*)\/>/, '<sheetPr$1><pageSetUpPr fitToPage="1"/></sheetPr>')
       : /<sheetPr\b/.test(w) ? w.replace('</sheetPr>', '<pageSetUpPr fitToPage="1"/></sheetPr>') : w.replace(/(<worksheet\b[^>]*>)/, '$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
     w = /<sheetViews>/.test(w) ? w.replace(/<sheetView ([^>]*?)\/>/, `<sheetView $1>${pane}</sheetView>`) : w.replace(/(<sheetData\b|<cols\b|<sheetFormatPr\b)/, `<sheetViews><sheetView workbookViewId="0">${pane}</sheetView></sheetViews>$1`);
@@ -2750,6 +2911,33 @@ const Table = (() => {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     Shell.toast(`Downloaded ${fileName('xlsx')}`);
+    return blob;
+  }
+  // A sheet of what isn't a table: a first line saying what it is, headings bold and frozen, each row its values, long ones wrapped,
+  // a Date a date, printed one page wide; a cell's mark, by a row's `marks` [column → mark]. { name, sheet, title, head, rows, widths, when, wrap, marks }.
+  async function plainFile(o) {
+    const X = await loadSheetJS(), ws = { A1: { t: 's', v: o.title } }, at = (r, j) => X.utils.encode_cell({ r, c: j }), marks = new Map();
+    o.head.forEach((h, j) => { ws[at(1, j)] = { t: 's', v: h }; });
+    o.rows.forEach((row, i) => row.forEach((v, j) => {
+      const ref = at(i + 2, j), mark = o.marks?.[i]?.[j];
+      if (mark) marks.set(ref, mark); else if (o.wrap?.includes(j)) marks.set(ref, 'wrap');
+      if (v === null || v === undefined || v === '') return;
+      ws[ref] = v instanceof Date ? { t: 'n', v: (v.getTime() - v.getTimezoneOffset() * 6e4 - Date.UTC(1899, 11, 30)) / 864e5, z: 'mmm d, yyyy h:mm AM/PM' } : typeof v === 'number' ? { t: 'n', v } : /^\d{4}-\d\d-\d\d$/.test(v) ? { t: 'n', v: serial(v), z: 'mmm d, yyyy' } : { t: 's', v: String(v) };
+    }));
+    ws['!ref'] = X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: o.rows.length + 1, c: o.head.length - 1 } });
+    ws['!cols'] = o.widths.map(wch => ({ wch }));
+    ws['!autofilter'] = { ref: X.utils.encode_range({ s: { r: 1, c: 0 }, e: { r: o.rows.length + 1, c: o.head.length - 1 } }) };
+    ws['!margins'] = { left: 0.5, right: 0.5, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
+    const wb = X.utils.book_new(), name = o.sheet.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31);
+    X.utils.book_append_sheet(wb, ws, name);
+    wb.Props = { Title: o.name, Author: App.who() ?? '' };
+    wb.Workbook = { Names: [{ Name: '_xlnm.Print_Titles', Sheet: 0, Ref: `'${name.replace(/'/g, "''")}'!$1:$2` }] };
+    const bytes = marked(X, X.write(wb, { bookType: 'xlsx', type: 'array', compression: true }), { frozen: 0, marks }), file = `${Tree.nameOfFile(o.name)}.xlsx`, blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    if (typeof Export !== 'undefined' && Export.onFile) return Export.onFile(blob, file);
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: file });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    Shell.toast(`Downloaded ${file}`);
     return blob;
   }
   // Import…: the dialog, empty, to take rows typed or pasted, or a file; rows that came otherwise, shown in it.
@@ -2771,7 +2959,7 @@ const Table = (() => {
     if (!(real?.view === o.view && built?.view === o.view && ready && el?.offsetParent)) { if (tries) setTimeout(() => importInto(o, tries - 1), 25); return; }
     const m = real, rows = o.first === 'head' ? o.grid : [o.keys.map(() => ''), ...o.grid];
     const cols = o.keys.map((k, j) => k === 'new' ? newColumn(clean(rows[0][j] ?? ''), rows.slice(1).map(r => r[j] ?? '')) : k ? m.cols.find(c => c.key === k) ?? null : null);
-    stage(m, as => byName(m, rows, cols, as), { file: o.file });
+    stage(m, as => byName(m, rows, cols, as), { file: o.file, held: o.held ?? [] });
     // (The keys to the grid, so Enter makes it, not back to what opened the dialog.)
     focus();
   }
@@ -2843,9 +3031,8 @@ const Table = (() => {
     if (on && !unexport) {
       // What a file writes, as the Export dialog says it: the rows as shown, filtered and sorted so, or every row; and the
       // columns shown, in their order.
-      const writes = all => { const m = current, l = lookOf(m.view), by = k => m.cols.find(c => c.key === k), n = table.getRows().length, shown = table.getRows('active').length;
-        const fs = Object.keys(l.filters ?? {}).map(by).filter(Boolean).map(headed), s = !all && l.sort && by(l.sort.key), cols = table.getColumns().filter(c => c.getField() && m.byField.get(c.getField())).length;
-        return `${all || shown === n ? `All ${count(n, m.noun)}` : `${shown} of ${count(n, m.noun)}, filtered by ${list(fs)}`}${s ? `, sorted by ${headed(s)}` : ''}; ${count(cols, 'column')}, in their order`; };
+      const writes = all => { const m = current, cols = table.getColumns().filter(c => c.getField() && m.byField.get(c.getField())).length;
+        return `${rowsWords(all)}; ${count(cols, 'column')}, in their order`; };
       const offs = [Shell.register('export', { name: 'Excel', says: writes, run: ({ all } = {}) => table && excel(all).catch(e => Shell.toast(e?.message || 'Couldn’t export')) }),
         Shell.register('export', { name: 'CSV', says: writes, run: ({ all } = {}) => { table?.download('csv', fileName('csv'), { bom: true }, all ? 'all' : 'active'); Shell.toast(`Downloaded ${fileName('csv')}`); } })];
       unexport = () => offs.forEach(f => f());
@@ -2853,5 +3040,5 @@ const Table = (() => {
     if (!on && unexport) { unexport(); unexport = null; }
   });
 
-  return { model, paste, focus, look: lookOf, workbook, excelFile, Columns, importFile, importing, moved, opening, openList, get grid() { return table; } };
+  return { model, paste, focus, look: lookOf, workbook, excelFile, plainFile, Columns, importFile, importing, moved, opening, openList, get grid() { return table; } };
 })();

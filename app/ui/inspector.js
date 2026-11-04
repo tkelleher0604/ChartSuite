@@ -113,7 +113,7 @@ const placeOf = e => e.args?.length === 1 ? e.args[0] : e.at ? { at: e.at, edge:
 // entry it could have and hasn't, but a check, which is its formula's to give and shows where it fails); in
 // Order, Name first.
 function slots(at, all) {
-  const r = recs(), own = !!r[at]?.kind, slot = (edge, x) => ({ edge, ...x, t: { args: [{ edge, loc: tree(at) }] } });
+  const r = recs(), own = !!r[at]?.kind, slot = (edge, x) => ({ edge, at, ...x, t: { args: [{ edge, loc: tree(at) }] } });
   const ents = entriesAt(at).map(id => ({ id, edge: r[id].edge, t: tree(id), pinned: T.same(r[id].edge, 'Name') }));
   const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e }));
   const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
@@ -124,7 +124,9 @@ function slots(at, all) {
   const untested = App.definitions.value.filter(d => !reach.has(d.id) && silent(d) === 'untested').map(d => slot(d.name, { at, na: true }));
   const given = [...errors, ...blanks, ...unsure, ...untested], asked = offered.value.filter(o => o.at === at && !entryNamed(at, o.edge) && !given.some(x => T.same(x.edge, o.edge))).map(o => slot(o.edge, { at, open: true, made: true }));
   const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...given, ...asked].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
-  const out = [...ents.filter(e => !(own && e.pinned)), ...given, ...asked, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
+  // What's blank that others of its kind have stands empty too, so what's missing can be seen and typed; or says it isn't ours.
+  const apart = own && !all ? App.blanksApart.value.filter(b => b.id === at && !b.list && ![...given, ...asked].some(x => T.same(x.edge, b.edge))).map(b => slot(b.edge, { open: true, apart: true })) : [];
+  const out = [...ents.filter(e => !(own && e.pinned)), ...given, ...asked, ...open, ...apart].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
     .sort((a, b) => a.o - b.o || a.p - b.p || a.edge.localeCompare(b.edge));
   // Offered, the first not yet given, blank or not, is typed into at once.
   const first = all && out.find(x => x.open || x.blank);
@@ -664,7 +666,7 @@ function joinTo(id, b, w, lb, fresh = null) {
   const v = viewShown(), chart = v?.layout === 'chart' ? v : null, make = tx => { o = tx.add('record', { kind: fresh.kind }); tx.add('record', { at: o, edge: 'Name', field: 'text', value: fresh.name }); return o; };
   // (Or the chart shown leaves its like out by a filter.)
   const offOf = () => (chart ? (o && !linkOf(o) && !App.scene.peek()?.byId.has(o) ? chart : null) : kept[0] ?? null);
-  const told = { go: () => (offOf() ? ['Show', () => showHere([o], offOf())] : null) }, saying = () => `${fresh?.name} isn’t on ${offOf()?.name}`;
+  const told = { go: () => (offOf() ? ['Put on the chart', () => showHere([o], offOf())] : null) }, saying = () => `${fresh?.name} isn’t on ${offOf()?.name}`;
   const rec = (other, out = { tag: true }) => ({ args: [{ edge: w.sm.edge, at: w.at }, { edge: w.sl.edge, at: other }], ...out });
   const p = T.bare(w.s), first = T.same(N().edges(p)[0], w.sm.edge), here = rowName(id), there = fresh?.name ?? rowName(lb), standIn = { ...recs(), ...(fresh && { '§new': { kind: fresh.kind } }) }, at = lb ?? '§new';
   // A role to choose goes straight to the kind and the day, in its bar: who's named, so what's left is what they are, and from when.
@@ -711,9 +713,11 @@ function Label({ it, fx }) {
     onBlur=${e => { renaming.value = null; rename(it.id, T.clean(e.target.value)); }} />`;
   const click = e => { if (e.altKey && it.id) select([general(patternOf(it.id))]); else if (fx) emit('why-open', it.id); else if (r) typedBy(e.currentTarget, it.id); };
   // (One with no record yet has a rule's way in too, where it's a yes-or-no just made or one a rule says nothing of here.)
-  const none = e => { if (!it.t) return; e.preventDefault(); menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rule', run: () => select([general(slotPattern(it))]) }]); };
+  const objectHere = !!recs()[it.at]?.kind && !App.readOnly.value, says = !it.id && objectHere && App.notOurs(it.at, it.edge);
+  const none = e => { if (!it.t) return; e.preventDefault();
+    menu({ x: e.clientX, y: e.clientY }, [{ label: 'Rule', run: () => select([general(slotPattern(it))]) }, ...(objectHere ? [{ label: says ? 'Ours after all…' : 'Not ours…', run: () => App.sayNotOurs(it.at, it.edge, !says) }] : [])]); };
   return html`<span class=${'lbl' + (fx || r ? ' asks' : '')} onClick=${click} onContextMenu=${e => { if (it.id) { e.preventDefault(); entryMenu({ x: e.clientX, y: e.clientY }, it.id); } else none(e); }}>
-    ${it.edge}${it.blank ? html`<i class="req" aria-label="Required" />` : null}</span>${it.made ? html`<button class="lk muted to-rule" onClick=${() => select([general(slotPattern(it))])}>Rule</button>` : null}`;
+    ${it.edge}${it.blank ? html`<i class="req" aria-label="Required" />` : null}${says ? html`<span class="notours">Not ours</span>` : null}</span>${it.made ? html`<button class="lk muted to-rule" onClick=${() => select([general(slotPattern(it))])}>Rule</button>` : null}`;
 }
 // What a row with no record yet is of: its entry in general, as patternOf gives it for one with.
 const slotPattern = it => T.bare({ args: [{ edge: it.edge, loc: T.specOf(it.t.args[0].loc) }] });
@@ -874,7 +878,11 @@ function Entries({ at, depth, offer }) {
   const d = draft.value, list = slots(at, offer), p = App.pending.value;
   // The end entry a deletion pending gives it, where it has none yet.
   if (p?.verb === 'Delete' && typeof p.word === 'string' && ending(at, p.word) && !list.some(s => T.same(s.edge, p.word))) list.push({ edge: p.word, at });
+  // Who's responsible, where nobody is and others of its kind have someone: empty, to say who, or that it isn't ours.
+  const noOne = !depth && recs()[at]?.kind ? App.blanksApart.value.filter(b => b.id === at && b.list) : [];
   return html`${list.map(it => html`<${Entry} key=${T.norm(it.edge)} it=${it} at=${at} depth=${depth} />`)}
+    ${noOne.map(b => { const l = listsOf(at).find(x => T.same(x.name, b.edge)), says = App.notOurs(at, b.edge), stop = App.readOnly.value;
+      return html`<div class="ent" key=${'no ' + b.edge}><div class="row" data-key=${'list:' + b.edge} style=${`--depth:${depth}`}><div class="k"><span class="lbl">${b.edge}</span></div><div class="v ctl"><span class="cellbox"><button class="sel dd" disabled=${stop || !l} aria-haspopup="menu" aria-label=${`${b.edge}: ${says ? 'not ours' : 'no one'}`} onClick=${e => menu(e.currentTarget, q => [...(q ? [] : [{ label: says ? 'Ours after all…' : 'Not ours…', run: () => App.sayNotOurs(at, b.edge, !says) }, '-']), ...whoFor(at, l, q)], { search: true })}><span class=${says ? 'notours' : 'ph'}>${says ? 'Not ours' : 'No one'}</span></button></span></div></div></div>`; })}
     ${d?.at === at ? html`<${Draft} key=${JSON.stringify(d)} d=${d} depth=${depth} />` : null}`;
 }
 
@@ -1178,11 +1186,13 @@ function Head({ path = [], title, more, span, children }) {
 // Feb 1, 2027"; an object's by the act its entries record ("Formed", "Dissolved"). Each day is a link to the chart then.
 function Span({ id }) {
   App.version.value; App.day.value;
+  const former = recs()[id]?.kind ? App.formerNames(id) : [];
   const span = App.spanOf(id), from = span.from?.when ? null : span.from, until = span.until, before = d => later(d, -1);
   // A relation with no day of its own holds all along, which is what it reads as: never a day its side began on, which nobody said of it.
   const along = !from && !!recs()[id]?.args && !fx(id) && App.shown.value.item(App.chart.value, id).length > 0;
-  if (!from && !until && !along) return null;
+  if (!from && !until && !along && !former.length) return null;
   return html`<p class="span">
+    ${former.map(f => html`<span class="former">Formerly ${f.name}, until <button type="button" class="lk" onClick=${() => showDay(before(f.until))}>${short(f.until)}</button></span>`)}
     ${from ? html`<span>${from.word ?? 'From'} <${DayOf} id=${id} side="from" day=${from.day} shows=${from.day} /></span>` : along ? html`<span>All along</span>` : null}
     ${until ? html`<span>${until.word ?? 'Until'} <${DayOf} id=${id} side="until" day=${until.day} shows=${until.day <= App.day.value ? before(until.day) : until.day} />${until.when ? `, ${until.when}` : ''}</span>` : null}</p>`;
 }
@@ -1340,8 +1350,18 @@ function LaterView({ id }) {
   const words = (was && App.actOf(then[was].edge)?.[1]) || (d ? 'From' : 'Ended'), name = x.kind ? N().nameOf(then, id) : `${N().nameOf(then, id)}: ${N().segmentOf(then, id)}`;
   // (And the way to change that day, as any is.)
   const change = !App.readOnly.value && dayItems(id, d ? 'from' : 'until', on).find(it => it.label.startsWith('Change'));
+  // What it was, as of the last day it held (or the first it will), read: its values, and its relatives by list, and its History.
+  const n = N(), I = T.index(then), entries = (I.entries.get(id) ?? []).filter(e => !T.same(then[e].edge ?? '', 'Name') && ('field' in then[e] || 'choice' in then[e] || 'tag' in then[e]));
+  const lists = new Map();
+  for (const rid of I.relations.get(id) ?? []) { const rel = then[rid], t = T.treeOf(then, rid), mine = rel.args?.find(a => a.at === id), other = rel.args?.find(a => a !== mine);
+    if (!t || !mine || !other) continue;
+    const list = n.listName(t, other.edge), who = n.shortOf(then, T.objectOf(then, other.at)), amount = (I.entries.get(rid) ?? []).map(e => then[e]).find(e => e.field === 'percent');
+    if (!lists.has(list)) lists.set(list, []);
+    lists.get(list).push({ who, amount: amount ? T.format('percent', amount.value) : rel.choice ?? '' }); }
   return html`<div class="insp"><${Head} path=${x.kind ? [{ label: x.kind }] : []} title=${bound(name)} />
-    <div class="later"><span>${words} ${short(d ?? gone.day)}</span><button class="btn" onClick=${() => Shell.at(on === Log.today() ? null : { asOf: on })}>Show the chart then</button>${change ? html`<button class="btn" disabled=${!!change.disabled} data-tip=${change.tip ?? null} onClick=${change.run}>Change this day…</button>` : null}</div></div>`;
+    <div class="later"><span>${words} ${short(d ?? gone.day)}</span><button class="btn" onClick=${() => Shell.at(on === Log.today() ? null : { asOf: on })}>Show the chart then</button>${change ? html`<button class="btn" disabled=${!!change.disabled} data-tip=${change.tip ?? null} onClick=${change.run}>Change this day…</button>` : null}<button class="btn" onClick=${() => Time.of([id])}>History</button></div>
+    <div class="then">${entries.map(e => html`<div class="row"><div class="k">${then[e].edge}</div><div class="v">${T.outputText(then[e])}</div></div>`)}
+      ${[...lists].map(([list, items]) => html`<div class="st">${list}</div>${items.map(it => html`<div class="row"><div class="k">${it.who}</div><div class="v">${it.amount}</div></div>`)}`)}</div></div>`;
 }
 // A box or line the chart shown hides by its own note (Delete, Hide in this view): said, with the way to show it
 // there again, its own Shown in the view, as the narrowest decides. Any other way out of a chart is the view's.
@@ -2072,7 +2092,8 @@ function addsOf(id) {
     .map(l => ({ label: `Add ${one(l.name).toLowerCase()}…`, run: at => addTo(at, id, l) }));
 }
 Shell.register('inspector', { addTo: addToList, adds: addsOf, ask: into => { Shell.showPanel?.(); aim.value = 'merged'; select([into]); }, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
-Shell.register('attention', { items: () => attention.value, within: days => App.needsWithin(days).filter(a => a.kind === 'soon').map(attending) });
+Shell.register('attention', { items: () => attention.value, within: days => App.needsWithin(days).filter(a => a.kind === 'soon').map(attending),
+  apart: () => App.blanksApart.value.map(b => ({ ...attending({ kind: 'blank', id: b.id, edge: b.edge }), ...(b.list && { go: () => { aim.value = 'list:' + b.edge; select([b.id]); } }), apart: b.ours ? 'optional' : 'ours', list: !!b.list, say: () => App.sayNotOurs(b.id, b.edge, b.ours) })) });
 // What the panel's ⋯ changes, for Find, of the one record selected: Transfer… (by the words a sale goes by) and Delete…,
 // with why not, where they can't be.
 const theOne = () => { const ks = Shell.selection.peek(); return ks.length === 1 && recs()[ks[0]] ? ks[0] : null; };
@@ -2155,6 +2176,12 @@ Shell.register('find', { items: () => {
       }, 150);
     } }));
 } });
+// A blank of the record selected said not to be ours, or to be ours after all, by the words for it.
+Shell.register('find', { items: () => {
+  const id = theOne();
+  if (!id || App.readOnly.peek() || !recs()[id].kind) return [];
+  return App.blanksApart.peek().filter(b => b.id === id).map(b => ({ label: `${b.ours ? 'Not ours' : 'Ours after all'}: ${b.edge}…`, detail: 'Action', names: ['Not ours', 'Out of scope', 'Not applicable', 'Blank by choice', `Not ours ${b.edge}`], run: () => App.sayNotOurs(id, b.edge, b.ours) }));
+} });
 // Who's Responsible, for the record selected, or a date's own record: Find asks it by the word for it, as its Add does.
 Shell.register('find', { items: () => {
   const id = theOne();
@@ -2177,10 +2204,25 @@ Shell.register('find', { items: () => {
 // same while the state and the notes stand, so they're found once, not at each key typed; and found ahead, an object
 // at a time, while the window is idle after either changes, so the first key typed in Find finds at once.
 let findable = null;
+// And by what's in it: each value it has (an EIN, a file number, Delaware), by the value and by whose it is ("Fund III EIN"), a
+// hit saying what it found and in what field; and what it was called, by that, saying what it's called now.
+const VALUES = new Set(['text', 'number', 'money', 'yearly']);
+const valuesOf = (st, n, id, name = n.nameOf(st, id), short = n.shortOf(st, id)) => {
+  const I = T.index(st), at = [id], out = [];
+  for (let i = 0; i < at.length; i++) at.push(...(I.entries.get(at[i]) ?? []));
+  for (const x of at.slice(1)) { const r = st[x];
+    if (!r.edge || T.same(r.edge, 'Name') || T.same(r.edge, 'Short Name') || !(VALUES.has(r.field) || 'choice' in r) || r.computed) continue;
+    const value = T.outputText(r);
+    if (value) out.push({ of: '§values', label: `${short} › ${r.edge}`, names: [value, `${short} ${r.edge}`, `${r.edge} ${short}`, `${name} ${r.edge}`, `${r.edge} ${value}`], detail: 'Value', why: value, run: () => { aim.value = x; select([id]); } }); }
+  return out;
+};
+const formerHits = (st, n, id, day) => App.formerNames(id, day, st).map(f => ({ of: '§former', label: f.name, names: [n.shortOf(st, id)], detail: 'Former name', why: `${n.shortOf(st, id)} until ${short(f.until)}`, run: () => select([id]) }));
 function* finding(st, n, out) {
+  const day = App.day.peek();
   for (const ids of T.index(st).kinds.values()) for (const id of ids) if (!T.isView(st[id])) {
     out.push({ key: id, label: n.nameOf(st, id), names: [n.shortOf(st, id)].filter(s => s && s !== n.nameOf(st, id)), detail: st[id].kind, run: () => select([id]) });
     for (const [list] of relatives(id).lists) out.push({ of: id, label: `${n.shortOf(st, id)} › ${list}`, detail: 'List', run: () => { aim.value = 'list:' + list; select([id]); } });
+    out.push(...valuesOf(st, n, id), ...formerHits(st, n, id, day));
     yield;
   }
 }
@@ -2198,10 +2240,29 @@ Shell.register('find', { items: () => {
   const out = new Map();
   for (const r of wb.rows(c)) if (r.kind && r.kind !== 'View' && !st[r.record] && !out.has(r.record)) {
     const on = App.heldFrom(r.record, day), off = on ? null : App.heldUntil(r.record, day), then = (on ?? off?.last) && wb.asOf(c, on ?? off.last);
-    out.set(r.record, then?.[r.record] ? { key: r.record, label: N().nameOf(then, r.record), detail: `${r.kind}, ${on ? 'from' : 'ended'} ${short(on ?? off.day)}`, run: () => select([r.record]) } : null);
+    out.set(r.record, then?.[r.record] ? [{ key: r.record, label: N().nameOf(then, r.record), detail: r.kind, why: `${on ? 'from' : 'ended'} ${short(on ?? off.day)}`, run: () => select([r.record]) }, ...valuesOf(then, N(), r.record), ...formerHits(then, N(), r.record, on ?? off.last)] : null);
   }
-  away = { version, c, day, out: [...out.values()].filter(Boolean) };
+  away = { version, c, day, out: [...out.values()].filter(Boolean).flat() };
   return away.out;
+} });
+// A record and a list a formula could give it, by the words for each, where it gives it none: "BDC control" is the BDC's Controllers, none, which is
+// the answer. (A list it has is found already, by whose it is.)
+Shell.register('find', { items: q => {
+  const words = T.norm(q ?? '').split(' ').filter(Boolean);
+  if (words.length < 2) return [];
+  const st = recs(), n = N(), said = (x, w) => (' ' + T.norm(x) + ' ').includes(' ' + w + ' ') || T.norm(x).startsWith(w), out = new Map();
+  const objects = Object.keys(st).filter(id => st[id].kind && !T.isView(st[id])), rels = n.notes('Formula').filter(x => !x.view && x.pattern.args?.length === 2).map(x => x.pattern);
+  for (let i = 1; i < words.length; i++) for (const [who, what] of [[words.slice(0, i), words.slice(i)], [words.slice(i), words.slice(0, i)]]) {
+    const w = who.join(' '), t = what.join(' '), is = id => T.norm(n.shortOf(st, id)).replace(/^the /, '') === w, all = objects.filter(id => said(n.shortOf(st, id), w) || said(n.nameOf(st, id), w)), hits = all.some(is) ? all.filter(is) : all;
+    if (!hits.length) continue;
+    for (const p of rels) for (const [from, to] of [p.args, [...p.args].reverse()]) {
+      const list = n.listName(p, to.edge);
+      if (!T.norm(list).startsWith(t) && !T.norm(n.name(p)).startsWith(t)) continue;
+      for (const id of hits) if (!out.has(id + list) && T.narrower(tree(id), from.loc) && !relatives(id).lists.some(([l]) => T.same(l, list)))
+        out.set(id + list, { of: '§lists', label: `${n.shortOf(st, id)} › ${list}`, names: [q], detail: 'List', why: 'None', run: () => { aim.value = 'list:' + list; select([id]); } });
+    }
+  }
+  return [...out.values()];
 } });
 let warming = false;
 preactSignals.effect(() => {

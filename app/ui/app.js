@@ -493,6 +493,45 @@ const App = (() => {
     const ended = [...days].sort().reverse().find(x => wb.asOf(c, before(x))[id]);
     return ended ? { day: ended, last: before(ended) } : null;
   }
+  // Blank by choice (dendra.md, Ours to track): a blank said to be no blank of the chart's, a Required note saying no, at that
+  // one record's own tree and the entry or list's label. It says who said so and why as any change does.
+  const oursPattern = (id, edge, recs = state.peek()) => ({ args: [{ edge, loc: Tree.treeOf(recs, id) }] });
+  function notOurs(id, edge, recs = state.peek(), N = notes.peek()) {
+    const t = recs[id] && Tree.treeOf(recs, id), n = t && N.resolve('Required', { args: [{ edge, loc: t }] });
+    return n?.value === false && n.note.pattern.args?.[0]?.loc?.id === id ? n.note : null;
+  }
+  function sayNotOurs(id, edge, on = true) {
+    const recs = state.peek(), name = notes.peek().shortOf(recs, id), what = on ? `${edge} of ${name} isn’t ours` : `${edge} of ${name} is ours after all`;
+    stage({ verb: on ? 'Not ours' : 'Ours', what, parts: [html`<span class="add">${what}</span>`], source: `ours ${id} ${edge}`, needs: [id], make: tx => tx.note('Required', oursPattern(id, edge), on ? false : undefined), say: what, auto: true });
+  }
+  // What's blank that nothing requires, apart from what is, so a count of what's required isn't read as all that's empty: of a kind's
+  // records, each value at least half of them have that this one hasn't (not its end, which is blank till it ends, nor its
+  // short name), and who's responsible, where some of its kind have someone; and what's been said isn't ours. Each { id, edge, ours }.
+  const blanksApart = computed(() => {
+    const st = state.value, N = notes.value, I = Tree.index(st), kinds = new Map(), out = [];
+    const objects = Object.keys(st).filter(id => st[id].kind && !Tree.isView(st[id]));
+    const skipped = (id, edge) => Tree.same(edge, 'Name') || Tree.same(edge, 'Short Name') || N.isEnd({ out: { field: 'date' }, args: [{ edge, loc: Tree.treeOf(st, id) }] });
+    const required = new Set(needs.value.filter(a => a.kind === 'blank').map(a => `${a.id}|${Tree.norm(a.edge)}`));
+    for (const id of objects) {
+      const m = kinds.get(st[id].kind) ?? kinds.set(st[id].kind, { n: 0, has: new Map(), who: 0 }).get(st[id].kind);
+      m.n++;
+      if (responsible(id, st)) m.who++;
+      for (const e of I.entries.get(id) ?? []) { const r = st[e]; if (r.edge && !r.computed && ('field' in r || 'choice' in r)) { const k = Tree.norm(r.edge); m.has.set(k, { edge: r.edge, n: (m.has.get(k)?.n ?? 0) + 1 }); } }
+    }
+    for (const id of objects) {
+      const m = kinds.get(st[id].kind), own = new Set((I.entries.get(id) ?? []).map(e => Tree.norm(st[e].edge ?? '')));
+      for (const [k, { edge, n }] of m.has) if (n * 2 >= m.n && !own.has(k) && !required.has(`${id}|${k}`) && !skipped(id, edge)) out.push({ id, edge, ours: !notOurs(id, edge, st, N) });
+      if (m.who && !responsible(id, st)) out.push({ id, edge: 'Responsible', list: true, ours: !notOurs(id, 'Responsible', st, N) });
+    }
+    return out;
+  });
+  // What a record was called before a day: each version of its Name that ended by then, the latest first, and the day it did.
+  // (A slip corrected leaves no version, so what's here was truly its name.)
+  function formerNames(id, d = day.peek(), recs = state.peek()) {
+    const e = Tree.entryAt(recs, id, 'Name'), c = chart.peek();
+    if (!e || !c) return [];
+    return shown.peek().item(c, e).filter(r => r.before && r.before <= d && !Tree.same(r.value, recs[e].value)).sort((a, b) => b.before.localeCompare(a.before)).map(r => ({ name: r.value, until: r.before }));
+  }
   // The day asked, wherever a record added, deleted or transferred asks it (a change pending's bar, and its controls
   // where it was asked): `asks` 'from', "From" (or the start entry it's given, `word`, a general partner's Admission
   // Date) and the day, typed over as Paid… types its day, or "All along", from the
@@ -1645,7 +1684,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, workAt, state, needs,
-    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
+    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone, annotate, broken,
   };
 })();
