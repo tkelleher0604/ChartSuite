@@ -249,7 +249,8 @@ const Shell = (() => {
   }, true);
   addEventListener('pointerdown', () => hand(false), true);
   const TABBABLE = ['a[href]', 'button:not(:disabled)', 'input:not(:disabled)', 'select:not(:disabled)', 'textarea:not(:disabled)', '[tabindex]', '[contenteditable="true"]'].map(s => s + ':not([tabindex="-1"])').join(', ');
-  const shown = el => el.getClientRects().length > 0;
+  // (The panel put away keeps its boxes, hidden: nothing there can take the keys.)
+  const shown = el => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
   const tabbables = box => [...box.querySelectorAll(TABBABLE)].filter(shown);
   // Top down as they're drawn: the title bar, the format bar (a table's toolbar is its own, beside its grid), the formula bar, the
   // view, the bar a change pending has, a message with something to do, the inspector, the tabs.

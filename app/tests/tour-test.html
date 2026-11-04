@@ -262,6 +262,16 @@ async function run() {
     kd('x', cv.root); await tick(80);
     check('With… by the keys: a name typed makes no box, as With… asks for one that’s there', cv.root.classList.contains('relating') && !$('.dc-edit'), `${cv.root.classList.contains('relating')} ${!!$('.dc-edit')}`);
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(80);
+    // The panel put away is no stop of F6: the keys go on past it to the tabs, and Esc brings them back with what's selected.
+    Shell.select(['gp']); await tick(120);
+    Shell.enter('view'); await tick(40);
+    const panelAct = () => Shell.parts.peek().action.find(a => a.id === 'panel');
+    panelAct().run(); await tick(250);
+    Shell.parts.peek().action.find(a => a.id === 'pane.next').run(); await tick(60);
+    check('The panel put away is no stop of F6: the keys go on past it to the tabs', pane() === 'tabs', pane());
+    kd('Escape'); await tick(80);
+    check('… and Esc brings them back to the view, what’s selected staying', pane() === 'view' && Shell.selection.peek().join() === 'gp', `${pane()} ${Shell.selection.peek().join()}`);
+    panelAct().run(); await tick(250);
     // Esc on a checkbox in a dialog closes the dialog, and leaves what's selected behind it alone.
     Shell.select(['gp']); await tick(120);
     let closed = false;
