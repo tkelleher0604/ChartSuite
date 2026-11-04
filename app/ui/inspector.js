@@ -1911,7 +1911,8 @@ function GeneralView({ p, style }) {
   };
   const flag = (label, q, v) => App.change(tx => tx.note(label, q, v));
   const options = type === 'choice' ? optionsOf(specs) : [];
-  const reorderOpts = (from, i) => App.change(tx => moved(options, from, i).forEach((o, k) => tx.note('Order', { out: { choice: o }, args: p.args }, k + 1)));
+  // (At each specification of the option, as what's noted there is what says its place.)
+  const reorderOpts = (from, i) => App.change(tx => moved(options, from, i).forEach((o, k) => specs.filter(s => s.out?.choice === o).forEach(s => tx.note('Order', { out: { choice: o }, args: s.args }, k + 1))));
   const ats = kind ? [] : rel ? n.edges(p).map(e => [e, [...new Set(specs.map(s => where(s.args.find(a => T.same(a.edge, e)).loc)))].join(', ')])
     : [['At', [...new Set(specs.map(s => where(s.args[0].loc)))].join('\n')]];
   const below = kind ? [...new Map(Object.values(S).filter(s => s.args?.length === 1 && s.args[0].loc.kind && T.same(s.args[0].loc.kind, p.kind)).map(s => [T.norm(s.args[0].edge), s])).values()] : [];

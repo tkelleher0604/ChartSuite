@@ -1560,6 +1560,24 @@ async function layered() {
     Shell.select([]); await tick(150);
     for (let i = App.wb.changes().length; i > n2; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
   }
+  // A page nobody has arranged: every place the layout's own, the first Tidy is free of the order they stand in. One place a hand gave, and it keeps it.
+  {
+    const hereView = sc().view, ctrl = charts().find(v => v.id === 'view_control'), nA = App.wb.changes().length, stNow = () => App.state.peek();
+    await show(ctrl); Shell.select([]); await tick(300);
+    const ovals = () => sc().marks.filter(m => m.type === 'box' && m.shape === 'oval' && ['chen', 'okafor'].includes(m.record)).sort((a, b) => a.x - b.x).map(m => m.record).join();
+    const reversed = hand => App.change(tx => { const ms = sc().marks.filter(m => m.type === 'box'), W = Math.max(...ms.map(m => m.x + m.w)); ms.forEach((m, i) => tx.note('Position', Tree.treeOf(stNow(), m.record), { x: W - m.x - m.w, y: m.y, w: m.w, ...(hand && !i ? {} : { kept: true }) }, { view: ctrl.id })); }, { dated: false });
+    const was = ovals();
+    reversed(false); await tick(400);
+    const back = ovals();
+    cv().tidy(); await tick(700);
+    check('a page nobody has arranged: its first Tidy isn’t held to the order its boxes stand in', back !== was && ovals() === was && App.notes.peek().notes('Position').filter(n => n.view === ctrl.id).every(n => n.value.order === n.value.x), `${was} → ${back} → ${ovals()}`);
+    for (let i = App.wb.changes().length; i > nA; i--) { Shell.parts.peek().undo.undo(); await tick(200); }
+    reversed(true); await tick(400);
+    cv().tidy(); await tick(700);
+    check('… one place a hand gave, and Tidy keeps the order they stand in', ovals() === back, `${back} → ${ovals()}`);
+    for (let i = App.wb.changes().length; i > nA; i--) { Shell.parts.peek().undo.undo(); await tick(200); }
+    await show(charts().find(v => v.id === hereView)); Shell.select([]); await tick(300);
+  }
   // A percentage clear of an arrowhead (gui3 P-16).
   const n3 = App.wb.changes().length, own = sc().byId.get('own_blkr_hlvd') ?? sc().marks.find(m => m.type === 'line' && m.labelAt && m.points.length === 2), base = own.labelAt.x - own.points.at(-1)[0];
   App.change(tx => tx.note('Arrow', Tree.treeOf(App.state.peek(), own.record), 'end', { view: sc().view }), { dated: false }); await tick(350);
