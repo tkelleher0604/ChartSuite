@@ -201,15 +201,18 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 /* Change…, where it's read: what a later change rests on, grey, saying so and going there. */
 .hist-row .meta .change { padding: 0; border: 0; background: none; font: inherit; color: var(--accent-ink); }
 .hist-row .meta .change[aria-disabled="true"] { color: var(--ink-3); }
-.pendbar .rests, .asking .rests { margin-right: 8px; color: var(--no); font: var(--t12); }
-.pendbar .rests.takes, .asking .rests.takes { flex: 1 0 100%; order: 9; margin-right: 0; }
-.pendbar .stays, .asking .stays { color: var(--ink-2); }
+.pendbar .rests { margin-right: 8px; color: var(--no); font: var(--t12); }
+.pendbar .rests.takes { flex: 1 0 100%; order: 9; margin-right: 0; }
+.pendbar .stays { color: var(--ink-2); }
 
 /* The past looks past: a band across the view, the moment shown and the way back. Over a chart's page it stands in the room above
    the sheet, so nothing moves; a table gives it its room. */
 .pastband { position: absolute; z-index: 4; inset: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 12px; height: 40px; padding: 0 12px; background: color-mix(in srgb, var(--accent) 88%, black); color: var(--on-accent, #fff); font-weight: 500; }
 .pastband > .btn { height: 24px; border-color: transparent; background: var(--surface); color: var(--ink); }
 .view:has(> .pastband) > .host:not(:has(> .dc)) { margin-top: 40px; }
+/* A look said over the view, under a band of the past if there's one too. */
+.pastband + .pastband { top: 40px; }
+.pendbar > .own-day { color: var(--ink-2); font: var(--t12); white-space: nowrap; }
 
 /* Editing or Viewing, the title bar's switch; Viewing filled, as a day other than today is. */
 .mode { display: flex; align-items: center; border-radius: var(--r); }
@@ -228,9 +231,9 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .pendbar > .what > .sep { margin: 0 8px; color: var(--ink-3); }
 .pendbar > .when { margin-right: 8px; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
 .pendbar:focus-within > .tokey { visibility: hidden; }
-.pendbar .fails, .asking .fails { display: inline-flex; align-items: center; gap: 6px; margin: 0 8px 0 -4px; padding: 2px 4px; border: 0; border-radius: var(--r); background: none; color: var(--no); font: inherit; font-weight: 500; text-align: left; }
-.pendbar .fails:hover, .asking .fails:hover { background: var(--hover); }
-.pendbar .fails svg, .asking .fails svg { width: 16px; height: 16px; flex: none; }
+.pendbar .fails { display: inline-flex; align-items: center; gap: 6px; margin: 0 8px 0 -4px; padding: 2px 4px; border: 0; border-radius: var(--r); background: none; color: var(--no); font: inherit; font-weight: 500; text-align: left; }
+.pendbar .fails:hover { background: var(--hover); }
+.pendbar .fails svg { width: 16px; height: 16px; flex: none; }
 /* A relation's amount, asked first as it's added (App.Amount): its name, and the figure typed, in the redline's blue. */
 .amt .amount { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); white-space: nowrap; }
 .amt .amount .cell { width: 7ch; min-width: 5ch; height: 24px; margin: 0; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); color: var(--accent-ink); font-weight: 500; font-variant-numeric: tabular-nums; }
@@ -247,21 +250,13 @@ dialog.dlg::backdrop { background: var(--backdrop); }
    searches; both in the redline's blue, as what would appear. */
 .transfer { line-height: var(--row); }
 .transfer > .sep { margin: 0 8px; color: var(--ink-3); }
-.asking .transfer > span:not(.sep) { display: block; }
-.asking .transfer > .sep { display: none; }
 .transfer .hug { display: inline-flex; vertical-align: baseline; }
 .transfer .cell.amount { min-width: 5ch; height: 24px; margin: 0 2px 0 0; padding: 0 6px; border-color: var(--rule-2); background: var(--surface); color: var(--accent-ink); font-weight: 500; font-variant-numeric: tabular-nums; }
 .transfer .sel { display: inline-flex; align-items: center; gap: 4px; height: 24px; margin: 0 0 0 -2px; padding: 0 4px; vertical-align: baseline; max-width: 100%; color: var(--accent-ink); font-weight: 500; }
 .transfer .sel > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .transfer .sel.ph > span { color: var(--ink-3); font-weight: 400; }
-/* Where it was asked, its controls there too (App.Asking): under a two-box panel's row, or atop a record's panel. */
-.asking { display: grid; gap: 4px; }
-.asking > .what { color: var(--ink-2); }
-.asking > .ctls { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; row-gap: 4px; }
-.asking > .ctls > .when { margin-right: auto; font-weight: 500; color: var(--accent-ink); white-space: nowrap; }
-.asking .btn { height: 26px; padding: 0 10px; }
 /* Discard and its verb, kept together, at the end of the row they're on. */
-:is(.pendbar, .asking > .ctls) > .acts { display: inline-flex; gap: 8px; margin-left: auto; }
+.pendbar > .acts { display: inline-flex; gap: 8px; margin-left: auto; }
 /* A day other than the day shown, said: a link to the chart then. */
 :is(.from, .pendbar > .when, .hist-row .why) > button.lk { margin: 0; padding: 0 1px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
 :is(.from, .pendbar > .when, .hist-row .why) > button.lk:hover { text-decoration-color: currentColor; }
@@ -406,6 +401,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .sheet:hover { color: var(--ink); background-image: linear-gradient(var(--hover), var(--hover)); }
 .sheet[aria-selected="true"] { color: var(--ink); font-weight: 500; background: var(--surface); box-shadow: inset 1px 0 var(--rule), inset -1px 0 var(--rule); }
 .sheet[aria-selected="true"]::before { content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 2px; background: var(--accent); }
+.sheet.look { text-decoration: underline dashed var(--rule-2); text-underline-offset: 4px; }
 .sheet > input { min-width: 8ch; height: 24px; margin: 0 -5px; padding: 0 4px; font-weight: 500; }
 .sheet > .keeps { margin-left: 6px; color: var(--ink-3); font-weight: 400; font-size: 11px; }
 .foot > .btn.icon { align-self: center; flex: none; margin-left: 4px; }

@@ -117,16 +117,18 @@ async function session(book, seed) {
   const known = new Set(wb.changes().map(c => c.id));
   const remote = () => book.type !== 'browser';
   // `seen` is the copy there as last read or written: its version, when it was saved, and its changes.
-  let seen = null, problem = null, saving = false, writing = 0, keptAt = book.opened;
+  // (`keptAt`, the last change it kept: nothing's been saved till then, so nothing's said. Looking saves nothing.)
+  let seen = null, problem = null, saving = false, writing = 0, keptAt = null, seeding = false;
   let timer = null, running = null, again = false, pulling = false, self = null;
   const tell = () => { if (s === self) emit(); };
   const where = () => ({ id: book.id, type: book.type, name: book.name });
 
   // In this browser: each new change is appended, and the other tabs told.
   function keep(changes) {
+    const opening = seeding;
     writing++;
     db.changes.bulkPut(changes.map(c => ({ book: book.id, id: c.id, change: c })))
-      .then(() => { keptAt = now(); local = null; }, e => { local = unkept(e); })
+      .then(() => { if (!opening) keptAt = now(); local = null; }, e => { local = unkept(e); })
       .finally(() => { writing--; tell(); });
   }
   // A workbook kept only in this browser is named by its first chart, and follows it when it's renamed; one
@@ -211,7 +213,7 @@ async function session(book, seed) {
       if (problem) return problem;
       if (saving || writing || (remote() && (!seen || wb.changes().length > seen.count))) return { text: 'Saving…', tone: 'busy' };
       const at = remote() ? seen.modified : keptAt;
-      return { text: at ? `Saved · ${ago(at)}` : 'Saved', tone: '' };
+      return { text: at ? `Saved · ${ago(at)}` : '', tone: '' };
     },
     async fix() {
       if (book.type === 'file') await book.handle?.requestPermission?.({ mode: 'readwrite' });
@@ -263,7 +265,8 @@ async function session(book, seed) {
   };
   channel.onmessage = e => hear(e.data);
   early.forEach(hear);
-  if (seed) wb.merge(seed);
+  // (What a workbook opens holding isn't what anyone saved.)
+  if (seed) { seeding = true; wb.merge(seed); seeding = false; }
   if (!book.name) { book.name = wb.charts()[0]?.name ?? 'Workbook'; db.books.put(book).catch(() => {}); }
   named = wb.charts()[0]?.name ?? null;
   sync();
