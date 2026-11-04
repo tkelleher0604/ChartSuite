@@ -781,7 +781,7 @@ function Draft({ d, depth }) {
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onInput=${e => setEdge(e.target.value)} onKeyDown=${nameKey} onBlur=${named} />`}</div>`;
   const value = html`<div class="v ctl">${tag ? html`<span class="cellbox"><span class="tag" aria-hidden="true" /></span>`
       : k.type === 'choice' && k.options?.length ? html`<${Choice} options=${k.options} label=${T.clean(edge) || 'Choice'} put=${finish} />`
-      : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New option" aria-label="New option" onKeyDown=${e => { const o = T.clean(e.target.value); if (e.key === 'Enter' && o) finish({ choice: o }); }} /></span>`
+      : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New option" aria-label="New option" ref=${el => d.edge && el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onKeyDown=${e => { const o = T.clean(e.target.value); if (e.key === 'Enter' && o) finish({ choice: o }); }} /></span>`
       : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} label=${T.clean(edge) || 'Value'} put=${finish} />`}</div>`;
   return html`<div class=${'row draft' + (tag ? ' chk' : '')} ref=${box} style=${`--depth:${depth}`} onFocusOut=${leave} onKeyDown=${key}>${tag ? [value, name] : [name, value]}</div>`;
 }
@@ -1690,7 +1690,12 @@ function GeneralView({ p, style }) {
   const name = n.name(p), def = !kind && n.resolve('Formula', p)?.note, dated = type === 'field' && s0.out.field === 'date', dp = { out: { field: 'date' }, args: p.args };
   // Where the Description is the statute the Formula sets out, it's said there, clause by clause, and only there.
   const law = def && clausesOf(def.value.map((r, i) => ({ ...r, i })), n.description(p));
-  const setName = to => { if (!to || to === name) return; App.change(tx => kind ? tx.rename(p, p.kind, to) : rel ? tx.note('Name', p, to) : tx.rename(loose(p), p.args[0].edge, to)); };
+  // (A selection names what its page is of, so a page renamed goes with its new name.)
+  const setName = to => {
+    if (!to || to === name) return;
+    const made = App.change(tx => kind ? tx.rename(p, p.kind, to) : rel ? tx.note('Name', p, to) : tx.rename(loose(p), p.args[0].edge, to));
+    if (made && !rel) select([general(kind ? { ...p, kind: to } : { ...p, args: [{ ...p.args[0], edge: to }] })]);
+  };
   const flag = (label, q, v) => App.change(tx => tx.note(label, q, v));
   const options = type === 'choice' ? optionsOf(specs) : [];
   const reorderOpts = (from, i) => App.change(tx => moved(options, from, i).forEach((o, k) => tx.note('Order', { out: { choice: o }, args: p.args }, k + 1)));
@@ -1702,7 +1707,11 @@ function GeneralView({ p, style }) {
   const v = viewShown()?.layout === 'chart' ? Shell.view.value : null, described = !law?.any && (describing || !!n.description(p));
   const adds = still ? [] : [...(law?.any || described ? [] : [{ label: 'Description', run: () => setDescribing(true) }]), ...(def || kind || writing ? [] : [{ label: 'Formula', run: addFormula }])];
   // What's said of it in a sentence (a role renamed, say, is every tree of it relabeled, and every formula that cites it).
-  const renameRole = (e, to) => { if (to && !T.same(to, e)) App.change(tx => tx.rename(loose(p), e, to)); };
+  const renameRole = (e, to) => {
+    if (!to || T.same(to, e)) return;
+    const said = `Renamed the role ${e} of ${name} to ${to}`, made = App.change(tx => { tx.rename(loose(p), e, to); tx.says(said); }, { say: said, dated: false });
+    if (made) select([general({ ...p, args: p.args.map(a => T.same(a.edge, e) ? { ...a, edge: to } : a) })]);
+  };
   const keys = [...new Set([T.key(p), ...(def ? [T.key(def.pattern)] : [])])], cond = rel || kind || !def ? [] : limits(s0, def);
   return html`<div class="insp">
     <${Head} title=${name} path=${style ? [{ label: 'Style' }] : kind ? [] : rel ? [{ label: 'Relation' }] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Yes or no') }]}>
@@ -1751,7 +1760,7 @@ function Inspector() {
   useLayoutEffect(() => {
     const s = host?.closest('.inspector'), top = backTo?.key === key ? backTo.top : null;
     // (Again once it's drawn, as its strip takes its room only then.)
-    if (s && top !== null) { s.scrollTop = top; requestAnimationFrame(() => { s.scrollTop = top; }); }
+    if (s && top !== null) { const put = () => { if (Shell.selection.peek().join() === key) s.scrollTop = top; }; put(); requestAnimationFrame(put); setTimeout(put, 90); }
     else if (s && aimed !== key) s.scrollTop = 0;
     aimed = null; backTo = null;
   }, [key]);
@@ -1835,6 +1844,11 @@ function rulesList(anchor = { x: 40, y: 44 }) {
   menu(anchor, [...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations)], { search: true });
 }
 Shell.register('action', { id: 'rules', name: 'Rules', names: ['Checks', 'Check', 'Definitions', 'Formulas', 'List of rules', 'Relations'], menu: 'chart', order: 11, run: () => setTimeout(() => rulesList()) });
+// A relation no rule gives is reopened from Find too, by its name, as a rule is: its page names it, and its roles.
+Shell.register('find', { items: () => {
+  const n = N(), given = new Set(n.notes('Formula').filter(x => x.pattern.args?.length > 1).map(x => T.norm(n.name(x.pattern))));
+  return App.layouts.peek().relations.filter(l => !given.has(T.norm(l.name))).map(l => ({ label: l.name, detail: 'Relation', names: ['Relation', 'Rename relation'], run: () => select([general(l.rows)]) }));
+} });
 // Renamed in its panel's title, its Name, which the keys go to.
 Shell.register('action', { id: 'record.rename', name: 'Rename', names: ['Change name', 'Edit name'], enabled: () => !App.readOnly.peek() && !!theOne() && !!recs()[theOne()].kind,
   run: () => { Shell.showPanel?.(); setTimeout(() => { const t = document.querySelector('.insp .ih .cellbox.title textarea'); t?.focus(); t?.select(); }, 60); },

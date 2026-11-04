@@ -3153,9 +3153,11 @@ function editDistance(a, b) {
   return row[b.length];
 }
 function closeTo(word, among) {
-  let best = null, least = Math.max(2, Math.floor(String(word).length / 3)) + 1;
-  for (const o of among) { const d = editDistance(normal(word), normal(o)); if (d < least) { least = d; best = o; } }
-  return best;
+  const w = normal(word);
+  let best = null, least = Math.max(1, Math.floor(String(word).length / 3)) + 1;
+  for (const o of among) { const d = editDistance(w, normal(o)); if (d < least) { least = d; best = o; } }
+  // Or what it's the start of, as a name part typed is: the shortest.
+  return best ?? (w.length > 1 ? [...among].filter(o => normal(o).startsWith(w)).sort((a, b) => a.length - b.length)[0] ?? null : null);
 }
 // The options each choice goes by, by its name: an entry's by its label, a relation's by its name, one a rule gives with
 // what its rows give. What goes by the same name but isn't a choice somewhere says nothing, so isn't asked. And `spelled`,
@@ -3172,7 +3174,9 @@ function namesOfChart(P, entered) {
     if (!label) continue;
     if ('choice' in t.out) add(label, t.out.choice); else plain.add(normal(label));
   }
-  for (const r of Object.values(entered ?? {})) if (r.kind) kinds.add(r.kind);
+  // (And what has records typed, which a rule that reads only itself can go on from.)
+  const typed = new Set();
+  for (const r of Object.values(entered ?? {})) { if (r.kind) kinds.add(r.kind); if (r.args?.length > 1) typed.add(r.args.map(a => normal(a.edge)).sort().join('|')); else if (r.edge) typed.add(normal(r.edge)); }
   for (const d of P.defs) if (!d.error) {
     spell(d.name);
     d.rows.forEach(row => spell(row.label));
@@ -3185,7 +3189,7 @@ function namesOfChart(P, entered) {
     for (const e of rel.edges ?? []) { const k = normal(e); (roles.get(k) ?? roles.set(k, new Set()).get(k)).add(rel.name); }
     for (const l of rel.lists.values()) { listed.add(normal(l)); spell(l); }
   }
-  return { choices, spelled, kinds, roles, listed };
+  return { choices, spelled, kinds, roles, listed, typed };
 }
 const typeOfSpec = t => 'choice' in t.out ? 'choice' : 'tag' in t.out ? 'tag' : 'field';
 // What `@` stands for in a definition's rows where no list has been opened: the entry it's located at, by its label.
@@ -3227,6 +3231,30 @@ function rowFlaws(P, d, ast, edges = null) {
   walk(ast, false);
   return out;
 }
+// Whether an expression gives nothing, or no, wherever what it reads of a loop is nothing: its only way to hold is through the loop.
+function onlyThroughLoop(ast, group, reg, d) {
+  const names = new Set(group.flatMap(e => [...namesProvided(e, reg)])), labels = new Set(group.flatMap(e => [...e.labels])), own = new Set(d.isRelation ? d.edges.map(normal) : []);
+  const needs = n => {
+    if (!n) return false;
+    switch (n.k) {
+      case 'name': return !own.has(n.n) && names.has(n.n);
+      case 'dot': return needs(n.x) || names.has(n.n) || labels.has(n.n);
+      case 'and': return needs(n.a) || needs(n.b);
+      case 'or': return needs(n.a) && needs(n.b);
+      case 'cmp': return (n.op === '>' || n.op === '>=') && needs(n.a);
+      case 'in': return needs(n.b);
+      case 'bin': return n.op === '*' ? needs(n.a) || needs(n.b) : n.op === '+' && needs(n.a) && needs(n.b);
+      case 'call': {
+        if (!isFunction(n.name)) return names.has(normal(n.name));
+        const f = n.name.toUpperCase(), a = n.args.map(x => x.x);
+        if (f === 'IF') return a.length < 3 ? needs(a[0]) || needs(a[1]) : needs(a[1]) && needs(a[2]);
+        return ['ANY', 'COUNT', 'SUM', 'FILTER', 'EACH', 'UNIQUE', 'MIN', 'MAX'].includes(f) && a.some(needs);
+      }
+      default: return false;
+    }
+  };
+  return needs(ast);
+}
 // Every definition's flaws, by its id, and each that's a loop nothing can work out.
 function flawsOf(P) {
   const out = {}, put = (id, f) => (out[id] ??= []).push(f);
@@ -3238,6 +3266,13 @@ function flawsOf(P) {
     const x = g.reads.find(r => r.def === d.id && !r.monotone) ?? g.reads.find(r => r.def === d.id);
     const names = g.defs.map(e => e.name), said = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
     put(d.id, { row: x?.row ?? 0, from: x?.from ?? 0, to: x?.to ?? 0, loop: true, code: '#CIRCULAR!', message: names.length > 1 ? `This depends on itself: ${said} read each other.` : `This depends on itself: what ${d.name} gives would change what it reads.` });
+  }
+  // A monotone loop settles, but where every row of it gives something only through the loop, and nothing's typed for it to go on from,
+  // it settles at nothing: a clean no everywhere, which is the rule's wrongness, not the chart's answer.
+  const seeded = d => P.chart.typed.has(d.isRelation ? d.edges.map(normal).sort().join('|') : normal(d.name));
+  for (const g of P.groups) if (g.loops && g.monotone && !g.defs.some(d => d.error || seeded(d) || !d.rows.every(row => onlyThroughLoop(row.ast, g.defs, P.reg, d)))) {
+    const names = g.defs.map(e => e.name), said = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
+    for (const d of g.defs) { const x = g.reads.find(r => r.def === d.id); put(d.id, { row: x?.row ?? 0, from: x?.from ?? 0, to: x?.to ?? 0, loop: true, code: '#CIRCULAR!', message: names.length > 1 ? `This depends on itself: ${said} hold only through each other, so none of them ever does.` : `This depends on itself: ${d.name} holds only where it already holds, so it never does.` }); }
   }
   return out;
 }

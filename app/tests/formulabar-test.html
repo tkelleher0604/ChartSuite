@@ -872,12 +872,66 @@ async function checks() {
   const ev = Shell.parts.peek().evaluate;
   const r1 = ev('=Controlled.Owners', [OKAFOR_GP]), r2 = ev('=SUM(Controlled.Owners.Percentage)', [OKAFOR_GP]);
   check('Find’s = works a formula out at the selection', r1.items?.length >= 2 && /%$/.test(r2.value ?? ''), `${r1.items?.map(x => x.label).join(', ')} | ${r2.value}`);
+  await ruleChecks();
+}
+// A rule's change: what it does, said; what it can't do, refused in words, Save anyway apart from Done (dendra.md, A rule in error)
+async function ruleChecks() {
+  const R = () => App.computed.peek();
+  const delta =() => document.querySelector('.fxbar .fx-delta')?.textContent ?? '', flaws = () => [...document.querySelectorAll('.fx-flaw')].map(x => x.textContent).join(' | ');
+  const toast = () => document.querySelector('.toast span')?.textContent ?? '';
+  const writeRow = async () => { Shell.select([OKAFOR_GP]); await wait(40); await openRows(); if (document.querySelector('.fx-show')?.textContent === 'Show the formula') document.querySelector('.fx-show').click(); await wait(60); typeIn('r2', '>', '=', 0); await wait(30); };
+  await writeRow();
+  check('where a rule’s change changes nothing it says so, as silence proves nothing', delta() === 'No conclusions change', delta());
+  check('… and the editor shows what’s typed, what it said apart, under it', /Before/.test(document.querySelector('.fx-before')?.textContent ?? '') && !document.querySelector('.fx-row.editing .CodeMirror .add'));
+  const retype = async f => { const cm = cmOf('r2'), v = cm.getValue(); cm.replaceRange(f(v), cm.posFromIndex(0), cm.posFromIndex(v.length), '+input'); await wait(420); };
+  await retype(v => v.replace('>= 25%', '> 5%'));
+  const counted = document.querySelector('.fxbar .fx-count');
+  check('a rule that changes something counts it, and each count opens to which, by name', /^Adds /.test(delta()) && !!counted, delta());
+  counted?.click(); await wait(30);
+  const names = [...document.querySelectorAll('.fx-which li')].map(x => x.textContent);
+  check('… which', names.length === +/\d+/.exec(counted?.textContent ?? '')?.[0] && names.every(Boolean), names.join(' | '));
+  document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); await wait(20);
+  check('a row whose figure its label says asks after its label', /The label says 25%; the formula doesn’t/.test(document.querySelector('.fx-row[data-key="r2"] .fx-ask')?.textContent ?? ''), document.querySelector('.fx-row[data-key="r2"] .fx-ask')?.textContent);
+  const label = document.querySelector('.fx-row[data-key="r2"] input.fx-label'), wasLabel = label.value;
+  label.value = 'Presumed: more than 5% of voting securities'; label.dispatchEvent(new Event('input', { bubbles: true })); await wait(30);
+  check('… and, its label typed over, has been answered', !document.querySelector('.fx-row[data-key="r2"] .fx-ask'));
+  const asked = document.querySelector('.fx-row[data-key="r2"] input.fx-label'); asked.value = wasLabel; asked.dispatchEvent(new Event('input', { bubbles: true })); await wait(20);
+  const why = document.querySelector('.fx-reason input');
+  check('a place to say why stands open under the rows being written', !!why && why.value === '');
+  await retype(v => v.replace('[Voting Percentage]', '[Voting Percentge]'));
+  check('a name that doesn’t exist: the formula doesn’t work, not what it would take away', delta() === 'The formula doesn’t work' && /Nothing is called/.test(flaws()), `${delta()} | ${flaws()}`);
+  check('… nor does the chart preview it', !StandIn.rl.peek());
+  const v0r = App.version.peek();
+  document.querySelector('.fx-acts .btn:last-child').click(); await wait(30);
+  check('… Done makes nothing, with Save anyway apart from it', App.version.peek() === v0r && !!document.querySelector('.fx-anyway') && !!FormulaBar.draft.peek());
+  document.querySelector('.fx-anyway').click(); await wait(40);
+  const broken = App.broken.peek();
+  check('… which makes it, and says so', App.version.peek() === v0r + 1 && /It doesn’t work: Nothing is called/.test(toast()) && broken.roots.some(x => x.name === 'Control'), toast());
+  check('a rule in error is said across the view, with what reads it and the way there', /Nothing is called Voting Percentge/.test(document.querySelector('.fx-band')?.textContent ?? '') && /Don’t rely on/.test(document.querySelector('.fx-band')?.textContent ?? ''), document.querySelector('.fx-band')?.textContent);
+  check('… and what Export says first', /Control/.test(FormulaBar.brokenSaid() ?? ''), FormulaBar.brokenSaid());
+  Shell.parts.peek().undo.undo(); await wait(40);
+  check('… undone, it’s gone', !App.broken.peek().roots.some(x => x.name === 'Control') && !/Voting Percentge/.test(document.querySelector('.fx-band')?.textContent ?? ''));
+
+  // Esc that discards says so, with a way back
+  await writeRow();
+  const typed = cmOf('r2').getValue();
+  FormulaBar.discard(); await wait(30);
+  check('discarding an edit says so, with Redo', /^Discarded your edit of Control/.test(toast()) && !FormulaBar.draft.peek(), toast());
+  [...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Redo')?.click(); await wait(40);
+  check('… which brings it back', cmOf('r2')?.getValue() === typed && !!FormulaBar.draft.peek(), cmOf('r2')?.getValue());
+  FormulaBar.discard(); await wait(30);
+  if (FormulaBar.open.peek()) { document.querySelector('.fx-open').click(); await wait(20); }
+
+  // What History says of a rule's change: the same words
+  const sayingA = R(), s = FormulaBar.saying(sayingA, sayingA, App.notes.peek(), App.notes.peek());
+  check('what a change did is said in the preview’s words', s.said === 'No conclusions change' && !s.which.length, JSON.stringify(s));
 }
 
 (async () => {
   await ready();
   try {
     if (q.has('checks')) await checks();
+    else if (q.has('rules')) await ruleChecks();
     else if (q.get('case')) await cases[q.get('case')]?.();
   } catch (e) { results.push({ name: 'threw', ok: false, detail: e.stack }); }
   if (q.has('checks') || results.length) {

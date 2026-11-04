@@ -914,7 +914,7 @@ const Time = (() => {
     const k = new Set(keys), E = ever.value, all = [...entries.value].filter(e => !struck(e) && !e.change.about && !e.change.reverses
       && [...e.change.adds, ...e.change.removes.map(id => E.rows.get(id)).filter(Boolean)].some(r => 'note' in r && !r.view && k.has(Tree.key(r.pattern)) && r.label !== 'Order'));
     worked.value;
-    return all.map(e => ({ change: e.change, who: e.change.who, when: e.change.when, reasons: App.wb.reasons(e.change.id), fx: known(e.change), head: headOf(read(e.change, { rule: k })) }));
+    return all.map(e => ({ change: e.change, who: e.change.who, when: e.change.when, reasons: App.wb.reasons(e.change.id), fx: known(e.change), head: e.change.says ?? headOf(read(e.change, { rule: k })) }));
   }
   const everything = () => { focus.value = null; kind.value = 'all'; };
   // History takes the inspector's place while it's open: the chart's, everything, from the chart menu, or a record's own.

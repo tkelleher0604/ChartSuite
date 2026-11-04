@@ -1320,7 +1320,18 @@ const FormulaBar = (() => {
     const held = new Map(), tally = (X, n, ids, k) => { for (const id of tops(ids, X)) { const h = first(X, n, id), q0 = name(X, id), q = h && q0 && `${q0}|${h}`; if (q && counts(X.records[id])) { const e = held.get(q) ?? held.set(q, { n: q0, h, X, plus: [], minus: [] }).get(q); e[k].push(id); } } };
     tally(B, NB, d.appear, 'plus'); tally(A, NA, d.go, 'minus');
     for (const { n, plus, minus } of held.values()) { const both = Math.min(plus.length, minus.length); if (both) { const e = by.get(n); e.plus -= both; e.minus -= both; const at = (ids, k) => { const out = new Set(ids.slice(0, both)); e.of[k] = e.of[k].filter(x => !out.has(x.id)); }; at(plus, 'plus'); at(minus, 'minus'); } }
-    return [...by.values()].filter(x => x.plus + x.minus + x.changed).sort((x, y) => (y.plus + y.minus + y.changed) - (x.plus + x.minus + x.changed));
+    // A value that goes and comes at one place, as one typed over a rule does, has changed.
+    for (const e of by.values()) if (e.plus && e.minus && e.def.edges?.length < 2) for (const p of [...e.of.plus]) {
+      const m = e.of.minus.find(x => x.say === p.say);
+      if (m) { e.of.plus.splice(e.of.plus.indexOf(p), 1); e.of.minus.splice(e.of.minus.indexOf(m), 1); e.of.changed.push(p); e.plus--; e.minus--; e.changed++; }
+    }
+    const out = [...by.values()].filter(x => x.plus + x.minus + x.changed).sort((x, y) => (y.plus + y.minus + y.changed) - (x.plus + x.minus + x.changed));
+    // What errs where it didn't comes first, as what a wrong kind of value gives is no conclusion, and it would otherwise read as none changing.
+    const ek = e => `${e.def}|${e.id}`, inA = new Set(A.errors.map(ek)), inB = new Set(B.errors.map(ek)), plus = B.errors.filter(e => !inA.has(ek(e))), minus = A.errors.filter(e => !inB.has(ek(e)));
+    const whereErr = (X, n, e) => (e.at ? [e.at] : (e.args ?? []).map(a => a.at)).filter(at => X.records[at]).map(at => n.shortOf(X.records, Tree.objectOf(X.records, at))).join(' → ');
+    const said = (X, n, e) => ({ id: ek(e), get say() { return `${whereErr(X, n, e)}: ${e.error.msg ?? e.error.code}`; } });
+    if (plus.length || minus.length) out.unshift({ name: 'error', def: { id: null, name: 'error', type: 'error', edges: [] }, plus: plus.length, minus: minus.length, changed: 0, of: { plus: plus.map(e => said(B, NB, e)), minus: minus.map(e => said(A, NA, e)), changed: [] } });
+    return out;
   }
   // A definition's flaws as a draft would leave it (Formulas: A rule in error), and any other rule's it would newly flaw, each with
   // the row it's in by its key, where it's the draft's own: what the Done says. `d`, the draft.
@@ -1333,7 +1344,7 @@ const FormulaBar = (() => {
   }
   // In the bar's words, what a change does to what's worked out (Delta), and for each what it counts: a relation or a noun
   // by how many ("5 controls"); a yes-or-no named as a condition, where it holds ("Has Side Letter at 1 entity").
-  const noun = d => d?.edges?.length > 1 || d?.type !== 'tag' || /^an?\s/i.test(String((noteOf(d.id) && N().description(noteOf(d.id).pattern)) ?? ''));
+  const noun = d => d?.edges?.length > 1 || d?.type !== 'tag' || /^an?\s/i.test(String((d.id && noteOf(d.id) && N().description(noteOf(d.id).pattern)) ?? ''));
   const countedOf = (n, d, of = []) => {
     if (noun(d)) return `${n} ${n === 1 ? lower(d.name) : Tree.plural(lower(d.name))}`;
     const kinds = new Set(of.map(x => x.kind)), k = kinds.size === 1 ? [...kinds][0] : null;
@@ -1456,8 +1467,8 @@ const FormulaBar = (() => {
       return;
     }
     const h = d && !unchanged(d) ? hypothetical(rowsChange(d)) : null, flaws = h ? flawsIn(h.R2, d) : [];
-    if (flaws.length && !anyway) {
-      // (Said under the rows, Flaws, as it's typed; the keys go to the first of it.)
+    if (flaws.some(f => !f.warn) && !anyway) {
+      // (Said under the rows, Flaws, as it's typed; the keys go to the first of it. What's only said, a role two relations share, stops nothing.)
       if (pending.peek()?.from !== 'bar' || !pending.peek().flaws?.length) preview(rowsChange(d), 'bar');
       const cm = document.querySelector(`.fxbar .fx-row[data-key="${flaws[0].key}"] .CodeMirror`)?.CodeMirror;
       if (cm) { cm.focus(); cm.setCursor(cm.posFromIndex(flaws[0].from ?? 0)); }
@@ -1790,7 +1801,7 @@ const FormulaBar = (() => {
     if (said) return html`<span class="fx-inline" ref=${ref}><${Said} runs=${said} cls="fx-why" onClick=${drop} /></span>`;
     if (m.err?.error.msg) return html`<span class="fx-inline" ref=${ref}><span class="fx-why" onClick=${drop}>${m.err.error.msg}</span></span>`;
     const labels = new Map();
-    for (const r of m.rows) labels.set(r.label || '—', labels.get(r.label || '—') || r.ink);
+    for (const r of m.rows) { const l = r.label || r.formula; labels.set(l, labels.get(l) || r.ink); }
     return html`<span class="fx-inline fx-labels" ref=${ref}>${[...labels].map(([l, ink]) => html`<button class=${ink ? null : 'grey'} onClick=${drop}>${l}</button>`)}</span>`;
   }
 
@@ -1850,7 +1861,7 @@ const FormulaBar = (() => {
       if (s && App.change(tx => tx.add('spec', { tree: { ...s, out: { choice: f.value } } }), { dated: false, say: `Added the option ${f.value} to ${f.label}` })) previewDraft();
     };
     return html`<div class="fx-flaws" role="alert">${flaws.map(f => html`<p class=${'fx-flaw' + (f.warn ? ' warn' : '')} key=${f.message}>${f.message}${d && f.fix && f.key ? html` <button class="btn" onClick=${() => mend(f)}>${f.fix}</button>` : null}${d && f.value ? html` <button class="btn" onClick=${() => option(f)}>Make it an option</button>` : null}</p>`)}
-      ${d ? html`<button class="btn fx-anyway" onClick=${() => commitDraft({ anyway: true })}>Save anyway</button>` : null}</div>`;
+      ${d && flaws.some(f => !f.warn) ? html`<button class="btn fx-anyway" onClick=${() => commitDraft({ anyway: true })}>Save anyway</button>` : null}</div>`;
   }
   // What's typed under a first formula, by name: asked what becomes of it, each going to the rule unless it's kept. A hand tick left
   // over from making the field must never beat the rule without saying so.
@@ -1987,7 +1998,7 @@ const FormulaBar = (() => {
       ${r.gone ? html`<div class="fx-cm gone">${r.formula}</div>` : html`<${Formula} row=${r} m=${m} colors=${colors} grey=${!r.ink} would=${wouldOf(m, r)} focus=${r.key === fresh} write=${write} />`}
       ${problem.value?.key === r.key ? html`<p class="fx-problem" role="alert">${problem.value.message}</p>` : null}
       ${was !== null && was !== r.formula && !r.gone ? html`<${Before} text=${was} now=${r.formula} />` : null}
-      ${was !== null && was !== r.formula && !r.gone && r.label ? html`<p class=${'fx-ask' + (stale ? ' stale' : '')}>${stale ? `The label says ${stale}; the formula doesn’t.` : 'Does the label still say it?'} <button class="lk" onClick=${e => { const el = e.currentTarget.closest('.fx-row').querySelector('input.fx-label'); el?.focus(); el?.select(); }}>${r.label}</button></p>` : null}
+      ${was !== null && was !== r.formula && !r.gone && r.label && r.label === kept(m.def.id).find(x => x.key === r.key)?.label ? html`<p class=${'fx-ask' + (stale ? ' stale' : '')}>${stale ? `The label says ${stale}; the formula doesn’t.` : 'Does the label still say it?'} <button class="lk" onClick=${e => { const el = e.currentTarget.closest('.fx-row').querySelector('input.fx-label'); el?.focus(); el?.select(); }}>${r.label}</button></p>` : null}
       ${write ? html`<button class="btn icon fx-x" aria-label=${keep ? 'Keep row' : 'Delete row'} data-tip=${keep ? 'Keep row' : 'Delete row'} ...${point}
           onClick=${() => change(m.def.id, rows => rows.map(x => x.key === r.key ? { ...x, gone: !x.gone } : x))}>${Shell.icon('x')}</button>`
         : editable ? html`<button class="btn icon fx-pencil" aria-label="Edit row" data-tip="Edit row" onClick=${e => { e.stopPropagation(); openAt(r.key, { write: true }); }}>${Shell.icon('Pencil')}</button>` : null}
@@ -2107,7 +2118,7 @@ const FormulaBar = (() => {
   // A rule limited to what a condition holds of: each row under it, in the bar, as any edit is; it says both yes and no where the
   // condition holds, so elsewhere it hasn't tested a record, and reads n/a (dendra.md, Not tested).
   function limit(def, cond) {
-    const under = r => { const f = Formulas.splitFormula(r.formula); return { ...r, formula: `= IF(${cond}, ${f.body.trim()})` }; };
+    const under = r => { const f = Formulas.splitFormula(r.formula), body = f.body.trim(); return { ...r, formula: f.kind === 'implies' ? `← ${cond} AND (${body})` : `= IF(${cond}, ${body})` }; };
     batch(() => { writing.value = def; wanted.value = true; change(def, rows => rows.map(r => r.gone ? r : under(r))); });
   }
   // What a rule of few other sides says of a record that it isn't on, as its panel says the yes: a relation a formula gives to one

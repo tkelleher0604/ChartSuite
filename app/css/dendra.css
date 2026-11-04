@@ -510,4 +510,4 @@ li.CodeMirror-hint-active { background: var(--hover); color: var(--ink); }
 button.lk.why-add { margin: 0; padding: 0 2px; border: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
 .hist-row > .note > .by { color: var(--ink-3); }
 .hist-row > .why-in { display: flex; margin-top: 4px; }
-.hist-row > .effect.said { color: var(--ink-2); }
+.hist-row > .effect.said { color: var(--ink-2); font-weight: 400; }

@@ -186,7 +186,7 @@ function open(data) {
   }
   // A reason given a change afterwards: a change of its own, which removes and adds nothing and says what it's about, so
   // the log stays append-only and says who gave the reason, and when. As it stood before then, it hadn't been given.
-  const annotate = ({ chart: c, who, about, note }) => apply({ id: newId(), who, when: now(), chart: c, removes: [], adds: [], about, note });
+  const annotate = ({ chart: c, who, about, note }) => { const text = String(note ?? '').trim(); return text && changes.has(about) ? apply({ id: newId(), who, when: now(), chart: c, removes: [], adds: [], about, note: text }) : null; };
   // Why a change was made: its own note, then each given it since and not taken back, the first first: [{ text, who, when, own, change }].
   function reasons(id) {
     const c = changes.get(id);
