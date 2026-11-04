@@ -178,7 +178,7 @@ async function fontFile(face) {
 async function fontsOf(scenes, local) {
   const looks = new Map();
   for (const s of scenes) for (const m of s.marks)
-    for (const it of [...(m.texts ?? []), ...(m.caption ? [m.caption] : []), ...(m.rows ?? []).map(r => r.caption)]) looks.set(`${it.look.Font}|${styleOf(it.look)}`, it.look);
+    for (const it of [...(m.texts ?? []), ...(m.caption ? [m.caption] : []), ...(m.rows ?? []).map(r => r.caption)]) { looks.set(`${it.look.Font}|${styleOf(it.look)}`, it.look); for (const l of it.lines ?? []) for (const sp of l.spans ?? []) looks.set(`${sp.look.Font}|${styleOf(sp.look)}`, sp.look); }
   const faces = new Map(), files = new Map(), missed = new Map(), unread = !local?.size;
   for (const [k, t] of looks) {
     const stack = stackOf(t.Font), family = unread ? stack[0] : stack.find(f => local.has(f.toLowerCase()));
@@ -219,16 +219,27 @@ const g = (x, y, inner) => `<g transform="translate(${n(x)} ${n(y)})">${inner}</
 // and under it its Shadow, which a PDF can't blur, so it's drawn in layers, each a little smaller and as faint: 3 pt
 // below and right, 4 pt soft at its edge, 40% black at its heart, as PowerPoint's is, at the sheet's size (`at`, the
 // page's scale, as the scene drawn sets it).
-let at = 1;
-function body(shape, w, h, s) {
-  const d = Scene.path(shape, w, h, s.Corner), clear = Math.min(100, Math.max(0, s.Transparency ?? 0)), o = Scene.shadowOf(s.Shadow);
-  let shade = '';
+let at = 1, gradients = 0;
+function body(shape, w, h, s, flip = null) {
+  const d = Scene.path(shape, w, h, s.Corner, s.Tail), clear = Math.min(100, Math.max(0, s.Transparency ?? 0)), o = Scene.shadowOf(s.Shadow);
+  const mirror = flip ? ` transform="translate(${flip.h ? n(w) : 0} ${flip.v ? n(h) : 0}) scale(${flip.h ? -1 : 1} ${flip.v ? -1 : 1})"` : '';
+  let shade = '', fill = none(s.Fill) ? 'none' : s.Fill, defs = '';
+  // A gradient, drawn as the canvas draws it: from colour to colour along its angle.
+  if (s.Gradient?.stops?.length) {
+    const id = `grad-${++gradients}`;
+    defs = `<defs>${Shapes.gradientDef(id, s.Gradient)}</defs>`;
+    fill = `url(#${id})`;
+  } else if (s.Pattern?.prst) {
+    const id = `patt-${++gradients}`;
+    defs = `<defs>${Shapes.patternDef(id, s.Pattern, fill)}</defs>`;
+    fill = `url(#${id})`;
+  }
   if (o) {
     const a = o.angle * Math.PI / 180, dx = o.distance * PT * Math.cos(a) / at, dy = o.distance * PT * Math.sin(a) / at, soft = o.blur * PT / at, each = n((1 - o.transparency / 100) / 4);
-    shade = g(dx, dy, [1, 2 / 3, 1 / 3, 0].map(k => `<path d="${d}" fill="${o.color}" fill-opacity="${each}"`
+    shade = g(dx, dy, [1, 2 / 3, 1 / 3, 0].map(k => `<path d="${d}"${mirror} fill="${o.color}" fill-opacity="${each}"`
       + (k ? ` stroke="${o.color}" stroke-opacity="${each}" stroke-width="${n(soft * k)}" stroke-linejoin="round"` : '') + '/>').join(''));
   }
-  return `${shade}<path d="${d}" fill="${none(s.Fill) ? 'none' : s.Fill}"${clear && !none(s.Fill) ? ` fill-opacity="${n(1 - clear / 100)}"` : ''} ${stroke(s)} stroke-linejoin="miter"/>`;
+  return `${defs}${shade}<path d="${d}"${mirror} fill="${fill}"${clear && !none(s.Fill) ? ` fill-opacity="${n(1 - clear / 100)}"` : ''} ${stroke(s)} stroke-linejoin="miter"/>`;
 }
 // Each line of the texts where the scene put it; an underline and a strikethrough as rules, which every reader draws
 // alike. In a PDF (`pdf`, its fonts: see fontsOf), a line its font sets wider than the scene sets it is condensed to
@@ -240,6 +251,20 @@ function texts(items, pdf) {
     const font = `font-family="${esc(pdf ? pdf.family(t) : Scene.fontFamily(t.Font))}" font-size="${n(size)}" font-weight="${t.Bold ? 'bold' : 'normal'}" font-style="${t.Italic ? 'italic' : 'normal'}"`;
     const rule = (l, y, h) => `<rect x="${n(l.x - l.w * { start: 0, middle: 0.5, end: 1 }[anchor])}" y="${n(y)}" width="${n(l.w)}" height="${n(h)}" fill="${t.Color}"/>`;
     return it.lines.map(l => {
+      const mark = l.bullet ? `<text x="${n(l.bulletAt)}" y="${n(l.y)}" text-anchor="start" ${font} fill="${t.Color}">${esc(l.bullet)}</text>` : '';
+      // Part of it in another look: each span where the one before it ends, a superscript raised, as the canvas draws it.
+      if (l.spans) {
+        let x = l.x - l.w * { start: 0, middle: 0.5, end: 1 }[anchor];
+        return mark + l.spans.map(sp => {
+          const s = sp.look, z = s.Size * PT, w = Scene.measure(sp.text, s), lead = /^\s*/.exec(sp.text)[0], y = l.y - (sp.base ? Scene.BASE[sp.base] * size : 0), x0 = x + (lead ? Scene.measure(lead, s) : 0);
+          const f = `font-family="${esc(pdf ? pdf.family(s) : Scene.fontFamily(s.Font))}" font-size="${n(z)}" font-weight="${s.Bold ? 'bold' : 'normal'}" font-style="${s.Italic ? 'italic' : 'normal'}"`;
+          const r = (dy, h) => `<rect x="${n(x)}" y="${n(y + dy)}" width="${n(w)}" height="${n(h)}" fill="${s.Color}"/>`;
+          const out = `<text x="${n(x0)}" y="${n(y)}" text-anchor="start" ${f} fill="${s.Color}">${esc(sp.text.trim())}</text>${s.Underline ? r(z * 0.106, z * 0.073) : ''}${s.Strike ? r(-z * 0.3, z * 0.073) : ''}`;
+          x += w;
+          return out;
+        }).join('');
+      }
+      if (mark) return mark + `<text x="${n(l.x)}" y="${n(l.y)}" text-anchor="${anchor}" ${font} fill="${t.Color}">${esc(l.text)}</text>`;
       const wide = pdf ? pdf.width(t, l.text, size) : 0, k = l.w > 0 && wide > l.w + 0.01 ? l.w / wide : 1;
       return `<text x="${n(l.x)}" y="${n(l.y)}" text-anchor="${anchor}" ${font} fill="${t.Color}"${k < 1 ? ` transform="matrix(${+k.toFixed(4)} 0 0 1 ${n(l.x * (1 - k))} 0)"` : ''}>${esc(l.text)}</text>`
         + (t.Underline ? rule(l, l.y + size * 0.106, size * 0.073) : '') + (t.Strike ? rule(l, l.y - size * 0.3, size * 0.073) : '');
@@ -287,11 +312,12 @@ function markSvg(m, pdf) {
     const c = m.crop && { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = c ? m.w / (1 - (c.left + c.right) / 100) : m.w, fh = c ? m.h / (1 - (c.top + c.bottom) / 100) : m.h;
     const image = !c ? `<image href="${esc(m.src ?? '')}" width="${n(m.w)}" height="${n(m.h)}" preserveAspectRatio="xMidYMid meet"/>`
       : `<clipPath id="crop-${esc(m.id)}"><rect width="${n(m.w)}" height="${n(m.h)}"/></clipPath><g clip-path="url(#crop-${esc(m.id)})"><image href="${esc(m.src ?? '')}" x="${n(-fw * c.left / 100)}" y="${n(-fh * c.top / 100)}" width="${n(fw)}" height="${n(fh)}" preserveAspectRatio="none"/></g>`;
-    return turned(g(m.x, m.y, image + (s.Outline === '#000000' ? '' : body('rect', m.w, m.h, { ...s, Fill: 'none' }))));
+    const mirrored = m.flip ? `<g transform="translate(${m.flip.h ? n(m.w) : 0} ${m.flip.v ? n(m.h) : 0}) scale(${m.flip.h ? -1 : 1} ${m.flip.v ? -1 : 1})">${image}</g>` : image;
+    return turned(g(m.x, m.y, mirrored + (s.Outline === '#000000' ? '' : body('rect', m.w, m.h, { ...s, Fill: 'none' }))));
   }
   if (m.geometry === 'legend') return g(m.x, m.y, body('rect', m.w, m.h, { ...s, Dash: 'solid' }) + texts(m.texts, pdf)
     + m.rows.map(r => swatch(r.swatch, r.sw) + texts([r.caption], pdf)).join(''));
-  return turned(g(m.x, m.y, body(m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry, m.w, m.h, s) + texts(m.texts, pdf)));
+  return turned(g(m.x, m.y, body(m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry, m.w, m.h, s, m.flip) + texts(m.texts, pdf)));
 }
 // How much smaller a page is drawn on its sheet: its scale, exactly, so it fills the sheet.
 const fit = page => Math.min(page.sheet.w / page.w, page.sheet.h / page.h);
@@ -338,17 +364,18 @@ async function pdf(scenes, title, author, fonts = PLAIN) {
 
 // ---- PowerPoint ----
 
-const PRESET = { rect: 'rect', rounded: 'roundRect', oval: 'ellipse', triangle: 'triangle', diamond: 'diamond', hexagon: 'hexagon', octagon: 'octagon',
-  parallelogram: 'parallelogram', trapezoid: 'trapezoid', pentagon: 'pentagon', chevron: 'chevron', arrow: 'rightArrow', cylinder: 'can',
-  rtriangle: 'rtTriangle', snip: 'snip1Rect', snip2: 'snip2SameRect', round1: 'round1Rect', round2: 'round2SameRect', plaque: 'plaque', heptagon: 'heptagon', decagon: 'decagon', dodecagon: 'dodecagon',
-  homeplate: 'homePlate', folded: 'foldedCorner', cube: 'cube' };
-// Each preset's connection sites facing up, left, down and right, as PowerPoint numbers them; where a side
-// has two, the first is the nearer its start.
-const SITES = { rect: [0, 1, 2, 3], rounded: [0, 1, 2, 3], diamond: [0, 1, 2, 3], oval: [0, 2, 4, 6], triangle: [0, 1, 3, 5],
-  hexagon: [[4, 5], 3, [2, 1], 0], octagon: [[6, 7], [5, 4], [3, 2], [0, 1]], parallelogram: [0, 5, 4, 2], trapezoid: [0, 1, 2, 3],
-  pentagon: [0, 1, 3, 5], chevron: [0, 1, 2, 3], arrow: [0, 1, 2, 3], cylinder: [1, 2, 3, 4],
-  rtriangle: [0, 1, 3, 5], snip: [3, 2, 1, 0], snip2: [3, 2, 1, 0], round1: [0, 1, 2, 3], round2: [3, 2, 1, 0], plaque: [0, 1, 2, 3], heptagon: [6, 4, [3, 2], 1], decagon: [[8, 9], 6, [4, 3], 1],
-  dodecagon: [[10, 11], [8, 7], [5, 4], [1, 2]], homeplate: [0, 1, 2, 3], folded: [0, 1, 2, 3], cube: [0, 2, 3, 5] };
+// A color as a deck holds it: its theme's where it's one of the ten or a tint or shade of one, as the palette offers them (dendra.md, The palette), so PowerPoint's theme switch
+// recolours the slide; or else as it is. `alpha`, its opacity in thousandths of a percent.
+let inTheme = () => null;
+const clr = (c, alpha = '') => {
+  const t = inTheme(c), a = alpha ? `<a:alpha val="${alpha}"/>` : '';
+  if (!t) return `<a:srgbClr val="${hex(c)}"${a ? `>${a}</a:srgbClr>` : '/>'}`;
+  const mods = t.mod != null ? `<a:lumMod val="${Math.round(t.mod * 100000)}"/>${t.off ? `<a:lumOff val="${Math.round(t.off * 100000)}"/>` : ''}` : '';
+  return mods || a ? `<a:schemeClr val="${t.slot}">${mods}${a}</a:schemeClr>` : `<a:schemeClr val="${t.slot}"/>`;
+};
+// The file's own theme: the chart's ten colors, or Office's.
+const clrScheme = (colors = Shapes.OFFICE) => { const [bg1, tx1, bg2, tx2, ...accents] = colors, slot = (tag, c) => `<a:${tag}><a:srgbClr val="${hex(c)}"/></a:${tag}>`; return `<a:clrScheme name="Chart">${slot('dk1', tx1)}${slot('lt1', bg1)}${slot('dk2', tx2)}${slot('lt2', bg2)}${accents.slice(0, 6).map((c, i) => slot(`accent${i + 1}`, c)).join('')}${slot('hlink', '#0563c1')}${slot('folHlink', '#954f72')}</a:clrScheme>`; };
+const siteOf = b => Shapes.sites(b?.shape ?? (['text', 'frame', 'picture'].includes(b?.geometry) ? 'rect' : b?.geometry));
 const DASH = { solid: 'solid', dashed: 'dash', dotted: 'sysDot', 'square-dot': 'sysDash', 'dash-dot': 'dashDot', 'long-dash': 'lgDash', 'long-dash-dot': 'lgDashDot', 'long-dash-dot-dot': 'lgDashDotDot' };
 // A line's end as PowerPoint holds it, by its Arrowhead's style and size.
 const HEAD_TYPE = { triangle: 'triangle', stealth: 'stealth', open: 'arrow', oval: 'oval', diamond: 'diamond' }, HEAD_SIZE = { small: 'sm', medium: 'med', large: 'lg' };
@@ -369,14 +396,14 @@ function footMaster(m, r, k, level) {
   const run = m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum"><a:rPr lang="en-US"/><a:t>‹#›</a:t></a:fld>` : `<a:r><a:rPr lang="en-US"/><a:t>${esc(m.texts[0].text)}</a:t></a:r>`;
   if (level === 'layout') return `<p:sp>${nv}<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>${run}</a:p></p:txBody></p:sp>`;
   const font = esc(t.Font), rPr = `sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''}`;
-  return `<p:sp>${nv}<p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr wrap="none" rtlCol="0" anchor="t"/><a:lstStyle><a:lvl1pPr algn="${ALIGN[t.Align] ?? 'l'}"><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc><a:defRPr ${rPr}><a:solidFill><a:srgbClr val="${hex(t.Color)}"/></a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:defRPr></a:lvl1pPr></a:lstStyle><a:p>${run}</a:p></p:txBody></p:sp>`;
+  return `<p:sp>${nv}<p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr wrap="none" rtlCol="0" anchor="t"/><a:lstStyle><a:lvl1pPr algn="${ALIGN[t.Align] ?? 'l'}"><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc><a:defRPr ${rPr}><a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:defRPr></a:lvl1pPr></a:lstStyle><a:p>${run}</a:p></p:txBody></p:sp>`;
 }
 // On a slide, `master` being what its master says of it: { r, look, k }.
 function footSlide(id, m, r, k, master) {
   // (As it prints, whatever scale its page is drawn at; and where it stands by the edge it's set from, the footer's left, a number's right, however wide it is.)
   const f = FOOT[m.role], it = m.texts[0], t = it.look, printed = (x, kk) => Math.round(x.Size * kk * 100), same = RUN_LOOK.every(l => l === 'Size' ? printed(master.look, master.k) === printed(t, k) : master.look[l] === t[l]);
   const edge = x => m.role === 'number' ? x.x + x.w : x.x, moved = Math.abs(edge(master.r) - edge(r)) > 0.02 || Math.abs(master.r.y - r.y) > 0.02;
-  const font = esc(t.Font), rPr = same ? '<a:rPr lang="en-US" dirty="0"/>' : `<a:rPr lang="en-US" sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ' b="0"'}${t.Italic ? ' i="1"' : ' i="0"'}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"><a:solidFill><a:srgbClr val="${hex(t.Color)}"/></a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr>`;
+  const font = esc(t.Font), rPr = same ? '<a:rPr lang="en-US" dirty="0"/>' : `<a:rPr lang="en-US" sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ' b="0"'}${t.Italic ? ' i="1"' : ' i="0"'}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"><a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr>`;
   const line = l => m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum">${rPr}<a:t>${esc(l.text)}</a:t></a:fld>` : `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`;
   const ps = typed(it).map(ls => `<a:p>${ls.map(line).join(`<a:br>${rPr}</a:br>`)}</a:p>`).join('');
   return `<p:sp><p:nvSpPr>${cNvPr(id, ROLE[m.role])}<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${f.type}" sz="quarter" idx="${f.layout}"/></p:nvPr></p:nvSpPr><p:spPr>${moved ? xfrm(E(r.x), E(r.y), E(r.w), E(r.h)) : ''}</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${ps}</p:txBody></p:sp>`;
@@ -398,7 +425,8 @@ async function pptx(scenes, title, author, say) {
   p.defineLayout({ name: 'Dendra', width: W / 96, height: H / 96 });
   p.layout = 'Dendra';
   // The theme's fonts are the page's own (dendra.md, Notes), so what's typed in the deck later stays in style: the first page's, where they differ.
-  const themeFont = scenes[0]?.page.look?.Font ?? 'Arial';
+  const themeFont = scenes[0]?.page.look?.Font ?? 'Arial', palette = scenes[0]?.palette ?? null;
+  inTheme = Shapes.inTheme(palette);
   p.theme = { headFontFace: themeFont, bodyFontFace: themeFont };
   Object.assign(p, { title, subject: '', author, company: '' });
   // The master's footer and number, where a page has them: as the first that does draws them.
@@ -414,6 +442,7 @@ async function pptx(scenes, title, author, say) {
   // Type kerned at every size, as the scene measures it, so each line is as wide as the scene sets it:
   // PowerPoint's own default kerns only from 12 pt.
   for (const f of ['ppt/presentation.xml', 'ppt/slideMasters/slideMaster1.xml']) await edit(f, x => x.replaceAll('kern="1200"', 'kern="100"'));
+  await edit('ppt/theme/theme1.xml', x => x.replace(/<a:clrScheme[\s\S]*?<\/a:clrScheme>/, clrScheme(palette ?? undefined)));
   const titles = slides.map(x => TITLE.exec(x)?.[0]), first = titles.find(Boolean), footed = ['footer', 'number'].filter(r => feet[r]);
   await edit('ppt/slideLayouts/slideLayout1.xml', x => x.replace('<p:cSld name="DEFAULT">', `<p:cSld name="${first ? 'Title Only' : 'Blank'}">`)
     .replace('</p:grpSpPr></p:spTree>', `</p:grpSpPr>${first ? layoutTitle(first) : ''}${footed.map(r => footMaster(feet[r].m, feet[r].r, feet[r].k, 'layout')).join('')}</p:spTree>`));
@@ -466,7 +495,7 @@ function typed(it) {
 // little for its own measure of them; or null, where PowerPoint would set them otherwise, and the scene's breaks stay (a triangle's, by its slopes).
 function wrapsAt(m) {
   const look0 = look(m), inX = { rect: () => 0, rounded: () => Scene.textRect('rounded', m.w, m.h, look0.Corner).x, oval: () => m.w * (1 - Math.SQRT1_2) / 2 }[m.shape];
-  if (!inX || !m.texts.length || m.texts.some(it => it.blank || it.hang || it.inline || it.was || it.look.Align !== 'center' || it.lines.some(l => l.cut))) return null;
+  if (!inX || !m.texts.length || m.texts.some(it => it.blank || it.hang || it.inline || it.was || it.look.Align !== 'center' || it.lines.some(l => l.cut || l.spans))) return null;
   const plain = s => s.replace(/ /g, ' ').trim(), widest = Math.max(...m.texts.flatMap(it => it.lines.map(l => l.w))), scale = m.h ? (m.texts[0].look.Size || 10) / 10 : 1, room = widest + 3 * scale;
   const set = (ls, look1, width) => { const out = []; let line = ''; for (const w of plain(ls.map(l => l.text).join(' ')).split(/ +/)) { const next = line ? `${line} ${w}` : w; if (Scene.measure(next, look1) <= width) line = next; else { if (line) out.push(line); line = w; } } out.push(line); return out.join('\n'); };
   for (const it of m.texts) for (const ls of typed(it)) { const want = ls.map(l => plain(l.text)).join('\n'); if (set(ls, it.look, room + 2 * scale) !== want || set(ls, it.look, room) !== want) return null; }
@@ -479,29 +508,48 @@ function wrapsAt(m) {
 // the least PowerPoint opens), its lines as far apart as the scene sets them, and in as far as it hangs them; a
 // paragraph for each line it was typed on; its spaces plain, as typed, so that PowerPoint's Find finds them. Its margins are `inset` inches
 // all round, or PowerPoint's own where that's null.
-function txBody(items, k, anchor, inset, wrap = null) {
+function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = null } = {}) {
   // (What a text said before it, struck, is a run of the paragraph it stands on: see Scene's labelOf.)
   let before = '';
   const ps = items.flatMap(it => {
     const t = it.look, sz = Math.max(100, Math.round(t.Size * k * 100)), font = esc(t.Font);
     const attrs = `lang="en-US" sz="${sz}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"`;
-    const face = `<a:solidFill><a:srgbClr val="${hex(t.Color)}"/></a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/>`, rPr = `<a:rPr ${attrs}>${face}</a:rPr>`;
+    const face = `<a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/>`, rPr = `<a:rPr ${attrs}>${face}</a:rPr>`;
     const hang = it.hang ? ` marL="${E(it.hang * k / 96)}" indent="${-E(it.hang * k / 96)}"` : '';
+    // Indented, and each paragraph's first line starting with its mark where it's bulleted or numbered, the mark in PowerPoint's own list, so a paragraph added there gets one.
+    const set = E((it.indent ?? 0) * k / 96), para = ls => it.indent ? ` marL="${set}" indent="${ls[0]?.bullet ? -set : 0}"` : hang;
+    const mark = ls => !t.Bullet || t.Bullet === 'none' ? '' : !ls[0]?.bullet ? '<a:buNone/>' : t.Bullet === 'number' ? '<a:buFont typeface="+mj-lt"/><a:buAutoNum type="arabicPeriod"/>' : '<a:buFont typeface="Arial"/><a:buChar char="&#8226;"/>';
+    // Part of a line in another look: a run of its own, a superscript by PowerPoint's own baseline, at its full size, as PowerPoint makes it smaller itself.
+    const spanRuns = l => l.spans.map(sp => { const s = sp.look, z = Math.max(100, Math.round((sp.base ? s.Size / 0.66 : s.Size) * k * 100)), f = esc(s.Font);
+      return `<a:r><a:rPr lang="en-US" sz="${z}"${s.Bold ? ' b="1"' : ' b="0"'}${s.Italic ? ' i="1"' : ' i="0"'}${s.Underline ? ' u="sng"' : ''}${s.Strike ? ' strike="sngStrike"' : ''}${sp.base ? ` baseline="${sp.base === 'up' ? 30000 : -25000}"` : ''} dirty="0"><a:solidFill>${clr(s.Color)}</a:solidFill><a:latin typeface="${f}"/><a:cs typeface="${f}"/></a:rPr><a:t>${esc(sp.text.replace(/ /g, ' '))}</a:t></a:r>`; }).join('');
     // A blank field keeps its lines' room, each an empty paragraph. A paragraph's mark is in its text's look, so PowerPoint's
     // font box shows the font, and what's typed there matches.
     if (it.inline) { before = `<a:r>${rPr}<a:t>${esc(it.text)}</a:t></a:r><a:r><a:rPr lang="en-US" sz="${sz}" dirty="0"/><a:t> </a:t></a:r>`; return []; }
     const runsBefore = before;
     before = '';
-    return (it.blank ? it.lines.map(() => []) : typed(it)).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${hang}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc></a:pPr>${runsBefore}`
-      + (wrap !== null ? `<a:r>${rPr}<a:t>${esc(ls.map(l => l.text.replace(/\u00a0/g, ' ')).join(' '))}</a:t></a:r>` : ls.map(l => `<a:r>${rPr}<a:t>${esc(l.text.replace(/\u00a0/g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`)) + `<a:endParaRPr ${attrs}>${face}</a:endParaRPr></a:p>`);
+    return (it.blank ? it.lines.map(() => []) : typed(it)).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${para(ls)}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc>${mark(ls)}</a:pPr>${runsBefore}`
+      + (wrap !== null ? `<a:r>${rPr}<a:t>${esc(ls.map(l => l.text.replace(/\u00a0/g, ' ')).join(' '))}</a:t></a:r>` : ls.map(l => l.spans ? spanRuns(l) : `<a:r>${rPr}<a:t>${esc(l.text.replace(/\u00a0/g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`)) + `<a:endParaRPr ${attrs}>${face}</a:endParaRPr></a:p>`);
   });
-  const margins = inset === null ? '' : ['l', 't', 'r', 'b'].map(side => ` ${side}Ins="${E(wrap !== null && (side === 'l' || side === 'r') ? wrap : inset)}"`).join('');
-  return `<p:txBody><a:bodyPr${ps.length ? ` wrap="${wrap !== null ? 'square' : 'none'}"` : ''}${margins} rtlCol="0" anchor="${anchor}"/><a:lstStyle/>${ps.join('') || '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>'}</p:txBody>`;
+  // (Its margins each side's, where its own Inner margins say. Shrunk, PowerPoint's own shrink goes on from there; flipped upside down, its text stays the right way up.)
+  const margins = inset === null ? '' : ['l', 't', 'r', 'b'].map(side => ` ${side}Ins="${E(wrap !== null && (side === 'l' || side === 'r') ? wrap : typeof inset === 'object' ? inset[side] : inset)}"`).join('');
+  return `<p:txBody><a:bodyPr${upright ? ' rot="10800000"' : ''}${ps.length ? ` wrap="${wrap !== null ? 'square' : 'none'}"` : ''}${margins} rtlCol="0" anchor="${anchor}"${fit ? '><a:normAutofit/></a:bodyPr>' : '/>'}<a:lstStyle/>${ps.join('') || '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>'}</p:txBody>`;
 }
 const xfrm = (x, y, w, h, turn = '') => `<a:xfrm${turn}><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>`;
 // A color, as transparent as `clear` (0–100) says.
 const paint = (c, clear = 0) => none(c) ? '<a:noFill/>'
-  : `<a:solidFill><a:srgbClr val="${hex(c)}"${clear > 0 ? `><a:alpha val="${Math.round((100 - Math.min(100, clear)) * 1000)}"/></a:srgbClr>` : '/>'}</a:solidFill>`;
+  : `<a:solidFill>${clr(c, clear > 0 ? Math.round((100 - Math.min(100, clear)) * 1000) : '')}</a:solidFill>`;
+// A fill: its gradient, PowerPoint's own, along its angle; its pattern, PowerPoint's own, by its name, over the fill; or its one color.
+const fillOf = s => { const g = s.Gradient; if (!g?.stops?.length && s.Pattern?.prst) return `<a:pattFill prst="${s.Pattern.prst}"><a:fgClr>${clr(s.Pattern.fg ?? '#000000')}</a:fgClr><a:bgClr>${none(s.Fill) ? '<a:schemeClr val="bg1"><a:alpha val="0"/></a:schemeClr>' : clr(s.Fill)}</a:bgClr></a:pattFill>`; if (!g?.stops?.length) return paint(s.Fill, s.Transparency); const a = s.Transparency > 0 ? Math.round((100 - Math.min(100, s.Transparency)) * 1000) : '';
+  return `<a:gradFill rotWithShape="1"><a:gsLst>${g.stops.map(([at, c]) => `<a:gs pos="${Math.round(at * 1000)}">${clr(c, a)}</a:gs>`).join('')}</a:gsLst><a:lin ang="${Math.round(((g.angle ?? 0) % 360 + 360) % 360 * 60000)}" scaled="0"/></a:gradFill>`; };
+// A preset's adjustments, by what's set of them: a rounded rectangle's corners, their radius in thousandths of its shorter side; a callout's tip, as shares of its frame from its middle, or for a line callout, from its corner.
+function adjusts(geometry, s) {
+  const gd = (name, v) => `<a:gd name="${name}" fmla="val ${Math.round(v)}"/>`, t = s.Tail ?? Shapes.TAIL;
+  if (geometry === 'rounded') return gd('adj', Math.min(50, Math.max(0, s.Corner ?? Scene.CORNER)) * 1000);
+  if (geometry === 'callout' || geometry === 'callout-oval') return gd('adj1', t[0] * 1e5) + gd('adj2', t[1] * 1e5);
+  if (geometry === 'callout-round') return gd('adj1', t[0] * 1e5) + gd('adj2', t[1] * 1e5) + gd('adj3', 16667);
+  if (geometry === 'callout-line') { const X = 0.5 + t[0], Y = 0.5 + t[1], fx = X < 0 ? 0 : X > 1 ? 1 : 0.5, fy = X < 0 || X > 1 ? 0.5 : Y < 0 ? 0 : 1; return gd('adj1', fy * 1e5) + gd('adj2', fx * 1e5) + gd('adj3', Y * 1e5) + gd('adj4', X * 1e5); }
+  return '';
+}
 // PowerPoint's outer shadow: its blur and distance in EMU on the slide, its direction in 60,000ths of a degree, its color and how opaque.
 const shadowXml = v => { const o = Scene.shadowOf(v); return !o ? '' : `<a:effectLst><a:outerShdw blurRad="${Math.round(o.blur * 12700)}" dist="${Math.round(o.distance * 12700)}" dir="${Math.round(((o.angle % 360) + 360) % 360 * 60000)}" algn="tl" rotWithShape="0"><a:srgbClr val="${hex(o.color)}"><a:alpha val="${Math.round((100 - o.transparency) * 1000)}"/></a:srgbClr></a:outerShdw></a:effectLst>`; };
 // The anchor of a box's text, by its Valign.
@@ -514,12 +562,13 @@ const freeform = (q, w, h) => `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnL
   + q.map(([x, y], i) => `<a:${i ? 'lnTo' : 'moveTo'}><a:pt x="${x}" y="${y}"/></a:${i ? 'lnTo' : 'moveTo'}>`).join('') + '</a:path></a:pathLst></a:custGeom>';
 // A shape as PowerPoint writes one, in r (inches on the slide): of a preset geometry, or a path through points
 // (inches within r); a text box (`box`), or the slide's title placeholder (`title`); holding `body`.
-function sp(id, name, r, geometry, s, k, body, { box = false, title = false, rotate = 0 } = {}) {
-  const nv = title ? '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr>' : `<p:cNvSpPr${box ? ' txBox="1"' : ''}/><p:nvPr/>`;
-  // A rounded rectangle's corners, PowerPoint's adjustment of it: their radius in thousandths of its shorter side.
-  const adj = geometry === 'rounded' ? `<a:gd name="adj" fmla="val ${Math.round(Math.min(50, Math.max(0, s.Corner ?? Scene.CORNER)) * 1000)}"/>` : '';
-  const geom = Array.isArray(geometry) ? freeform(geometry.map(([x, y]) => [E(x), E(y)]), E(r.w), E(r.h)) : `<a:prstGeom prst="${PRESET[geometry] ?? 'rect'}">${adj ? `<a:avLst>${adj}</a:avLst>` : '<a:avLst/>'}</a:prstGeom>`;
-  return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h), rotate ? ` rot="${Math.round(rotate * 60000)}"` : '')}${geom}${paint(s.Fill, s.Transparency)}${'Outline' in s ? ln(s, k) : ''}${shadowXml(s.Shadow)}</p:spPr>${body}</p:sp>`;
+function sp(id, name, r, geometry, s, k, body, { box = false, title = false, rotate = 0, flip = null, alt = null, locked = false } = {}) {
+  const lock = locked ? '><a:spLocks noMove="1" noResize="1" noRot="1"/></p:cNvSpPr>' : '/>';
+  const nv = title ? '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr>' : `<p:cNvSpPr${box ? ' txBox="1"' : ''}${lock}<p:nvPr/>`;
+  const adj = Array.isArray(geometry) ? '' : adjusts(geometry, s);
+  const geom = Array.isArray(geometry) ? freeform(geometry.map(([x, y]) => [E(x), E(y)]), E(r.w), E(r.h)) : `<a:prstGeom prst="${Shapes.prst(geometry)}">${adj ? `<a:avLst>${adj}</a:avLst>` : '<a:avLst/>'}</a:prstGeom>`;
+  const turn = `${rotate ? ` rot="${Math.round(rotate * 60000)}"` : ''}${flip?.h ? ' flipH="1"' : ''}${flip?.v ? ' flipV="1"' : ''}`;
+  return `<p:sp><p:nvSpPr>${cNvPr(id, name, alt)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h), turn)}${geom}${fillOf(s)}${'Outline' in s ? ln(s, k) : ''}${shadowXml(s.Shadow)}</p:spPr>${body}</p:sp>`;
 }
 
 // Lines said as one, as the chart says them: those landing on a frame along one route, the first drawn standing
@@ -558,8 +607,8 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
   const add = (kind, ...args) => { sl[kind](...args); return 2 + count++; };
   // A stand-in for what `write` writes once it has its number. → that number.
   const put = write => add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: `·${parts.push(write) - 1}·` });
-  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title, rotate, wrap = null } = {}) =>
-    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset, wrap === null ? null : L(wrap)), { box, title, rotate }));
+  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title, rotate, flip, alt, locked, fit, wrap = null } = {}) =>
+    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset, { fit, upright: !!flip?.v, wrap: wrap === null ? null : L(wrap) }), { box, title, rotate, flip, alt, locked }));
   // Texts on their own, their lines placed from (x0, y0): a text box at the side they're aligned to, from
   // their first line's top, its margins round them. → its rect.
   const textBox = (items, x0, y0, inset) => {
@@ -583,7 +632,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
   };
   // The site a line's end is glued to: on the side it leaves or arrives by, the nearer if there are two.
   const glue = (b, ps, end) => {
-    const sites = SITES[b?.shape], id = ids.get(b?.id);
+    const sites = siteOf(b), id = ids.get(b?.id);
     if (!sites || !id) return null;
     const [p, q] = end ? [ps.at(-1), ps.at(-2)] : [ps[0], ps[1]], dx = p[0] - q[0], dy = p[1] - q[1];
     const side = Math.abs(dy) >= Math.abs(dx) ? (dy > 0 ? 0 : 2) : (dx > 0 ? 1 : 3);
@@ -629,11 +678,12 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
         return [rect(m), caption()];
       });
     }
-    if (m.geometry === 'line') return connector(m.points, s, m.ends ?? null, 'Line');
+    // A free line is a connector glued to what it's glued to, named so, and it follows that in PowerPoint; or a line.
+    if (m.geometry === 'line') return connector(m.points, s, m.ends ?? null, m.name ?? (m.ends ? 'Connector' : 'Line'), { alt: m.alt });
     if (m.geometry === 'picture') {
-      // Cropped, as PowerPoint holds it: the whole picture's size, and the part of it shown, its frame on the slide.
+      // Cropped, as PowerPoint holds it: the whole picture's size, and the part of it shown, its frame on the slide. Named, and said to a reader, as the panel has it.
       const c = m.crop && { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = c ? L(m.w) / (1 - (c.left + c.right) / 100) : L(m.w), fh = c ? L(m.h) / (1 - (c.top + c.bottom) / 100) : L(m.h);
-      if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: fw, h: fh, sizing: c ? { type: 'crop', x: fw * c.left / 100, y: fh * c.top / 100, w: L(m.w), h: L(m.h) } : { type: 'contain', w: L(m.w), h: L(m.h) }, ...(m.rotate && { rotate: m.rotate }) });
+      if (m.src) ids.set(m.id, add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: fw, h: fh, sizing: c ? { type: 'crop', x: fw * c.left / 100, y: fh * c.top / 100, w: L(m.w), h: L(m.h) } : { type: 'contain', w: L(m.w), h: L(m.h) }, ...(m.rotate && { rotate: m.rotate }), objectName: m.name ?? 'Picture', altText: m.alt ?? m.name ?? 'Picture', ...(m.flip?.h && { flipH: true }), ...(m.flip?.v && { flipV: true }) }));
       if (s.Outline !== '#000000') shape(rect(m), 'rect', { ...s, Fill: 'none' }, 'Picture', { rotate: m.rotate });
       return [rect(m)];
     }
@@ -652,9 +702,9 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
     });
     if (m.geometry === 'group') return [];
     if (FOOT[m.role] && feet[m.role]) { put(id => footSlide(id, m, rect(m), k, feet[m.role])); return [rect(m)]; }
-    const text = m.geometry === 'text' || m.geometry === 'frame';
-    shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.texts[0]?.text ?? 'Shape',
-      { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate });
+    const text = m.geometry === 'text' || m.geometry === 'frame', ins = s.Inset ? { l: (s.Inset.l ?? 7.2) / 72, t: (s.Inset.t ?? 3.6) / 72, r: (s.Inset.r ?? 7.2) / 72, b: (s.Inset.b ?? 3.6) / 72 } : PAGE;
+    ids.set(m.id, shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.name ?? m.texts[0]?.text ?? Shapes.name(m.geometry) ?? 'Shape',
+      { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate, flip: m.flip, alt: m.alt, locked: m.locked, inset: ins, fit: !!s.Shrink }));
     return [rect(m)];
   };
   // A crossing, as the chart draws it (Scene's `runs`). A connector can't be broken, so the line crossing carries its own casing: a white
@@ -898,8 +948,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // falling as far as that needs, its note `fit` till the next change keeps it so.
   function fitToPage(id = Shell.view.peek()) {
     if (App.readOnly.peek()) return Shell.toast(App.whyNot());
-    const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), p = now.page, M = p.margin, boxes = now.marks.filter(m => m.type === 'box' && !m.revealed);
-    if (boxes.every(b => b.x >= M - 1 && b.y >= M - 1 && b.x + b.w <= p.w - M + 1 && b.y + b.h <= p.h - M + 1)) return Shell.toast('The chart already fits its page');
+    const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), p = now.page, M = p.margins, boxes = now.marks.filter(m => m.type === 'box' && !m.revealed);
+    if (boxes.every(b => b.x >= M.left - 1 && b.y >= M.top - 1 && b.x + b.w <= p.w - M.right + 1 && b.y + b.h <= p.h - M.bottom + 1)) return Shell.toast('The chart already fits its page');
     const away = b => { const x = b.x + b.w / 2, y = b.y + b.h / 2; return x < 0 || y < 0 || x > p.w || y > p.h; };
     App.change(tx => {
       tx.note('Scale', viewAt(id), { scale: p.scale, x: p.offset.x, y: p.offset.y, fit: true });
@@ -915,23 +965,39 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   const footed = (wb, value) => { const id = `·footer${++tries}`, rows = [...wb.rows(App.chart.peek()).filter(r => !('note' in r && r.label === 'Footer')), ...(value ? [{ id, note: id, label: 'Footer', pattern: { kind: 'View' }, value }] : [])], notes = Notes.index(rows.filter(r => 'note' in r));
     return { ...wb, rows: () => rows, notes: () => notes }; };
   // (With its look, which the ribbon gave it, as the footer selected on the page: see the format bar.)
-  const asFooter = (text, number) => text.trim() || number ? { text: text.trim(), number, ...(footer().format && { format: footer().format }) } : null;
-  const turned = (paper, portrait) => `${paper} ${portrait ? 'portrait' : 'landscape'}`;
+  const asFooter = (text, number, at, date) => text.trim() || number || date ? { text: text.trim(), number, ...(at && at !== 'left' && { at }), ...(date && { date: true }), ...(footer().format && { format: footer().format }) } : null;
+  // What a paper is asked as, its margins and a size of its own too (Scene's pageOf).
+  const SIDES = ['top', 'right', 'bottom', 'left'], inches = v => Math.round(v / 72 * 1000) / 1000, HALF = { top: 36, right: 36, bottom: 36, left: 36 };
+  const turned = (paper, portrait, margins = HALF, own = null) => `${paper === 'custom' && own ? `custom:${Math.round(own.w * 96)}x${Math.round(own.h * 96)}` : paper} ${portrait ? 'portrait' : 'landscape'} m:${SIDES.map(k => margins[k]).join(',')}`;
+  const sameSides = (a, b) => SIDES.every(k => Math.abs(a[k] - b[k]) < 0.01);
+  // The Page note it makes: a paper's name, turned or not, or a size of its own; with its margins, where they aren't half an inch all round.
+  const pageValue = c => { const base = c.paper === 'custom' ? { w: Math.round(c.own.w * 96), h: Math.round(c.own.h * 96) } : c.portrait ? { size: c.paper ?? 'slide', portrait: true } : c.paper ?? 'slide'; return sameSides(c.margins, HALF) ? base : { ...(typeof base === 'string' ? { size: base } : base), margins: c.margins }; };
   function Setup({ choice, view }) {
-    const [paper, setPaper] = useState(choice.paper), [portrait, setPortrait] = useState(choice.portrait), [text, setText] = useState(choice.text), [number, setNumber] = useState(choice.number);
-    Object.assign(choice, { paper, portrait, number });
-    const was = pageNow(view), same = paper === was.paper && portrait === was.portrait;
-    const sc = useMemo(() => Scene.of(footed(App.shown.peek(), asFooter(text, number)), App.chart.peek(), view, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), ...(!same && { paper: turned(paper ?? 'slide', portrait) }) }), [paper, portrait, text, number]);
+    const [paper, setPaper] = useState(choice.paper), [portrait, setPortrait] = useState(choice.portrait), [text, setText] = useState(choice.text), [number, setNumber] = useState(choice.number), [at, setAt] = useState(choice.at), [date, setDate] = useState(choice.date), [margins, setMargins] = useState(choice.margins), [own, setOwn] = useState(choice.own);
+    Object.assign(choice, { paper, portrait, number, at, date, margins, own });
+    const was = pageNow(view), same = paper === was.paper && portrait === was.portrait && sameSides(margins, choice.was.margins) && JSON.stringify(own) === JSON.stringify(choice.was.own);
+    const sc = useMemo(() => {
+      const s = Scene.of(footed(App.shown.peek(), asFooter(text, number, at, date)), App.chart.peek(), view, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), ...(!same && { paper: turned(paper ?? 'slide', portrait, margins, own) }) });
+      // (As OK will leave them: what's laid over a box, with it.)
+      if (!same) for (const [id, c] of Scene.annotated(view === App.scene.peek()?.view ? App.scene.peek() : scene(view), s).rows) { const m = s.byId.get(id); if (m) Object.assign(m, c); }
+      return s;
+    }, [paper, portrait, text, number, at, date, margins, own]);
     const page = sheets('pdf', [{ ...sc, name: '' }])[0], says = Scene.says(sc, called(sc), PAPERS[paper] ?? null);
+    // A measure in inches, as a page is set up: typed, read as it's left.
+    const inch = (label, v, put) => html`<label class="ex-inch"><span>${label}</span><input type="text" inputmode="decimal" aria-label=${label} value=${String(v)} spellcheck="false" onFocus=${e => e.currentTarget.select()} onChange=${e => { const x = parseFloat(e.target.value); if (Number.isFinite(x) && x >= 0) put(x); else e.target.value = String(v); }} /></label>`;
     return html`<div class="ex">
       <div class="ex-pick">
-        <${Shell.Pick} label="Paper" value=${paper ?? ''} onPick=${setPaper} options=${[...paper ? [] : [['', 'Its own size']], ...Object.entries(PAPERS)]} />
-        <div class="menu-seg ex-rows" role="group" aria-label="Orientation">${[[false, 'Landscape'], [true, 'Portrait']].map(([v, label]) => html`
-          <button type="button" aria-pressed=${portrait === v} onClick=${() => setPortrait(v)}>${label}</button>`)}</div>
+        <${Shell.Pick} label="Paper" value=${paper ?? ''} onPick=${setPaper} options=${[...paper ? [] : [['', 'Its own size']], ...Object.entries(PAPERS), ['custom', 'A size of its own']]} />
+        ${paper === 'custom' ? null : html`<div class="menu-seg ex-rows" role="group" aria-label="Orientation">${[[false, 'Landscape'], [true, 'Portrait']].map(([v, label]) => html`
+          <button type="button" aria-pressed=${portrait === v} onClick=${() => setPortrait(v)}>${label}</button>`)}</div>`}
+        ${paper === 'custom' ? html`${inch('Width', own.w, x => setOwn({ ...own, w: Math.max(1, x) }))}${inch('Height', own.h, x => setOwn({ ...own, h: Math.max(1, x) }))}` : null}
       </div>
+      <div class="ex-pick ex-margins"><span class="ex-label">Margins</span>${[['Top', 'top'], ['Right', 'right'], ['Bottom', 'bottom'], ['Left', 'left']].map(([label, k]) => inch(label, inches(margins[k]), x => setMargins({ ...margins, [k]: Math.round(x * 72 * 100) / 100 })))}<span class="ex-unit">inches</span></div>
       <div class="ex-pick ex-foot">
         <input type="text" aria-label="Footer" placeholder="Footer" value=${text} spellcheck="false" onInput=${e => { choice.text = e.target.value; }} onChange=${e => setText(e.target.value)} />
+        <div class="menu-seg ex-rows" role="group" aria-label="Footer position">${[['left', 'Left'], ['center', 'Center'], ['right', 'Right']].map(([v, label]) => html`<button type="button" aria-pressed=${(at ?? 'left') === v} onClick=${() => setAt(v)}>${label}</button>`)}</div>
         <label><input type="checkbox" checked=${number} onChange=${e => setNumber(e.target.checked)} />Page numbers</label>
+        <label><input type="checkbox" checked=${date} onChange=${e => setDate(e.target.checked)} />Date</label>
       </div>
       ${says.length ? html`<div class="ex-warns">${says.slice(0, 4).map(t => html`<p class="ex-says">${t}</p>`)}</div>` : null}
       <div class="ex-well"><figure class="ex-page" style=${`--a: ${page.aspect}`}><span class="ex-drawn" dangerouslySetInnerHTML=${{ __html: page.drawn }} /></figure></div>
@@ -940,19 +1006,26 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   async function setup(view = Shell.view.peek()) {
     if (!charts().some(v => v.id === view)) return Shell.toast('Show a chart first');
     if (App.readOnly.peek()) return Shell.toast(App.whyNot());
-    const was = pageNow(view), f = footer(), choice = { paper: was.paper, portrait: was.portrait, text: f.text ?? '', number: !!f.number };
+    const was = pageNow(view), f = footer(), note = App.notes.peek().resolve('Page', viewAt(view))?.value, sheet = (id => { const sc = id === App.scene.peek()?.view ? App.scene.peek() : scene(id); return sc.page.sheet; })(view);
+    const own = { w: Math.round(sheet.w / 96 * 100) / 100, h: Math.round(sheet.h / 96 * 100) / 100 }, margins = { ...HALF, ...note?.margins };
+    const choice = { paper: note?.w ? 'custom' : was.paper, portrait: was.portrait, text: f.text ?? '', number: !!f.number, at: f.at ?? 'left', date: !!f.date, margins, own, was: { margins, own } };
+    const paperWas = choice.paper;
     const go = await Shell.dialog({ title: 'Page setup', width: 720, body: () => html`<${Setup} choice=${choice} view=${view} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }] });
     if (!go) return;
-    const repaged = choice.paper !== was.paper || choice.portrait !== was.portrait, value = asFooter(choice.text, choice.number), refooted = JSON.stringify(value ?? {}) !== JSON.stringify(f.text == null && f.number == null ? {} : f);
+    const repaged = choice.paper !== paperWas || choice.portrait !== was.portrait || !sameSides(choice.margins, margins) || JSON.stringify(choice.own) !== JSON.stringify(own), value = asFooter(choice.text, choice.number, choice.at, choice.date), refooted = JSON.stringify(value ?? {}) !== JSON.stringify(f.text == null && f.number == null ? {} : f);
     if (!repaged && !refooted) return;
-    const on = repaged ? Scene.of(App.shown.peek(), App.chart.peek(), view, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), paper: turned(choice.paper ?? 'slide', choice.portrait) }) : null;
+    const on = repaged ? Scene.of(App.shown.peek(), App.chart.peek(), view, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), paper: turned(choice.paper ?? 'slide', choice.portrait, choice.margins, choice.own) }) : null;
+    // What's laid over a box goes with it to the new paper, and what's tied to nothing stays by its corner, which is said (dendra.md, Free shapes).
+    const ann = on ? Scene.annotated(view === App.scene.peek()?.view ? App.scene.peek() : scene(view), on) : null, stays = ann?.stay.length ? `; ${ann.stay.length === 1 ? 'a shape on no box stays by its corner of the page' : `${ann.stay.length} shapes on no box stay by their corners of the page`}` : '';
+    const paperSaid = PAPERS[choice.paper] ?? (choice.paper === 'custom' ? `${choice.own.w} × ${choice.own.h} in` : 'its own size');
     App.change(tx => {
       if (refooted) tx.note('Footer', { kind: 'View' }, value ?? undefined);
       if (!on) return;
-      tx.note('Page', viewAt(view), choice.portrait ? { size: choice.paper ?? 'slide', portrait: true } : choice.paper ?? 'slide');
+      tx.note('Page', viewAt(view), pageValue(choice));
       placing(tx, on, view);
-    }, { dated: false, keep: !on, say: on ? `Set the page to ${PAPERS[choice.paper] ?? 'its own size'}${choice.portrait ? ', portrait' : ''}` : value ? 'Set the footer' : 'Took the footer off' });
+      for (const [id, c] of ann.rows) tx.update(id, c);
+    }, { dated: false, keep: !on, say: on ? `${choice.paper !== paperWas || choice.portrait !== was.portrait || JSON.stringify(choice.own) !== JSON.stringify(own) ? `Set the page to ${paperSaid}${choice.portrait ? ', portrait' : ''}` : 'Set the margins'}${stays}` : value ? 'Set the footer' : 'Took the footer off' });
     if (on) Canvas.active.peek()?.zoom('fit');
   }
   api.setup = setup;
@@ -1006,7 +1079,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
         <input type="checkbox" checked=${ids.includes(v.id)} disabled=${ids.length === 1 && ids[0] === v.id} onChange=${e => tick(v.id, e.target.checked)} />${v.name}</label>`)}</div>` : null}
       ${table?.says ? html`<p class="ex-says">${table.says(all)}</p>` : null}
       ${broke ? html`<p class="ex-says ex-broken" role="alert">${broke}</p>` : null}
-      ${open.length ? html`<p class="ex-says ex-off">Still open on this chart: ${open.map(c => c.said).join(', ')} <button type="button" class="btn" onClick=${() => { close(false); setTimeout(() => Shell.listProblems(open[0].kind)); }}>See them</button></p>` : null}
+      ${open.length ? html`<p class="ex-says ex-off"><span>Still open on this chart: ${open.map((c, i) => html`${i ? ', ' : ''}<span class=${'said-' + c.kind}>${c.said}</span>`)}</span> <button type="button" class="btn" onClick=${() => { close(false); setTimeout(() => Shell.listProblems(open[0].kind)); }}>See them</button></p>` : null}
       ${drawn ? ids.map(narrowed).filter(Boolean).map(t => html`<p class="ex-says ex-off">${t}</p>`) : null}
       ${oneOff ? html`<p class="ex-says">${PAPERS[paper]} for this file only. ${stay.length === 1 && stay[0] ? `The page stays ${PAPERS[stay[0]]}.` : 'The pages stay as they are.'}</p>` : null}
       ${said.length ? html`<div class="ex-warns">

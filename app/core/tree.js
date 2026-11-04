@@ -212,9 +212,28 @@ const pad = n => String(n).padStart(2, '0');
 const parseDate = s => { const p = dayParts(s); return p && p[0] !== null ? `${p[0]}-${pad(p[1])}-${pad(p[2])}` : null; };
 // A day of the year, as ISO writes one (--12-31), from a day typed with its year or without; null if it isn't one.
 const parseYearly = s => { const p = dayParts(s); return p && `--${pad(p[1])}-${pad(p[2])}`; };
+// A date known only to its month, as an email says it: Mar 2022, March 2022, 3/2022, 2022-03. ISO's own reduced form (2022-03), or null.
+function knownMonth(s) {
+  let m, y, mo;
+  s = clean(s);
+  if ((m = s.match(/^(\d{4})-(\d{1,2})$/))) [, y, mo] = m;
+  else if ((m = s.match(/^(\d{1,2})\/(\d{4})$/))) [, mo, y] = m;
+  else if ((m = s.match(/^([A-Za-z]+\.?),? (\d{4})$/))) [y, mo] = [m[2], monthOf(m[1])];
+  else return null;
+  return +mo >= 1 && +mo <= 12 ? `${y}-${pad(+mo)}` : null;
+}
+// A date as far as it's known (dendra.md, Time): a day, its month or its year. ISO writes the three (2022-03-14, 2022-03,
+// 2022), so what's known is what's kept, and what's never told isn't made up. What's compared with a day is compared
+// as it should be: a day falls on or after 2022-03 from March 1, by the letters of the two.
+const parseKnown = s => parseDate(s) ?? knownMonth(s) ?? (/^(1[5-9]|2\d)\d\d$/.test(clean(s)) ? clean(s) : null);
+// The first day of what's known, which is the day a date is worked out from.
+const firstDay = iso => (typeof iso !== 'string' || iso[0] === '-' || iso.length > 7 ? iso : iso.length === 4 ? `${iso}-01-01` : iso.length === 7 ? `${iso}-01` : iso);
 // A day as it reads: 'long' February 14, 2023 (a value); 'short' Feb 14, 2023 (the window's own); 'month'
-// February 2023. A day of the year reads without a year: February 14.
+// February 2023. A day of the year reads without a year: February 14; a date known to its month or year reads as known:
+// March 2022 (Mar 2022), 2022.
 function formatDate(iso, style = 'long') {
+  if (/^\d{4}$/.test(iso)) return String(iso);
+  if (/^\d{4}-\d\d$/.test(iso)) { const name = MONTHS[+String(iso).slice(5) - 1]; return `${style === 'short' ? name.slice(0, 3) : name} ${String(iso).slice(0, 4)}`; }
   const yearly = String(iso).startsWith('--'), [y, m, d] = String(iso).slice(yearly ? 1 : 0).split('-').map(Number), month = MONTHS[m - 1];
   if (style === 'month') return yearly ? month : `${month} ${y}`;
   return `${style === 'short' ? month.slice(0, 3) : month} ${d}${yearly ? '' : `, ${y}`}`;
@@ -227,13 +246,13 @@ const isNumber = s => /^[-+]?\$?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?%?$/.test(s) && !/
 const isAddress = s => /^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(s) || /^\\\\[^\\\s]+\\\S+/.test(s);
 // The datatype something typed reads as, where nothing else says. A day of the year is one typed with its
 // month's name (June 30), since 6/30 could be a fraction.
-const classify = s => (s = clean(s), isAddress(s) ? 'document' : parseDate(s) ? 'date' : parseYearly(s) && /[a-z]|^--/i.test(s) ? 'yearly'
+const classify = s => (s = clean(s), isAddress(s) ? 'document' : parseDate(s) || knownMonth(s) ? 'date' : parseYearly(s) && /[a-z]|^--/i.test(s) ? 'yearly'
   : !isNumber(s) ? 'text' : s.endsWith('%') ? 'percent' : /^[-+]?\$/.test(s) ? 'money' : 'number');
 // What's typed, as a value of the datatype, or undefined. In a percentage a bare number is one: 25 is 25%.
 function parse(datatype, raw) {
   const s = clean(raw);
   if (!s) return undefined;
-  if (datatype === 'date') return parseDate(s) ?? undefined;
+  if (datatype === 'date') return parseKnown(s) ?? undefined;
   if (datatype === 'yearly') return parseYearly(s) ?? undefined;
   if (datatype === 'document') return isAddress(s) ? s : undefined;
   if (datatype === 'text') return s;
@@ -241,6 +260,8 @@ function parse(datatype, raw) {
   const n = Number(s.replace(/[$,%]/g, ''));
   return datatype === 'percent' ? n / 100 : n;
 }
+// What a value that doesn't read as a datatype is said to be, in words, wherever a field's marked for it.
+const notA = datatype => datatype === 'date' ? 'Not a date: Mar 14, 2022, Mar 2022 or 2022 would do' : `Not ${PHRASES[datatype] ?? 'a value'}`;
 // How a value reads: 71.6%, $750,000,000, 12,500, 2025, February 14, 2023, December 31, and a document by what its
 // link names. A formatter is costly to make and values are formatted by the thousand, so each kind is made once.
 const numberFormats = new Map();
@@ -260,6 +281,8 @@ function format(datatype, v) {
 }
 // How a record's output reads: a value as its datatype reads, an option as itself, a tag Yes or No.
 const outputText = r => isField(r) ? format(r.field, r.value) : isChoice(r) ? r.choice : isTag(r) ? (r.tag ? 'Yes' : 'No') : '';
+// What's coming, beside the value it'll replace: "55% from Feb 1, 2027". A date that's the day it comes from, as a filing's is, says that day once.
+const comingText = r => { const day = formatDate(r.since, 'short'); return r.field !== 'date' ? `${outputText(r)} from ${day}` : r.value === r.since ? `next ${day}` : `${formatDate(r.value, 'short')} from ${day}`; };
 // A word's plural: Entities, Taxes, Statuses, Addresses, Analyses; one already plural (ERISA Plan Assets, Cayman Islands) is itself.
 const plural = w => /[^aeiou]y$/i.test(w) ? w.slice(0, -1) + 'ies' : /sis$/i.test(w) ? w.slice(0, -2) + 'es' : /[^su]s$/i.test(w) ? w : /(s|x|z|ch|sh)$/i.test(w) ? w + 'es' : w + 's';
 
@@ -371,6 +394,6 @@ return {
   // A record's parameterization key, as formulas.js keys what a definition covers.
   parameterization: (recs, id) => { const t = treeOf(recs, id); return t && paramKey(t); },
   schema, schemaError,
-  DATATYPES, PHRASES, MONTHS, parseDate, parseYearly, formatDate, isoOf, isNumber, isAddress, classify, parse, format, outputText, plural, linkOf,
+  DATATYPES, PHRASES, MONTHS, parseDate, parseKnown, firstDay, notA, parseYearly, formatDate, isoOf, isNumber, isAddress, classify, parse, format, outputText, comingText, plural, linkOf,
 };
 })();

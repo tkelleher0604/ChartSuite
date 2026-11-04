@@ -58,7 +58,9 @@
 <script src="../ui/shell.js"></script>
 <script src="../ui/app.js"></script>
 <script src="../core/layout.js"></script>
+<script src="../core/shapes.js"></script>
 <script src="../core/scene.js"></script>
+<script src="../ui/drawing.js"></script>
 <script src="../ui/canvas.js"></script>
 <script src="../ui/formatbar.js"></script>
 <script src="../ui/inspector.js"></script>
@@ -102,7 +104,7 @@ const H = (() => {
     drag: async (id, dx, dy) => { const [x, y] = center(id); await drag(x, y, x + +dx, y + +dy); },
     hold: async (id, dx, dy) => { const [x, y] = center(id); mouse('mousedown', x, y, at(x, y)); for (let i = 1; i <= 6; i++) { const p = [x + dx * i / 6, y + dy * i / 6]; mouse('mousemove', p[0], p[1], at(...p) ?? document.body); await wait(16); } },
     insert: async g => { cv().insert(g); await wait(80); },
-    type: async t => { let ed; for (let i = 0; i < 20 && !(ed = document.querySelector('.dc-edit')); i++) await wait(25); if (ed) { ed.textContent = t.replace(/_/g, ' '); ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); } await wait(60); },
+    type: async t => { let ed; for (let i = 0; i < 20 && !(ed = document.querySelector('.dc-edit')); i++) await wait(25); if (ed) { ed.textContent = t.replace(/_/g, ' '); ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true })); } await wait(60); },
     row: async n => { const lg = cv().scene().marks.find(m => m.geometry === 'legend'); const r = lg?.rows[+n || 0]; if (!r) return; const g = cv().graph, p = g.localToClient(lg.x + r.x + 30, lg.y + r.y + r.h / 2); await click(p.x, p.y); await click(p.x, p.y); },
     zoom: async k => cv().zoom(k === 'fit' ? 'fit' : +k),
     at: async (k, x, y) => { cv().zoom(+k); cv().graph.centerPoint(+x, +y); await wait(60); },

@@ -13,7 +13,7 @@
 /* With no cell lit (what's selected is filtered out), the grid itself says it has the keys. */
 .grid .tabulator .tabulator-tableholder:focus-visible:not(:has(.tabulator-range-cell-active)) { outline: 2px solid var(--focus); outline-offset: -2px; }
 .grid .tabulator .tabulator-header { background: var(--paper); border-bottom-color: var(--rule-2); }
-.grid .tabulator .tabulator-header .tabulator-col { min-height: var(--heading, 0); background: var(--paper); border-right-color: var(--rule); cursor: grab; }
+.grid .tabulator .tabulator-header .tabulator-col { min-height: max(var(--heading, 0px), 49px); background: var(--paper); border-right-color: var(--rule); cursor: grab; }
 .grid .tabulator .tabulator-header .tabulator-col:active { cursor: grabbing; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-content { position: relative; padding: 4px 8px; }
 .grid .tabulator .tabulator-header .tabulator-col .tabulator-col-title { line-height: 20px; padding-right: 26px; }
@@ -53,6 +53,9 @@
 .grid .tabulator-col .funnel { position: absolute; right: 26px; bottom: 4px; display: none; place-items: center; width: 16px; height: 20px; border-radius: var(--r); color: var(--accent-ink); cursor: default; }
 .grid .tabulator-col.filtered .funnel { display: grid; }
 .grid .tabulator-col.filtered.sorted .funnel { right: 42px; }
+/* (A tag's narrow heading has them in its top corner, clear of its words.) */
+.grid .tabulator .tabulator-header .tabulator-col.c-tag .tabulator-col-content :is(.tabulator-col-sorter, .funnel) { top: 2px; right: 2px; width: 14px; height: 16px; }
+.grid .tabulator .tabulator-header .tabulator-col.c-tag.filtered.sorted .tabulator-col-content .funnel { right: 16px; }
 .grid .tabulator-col .funnel:hover { background: var(--press); }
 .grid .tabulator-col .funnel svg { width: 12px; height: 12px; fill: currentColor; fill-opacity: .18; }
 .grid .tabulator-col.filtered .tabulator-col-title .t { color: var(--accent-ink); }
@@ -86,6 +89,10 @@
 .grid .tabulator-row .tabulator-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A name longer than half the grid goes on to another line rather than be cut (table.js). */
 .grid .tabulator-row .tabulator-cell.lead, .grid .tabulator-row .tabulator-cell.c-why { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
+/* A name wraps; a date stays on its line, whole, what's coming beside it taking the room that's left, and all of it on hover. */
+.grid .tabulator-row .tabulator-cell.lead.c-date { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grid .tabulator-row .tabulator-cell.c-date.coming { display: inline-flex; align-items: baseline; }
+.grid .tabulator-row .tabulator-cell.c-date.coming .nx { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .grid .tabulator-row .tabulator-cell .na { color: var(--ink-3); font-style: normal; }
 .grid .tabulator-row .tabulator-cell .cant { color: var(--due); font-weight: 500; font-style: normal; white-space: nowrap; }
 /* Scrolled across, the grid stops at a column's edge, clear of the first column, as Excel's does; swiped on past its
@@ -151,7 +158,18 @@
 .imp-grid tr.to th { background: var(--paper-2, var(--hover)); }
 .imp-grid select { max-width: 180px; }
 .imp-grid td.out { color: var(--ink-3); }
-.imp-more { color: var(--ink-3); }
+.imp-more { justify-self: start; }
+.imp-grid td { cursor: text; }
+.imp-grid td:hover { background: var(--hover); }
+.imp-grid td.new { box-shadow: inset 0 -2px 0 var(--due); }
+.imp-grid td.bad { box-shadow: inset 0 -2px 0 var(--no); color: var(--no); }
+.imp-grid tr.held td { background: color-mix(in srgb, var(--no) 8%, transparent); }
+.imp-grid tr.flag td { white-space: normal; color: var(--no); padding-top: 0; font-size: 12px; cursor: default; }
+.imp-grid tr.flag td:hover { background: none; }
+.imp-grid tr.flag .lk { color: var(--accent); }
+.imp-grid td.typing { padding: 0; }
+.imp-grid td.typing input { width: 100%; min-width: 80px; }
+.imp-says { margin-right: auto; color: var(--ink-3); }
 .imp-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .imp-miss { margin-right: auto; color: var(--no); }
 dialog.dlg .dlg-foot:empty { display: none; }
@@ -186,11 +204,17 @@ dialog.dlg .dlg-foot:empty { display: none; }
 
 /* ---- Above the grid: its columns, and how it's sorted, filtered and grouped, each said while it's on ---- */
 .grid > .tools { flex: none; }
-.tbar { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 12px 0 8px; border-bottom: 1px solid var(--rule); background: var(--paper); user-select: none; }
-.tbar > .btn { height: var(--row); padding: 0 8px; color: var(--ink-2); }
+.tbar { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 12px 0 8px; border-bottom: 1px solid var(--rule); background: var(--paper); user-select: none; overflow: hidden; }
+.tbar > .btn { height: var(--row); padding: 0 8px; color: var(--ink-2); flex: 0 1 auto; min-width: 44px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tbar > .btn:hover { color: var(--ink); }
 .tbar > .btn.on { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent-ink); font-weight: 500; }
-.tbar > .tcount { margin-left: auto; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tbar > .tcount { flex: none; margin-left: auto; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tbar > .tout.ended { gap: 4px; flex: none; }
+.tbar > .tout { overflow: hidden; flex: 0 2 auto; }
+.tbar > .tout > * { flex: none; }
+.tbar > .tout > b { flex: 0 1 auto; }
+.grid .tabulator .tabulator-row.ended .tabulator-cell { color: var(--ink-3); font-style: italic; }
+.grid.marks-blanks .tabulator-row .tabulator-cell.empty { background-color: color-mix(in srgb, var(--due) 18%, transparent); }
 /* The record selected a row the filters leave out: said, with Clear filters, before the count. */
 .tbar > .tout { display: flex; align-items: center; min-width: 0; margin-left: auto; padding-left: 12px; color: var(--ink-2); white-space: nowrap; }
 .tbar > .tout > b { min-width: 0; margin-right: .3em; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--ink); }
@@ -256,7 +280,7 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .insp .cols > .cols-list { max-height: none; overflow: visible; }
 
 /* ---- The cells selected, at the status bar's end: counted, and their numbers summed and averaged ---- */
-.tstats { display: flex; gap: 16px; margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--rule); color: var(--ink-3); white-space: nowrap; }
+.tstats { display: flex; gap: 16px; margin-right: 12px; padding-right: 12px; border-right: 1px solid var(--rule); color: var(--ink-3); white-space: nowrap; }
 .tstats b { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* ---- The date control: a calendar beside the chart's own days ---- */
@@ -328,6 +352,14 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .hist-filter > .by { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: var(--row); margin-left: -8px; }
 .hist-filter .only { display: block; max-width: 100%; overflow: hidden; color: var(--ink-2); white-space: nowrap; text-overflow: ellipsis; }
 .hist-filter .every { margin-left: auto; }
+.hist-find { display: flex; align-items: center; gap: 4px; padding: 2px 0 4px; }
+.hist-find > input { flex: 1; min-width: 0; }
+.hist-between { display: grid; gap: 8px; padding: 8px; }
+.hist-between label { display: grid; grid-template-columns: 40px 124px; align-items: center; gap: 8px; }
+.hist-between input { width: 100%; box-shadow: inset 0 0 0 1px var(--rule-2); }
+.hist-between input[aria-invalid="true"] { box-shadow: inset 0 0 0 1px var(--no); }
+.hist-between .btn { justify-self: end; }
+.hist-row .note.taken { color: var(--ink-3); }
 .hist-row > .hist-chev { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r); background: none; color: var(--ink-3); }
 .hist-row > .hist-chev:hover { background: var(--hover); color: var(--ink); }
 .hist-row > .hist-chev > svg { width: 14px; height: 14px; }

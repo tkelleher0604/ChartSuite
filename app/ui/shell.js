@@ -164,7 +164,7 @@ const Shell = (() => {
   const go = (fn, o) => { replacing = !!o?.replace; batch(fn); replacing = false; };
   const select = (keys, o) => go(() => { const k = [].concat(keys ?? []); if (!same(k, selection.peek())) selection.value = k; }, o);
   const show = (id, o) => go(() => { view.value = id; }, o);
-  const at = (t, o) => go(() => { time.value = t || null; }, o);
+  const at = (t, o) => go(() => { time.value = (t?.asOf ? { ...t, asOf: Tree.firstDay(t.asOf) } : t) || null; }, o);
   // An entry, relation or kind in general, as a selection key; and a key's pattern, if it's one of those.
   const general = p => '~' + JSON.stringify(p);
   const pattern = key => { if (key?.[0] !== '~') return null; try { return JSON.parse(key.slice(1)); } catch { return null; } };
@@ -240,7 +240,7 @@ const Shell = (() => {
   let keyed = false;
   const hand = on => { if (keyed === on) return; keyed = on; usingKeys.value = on; document.documentElement.dataset.hand = on ? 'keys' : 'mouse'; };
   document.documentElement.dataset.hand = 'mouse';
-  const takesThem = e => /^(Tab|Home$|End$|Page|F\d|Delete$|ContextMenu$|\?$)/.test(e.key) || (e.key.startsWith('Arrow') && (e.ctrlKey || e.metaKey || e.altKey || !e.target.closest?.('.dc'))) || ((e.ctrlKey || e.metaKey) && /^[kK/-]$/.test(e.key));
+  const takesThem = e => /^(Tab|Home$|End$|Page|F(1|6|8|10)$|Delete$|ContextMenu$|\?$)/.test(e.key) || (e.key.startsWith('Arrow') && (((e.ctrlKey || e.metaKey) && e.altKey) || !e.target.closest?.('.dc'))) || ((e.ctrlKey || e.metaKey) && /^[kK/-]$/.test(e.key));
   addEventListener('keydown', e => {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     if (takesThem(e)) hand(true);
@@ -632,6 +632,22 @@ const Shell = (() => {
     return el ? html`<div class="float tip" popover="manual" role="tooltip" ref=${ref}>${el.dataset.tip ?? el.getAttribute('aria-label')}${el.dataset.keys ? html`<kbd>${el.dataset.keys}</kbd>` : null}</div>` : null;
   }
 
+  // ---- A red ring always says why in words: whatever's marked invalid says it beside it while it's marked, its own words
+  // (data-why) or else by what it takes. Marked and pointed at it says so too. ----
+  const ringed = signal(null);
+  const marked_ = el => el.hasAttribute?.('aria-invalid') && el.getAttribute('aria-invalid') !== 'false';
+  const whyOf = el => el.dataset.why ?? (el.classList.contains('date') ? Tree.notA('date') : 'Not a value this takes');
+  new MutationObserver(ms => { for (const { target: el } of ms) {
+    if (marked_(el)) { if (whyOf(el)) { if (!el.dataset.tip) el.dataset.tip = whyOf(el); ringed.value = el; } }
+    else if (el.dataset.tip === whyOf(el)) delete el.dataset.tip;
+    if (ringed.peek() === el && !marked_(el)) ringed.value = null;
+  } }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['aria-invalid'] });
+  function Ringed() {
+    const el = ringed.value, ref = useRef();
+    useLayoutEffect(() => { if (!el) return; ref.current.showPopover?.(); const stop = place(el, ref.current, 'bottom-start', 4), t = setInterval(() => { if (!el.isConnected || !marked_(el)) { if (ringed.peek() === el) ringed.value = null; } }, 300); return () => { stop(); clearInterval(t); }; }, [el]);
+    return el ? html`<div class="float tip why" popover="manual" role="alert" ref=${ref}>${whyOf(el)}</div>` : null;
+  }
+
   // ---- Dialogs, on <dialog>: modal, named by their title ----
   let did = 0;
   // One dropdown, in a dialog as anywhere: a button that says what's chosen, its list the window's menu, in the top layer inside the
@@ -938,6 +954,7 @@ const Shell = (() => {
         ${h(App.LookBand)}
         ${part('broken') ? h(part('broken')) : null}
         ${h(App.Pending)}
+        <${OpenList} />
         ${part('time') ? h(part('time').Ruler) : null}
       </div>
       <div class="divider" role="separator" aria-orientation="vertical" onPointerDown=${resize} onDblClick=${() => wide.value ? narrow() : widen()} />
@@ -1014,40 +1031,97 @@ const Shell = (() => {
     stepAt = items.length ? (stepAt + d + items.length) % items.length : -1;
     items[stepAt]?.go();
   }
-  // A count clicked opens its items, each in its words and where (the 'needs' part: what, whose, its figure), found as
-  // they're typed; choosing one goes there.
-  // What's one problem is listed as one: several of one check or date at one record's relations (four failures of Capacity
-  // Held by one person) under a head naming the check and the record, each by where it is. Found as they're typed, every
-  // one in its words. Due soon says how soon, its list a click from the next 90 days'.
-  function listOf(kind, anchor) {
-    if (!anchor) return;
-    const say = part('needs'), within = signal(30);
-    const dated = it => App.state.peek()[it.id]?.value ?? '';
-    const of = () => (kind === 'soon' && within.value !== 30 ? many('attention').flatMap(a => a.within?.(within.value) ?? []) : needs().filter(it => it.kind === kind)).sort((a, b) => kind === 'soon' || kind === 'overdue' ? String(dated(a)).localeCompare(String(dated(b))) : 0).map(it => {
+  // ---- What's open (dendra.md, Moving): one list, under the view, of everything the status bar counts, each kind a tab of it, which
+  // stays open as its rows are clicked, so five errors are five clicks; and that can be copied or exported as a sheet, with who's
+  // responsible and why. What's one problem lists as one, under a head. Dates can be kept with what's overdue, how soon being its
+  // own choice. What nothing requires stands apart, under Blank; and what's been said isn't ours. ----
+  const opened = signal(null);
+  let closeOpen = null;
+  const shutList = () => { closeOpen?.(); closeOpen = null; opened.value = null; };
+  function listOf(kind) {
+    const o = opened.peek();
+    if (o?.tab === kind) return shutList();
+    if (!o) closeOpen = layer(shutList);
+    opened.value = { tab: kind, within: o?.within ?? 30, q: '', apart: kind === 'blank' };
+  }
+  const SAY = { broken: 'Rule broken', overdue: 'Overdue', error: 'Error', soon: 'Due soon', blank: 'Blank', overrides: 'Typed over' };
+  function openRows({ tab, within, q }) {
+    const say = part('needs'), st = App.state.peek(), dated = it => st[it.id]?.value ?? '', atts = many('attention');
+    const rowOf = it => {
       const w = say?.(it) ?? { what: '', where: '', figure: '' };
-      // A date says who's on the hook for it, where someone is.
-      const on = it.kind === 'overdue' || it.kind === 'soon' ? App.responsible?.(it.id)?.name : null;
-      return { it, w, on, label: [w.what, w.where, on].filter(Boolean).join(' · '), detail: w.figure || null, names: w.figure ? [w.figure] : [], run: it.go };
-    });
-    const grouped = xs => {
-      const heads = new Map();
-      for (const x of xs) { const k = x.w.who ? `${x.w.what}|${x.w.who}` : x.label; if (!heads.has(k)) heads.set(k, []); heads.get(k).push(x); }
-      return [...heads.values()].flatMap(g => g.length < 2 ? g : [{ head: `${g[0].w.what} · ${g[0].w.who} (${g.length})` }, ...g.map(x => ({ ...x, label: [x.w.where, x.on].filter(Boolean).join(' · ') }))]);
+      let why = '';
+      if (it.kind === 'overrides') why = App.overOf?.(it.id)?.why ?? ''; else if (it.error?.rule) why = it.error.error.msg ?? ''; else if (it.kind !== 'blank' && !it.error) { try { why = FormulaBar.because(it.id) || App.enteredBy?.(it.id)?.note || ''; } catch {} } else if (it.error) why = it.error.error.msg ?? '';
+      return { it, w, kind: it.kind, on: it.kind === 'blank' ? App.responsible?.(it.id)?.name ?? '' : App.responsible?.(it.id)?.name ?? '', why };
     };
-    const days = () => kind === 'soon' ? [{ seg: [30, 90].map(n => ({ label: `Next ${n} days`, pressed: within.value === n, run: () => { within.value = n; } })) }] : [];
-    // As of another day than today, what's new against today's lists comes first and says so: the question a plan asks.
-    const isNew = part('time')?.newSinceToday?.();
-    const told = xs => {
-      if (!isNew) return grouped(xs);
-      const fresh = xs.filter(x => isNew(x.it)), old = xs.filter(x => !isNew(x.it));
-      return [{ head: fresh.length ? `New since today (${fresh.length})` : 'Nothing new since today' }, ...grouped(fresh), ...(old.length ? [{ head: 'On today’s lists too' }, ...grouped(old)] : [])];
-    };
-    menu(anchor, q => q ? rank(of(), q) : [...days(), ...told(of())], { search: true, cls: 'needs', placement: 'top-end' });
+    const soon = within === 30 ? needs().filter(it => it.kind === 'soon') : atts.flatMap(a => a.within?.(within) ?? []);
+    const main = [...needs().filter(it => it.kind !== 'soon'), ...soon].filter(it => tab === 'all' || it.kind === tab).sort((a, b) => worst(a) - worst(b) || String(dated(a)).localeCompare(String(dated(b)))).map(rowOf);
+    const apart = tab === 'all' || tab === 'blank' ? atts.flatMap(a => a.apart?.() ?? []).map(rowOf) : [];
+    const has = r => { const t = q.trim().toLowerCase(); return !t || [r.w.what, r.w.where, r.w.figure, r.on, r.why].some(x => String(x ?? '').toLowerCase().includes(t)); };
+    return { main: main.filter(has), optional: apart.filter(r => r.it.apart === 'optional' && has(r)), ours: apart.filter(r => r.it.apart === 'ours' && has(r)) };
+  }
+  // A sheet of it, or the same as text: a kind, what, whose, its date or figure, who's on the hook and why.
+  const OPEN_HEAD = ['Kind', 'What', 'Whose', 'Date or figure', 'Responsible', 'Why'];
+  const openLines = o => { const { main, optional, ours } = openRows(o), iso = r => { const v = App.state.peek()[r.it.id]; return (r.kind === 'overdue' || r.kind === 'soon') && v?.value ? Tree.firstDay(v.value) : r.w.figure ?? ''; };
+    return [...main.map(r => [SAY[r.kind], r.w.what, r.w.where, iso(r), r.on, r.why]), ...optional.map(r => ['Blank, not required', r.w.what, r.w.where, '', r.on, r.it.list ? 'No one says who' : '']), ...ours.map(r => ['Not ours', r.w.what, r.w.where, '', r.on, ''])]; };
+  async function copyOpen(o) {
+    const lines = openLines(o), text = [OPEN_HEAD, ...lines].map(l => l.map(x => String(x ?? '').replace(/\s+/g, ' ')).join('\t')).join('\n');
+    try { await navigator.clipboard.writeText(text); toast(`Copied ${lines.length} ${lines.length === 1 ? 'row' : 'rows'}`); } catch { toast('This browser didn’t allow the copy'); }
+  }
+  const OPEN_MARK = { 'Rule broken': 'fail', Overdue: 'overdue', Error: 'fail', 'Due soon': 'soon', Blank: 'soon', 'Typed over': 'over' };
+  async function sheetOpen(o) {
+    const lines = openLines(o), name = chartName.peek() ?? 'Chart', asOf = App.asOfWords().line;
+    await Table.plainFile({ name: `${name} - What's open`, sheet: 'What’s open', title: `${asOf} · ${name}: what’s open: ${tally.peek().map(c => c.say(c.n)).join(', ') || 'nothing'}`, head: OPEN_HEAD, rows: lines, widths: [16, 34, 34, 16, 22, 70], wrap: [1, 2, 5], marks: lines.map(l => ({ 0: OPEN_MARK[l[0]] ?? 'wrap' })) });
+  }
+  // Going to one, what's selected on the chart comes out from under the list, as a wheel scrolls the chart, by as little as will do.
+  function goFromList(it) {
+    it.go();
+    setTimeout(() => {
+      const chart = document.querySelector('.dc-graph'), list = document.querySelector('.openlist'), id = selection.peek()[0];
+      const box = chart && list && id && chart.querySelector(`[data-cell-id="${CSS.escape(String(id))}"]`)?.getBoundingClientRect();
+      const top = list?.getBoundingClientRect().top;
+      if (box && box.bottom > top - 8) chart.dispatchEvent(new WheelEvent('wheel', { deltaY: box.bottom - top + 24, bubbles: true, cancelable: true }));
+    }, 60);
+  }
+  function OpenList() {
+    const o = opened.value;
+    if (!o) return null;
+    App.version.value; App.chart.value; time.value;
+    const set = x => { opened.value = { ...opened.peek(), ...x }; }, sel = selection.value, { main, optional, ours } = openRows(o), isNew = part('time')?.newSinceToday?.();
+    const counts_ = tally.value, row = (r, label) => html`<div class=${'ol-row k-' + r.kind} role="button" tabindex="0" aria-current=${sel.some(k => k === r.it.id || App.state.peek()[r.it.id]?.at === k) ? 'true' : null}
+        onClick=${() => goFromList(r.it)} onKeyDown=${e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goFromList(r.it); }
+          else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); (e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling)?.focus?.(); } }}>
+        <span class="c what">${label ?? r.w.what}</span><span class="c where">${r.w.where}</span><span class="c fig">${r.w.figure}</span><span class="c who">${r.on}</span><span class="c why" data-tip=${r.why || null}>${r.why}</span>
+        ${r.it.say && !App.readOnly.value ? html`<button type="button" class="lk ours" onClick=${e => { e.stopPropagation(); r.it.say(); }}>${r.it.apart === 'ours' ? 'Ours after all…' : 'Not ours…'}</button>` : null}</div>`;
+    // What's one problem lists as one.
+    const grouped = xs => { const heads = new Map(); for (const x of xs) { const k = x.w.who ? `${x.w.what}|${x.w.who}` : `${x.w.what}|${x.w.where}|${x.it.id}`; if (!heads.has(k)) heads.set(k, []); heads.get(k).push(x); }
+      return [...heads.values()].flatMap(g => g.length < 2 ? g.map(x => row(x)) : [html`<div class="ol-head">${g[0].w.what} · ${g[0].w.who} (${g.length})</div>`, ...g.map(x => row(x, ''))]); };
+    const told = xs => { if (!isNew) return grouped(xs); const fresh = xs.filter(x => isNew(x.it)), old = xs.filter(x => !isNew(x.it));
+      return [html`<div class="ol-head">${fresh.length ? `New since today (${fresh.length})` : 'Nothing new since today'}</div>`, ...grouped(fresh), ...(old.length ? [html`<div class="ol-head">On today’s lists too</div>`, ...grouped(old)] : [])]; };
+    // What nothing requires, by what's blank: EIN (7), each by whose.
+    const byWhat = xs => { const m = new Map(); for (const x of xs) { if (!m.has(x.w.what)) m.set(x.w.what, []); m.get(x.w.what).push(x); } return [...m].flatMap(([what, g]) => [html`<div class="ol-head sub">${what} (${g.length})</div>`, ...g.map(x => row(x, ''))]); };
+    const sections = o.tab === 'all' ? KINDS.flatMap(([k, s]) => { const xs = main.filter(r => r.kind === k); return xs.length ? [html`<div class=${'ol-head ' + k}>${s(xs.length)}</div>`, ...told(xs)] : []; }) : told(main);
+    return html`<section class="openlist" aria-label="What’s open" data-region="bar">
+      <div class="ol-bar">
+        <div class="menu-seg ol-tabs" role="tablist">${[['all', 'All'], ...counts_.map(c => [c.k, c.say(c.n)])].map(([k, label]) => html`<button role="tab" aria-pressed=${o.tab === k} aria-selected=${o.tab === k} class=${k} onClick=${() => set({ tab: k, apart: k === 'blank' || o.apart })}>${label}</button>`)}</div>
+        ${o.tab === 'all' || o.tab === 'soon' ? html`<div class="menu-seg ol-days">${[30, 60, 90].map(n => html`<button aria-pressed=${o.within === n} onClick=${() => set({ within: n })}>Next ${n} days</button>`)}</div>` : null}
+        <input type="search" class="cell ol-find" placeholder="Find" aria-label="Find in what’s open" spellcheck=${false} value=${o.q} onInput=${e => set({ q: e.target.value })} />
+        <span class="ol-acts"><button type="button" class="btn ghost" onClick=${() => copyOpen(o)}>Copy</button><button type="button" class="btn ghost" onClick=${() => sheetOpen(o)}>Excel</button>
+          <button type="button" class="btn icon" aria-label="Close" data-tip="Close" data-keys="Esc" onClick=${shutList}>${icon('x')}</button></span>
+      </div>
+      <div class="ol-cols" aria-hidden="true"><span>What</span><span>Whose</span><span>Date or figure</span><span>Responsible</span><span>Why</span></div>
+      <div class="ol-rows">
+        ${sections}
+        ${!main.length && !optional.length && !ours.length ? html`<div class="ol-none">Nothing</div>` : null}
+        ${optional.length ? html`<button type="button" class="ol-head apart" aria-expanded=${!!o.apart} onClick=${() => set({ apart: !o.apart })}>${icon(o.apart ? 'chevron-up' : 'chevron')}Blank, not required (${optional.length})</button>${o.apart ? byWhat(optional) : null}` : null}
+        ${ours.length ? html`<div class="ol-head apart">Not ours (${ours.length})</div>${ours.map(r => row(r))}` : null}
+      </div>
+    </section>`;
   }
   const countButton = kind => document.querySelector(`.status .counts > .${kind}`);
   const counts = () => { const items = needs(); return KINDS.map(([k, say, names, tip]) => ({ k, say, names, tip, n: counted_(k, items) })).filter(c => c.n); };
   // In Find, each count opens its list, as the bar's does.
-  const counted = () => counts().map(c => ({ label: c.say(c.n), names: c.names, detail: 'Problem', run: () => setTimeout(() => listOf(c.k, countButton(c.k))) }));
+  const counted = () => counts().map(c => ({ label: c.say(c.n), names: c.names, detail: 'Problem', run: () => setTimeout(() => listOf(c.k)) }));
   // The bar counts once the window has drawn what changed, as Excel's catches up, for on a big chart counting takes
   // a while; whatever it counts is of the workbook, the chart and the time shown.
   const tally = signal([]);
@@ -1059,9 +1133,10 @@ const Shell = (() => {
     useLayoutEffect(() => effect(() => { if (part('workbook')) { App.version.value; App.chart.value; } time.value; recount(); }), []);
     // The counts are announced as they change; how the workbook is kept, which ages by the minute, isn't.
     return html`<div class="status">
-      <span class="counts" role="status">${tally.value.map((c, i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + c.k} aria-haspopup="menu" data-tip=${c.tip ?? null}
-        onClick=${e => listOf(c.k, e.currentTarget)}>${c.say(c.n)}</button>`)}</span>
       ${many('status').map(s => s.render())}
+      <span class="counts" role="status">${tally.value.map((c, i) => html`${i ? html`<span class="muted">·</span>` : null}<button class=${'btn ghost ' + c.k} aria-expanded=${opened.value?.tab === c.k} data-tip=${c.tip ?? null}
+        onPointerEnter=${c.k === 'blank' ? e => { const apart = App.blanksApart.peek(), n = apart.filter(b => b.ours).length, o = apart.length - n; e.currentTarget.dataset.tip = `Blank where it’s required.${n ? ` ${n} more aren’t required, listed apart.` : ''}${o ? ` ${o} not ours.` : ''}`; } : null}
+        onClick=${() => listOf(c.k)}>${c.say(c.n)}</button>`)}</span>
     </div>`;
   }
 
@@ -1074,7 +1149,7 @@ const Shell = (() => {
       <footer class="foot" data-region="tabs"><${Sheets} /><${Status} /></footer>
     </div>
     ${floats.value.map(f => html`<${Float} key=${f.id} f=${f} />`)}
-    <${Toasts} /><${Tip} />`;
+    <${Toasts} /><${Tip} /><${Ringed} />`;
 
   // What's said in the list of keys of what's no action of the window's: a part says its own (register('keys', { head, rows: [[keys, words]] })).
   register('keys', { head: 'Anywhere', rows: [['$mod+Slash', 'Keyboard shortcuts'], ['Tab', 'Next control'], ['Shift+Tab', 'Control before'], ['Shift+F10', 'The menu of what has the keys'], ['ContextMenu', 'The menu of what has the keys'], ['Esc', 'Back out a step: closes what’s open, and the keys go back where they were']] });
@@ -1161,7 +1236,7 @@ const Shell = (() => {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
     register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart, roved, land, enter, keyed: () => keyed, usingKeys,
     widen, narrow, wide, gliding, showPanel, theme, setTheme, html, h, signal, computed, effect, parts: reg,
-    problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n) })), listProblems: kind => listOf(kind, countButton(kind)),
+    problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n) })), listProblems: kind => listOf(kind),
     aside: c => { aside.value = c; },
   };
 })();

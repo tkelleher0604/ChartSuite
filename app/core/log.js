@@ -87,7 +87,7 @@ function sameSchema(records, removed, adds) {
 
 function open(data) {
   if (typeof data === 'string') data = JSON.parse(data);
-  const changes = new Map(), added = new Map(), removedBy = new Map(), live = new Map(), chartOf = new Map(), subs = new Set();
+  const changes = new Map(), added = new Map(), removedBy = new Map(), live = new Map(), chartOf = new Map(), subs = new Set(), madeAt = new Map();
   // Live rows by content: a reverse brings rows back as fresh copies, which are still as a change left them.
   const twins = new Map(), twinKey = (c, r) => `${c}|${contentOf(r)}`;
   const twin = (c, r) => twins.get(twinKey(c, r))?.values().next().value;
@@ -100,8 +100,9 @@ function open(data) {
       removedBy.set(id, c.id);
       if (live.delete(id)) twins.get(twinKey(chartOf.get(id), added.get(id))).delete(id);
     }
-    for (const r of c.adds) {
+    for (const [i, r] of c.adds.entries()) {
       added.set(r.id, r); chartOf.set(r.id, c.chart);
+      if ('shape' in r) { const at = `${c.when}|${String(i).padStart(5, '0')}`; if (!(madeAt.get(r.shape) <= at)) madeAt.set(r.shape, at); }
       if (removedBy.has(r.id)) continue;
       live.set(r.id, r);
       const k = twinKey(c.chart, r);
@@ -456,6 +457,8 @@ function open(data) {
     charts: () => [...live.values()].filter(r => typeOf(r) === 'chart'),
     rows: c => chart(c).rows,
     item: (c, id) => [...chart(c).items.get(id) ?? []].sort((a, b) => (a.since ?? '').localeCompare(b.since ?? '')),
+    // When a free shape was first made, as a text that sorts, however often it's changed since, or taken away and brought back, in whatever order the log came.
+    made: id => madeAt.get(id) ?? '',
     notes: c => chart(c).notes,
     // Their changes and these, together; for a file or SharePoint, read theirs, merge, write back.
     merge(other) { const fresh = changesOf(other).filter(take); if (fresh.length) changed(fresh); return wb; },

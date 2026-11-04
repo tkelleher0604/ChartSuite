@@ -60,7 +60,9 @@ const Store = { open: async ({ sample }) => Log.open(sample), who: () => 'Dana J
 <script src="../ui/shell.js"></script>
 <script src="../ui/app.js"></script>
 <script src="../core/layout.js"></script>
+<script src="../core/shapes.js"></script>
 <script src="../core/scene.js"></script>
+<script src="../ui/drawing.js"></script>
 <script src="../ui/canvas.js"></script>
 <script src="../ui/formatbar.js"></script>
 <script src="../ui/inspector.js"></script>
@@ -76,7 +78,8 @@ window.EyeDropper = undefined;  // (the way a browser without its own goes, whic
 // window is set to each size it's checked at.
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
-const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
+// (A little under what's asked: the page is near what a run of the suite gives it.)
+const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.9));
 const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const txt = el => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -409,7 +412,7 @@ async function run() {
   check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, the chart’s own, then More colors, the Eyedropper, Transparency and No fill', swatches.length >= 70 && swatches.length <= 80 && swatches.slice(70).every(b => /^#[0-9A-F]{6}$/.test(b.dataset.tip))
     && getComputedStyle($('.float .palette')).gridTemplateColumns.split(' ').length === 10
     && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple'
-    && fillRows.length === 4 && fillRows[0] === 'More colors#' && fillRows[1] === 'Eyedropper' && /^Transparency ?\d*%$/.test(fillRows[2]) && fillRows[3] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
+    && fillRows.length === 7 && fillRows[0] === 'More colors#' && fillRows[1] === 'Eyedropper' && /^Set this chart.s colors/.test(fillRows[2]) && fillRows[3] === 'Gradient' && fillRows[4] === 'Pattern' && /^Transparency ?\d*%$/.test(fillRows[5]) && fillRows[6] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
   // Every swatch has one hairline, drawn on the menu, not on its own colour, so in either theme the swatches
   // nearest the menu's colour keep their edges: White on the light menu, the near-blacks on the dark.
   const rgb = s => s.match(/[\d.]+/g).slice(0, 3).map(Number), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
@@ -461,9 +464,10 @@ async function run() {
   check('Tab selects the first box in reading order, then the next; Shift+Tab goes back', first === reading[0] && second === reading[1] && Shell.selection.peek()[0] === reading[0], `${first} ${second} ${Shell.selection.peek()[0]}`);
   const x0 = sc().byId.get(first).x, nx = App.wb.changes().length, cellX = () => cv().graph.getCellById(first)?.getPosition().x;
   key('ArrowRight'); await tick(60);
-  const movedAtOnce = cellX() - x0;
-  key('ArrowRight'); await tick(60); key('ArrowRight', { shiftKey: true }); await tick(700);
-  check('an arrow key nudges the box selected at once, and nudges one after another are one change, as History lists it', Math.abs(movedAtOnce - 1) <= 0.5 && Math.abs(sc().byId.get(first).x - x0 - 12) <= 0.5
+  // (PowerPoint's: an arrow a step of 6 pt on the sheet, Ctrl+arrow 1.25 pt.)
+  const movedAtOnce = cellX() - x0, arrowStep = 8 / sc().page.scale, arrowFine = 5 / 3 / sc().page.scale;
+  key('ArrowRight'); await tick(60); key('ArrowRight', { ctrlKey: true }); await tick(700);
+  check('an arrow key nudges the box selected at once, and nudges one after another are one change, as History lists it', Math.abs(movedAtOnce - arrowStep) <= 0.5 && Math.abs(sc().byId.get(first).x - x0 - 2 * arrowStep - arrowFine) <= 0.5
     && App.wb.changes().length === nx + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), `${movedAtOnce} ${x0} → ${sc().byId.get(first).x}, ${App.wb.changes().length - nx} changes`);
   Shell.parts.peek().undo.undo(); await tick(150);
   check('… which one Undo takes back', Math.abs(sc().byId.get(first).x - x0) <= 0.5 && App.wb.changes().length === nx + 2, `${sc().byId.get(first).x}`);
@@ -844,7 +848,7 @@ async function run() {
   check('Insert › Text box opens it for typing, and left empty, by Esc, Enter or a click away, it makes nothing', App.wb.changes().length === before && textBoxes() === boxes0 && !$('.dc-edit')
     && leftBy.every(s => s.endsWith('true')), `${leftBy.join(', ')}; ${App.wb.changes().length - before} changes, ${textBoxes() - boxes0} text boxes`);
   cv().insert('text'); await tick(60);
-  { const ed = $('.dc-edit'); if (ed) { ed.textContent = 'Draft for discussion'; ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); } }
+  { const ed = $('.dc-edit'); if (ed) { ed.textContent = 'Draft for discussion'; ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true })); } }
   await tick(120);
   const typedIn = App.shown.peek().item(App.chart.peek(), Shell.selection.peek()[0] ?? '')[0];
   check('… and one typed in is made, with its text, and selected', App.wb.changes().length === before + 1 && typedIn?.geometry === 'text' && typedIn.text === 'Draft for discussion' && textBoxes() === boxes0 + 1,
@@ -1116,8 +1120,8 @@ async function run() {
     await pending('a ruling pointed at and clicked', async () => { cv().root.focus(); Shell.select([]); await tick(60); Shell.select(['own_us_fund']); await tick(120); $('.fx-out button.tag')?.dispatchEvent(new PointerEvent('pointerenter')); },
       async () => { $('.fx-out button.tag')?.click(); await asked(); });
     check('every kind of pending change is drawn as the scene Enter makes, less its ink, no line through the Key, and Enter draws that scene', !off.length, off.join('; '));
-    // A relation of a new name, named in the two-box panel, is pending till Enter as one ticked is; no style of the view
-    // draws it, so its redline is the chart as it is, and Enter draws that
+    // A relation of a new name, named in the two-box panel, is pending till Enter as one ticked is; the page it's made on
+    // shows it, so its redline has its line, and Enter draws that
     {
       Shell.emit('relate-open', ['pension', 'bdc']); await tick(120);
       $$('.rr .add-entry').find(x => txt(x) === 'Add a relation')?.click(); await tick(60); $$('.rr .add-entry').find(x => txt(x) === 'New relation')?.click(); await tick(60);
@@ -1171,7 +1175,7 @@ async function run() {
   {
     const named = name => Object.keys(App.state.peek()).find(id => App.state.peek()[id].kind && App.notes.peek().nameOf(App.state.peek(), id) === name);
     const editor = () => $('.dc-edit'), chip = () => $('.dc-kind');
-    const typeIn = async (text, k = 'Enter') => { editor().textContent = text; editor().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); await tick(300); };
+    const typeIn = async (text, k = 'Enter') => { editor().textContent = text; editor().dispatchEvent(new KeyboardEvent('keydown', { key: k, ctrlKey: k === 'Enter', bubbles: true, cancelable: true })); await tick(300); };
     const ownShown = (id, view) => App.notes.peek().notes('Shown').find(n => n.view === view && n.pattern.id === id);
     const act = charts().find(v => v.name === '40 Act');
     await show(act);
@@ -1305,8 +1309,138 @@ async function run() {
   await inViewing();
   await readingOnly();
   await insertHolds();
+  // ---- Drawing, as PowerPoint's hand expects: a line aimed and glued, Insert by dragging, copies, flip and turn, keys, runs (gui5 Gus) ----
+  await drawnByHand();
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
+}
+
+async function drawnByHand() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(60);
+  const shapeRows = () => App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r && r.view === App.scene.peek().view), known = new Set(shapeRows().map(r => r.shape));
+  const n0 = App.wb.changes().length, rowOf = id => App.shown.peek().item(App.chart.peek(), id).at(-1), mk = id => App.scene.peek().byId.get(id), newest = () => { const r = shapeRows().filter(r => !known.has(r.shape)).at(-1); if (r) known.add(r.shape); return r; };
+  const undoAll = async () => { for (let i = App.wb.changes().length; i > n0; i--) { Shell.parts.peek().undo.undo(); await tick(40); } Shell.select([]); await tick(50); };
+  const at = (x, y) => { const p = cv().graph.localToGraph(x, y), r = cv().root.getBoundingClientRect(); return [r.left + p.x, r.top + p.y]; };
+  const ptr = (t, [x, y], on, o = {}) => on.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'pointerup' ? 0 : 1, pointerId: 1, view: window, ...o }));
+  const gesture = async (from, to, on, o = {}) => { ptr('pointerdown', from, on, o); for (let i = 1; i <= 6; i++) { ptr('pointermove', [from[0] + (to[0] - from[0]) * i / 6, from[1] + (to[1] - from[1]) * i / 6], document.body, o); await tick(8); } ptr('pointerup', to, document.body, o); await tick(90); };
+  const p = sc().page, box = mk('northpine'), mid = m => [m.x + m.w / 2, m.y + m.h / 2];
+  // An arrow drawn from open room onto a box: glued, the free end where it was let go.
+  cv().draw('arrow-line'); await tick(60);
+  check('Insert’s arrow waits for a drag, the pointer a crosshair', cv().root.classList.contains('drawing'));
+  const open = [p.w - 30, p.h - 20];
+  await gesture(at(...open), at(...mid(box)), cv().root);
+  const line = newest();
+  check('… a drag draws it, any angle, its far end glued to the box it’s let go on, no record made', line.geometry === 'line' && line.ends?.[1] === 'northpine' && !line.ends?.[0] && line.format?.Arrow === 'end' && !cv().root.classList.contains('drawing'), JSON.stringify(line));
+  check('… and its panel calls it a connector because it’s glued, with where to', /Connector/.test(txt($('.insp .ih'))) && /Northpine/.test(txt($('.insp'))), txt($('.insp .ih')));
+  // Moved, the box takes it along.
+  const end0 = mk(line.shape).points.at(-1);
+  Shell.select([]); await tick(60);
+  await drag(box, 30, -8);
+  const end1 = mk(line.shape).points.at(-1);
+  check('… and it follows the box as that moves', Math.hypot(end1[0] - end0[0], end1[1] - end0[1]) > 5, JSON.stringify([end0, end1]));
+  // Its handle dragged off: it lets go.
+  Shell.select([line.shape]); await tick(60);
+  const grips = $$('.dc-end');
+  check('a line selected has a handle at each end', grips.length === 2, grips.length);
+  await gesture(at(...mk(line.shape).points.at(-1)), at(p.w - 200, p.h - 60), grips[1]);
+  check('… dragged into the open, that end lets go and goes there, and it’s a line again', !rowOf(line.shape).ends && Math.abs(mk(line.shape).points.at(-1)[0] - (p.w - 200)) < 2 && !/Connector/.test(txt($('.insp .ih'))), JSON.stringify(rowOf(line.shape)));
+  // A head and a style are one change, and neither undoes the other.
+  App.change(tx => { FormatBar.write(tx, 'Arrowhead', { end: { type: 'oval', size: 'large' } }); FormatBar.write(tx, 'Arrow', 'both'); }); await tick(60);
+  check('an arrowhead’s style and size stay on a free line, with its arrow, one change', rowOf(line.shape).format.Arrowhead?.end?.type === 'oval' && rowOf(line.shape).format.Arrow === 'both', JSON.stringify(rowOf(line.shape).format));
+  // A click places one where it's clicked; Shift keeps proportions; Ctrl from the middle.
+  cv().draw('rect'); await tick(60);
+  await gesture(at(200, 60), at(200, 60), cv().root);
+  const placed = newest();
+  check('a shape clicked is placed there, as large as it comes', placed.geometry === 'rect' && Math.abs(placed.x + placed.w / 2 - 200) < 2 && placed.w === 140, JSON.stringify(placed));
+  cv().draw('oval'); await tick(60);
+  await gesture(at(300, 60), at(380, 90), cv().root, { shiftKey: true });
+  const square = newest();
+  check('… dragged with Shift, its proportions kept', Math.abs(square.w - square.h) < 1 && square.w > 50, JSON.stringify(square));
+  cv().draw('diamond'); await tick(60);
+  await gesture(at(500, 90), at(560, 120), cv().root, { ctrlKey: true });
+  const centred = newest();
+  check('… with Ctrl, from its middle', Math.abs(centred.x + centred.w / 2 - 500) < 1.5 && Math.abs(centred.y + centred.h / 2 - 90) < 1.5, JSON.stringify(centred));
+  // Copies.
+  Shell.select([placed.shape]); await tick(50);
+  const before = App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r).length;
+  key('d', { code: 'KeyD', ctrlKey: true }); await tick(90);
+  const dup = newest();
+  check('Ctrl+D copies a shape a step down and right', App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r).length === before + 1 && dup.x > placed.x && dup.geometry === 'rect', JSON.stringify(dup));
+  const shapeEl = $(`.dc [data-cell-id="${placed.shape}"]`).querySelector('path'), [sx, sy] = at(placed.x + 20, placed.y + 20), mouse = (t, x, y, on = document, o = {}) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'mouseup' ? 0 : 1, ctrlKey: true, view: window, ...o }));
+  mouse('mousedown', sx, sy, shapeEl);
+  for (let i = 1; i <= 6; i++) { mouse('mousemove', sx + i * 8, sy + i * 6); await tick(8); }
+  check('… Ctrl+drag shows what it’s copying where it would land', !!$('.dc-ghost'));
+  mouse('mouseup', sx + 48, sy + 36); await tick(90);
+  const dragged = newest();
+  check('… and let go, it copies: the first stays where it was', dragged.shape !== placed.shape && rowOf(placed.shape).x === placed.x && Math.abs(dragged.x - placed.x - 48 / cv().graph.zoom()) < 3, JSON.stringify([dragged.x, placed.x]));
+  Shell.select(['northpine']); await tick(50);
+  key('d', { code: 'KeyD', ctrlKey: true }); await tick(60);
+  const ed = $('.dc-edit');
+  check('Ctrl+D on a box asks the new record’s name, saying what it’s like', !!ed && /like/.test(ed.dataset.ph ?? '') && /Northpine/.test(ed.dataset.ph ?? ''), ed?.dataset.ph);
+  ed.textContent = 'Second Logistics, Inc.'; ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(90);
+  const twin = Shell.selection.peek()[0], st = App.state.peek();
+  check('… a new record of its kind, with what’s chosen at it, said so', st[twin]?.kind === st.northpine.kind && App.notes.peek().nameOf(st, twin) === 'Second Logistics, Inc.' && mk(twin)?.settings.Shape.value === mk('northpine').settings.Shape.value && /like/.test(txt($$('.toast').at(-1))), `${twin} ${txt($$('.toast').at(-1))}`);
+  // Flip and turn.
+  Shell.select([placed.shape]); await tick(50);
+  cv().flip('h'); await tick(60);
+  check('a shape flips, mirrored in its frame', rowOf(placed.shape).flip?.h === true && /scale\(-1/.test(cv().graph.getCellById(placed.shape).getMarkup()[0].attrs.transform ?? ''), JSON.stringify(rowOf(placed.shape).flip));
+  check('… and the PDF mirrors it', /scale\(-1 1\)/.test(Export.svg(App.scene.peek(), {})));
+  Shell.select(['northpine']); await tick(40);
+  cv().flip('h'); await tick(40);
+  check('a box doesn’t flip, and says why', /box doesn.t flip/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  Shell.select([placed.shape]); await tick(40);
+  key('ArrowRight', { altKey: true }); await tick(60);
+  check('Alt+arrow turns it by 15 degrees, and the selection stays', rowOf(placed.shape).rotate === 15 && Shell.selection.peek()[0] === placed.shape, rowOf(placed.shape).rotate);
+  const w0 = rowOf(placed.shape).w;
+  key('ArrowRight', { shiftKey: true }); await tick(800);
+  check('Shift+arrow sizes it about its middle', Math.abs(rowOf(placed.shape).w - w0 - 8 / sc().page.scale) < 1, `${rowOf(placed.shape).w} ${w0}`);
+  key('F4', { code: 'F4' }); await tick(60);
+  check('F4 does the last act again', rowOf(placed.shape).rotate === 30, rowOf(placed.shape).rotate);
+  // A group turns about its middle.
+  Shell.select([placed.shape, square.shape]); await tick(50);
+  cv().group(); await tick(60);
+  const g = Shell.selection.peek()[0], was = { ...rowOf(square.shape) };
+  cv().turn(g, 90); await tick(50);
+  check('a group turns, its shapes round its middle', Math.abs(rowOf(square.shape).x - was.x) > 5 && rowOf(square.shape).rotate === 90, JSON.stringify([rowOf(square.shape).x, was.x, rowOf(square.shape).rotate]));
+  // Words, part by part.
+  const tb = cv().insert('text', { x: 40, y: 40, text: 'Hello world' }); await tick(60);
+  Shell.select([tb]); await tick(40);
+  cv().edit(tb); await tick(40);
+  const typing = $('.dc-edit'), word = typing.firstChild, sel = getSelection(), rng = document.createRange();
+  rng.setStart(word, 6); rng.setEnd(word, 11); sel.removeAllRanges(); sel.addRange(rng); await tick(60);
+  typing.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', ctrlKey: true, bubbles: true, cancelable: true })); await tick(60);
+  check('as it’s typed, a word selected takes Bold, and the bar says so', Canvas.rich.peek()?.Bold === true && /data-run/.test(typing.innerHTML), typing.innerHTML);
+  typing.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true })); await tick(90);
+  const spans = mk(tb).texts[0].lines[0].spans;
+  check('… kept as a run: the scene’s line has a span of it, bold, and its width', rowOf(tb).runs?.[0]?.from === 6 && rowOf(tb).runs[0].Bold === true && spans?.length === 2 && spans[1].text === 'world' && spans[1].look.Bold === true, JSON.stringify(rowOf(tb).runs));
+  check('… drawn so on the chart and in the PDF', /font-weight[^<]*700/.test(JSON.stringify(cv().graph.getCellById(tb).getMarkup())) && /font-weight="bold"[^>]*>world/.test(Export.svg(App.scene.peek(), {})));
+  // Enter, as PowerPoint's: a paragraph; Ctrl+Enter ends the typing.
+  Shell.select([tb]); await tick(50); cv().edit(tb); await tick(50);
+  { const ed2 = $('.dc-edit'); getSelection().selectAllChildren(ed2); getSelection().collapseToEnd();
+    ed2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(50);
+    const stays = $('.dc-edit') === ed2;
+    document.execCommand('insertText', false, 'More');
+    ed2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true })); await tick(90);
+    check('in a shape’s words, Enter begins a paragraph and Ctrl+Enter ends the typing, its runs kept', stays && !$('.dc-edit') && rowOf(tb).text === 'Hello world\nMore' && rowOf(tb).runs?.[0]?.from === 6 && rowOf(tb).runs[0].to === 11, JSON.stringify([stays, rowOf(tb).text, rowOf(tb).runs])); }
+  // Same height: what's selected, and only that.
+  await undoAll();
+  const tops = sc().byId.get('inv_aiv').y, inRow = sc().marks.filter(m => m.type === 'box' && Math.abs(m.y - tops) < 1 && !['inv_us', 'inv_aiv'].includes(m.id)), others = inRow.map(m => m.h);
+  Shell.select(['inv_aiv', 'inv_us']); await tick(50);
+  App.change(tx => tx.note('Position', Tree.treeOf(App.state.peek(), 'inv_aiv'), { x: mk('inv_aiv').x - sc().page.offset.x, y: mk('inv_aiv').y - sc().page.offset.y, w: mk('inv_aiv').w, h: mk('inv_aiv').h * 0.6, hand: true }, { view: sc().view }), { dated: false }); await tick(50);
+  cv().match('height'); await tick(90);
+  check('Same height changes only what’s selected, and says what it matched', inRow.length > 2 && inRow.every((m, i) => Math.abs(mk(m.id).h - others[i]) < 0.5) && /as tall as/.test(txt($$('.toast').at(-1))), JSON.stringify([inRow.map((m, i) => [mk(m.id).h, others[i]]), txt($$('.toast').at(-1))]));
+  await undoAll();
+  // The Selection Pane.
+  const pic = cv().insert('rect', { x: 60, y: 60, w: 60, h: 40 }); await tick(60);
+  cv().pane(true); await tick(50);
+  const rows = () => $$('.dc-pane .row:not(.off)'), off0 = $$('.dc-pane .row.off').length, rowFor = id => rows().find(r => r.dataset.row === id), inOrder = sc().marks.filter(m => m.geometry !== 'group' && m.type !== 'frame').map(m => m.id).reverse();
+  check('the Selection Pane lists all that’s drawn, what’s in front first', JSON.stringify(rows().map(r => r.dataset.row)) === JSON.stringify(inOrder) && !!rowFor(pic), JSON.stringify([rows().length, inOrder.length]));
+  rowFor(pic).querySelector('[aria-label="Lock"]').click(); await tick(60);
+  check('… a shape locked there no hand moves', rowOf(pic).locked === true && mk(pic).locked === true && !!rowFor(pic).querySelector('[aria-label="Unlock"]'));
+  rowFor(pic).querySelector('[aria-label="Hide"]').click(); await tick(60);
+  check('… hidden there it’s drawn nowhere, and stays listed, with Show', !mk(pic) && $$('.dc-pane .row.off [aria-label="Show"]').length === off0 + 1 && !Export.svg(App.scene.peek(), {}).includes(pic));
+  cv().pane(false);
+  await undoAll();
 }
 
 // ---- Boxes go where they're put (gui3 P-21 to P-24): dragged or typed, a box stands exactly there, over another if that's
@@ -1405,7 +1539,7 @@ async function reloaded() {
   // Every mark, as it's drawn: where, how large, its route, its label, its words; `chartOnly`, its boxes and lines.
   const drawn = (s, chartOnly = false) => JSON.stringify([...s.marks.filter(m => !chartOnly || m.type === 'box' || m.type === 'line').map(m => [m.id, ...xs(m.x, m.y, m.w, m.h), m.points?.flat().map(round2), m.labelAt && xs(m.labelAt.x, m.labelAt.y), (m.texts ?? []).map(it => (it.lines ?? []).map(l => l.text))]), chartOnly ? 0 : s.page.scale]);
   const frame = document.body.appendChild(Object.assign(document.createElement('iframe'), { style: 'position:fixed;left:-2000px;width:800px;height:600px' }));
-  frame.srcdoc = `<!doctype html><script src="../../vendor/elkjs/elk.bundled.js"><\/script>${['tree', 'notes', 'log', 'formulas', 'layout', 'scene'].map(f => `<script src="../core/${f}.js"><\/script>`).join('')}<script>
+  frame.srcdoc = `<!doctype html><script src="../../vendor/elkjs/elk.bundled.js"><\/script>${['tree', 'notes', 'log', 'formulas', 'layout', 'shapes', 'scene'].map(f => `<script src="../core/${f}.js"><\/script>`).join('')}<script>
     window.fresh = (json, c, view, day) => { const wb = Log.open(json), N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, day), N.definitions(S), { relations: N.relations(S), schema: S }); return Scene.of(wb, c, view, day, { state: R.records, computed: R }); };<\/script>`;
   await until(() => frame.contentWindow?.fresh, 8000);
   const fresh = d => frame.contentWindow.fresh(JSON.stringify(App.wb.toJSON()), App.chart.peek(), App.scene.peek().view, d);
@@ -2480,7 +2614,7 @@ async function format() {
   await closeMenus();
   $('[data-fb="arrange"]').click(); await tick(100);
   const arranged = $$('.float .menu-item'), arrangeSays = t => arranged.find(e => txt(e).startsWith(t));
-  check('Viewing, Arrange opens, its writes grey and the aids live', arrangeSays('Align')?.getAttribute('aria-disabled') === 'true' && arrangeSays('Bring to front')?.getAttribute('aria-disabled') === 'true' && arrangeSays('Page setup')?.getAttribute('aria-disabled') === 'true' && !arrangeSays('Gridlines')?.getAttribute('aria-disabled'), arranged.map(txt).join());
+  check('Viewing, Arrange opens, its writes grey and the aids live', arrangeSays('Align')?.getAttribute('aria-disabled') === 'true' && arrangeSays('Order')?.getAttribute('aria-disabled') === 'true' && arrangeSays('Page setup')?.getAttribute('aria-disabled') === 'true' && !arrangeSays('Gridlines')?.getAttribute('aria-disabled'), arranged.map(txt).join());
   await closeMenus();
   const lookV = FormatBar.lookMenu(st.id), matchV = lookV.find(i => i.label === 'Match look'), houseV = lookV.find(i => i.label === 'House style').items;
   check('Viewing, Match look is grey, saying why; saving a look and loading one, which change no chart, go on', matchV.disabled && matchV.tip === whyV && houseV.find(i => /^Save this look/.test(i.label)) && !houseV.find(i => /^Save this look/.test(i.label)).disabled && !houseV.find(i => /^Load/.test(i.label)).disabled);

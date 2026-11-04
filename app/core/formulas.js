@@ -609,7 +609,8 @@ function output(S, id) {
   if (isTag(r)) return r.tag;
   if (isChoice(r)) return r.choice;
   // Values are canonical: numbers for numbers, percentages and money, ISO strings for dates and days of the year.
-  if (r.field === 'date' || r.field === 'yearly') return { t: 'date', iso: r.value };
+  // A date known to its month or year is worked out from its first day, and goes on reading as it's known.
+  if (r.field === 'date' || r.field === 'yearly') { const iso = Tree.firstDay(r.value); return iso === r.value ? { t: 'date', iso } : { t: 'date', iso, known: r.value }; }
   if (typeof r.value === 'string' && r.field !== 'text') return readNumber(r.value) ?? r.value;
   return r.value;
 }
@@ -656,7 +657,7 @@ function toText(S, v) {
   if (v === null) return '';
   if (typeof v === 'number') return String(tidyNumber(v));
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
-  if (isDate(v)) return Tree.formatDate(v.iso);
+  if (isDate(v)) return Tree.formatDate(v.known ?? v.iso);
   if (isRec(v)) return nameOf(S, v.id);
   return String(v);
 }
@@ -1110,6 +1111,8 @@ function monthsOn(a, c, name, toEnd) {
 // year has no year, nor a day of the week.
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 function dateText(v, f) {
+  // (Known to its month or year, it says no more than that, whatever the format asks of it: no day was told.)
+  if (v.known) f = (v.known.length === 4 ? f.replace(/[^y]*(?=y)|(?<=y)[^y]*$/gi, '') : f.replace(/\bd+(?:\s*,)?\s*/gi, '').replace(/,\s*$/, '')).trim();
   const [y, m, d] = partsOf(v), month = Tree.MONTHS[m - 1], wd = y === null ? '' : WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
   const part = { yyyy: String(y ?? ''), yy: String(y ?? '').slice(-2), mmmm: month, mmm: month.slice(0, 3), mm: String(m).padStart(2, '0'), m: String(m),
     dddd: wd, ddd: wd.slice(0, 3), dd: String(d).padStart(2, '0'), d: String(d) };
@@ -1530,7 +1533,7 @@ function makeRecord(d, cand, out) {
   const base = d.isRelation ? { args: cand.args } : { at: cand.at, edge: d.name };
   if (d.type === 'tag') return { ...base, tag: out, computed: d.id };
   if (d.type === 'choice') return { ...base, choice: out, computed: d.id };
-  return { ...base, field: d.datatype ?? 'number', value: isDate(out) ? out.iso : out, computed: d.id };
+  return { ...base, field: d.datatype ?? 'number', value: isDate(out) ? out.known ?? out.iso : out, computed: d.id };
 }
 
 // The texts a formula can give as its value: written in a place its value comes from, which is the formula
@@ -2479,7 +2482,7 @@ function settle(S, t, next, round) {
   if (next.out.error) fail(S, t, next.out.error);
   const id = t.cand.id, had = before.out !== undefined, has = next.out.out !== undefined;
   if (had && has && t.d.type === 'field') {
-    S.recs[id].value = isDate(next.out.out) ? next.out.out.iso : next.out.out;
+    S.recs[id].value = isDate(next.out.out) ? next.out.out.known ?? next.out.out.iso : next.out.out;
     return VALUE_KINDS;
   }
   if (had) removeComputed(S, id);

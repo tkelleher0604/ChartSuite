@@ -860,6 +860,8 @@ const FormulaBar = (() => {
   // A relation in words, for a pane that says its sides itself: [the side said first, the words, the other].
   // An option says the role: is a director of; a role still to choose is "…", as a side still to choose is.
   function phrase(t, a, b, { choice = 'choice' in (t.out ?? {}) ? '…' : null, not = false } = {}) {
+    // (A side named only by which end it is, From and To, says nothing a sentence can be made of: never "is a from of".)
+    if (!choice && /^(from|to|of|by|for|at|in|on|via|source|target|start|end|a|b|one|two|first|second)$/i.test(String(a))) return [a, not ? ' is not linked to ' : ' is linked to ', b];
     const q = predicateOf(t, a, b), w = choice ? { head: lower(choice), form: 'noun', prep: q.form === 'noun' && !q.flip ? q.prep : ' of ' } : q;
     return w.flip && !choice ? [b, verbal(w, not) + w.prep, a] : [a, verbal(w, not) + w.prep, b];
   }
@@ -1267,7 +1269,7 @@ const FormulaBar = (() => {
     if (v === null || v === undefined) return '—';
     if (Array.isArray(v)) return !v.length ? '—' : v.slice(0, 5).map(x => show(x, pct)).join(', ') + (v.length > 5 ? `, +${v.length - 5}` : '');
     if (v?.t === 'err') return v.code;
-    if (v?.t === 'date') return Tree.formatDate(v.iso);
+    if (v?.t === 'date') return Tree.formatDate(v.known ?? v.iso);
     if (v?.t === 'rec') { const r = v.id && Rv.records[v.id]; return !r ? '—' : isObj(r) ? nameOf(Rv, v.id) : Tree.outputText(r); }
     if (v === true || v === false) return v ? 'TRUE' : 'FALSE';
     if (typeof v === 'number') return Tree.format(pct ? 'percent' : 'number', v);
@@ -1473,7 +1475,7 @@ const FormulaBar = (() => {
     if (!p || p.unread || p.flaws?.some(f => !f.warn)) return canvas?.redline(null);
     const text = (X, id) => { const r = X.records[id]; return !r || isObj(r) ? '' : Tree.outputText(r); };
     const changed = Object.fromEntries(p.diff.change.map(id => [id, { before: text(R.peek(), id), after: text(p.R2, id) }]));
-    canvas?.redline({ appear: p.diff.appear, go: p.diff.go, changed, records: p.R2.records });
+    canvas?.redline({ appear: p.diff.appear, go: p.diff.go, changed, records: p.R2.records, shows: p.change?.shows });
   });
   // The subject as the pending change would leave it: undefined if unchanged, null if gone, or its record.
   function after(m) {
@@ -1805,7 +1807,7 @@ const FormulaBar = (() => {
     useLayoutEffect(() => {
       const cm = cmr.current, { row, m, colors, would, write } = props.current, hv = hover.value, still = App.readOnly.peek() || !write;
       if (cm.getOption('readOnly') !== still) cm.setOption('readOnly', still);
-      if (aim.value === row.key) { aim.value = null; requestAnimationFrame(() => { cm.focus(); cm.setCursor(cm.lineCount(), 0); if (!cm.getOption('readOnly')) startEditing(cm, row.key); }); }
+      if (aim.value === row.key) { aim.value = null; cm.focus(); cm.setCursor(cm.lineCount(), 0); if (!cm.getOption('readOnly')) startEditing(cm, row.key); }
       if (!cm.hasFocus() && cm.getValue() !== row.formula) cm.setValue(row.formula);
       cm.operation(() => {
         for (const mk of cm.getAllMarks()) if (mk.fx) mk.clear();
@@ -2193,7 +2195,7 @@ const FormulaBar = (() => {
     if (!r.cited || !m.covered || m.covered.agrees || v === null || v === undefined) return null;
     if (Formulas.isError(v)) return html`<span class="err">${v.code}</span>`;
     if ('tag' in m.rec) return html`<span class=${'tag fx ' + (v ? 'yes' : 'no')} />`;
-    return html`<span class="fx">${v?.t === 'date' ? Tree.formatDate(v.iso) : typeof v === 'number' ? Tree.format(m.rec.field, v) : String(v)}</span>`;
+    return html`<span class="fx">${v?.t === 'date' ? Tree.formatDate(v.known ?? v.iso) : typeof v === 'number' ? Tree.format(m.rec.field, v) : String(v)}</span>`;
   }
   // A new row, at the end, with the cursor in it.
   let fresh = null;
@@ -2323,11 +2325,11 @@ const FormulaBar = (() => {
     const st = App.state.peek(), n = N(), words = norm(q).split(' ').filter(Boolean);
     if (words.length < 2) return [];
     const related = Tree.index(st).relations;
-    const objects = Object.keys(st).filter(id => isObj(st[id]) && !Tree.isView(st[id])).map(id => ({ id, ties: related.get(id)?.length ?? 0, names: [n.shortOf(st, id), n.nameOf(st, id)].map(x => norm(x).replace(/^the /, '')) }));
+    const objects = Object.keys(st).filter(id => isObj(st[id]) && !Tree.isView(st[id])).map(id => ({ id, ties: related.get(id)?.length ?? 0, names: [n.shortOf(st, id), n.nameOf(st, id), ...App.formerNames(id, App.day.peek(), st).map(f => f.name)].map(x => norm(x).replace(/^the /, '').replace(/[,.]/g, '')) }));
     // Its name, what its name begins with, or words its name has; between equals, the one with the most relations.
     const best = part => { const t = part.join(' '), w = ` ${t} `, score = ({ names }) => names.includes(t) ? 0 : names.some(x => x.startsWith(`${t} `)) ? 1 : names.some(x => ` ${x} `.includes(w)) ? 2 : 3;
       return objects.map(o => [score(o), o.ties, o]).filter(x => x[0] < 3).sort((a, b) => a[0] - b[0] || b[1] - a[1])[0]; };
-    if ((best(words)?.[0] ?? 3) < 2) return [];   // one name, already
+    if ((best(words)?.[0] ?? 3) < 3) return [];   // one name, already
     let pair = null;
     for (let i = 1; i < words.length; i++) {
       const a = best(words.slice(0, i)), b = best(words.slice(i));

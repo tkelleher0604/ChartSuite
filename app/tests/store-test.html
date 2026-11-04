@@ -208,7 +208,8 @@ async function files() {
   check('a file without leave to save asks for it, keeping changes here', await until(() => Store.status().fix === 'allow') && Store.status().text === 'Needs access · kept here', Store.status().text);
   const d = add(Store.wb);
   h.grant = 'granted';
-  check('… and one click saves them', saved(await Store.fix()) && JSON.parse(disk.text).changes.some(x => x.id === d.id));
+  await Store.fix();
+  check('… and one click saves them', await until(() => saved(Store.status()) && JSON.parse(disk.text).changes.some(x => x.id === d.id)), Store.status().text);
 
   // A real file (in the browser's private file system), whose handle this browser keeps for the next launch.
   const real = await (await navigator.storage.getDirectory()).getFileHandle('Reopened.dendra.json', { create: true });

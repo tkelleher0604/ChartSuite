@@ -18,6 +18,7 @@
 <script src="../core/log.js"></script>
 <script src="../core/formulas.js"></script>
 <script src="../core/layout.js"></script>
+<script src="../core/shapes.js"></script>
 <script src="../core/scene.js"></script>
 <script src="../sample/calder-ridge.js"></script>
 <script src="../ui/export.js"></script>
@@ -50,7 +51,15 @@ const tags = (el, name) => [...el.getElementsByTagName(name)];
 const inflate = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
 const nameOf = el => el.getElementsByTagName('p:cNvPr')[0].getAttribute('name');
 // A shape's outline: one colour, `color`, along its whole length, as PowerPoint draws a line crossing another.
-const solid = (sp, color) => { const ln = tags(sp, 'a:ln')[0], fill = ln && tags(ln, 'a:solidFill')[0]; return !!fill && !tags(ln, 'a:gradFill').length && tags(fill, 'a:srgbClr')[0]?.getAttribute('val') === color; };
+const solid = (sp, color) => { const ln = tags(sp, 'a:ln')[0], fill = ln && tags(ln, 'a:solidFill')[0]; return !!fill && !tags(ln, 'a:gradFill').length && colorIn(fill) === color; };
+// A color as a deck holds it: its own, or its place in the theme, as PowerPoint works that out (the Office theme, unless the chart has colors of its own).
+const colorIn = (el, theme = null) => {
+  const own = tags(el, 'a:srgbClr')[0], t = tags(el, 'a:schemeClr')[0], at = (n, a) => +(tags(t, a)[0]?.getAttribute('val') ?? 0) / 1e5;
+  if (own && (!t || own.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING)) return own.getAttribute('val').toUpperCase();
+  if (!t) return undefined;
+  const where = Shapes.inTheme(theme);
+  return Shapes.swatches(theme).find(c => { const w = where(c); return w?.slot === t.getAttribute('val') && (w.mod ?? 0) === at(t, 'a:lumMod') && (w.off ?? 0) === at(t, 'a:lumOff'); })?.slice(1).toUpperCase();
+};
 
 async function run() {
   // ---- The sample, dressed ----
@@ -116,7 +125,7 @@ async function run() {
     check('every box is a shape of its preset geometry, holding its texts as paragraphs', !missing.length, missing.map(b => b.id).join(', '));
     const fund = shapeOf(main.byId.get('fund')), run = tags(fund, 'a:rPr')[0], latin = tags(fund, 'a:latin')[0];
     check('a text keeps its font, weight and color, at the size it has on the slide, 1 pt at least', latin.getAttribute('typeface') === 'Arial' && run.getAttribute('sz') === String(Math.max(100, Math.round(1000 * k))) && run.getAttribute('b') === '1'
-      && tags(run, 'a:srgbClr')[0].getAttribute('val') === 'FFFFFF', run.outerHTML.slice(0, 120));
+      && colorIn(run) === 'FFFFFF', run.outerHTML.slice(0, 120));
     const xf = tags(fund, 'a:xfrm')[0], off = tags(xf, 'a:off')[0], ext = tags(xf, 'a:ext')[0], f = main.byId.get('fund'), ox = (W - main.page.w * k) / 2, oy = (H - main.page.h * k) / 2;
     check('a box sits where the scene places it, its page on the middle of its slide', Math.abs(+off.getAttribute('x') - (ox + f.x * k) * EMU) < 2 && Math.abs(+off.getAttribute('y') - (oy + f.y * k) * EMU) < 2
       && Math.abs(+ext.getAttribute('cx') - f.w * k * EMU) < 2, `${off.getAttribute('x')}, ${off.getAttribute('y')}`);
@@ -408,7 +417,7 @@ async function run() {
     const d = xml(await (await JSZip.loadAsync(await Export.write('pptx', [s], 'S'))).file('ppt/slides/slide1.xml').async('string'));
     const all = [...d.getElementsByTagName('*')].filter(e => e.nodeName === 'p:cxnSp'), casing = all.filter(e => nameOf(e).startsWith('Gap: ')), glued = c => [tags(c, 'a:stCxn')[0]?.getAttribute('id'), tags(c, 'a:endCxn')[0]?.getAttribute('id')];
     const gaps = s.marks.filter(m => m.type === 'line' && m.runs).reduce((n, l) => n + l.runs.length - 1, 0);
-    check('a line that breaks another has a casing in the deck: a white connector, wider, glued to the same two boxes, and there’s no loose patch', gaps > 0 && casing.length > 0 && casing.every(c => tags(c, 'a:srgbClr')[0]?.getAttribute('val')?.toUpperCase() === 'FFFFFF' && glued(c).every(Boolean)) && !tags(d, 'p:sp').some(p => nameOf(p) === 'Crossing'), `${casing.length} for ${gaps} breaks`);
+    check('a line that breaks another has a casing in the deck: a white connector, wider, glued to the same two boxes, and there’s no loose patch', gaps > 0 && casing.length > 0 && casing.every(c => colorIn(c) === 'FFFFFF' && glued(c).every(Boolean)) && !tags(d, 'p:sp').some(p => nameOf(p) === 'Crossing'), `${casing.length} for ${gaps} breaks`);
     // (Over what it breaks where that order allows: lines that cross each other both ways round can't all be.)
     check('… written under its line and over what it breaks', casing.every(c => { const i = all.indexOf(c), line = all.findIndex(o => !nameOf(o).startsWith('Gap: ') && j(glued(o)) === j(glued(c))); return line > i; }) && casing.some(c => all.indexOf(c) > all.findIndex(o => !nameOf(o).startsWith('Gap: '))), casing.map(c => { const i = all.indexOf(c); return `${i}/${all.findIndex(o => !nameOf(o).startsWith('Gap: ') && j(glued(o)) === j(glued(c)))} ${nameOf(c)}`; }).join('; '));
     // Over a shape filled behind the lines, where white would show, a line crosses plainly.
@@ -458,7 +467,7 @@ async function run() {
     const svg = Export.svg(s2, { pdf: true });
     check('In the deck a changed percentage is its old, struck, and its new, on one line of one paragraph', /<a:p>(?:(?!<\/a:p>)[\s\S])*strike="sngStrike"(?:(?!<\/a:p>)[\s\S])*<a:t>12\.3%<\/a:t>(?:(?!<\/a:p>)[\s\S])*<\/a:p>/.test(slide), slide.length);
     const gone = s2.marks.find(m => m.type === 'line' && m.change === 'Gone'), holder = gone && N.shortOf(s2.state, s2.state[gone.record].args.find(a => a.edge === 'Owner').at);
-    check('… what’s gone in the deck stands where it stood, dashed in grey, a connector named as of its page’s day', !!gone && new RegExp(`name="${holder} is an owner of [^"]*"[\\s\\S]{0,900}<a:srgbClr val="A6A6A6"/></a:solidFill><a:prstDash val="dash"/>`, 'i').test(slide), holder);
+    check('… what’s gone in the deck stands where it stood, dashed in grey, a connector named as of its page’s day', !!gone && new RegExp(`name="${holder} is an owner of [^"]*"[\\s\\S]{0,900}<a:schemeClr val="bg1"><a:lumMod val="65000"/></a:schemeClr></a:solidFill><a:prstDash val="dash"/>`, 'i').test(slide), holder);
     check('… a deck’s slides each named as of their own day: the first marks nothing', !/sngStrike/.test(first) && !/0070C0/i.test(first));
     check('In the PDF, the same: the old figure drawn, a rule through it, the new beside it', svg.includes('>12.3%<') && svg.includes(`>${pct.text}<`), svg.length);
   }
@@ -844,7 +853,7 @@ async function run() {
     check('Export opened again is on what it last exported, PDF and every view, on the page’s paper', sel('Format').value === 'pdf' && ticked().length === charts.length && ticked().every(Boolean) && sel('Page size').value === 'slide',
       `${sel('Format').value} ${ticked()} ${sel('Page size').value}`);
     const papersOffered = (await optionsOf(sel('Page size'))).join();
-    check('… and offers every paper there is', papersOffered === 'Slide 16:9,Letter,Legal,Tabloid 11×17,A4,A3', papersOffered);
+    check('… and offers every paper there is', papersOffered === 'Slide 16:9,Slide 4:3,Letter,Legal,Tabloid 11×17,A4,A3', papersOffered);
     check('… saying nothing of the paper while it’s the page’s', !saying().includes('for this file only'), saying());
     await pickIn(sel('Page size'), 'legal');
     check('another paper is said to be for this file alone', saying().includes('Legal for this file only. The page stays Slide 16:9.'), saying());
@@ -971,7 +980,60 @@ async function run() {
   }
 }
 
-Promise.resolve().then(run)
+// ---- What a hand draws, in the deck and the PDF (dendra.md, Free shapes): real connectors glued to any shape, gradients, flips, runs, bullets, alt text, the chart's colors as its theme ----
+async function drawnByHand() {
+  const wb = Log.open(SAMPLE), view = Object.keys(wb.asOf(C, DAY)).find(id => Tree.isView(wb.asOf(C, DAY)[id]) && !wb.notes(C).value('Layout', { id, kind: 'View' })?.rows);
+  const worked = () => { const N = wb.notes(C), S = wb.schema(C); return Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); };
+  const edit = f => { const tx = wb.edit({ chart: C, who: WHO }); const r = f(tx); if (typeof tx.commit() === 'string') throw new Error('no change'); return r; };
+  const ten = ['#fefefe', '#101010', '#eeeeee', '#222222', '#102030', '#703020', '#307040', '#405080', '#a06070', '#607080'];
+  const ids = edit(tx => {
+    tx.note('Palette', { kind: 'View' }, { colors: ten });
+    const star = tx.add('shape', { view, geometry: 'star5', x: 60, y: 900, w: 90, h: 90, name: 'The star', format: { Fill: '#102030' } });
+    const note = tx.add('shape', { view, geometry: 'callout', x: 300, y: 900, w: 200, h: 80, text: 'Note it', alt: 'A note on the fund', flip: { h: true }, format: { Tail: [0.1, 0.9], Gradient: { angle: 90, stops: [[0, '#ffffff'], [100, '#102030']] } } });
+    const glue = tx.add('shape', { view, geometry: 'line', points: [[60, 900], [300, 900]], ends: [star, note], format: { Arrow: 'end', Arrowhead: { end: { type: 'oval', size: 'large' } } } });
+    const half = tx.add('shape', { view, geometry: 'line', points: [[60, 1100], [300, 1160]], ends: [null, star] });
+    const free = tx.add('shape', { view, geometry: 'line', points: [[600, 1100], [700, 1160]], format: { Arrow: 'end', Arrowhead: { end: { type: 'diamond', size: 'small' } } } });
+    const words = tx.add('shape', { view, geometry: 'text', x: 60, y: 1000, w: 300, h: 30, text: 'Hello world', runs: [{ from: 6, to: 11, Bold: true, Base: 'up', Color: '#102030' }] });
+    const list = tx.add('shape', { view, geometry: 'rect', x: 500, y: 1000, w: 300, h: 90, text: 'One\nTwo', format: { Bullet: 'bullet', Align: 'left', Inset: { l: 18, t: 6, r: 6, b: 6 } } });
+    tx.add('shape', { view, geometry: 'rect', x: 1000, y: 900, w: 60, h: 40, name: 'Hatched', format: { Fill: '#ffffff', Pattern: { prst: 'wdUpDiag', fg: '#102030' } } });
+    const shrunk = tx.add('shape', { view, geometry: 'rect', x: 860, y: 1000, w: 120, h: 30, text: 'Too much text for this shape to hold on any line at all', format: { Shrink: true } });
+    const pic = tx.add('shape', { view, geometry: 'picture', x: 900, y: 1100, w: 60, h: 40, flip: { h: true }, name: 'Logo', alt: 'A square', src: `data:image/png;base64,${PNG}` });
+    return { star, note, glue, half, free, words, list, shrunk, pic };
+  });
+  const R = worked(), s = { ...Scene.of(wb, C, view, DAY, { state: R.records, computed: R }), name: 'Drawn' };
+  const zip = await JSZip.loadAsync(await Export.write('pptx', [s], 'Drawn', { N: wb.notes(C), R })), slide = await zip.file('ppt/slides/slide1.xml').async('string'), d = xml(slide), named = n => [...tags(d, 'p:sp'), ...tags(d, 'p:cxnSp'), ...tags(d, 'p:pic')].find(el => nameOf(el) === n), withText = t => tags(d, 'p:sp').find(sp => tags(sp, 'a:t').map(x => x.textContent).join('').startsWith(t));
+  const star = named('The star'), starId = star?.getElementsByTagName('p:cNvPr')[0].getAttribute('id'), note = withText('Note it'), noteId = note?.getElementsByTagName('p:cNvPr')[0].getAttribute('id');
+  check('the deck is well-formed with it all', !tags(d, 'parsererror').length, tags(d, 'parsererror')[0]?.textContent);
+  check('a star is PowerPoint’s star, named as named; a callout its callout, its tip where it’s dragged', tags(star, 'a:prstGeom')[0]?.getAttribute('prst') === 'star5' && tags(note, 'a:prstGeom')[0]?.getAttribute('prst') === 'wedgeRectCallout' && tags(note, 'a:gd').length === 2, note?.outerHTML.slice(0, 300));
+  const glued = tags(d, 'p:cxnSp').find(c => tags(c, 'a:stCxn')[0]?.getAttribute('id') === starId && tags(c, 'a:endCxn')[0]?.getAttribute('id') === noteId);
+  check('a line glued to a free shape at both ends is a connector really glued to both', !!glued && tags(glued, 'a:tailEnd')[0]?.getAttribute('type') === 'oval' && tags(glued, 'a:tailEnd')[0]?.getAttribute('w') === 'lg', glued?.outerHTML.slice(0, 500));
+  const half = tags(d, 'p:cxnSp').find(c => !tags(c, 'a:stCxn').length && tags(c, 'a:endCxn')[0]?.getAttribute('id') === starId);
+  check('… glued at one end, at that end only', !!half);
+  const line = tags(d, 'p:cxnSp').find(c => tags(c, 'a:tailEnd')[0]?.getAttribute('type') === 'diamond');
+  check('a free line keeps its arrowhead’s style and size, and isn’t called a connector', !!line && tags(line, 'a:tailEnd')[0].getAttribute('w') === 'sm' && nameOf(line) === 'Line' && nameOf(glued) === 'Connector', line && nameOf(line));
+  const grad = tags(note, 'a:gradFill')[0];
+  check('a gradient is a real gradient fill, at its angle, its stops in the chart’s colors', !!grad && tags(grad, 'a:gs').length === 2 && tags(grad, 'a:lin')[0].getAttribute('ang') === String(90 * 60000) && tags(tags(grad, 'a:gs')[1], 'a:schemeClr')[0]?.getAttribute('val') === 'accent1', grad?.outerHTML.slice(0, 300));
+  const patt = tags(named('Hatched'), 'a:pattFill')[0];
+  check('a pattern is PowerPoint’s pattern, by its name, in the chart’s colors over the fill', patt?.getAttribute('prst') === 'wdUpDiag' && tags(tags(patt, 'a:fgClr')[0], 'a:schemeClr')[0]?.getAttribute('val') === 'accent1' && !!tags(patt, 'a:bgClr').length, patt?.outerHTML.slice(0, 300));
+  check('a flip and alt text are the shape’s, the words still reading the right way', tags(note, 'a:xfrm')[0].getAttribute('flipH') === '1' && note.getElementsByTagName('p:cNvPr')[0].getAttribute('descr') === 'A note on the fund', note.getElementsByTagName('p:cNvPr')[0].outerHTML);
+  const wordsAt = withText('Hello'), runs = tags(wordsAt, 'a:r');
+  check('words part by part are runs in the deck: bold, raised, colored where they are, only there', runs.length === 2 && tags(runs[0], 'a:t')[0].textContent === 'Hello ' && tags(runs[1], 'a:t')[0].textContent === 'world' && tags(runs[1], 'a:rPr')[0].getAttribute('b') === '1' && +tags(runs[1], 'a:rPr')[0].getAttribute('baseline') > 0 && tags(runs[0], 'a:rPr')[0].getAttribute('b') !== '1' && !tags(runs[0], 'a:rPr')[0].getAttribute('baseline') && tags(tags(runs[1], 'a:rPr')[0], 'a:schemeClr')[0]?.getAttribute('val') === 'accent1', wordsAt?.outerHTML.slice(0, 500));
+  const listAt = withText('One'), paras = tags(listAt, 'a:p');
+  check('bullets are PowerPoint’s bullets, hanging, on each paragraph; its inner margins each side’s', paras.length === 2 && paras.every(p => tags(p, 'a:buChar').length === 1 && +tags(p, 'a:pPr')[0].getAttribute('marL') > 0 && +tags(p, 'a:pPr')[0].getAttribute('indent') < 0) && +tags(listAt, 'a:bodyPr')[0].getAttribute('lIns') > +tags(listAt, 'a:bodyPr')[0].getAttribute('tIns'), listAt?.outerHTML.slice(0, 500));
+  const shrunk = withText('Too much');
+  check('a shape that shrinks its words has PowerPoint’s shrink on overflow, at the size the scene shrank them to', tags(shrunk, 'a:normAutofit').length === 1 && +tags(shrunk, 'a:rPr')[0].getAttribute('sz') < +tags(withText('Note it'), 'a:rPr')[0].getAttribute('sz'), shrunk?.outerHTML.slice(0, 900));
+  const pic = tags(d, 'p:pic')[0];
+  check('a picture keeps its name, its alt text and its flip', nameOf(pic) === 'Logo' && pic.getElementsByTagName('p:cNvPr')[0].getAttribute('descr') === 'A square' && tags(pic, 'a:xfrm')[0].getAttribute('flipH') === '1', pic?.outerHTML.slice(0, 400));
+  const theme = xml(await zip.file('ppt/theme/theme1.xml').async('string')), slot = n => tags(tags(theme, n)[0], 'a:srgbClr')[0]?.getAttribute('val').toLowerCase();
+  check('the chart’s colors are the deck’s theme, so PowerPoint’s own theme switch recolors what’s in them', slot('a:accent1') === '102030' && slot('a:accent6') === '607080' && slot('a:dk1') === '101010' && slot('a:lt1') === 'fefefe' && tags(star, 'a:solidFill')[0] && tags(tags(star, 'a:solidFill')[0], 'a:schemeClr')[0]?.getAttribute('val') === 'accent1', tags(theme, 'a:clrScheme')[0]?.outerHTML.slice(0, 300));
+  check('… and a color that’s none of them stays its own', !Shapes.inTheme(ten)('#abcdef') && Shapes.inTheme(ten)('#102030').slot === 'accent1');
+  const svg = Export.svg(s, { pdf: true });
+  check('in the PDF, the gradient is a gradient, the flip mirrored, the bold word bold and raised', /<linearGradient/.test(svg) && /<pattern/.test(svg) && /scale\(-1 1\)/.test(svg) &&/font-weight="bold"[^>]*>world/.test(svg), svg.length);
+  const blob = await Export.write('pdf', [s], 'Drawn', {});
+  check('… and written, a PDF', blob.size > 2000 && new TextDecoder('latin1').decode(await blob.slice(0, 5).arrayBuffer()) === '%PDF-', blob.size);
+}
+
+Promise.resolve().then(run).then(drawnByHand)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);
