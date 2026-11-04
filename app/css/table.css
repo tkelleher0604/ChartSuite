@@ -294,6 +294,7 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .hist-row > .what { overflow-wrap: anywhere; }
 .hist-row.undone > .what { color: var(--ink-3); text-decoration: line-through; }
 .hist-row > .meta { font: var(--t12); color: var(--ink-3); }
+.hist-row > .note { font: var(--t12); color: var(--ink-2); margin: 1px 0 2px; overflow-wrap: anywhere; }
 .hist-row > .btn { margin-top: 8px; }
 .hist-row.gone { padding-right: 104px; }
 .hist-row.gone > .btn { position: absolute; right: 12px; top: 50%; margin: 0; transform: translateY(-50%); }

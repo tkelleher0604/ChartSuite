@@ -343,7 +343,9 @@ async function run() {
     undo(); await tick(200);
     check('… Undo moves it back', titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date' && Table.grid === g0, titlesOf().slice(0, 6).join());
 
-    // Sorted by what it holds: a date oldest first, the blank last; kept, no change, built again as it was.
+    // Sorted by what it holds: a date oldest first, the blank last; kept, no change, built again as it was. (The sample
+    // has no such blanks now: these are made for it.)
+    App.change(tx => { tx.remove('northpine_formed'); tx.remove('pension_juris'); }, { dated: false }); await tick(150);
     n1 = N();
     await menuOf('Formation Date');
     const sorts = $$('.float .menu-item').map(x => x.textContent.trim());

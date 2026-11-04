@@ -148,16 +148,16 @@ async function run() {
   check('… and again, with nothing typed, goes to its row, still in the inspector', document.activeElement === rowOf('EIN') && !!document.activeElement.closest('.inspector'), document.activeElement?.outerHTML.slice(0, 80));
 
   // Flipping a tag
-  const erisa = rowOf('ERISA Plan Assets').querySelector('.tag');
-  check('a ruled-out tag is red and crossed', erisa.classList.contains('no'));
-  erisa.dispatchEvent(new PointerEvent('pointerenter')); await tick();
+  const open = rowOf('Offering Open').querySelector('.tag');
+  check('a ruled-out tag is red and crossed', open.classList.contains('no'));
+  open.dispatchEvent(new PointerEvent('pointerenter')); await tick();
   const pend = FormulaBar.pending.peek();
-  check('hovering a tag previews the other state, and the bar redlines what it would change', erisa.classList.contains('yes') && erisa.classList.contains('peek')
-    && pend?.change.records.fund_erisa?.tag === true && pend.diff.change.includes('fund_erisa'), JSON.stringify(pend?.change));
-  erisa.dispatchEvent(new PointerEvent('pointerleave')); await tick();
+  check('hovering a tag previews the other state, and the bar redlines what it would change', open.classList.contains('yes') && open.classList.contains('peek')
+    && pend?.change.records.fund_regd_open?.tag === true && pend.diff.change.includes('fund_regd_open'), JSON.stringify(pend?.change));
+  open.dispatchEvent(new PointerEvent('pointerleave')); await tick();
   check('… and leaving it ends the redline', !FormulaBar.pending.peek());
-  erisa.click(); erisa.dispatchEvent(new PointerEvent('pointerleave')); await tick();
-  check('clicking a tag switches it', st().fund_erisa.tag === true);
+  open.click(); open.dispatchEvent(new PointerEvent('pointerleave')); await tick();
+  check('clicking a tag switches it', st().fund_regd_open.tag === true);
   // Keys on a tag are a checkbox's: reached by the keys, it redlines as when pointed at; Enter goes on, so a
   // key pressed to move on never overrides a check; Space, which clicks it, switches it
   const onFile = rowOf('Formation Document on File')?.querySelector('.tag'), onFileId = rowOf('Formation Document on File')?.dataset.key;
@@ -757,7 +757,7 @@ async function run() {
   check('a start typed past the day shown redlines what it’s at going, with all that’s at it', leaving.northpine === null && Object.values(leaving).filter(x => x === null).length > 3
     && FormulaBar.pending.peek().diff.go.includes('northpine'), JSON.stringify(leaving).slice(0, 200));
   key(formedIn, 'Enter'); await tick(60);
-  check('… and Enter takes it out, the toast offering the chart then, Show Mar 2, 2027, and Undo', !st().northpine && App.wb.changes().length === nc + 1 && /^(Set|Changed) Formation Date of Northpine Software, LLC .*Mar 2, 2027$/.test(document.querySelector('.toast span')?.textContent ?? '')
+  check('… and Enter takes it out, the toast offering the chart then, Show Mar 2, 2027, and Undo', !st().northpine && App.wb.changes().length === nc + 1 && /^(Set|Changed|Corrected) Formation Date of Northpine Software, LLC .*Mar 2, 2027$/.test(document.querySelector('.toast span')?.textContent ?? '')
     && showThen().join() === 'Show Mar 2, 2027,Undo', document.querySelector('.toast')?.textContent);
   Shell.parts.value.undo.undo(); await tick(60);
   // A deadline: where it is, in words
