@@ -1659,8 +1659,9 @@ function Inspector() {
   const sel = Shell.selection.value, key = sel.join();
   useLayoutEffect(() => {
     const s = host?.closest('.inspector'), top = backTo?.key === key ? backTo.top : null;
-    // (Again once it's drawn, as its strip takes its room only then.)
-    if (s && top !== null) { s.scrollTop = top; requestAnimationFrame(() => { s.scrollTop = top; }); }
+    // (Again once it's drawn, as its strip takes its room only then; and the browser's scroll anchoring off till it has, which
+    // would otherwise move it on by that room where a busy window draws it late.)
+    if (s && top !== null) { s.style.overflowAnchor = 'none'; s.scrollTop = top; requestAnimationFrame(() => { s.scrollTop = top; }); setTimeout(() => { s.style.overflowAnchor = ''; }, 400); }
     else if (s && aimed !== key) s.scrollTop = 0;
     aimed = null; backTo = null;
   }, [key]);

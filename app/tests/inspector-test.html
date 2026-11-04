@@ -1372,8 +1372,7 @@ async function saysWhen(C, keep) {
   // Ending a row gone to from a record's panel comes back to that record, scrolled where it was
   Shell.select(['chen']); await tick(60);
   const pane = document.querySelector('.inspector'), positions = $$('section').find(s => s.dataset.title === 'Positions');
-  // (Once the panel's strip has taken its room, which a window busy with other things draws late.)
-  positions.scrollIntoView(); await tick(150);
+  positions.scrollIntoView(); await tick(30);
   const topWas = pane.scrollTop, posRow = [...positions.querySelectorAll('.row.rel')].find(r => r.textContent.includes('Northpine'));
   posRow.querySelector('.v .lk').click(); await tick(60);
   const posId = Shell.selection.peek()[0];
