@@ -1155,7 +1155,11 @@ const Table = (() => {
   function flip(cell) {
     const m = meta(cell), c = columnOf(cell), v = cell.getValue(), entered = m.id in App.entered.value;
     if (!m.at || current.red || v === NA || m.quiet) return;
-    if (m.fx || App.computed.peek().covered?.[m.id]) return Shell.emit('why-open', m.id);
+    if (m.fx || App.computed.peek().covered?.[m.id]) {
+      const row = cell.getRow().getData().id;
+      if (!Shell.selection.peek().includes(row)) Shell.select([row]);
+      return Shell.emit('why-open', m.id);
+    }
     if (App.readOnly.peek() || (c.check && v !== false)) return;
     if (v === false && entered) edit(tx => tx.remove(m.id));
     else { const p = placed(m, c, { tag: v !== true }); if (p) enter(Object.fromEntries([p])); }
