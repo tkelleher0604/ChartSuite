@@ -898,7 +898,8 @@ function run() {
         const kin = lines.filter(o => o === r.l || (!o.labelAt && o.label?.text === r.l.label.text && j(o.points[0]) === j(r.l.points[0])));
         const near = ls => Math.min(...ls.flatMap(o => legs(o).map(g => gap(r, g))));
         const own = near(kin), nearest = lines.filter(o => !kin.includes(o)).map(o => [o.id, near([o])]).sort((p, q) => p[1] - q[1])[0];
-        if (own > ON + 0.01 || (nearest && nearest[1] <= ON)) loose.push(`${at}: ${r.l.id} "${r.l.label.text}" ${own.toFixed(1)} px from its line, ${nearest?.[1].toFixed(1)} from ${nearest?.[0]}`);
+        // (Further where it stands clear of an arrowhead's wings.)
+        if (own > ON + (r.l.settings.Arrow.value === 'none' ? 0 : 5) + 0.01 || (nearest && nearest[1] <= ON)) loose.push(`${at}: ${r.l.id} "${r.l.label.text}" ${own.toFixed(1)} px from its line, ${nearest?.[1].toFixed(1)} from ${nearest?.[0]}`);
       });
     };
     for (const [what, f] of Object.entries(cases)) for (const v of ['view_main', 'view_40act', 'view_fund3', 'view_control']) for (const paper of [null, 'letter']) {

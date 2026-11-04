@@ -50,6 +50,12 @@ const App = (() => {
   // Why it can't be changed now, as a toast says it.
   const whyNot = () => Shell.time.peek()?.stood ? 'Can’t change the past' : 'Viewing: switch to Editing to change this';
   const refuse = () => { Shell.toast(whyNot()); return null; };
+  // Viewing, what a chart shows and hides is the session's, in no log, as a table's columns are, though never of the past: by
+  // view, each record and whether it shows (Scene's `seen`). In Editing, it's a change, the view's.
+  const seen = signal(new Map());
+  const seeing = () => viewing.value && !Shell.time.value?.stood;
+  const seenIn = view => seeing() ? seen.value.get(view) ?? null : null;
+  function see(view, ids, on) { const m = new Map(seen.peek()), v = new Map(m.get(view) ?? []); for (const id of ids) v.set(id, on); m.set(view, v); seen.value = m; }
   const stood = computed(() => {
     const t = Shell.time.value;
     if (!t?.stood) return null;
@@ -209,8 +215,10 @@ const App = (() => {
   const nothingDrawn = () => { const s = typeof Scene !== 'undefined' && scene.peek(); return !!s && !s.marks.some(m => m.type === 'box'); };
   const keptToday = new Set();
   const firstDrawn = () => shown.peek().rows(chart.peek()).filter(r => r.kind && r.kind !== 'View').map(r => heldFrom(r.record)).filter(Boolean).sort()[0] ?? null;
+  // (Boxes there are that the view hides, one by one, are no call to go looking for another day.)
+  const nothingThere = () => !Object.values(state.peek()).some(r => Tree.isObject(r) && !Tree.isView(r) && notes.peek().value('Shown', { kind: r.kind }, scene.peek()?.view) !== false);
   Shell.ready.then(() => effect(() => {
-    if (typeof Scene === 'undefined' || !scene.value || Shell.time.value || keptToday.has(chart.value) || !nothingDrawn()) return;
+    if (typeof Scene === 'undefined' || !scene.value || Shell.time.value || keptToday.has(chart.value) || !nothingDrawn() || !nothingThere()) return;
     const c = chart.peek(), d = firstDrawn();
     keptToday.add(c);
     // (A moment on, as drawing it is; it may be another workbook being opened by then.)
@@ -1130,7 +1138,9 @@ const App = (() => {
     // It reads the workbook's notes and shapes as well as the state (Scene keeps what's drawn from the same).
     version.value;
     const v = views.value.find(x => x.id === Shell.view.value);
-    return v?.layout !== 'chart' ? null : Scene.of(shown.value, chart.value, v.id, day.value, { state: state.value, computed: result.value });
+    if (v?.layout !== 'chart') return null;
+    const as = { state: state.value, computed: result.value }, drawn = Scene.of(shown.value, chart.value, v.id, day.value, as), looks = seenIn(v.id);
+    return looks?.size ? Scene.of(shown.value, chart.value, v.id, day.value, { ...as, seen: looks }) : drawn;
   });
   // The words an exported file says what it shows in, the one place they're made: the day, or while the past is shown the
   // moment. Its name's, where that isn't today ("as of Dec 31, 2026"; "as it stood on Dec 31, 2026, 3.15 PM", a file's name
@@ -1157,8 +1167,8 @@ const App = (() => {
   // A new view after the one it copies, or at the end: a chart, or a table of `rows`. A copy takes the
   // original's notes and shapes, but its name. A new chart takes the styles and Shown of the chart shown, or
   // else of the first, but not where it put things, and its page starts afresh. A new table opens with a few of its
-  // columns (Table.opening). `also(tx, id)`, what else the one change makes of it.
-  function addView(name, rows, from, also) {
+  // columns (Table.opening). `also(tx, id)`, what else the one change makes of it; `blank`, a chart with every box hidden.
+  function addView(name, rows, from, also, blank = false) {
     const vs = views.peek(), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length, taken = new Set(vs.map(v => Tree.norm(v.name)));
     const like = from ?? (rows === undefined ? (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id : null);
     let n = name, i = 2;
@@ -1174,12 +1184,14 @@ const App = (() => {
       also?.(tx, id);
       if (like) for (const { id: _, ...r } of book.peek().rows(chart.peek())) {
         // (What a table's view says at itself, its Why, it says at the copy.)
-        if ('note' in r && r.view === like && (from || r.label !== 'Position')) { const { note, ...x } = r; tx.add('note', { ...x, ...(x.pattern.id === like && { pattern: t }), view: id }); }
+        if ('note' in r && r.view === like && (from || (r.label !== 'Position' && r.label !== 'Bend'))) { const { note, ...x } = r; tx.add('note', { ...x, ...(x.pattern.id === like && { pattern: t }), view: id }); }
         else if (!from) continue;
         else if ('shape' in r && r.view === from) { const { shape, ...s } = r; tx.add('shape', { ...s, view: id }); }
         else if ('note' in r && !r.view && r.pattern.id === from && r.label !== 'Order' && r.label !== 'Name') tx.note(r.label, t, r.value);
       }
       if (!from && rows === undefined) page(tx, id, book.peek().charts().find(c => c.chart === chart.peek())?.name ?? n);
+      // A blank start: every box it would draw hidden by its own note, each to tick on from its Hidden list.
+      if (blank) { const st = state.peek(), N = notes.peek(); for (const x of Object.keys(st)) if (Tree.isObject(st[x]) && !Tree.isView(st[x]) && N.value('Shown', { kind: st[x].kind }, like) !== false) tx.note('Shown', Tree.treeOf(st, x), false, { view: id }); }
     }, { dated: false });
     return id;
   }
@@ -1190,7 +1202,7 @@ const App = (() => {
     const L = layouts.peek(), on = rows => v && v.layout === 'table' && JSON.stringify(v.rows) === JSON.stringify(rows);
     const as = l => ({ label: l.name, checked: on(l.rows), run: () => pick(l.name, l.rows) });
     const group = (label, ls) => ({ label, checked: v && ls.some(l => on(l.rows)), items: ls.map(as) });
-    return [{ label: 'Chart', checked: v && v.layout === 'chart', run: () => pick('Chart') }, '-', group('Records', L.kinds), group('Relations', L.relations), ...L.datatypes.map(as)];
+    return [{ label: 'Chart', checked: v && v.layout === 'chart', run: () => pick('Chart') }, ...(v ? [] : [{ label: 'Blank chart', run: () => pick('Chart', undefined, true) }]), '-', group('Records', L.kinds), group('Relations', L.relations), ...L.datatypes.map(as)];
   }
   Shell.register('views', {
     list: () => views.value,
@@ -1199,7 +1211,7 @@ const App = (() => {
     // A new view of what's picked: its id, or null if none is.
     add: anchor => new Promise(done => {
       let chosen = false;
-      Shell.menu(anchor, shows((name, rows) => { chosen = true; done(addView(name, rows)); if (rows) Shell.showPanel(); }),
+      Shell.menu(anchor, shows((name, rows, blank) => { chosen = true; done(addView(name, rows, undefined, undefined, blank)); if (rows) Shell.showPanel(); }),
         { placement: 'top-start', onClose: () => queueMicrotask(() => chosen || done(null)) });
     }),
     // A view's own menu, on its tab: what it shows, as the inspector's view panel sets it, and copying or
@@ -1272,7 +1284,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, viewing, setViewing, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
+    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
     enterAt, putting, put, asksFrom, held: typedOut, overriding, noTone,
   };
 })();

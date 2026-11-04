@@ -74,7 +74,8 @@ const BEFORE = { left: 0, center: 0.5, right: 1 };
 
 // A page's marks as it's read: its title, its date, then the rest as the scene draws them. Nothing overlaps
 // the title or the date, so where they stand in the drawing's order doesn't show.
-const reading = marks => { const first = ['title', 'date'].flatMap(role => marks.filter(m => m.role === role)); return [...first, ...marks.filter(m => !first.includes(m))]; };
+const reading = marks => { const first = ['title', 'date'].flatMap(role => marks.filter(m => m.role === role)), under = marks.filter(m => !first.includes(m) && (m.settings?.Layer?.value ?? m.look?.Layer ?? 0) < 0);
+  return [...under, ...first, ...marks.filter(m => !first.includes(m) && !under.includes(m))]; };
 
 // ---- SVG: the PDF, and the preview ----
 
@@ -261,11 +262,13 @@ function markSvg(m, pdf) {
   if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, look(m).Weight)}/>`) + texts([m.caption], pdf));
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
-  if (m.geometry === 'picture') return g(m.x, m.y, `<image href="${esc(m.src ?? '')}" width="${n(m.w)}" height="${n(m.h)}" preserveAspectRatio="xMidYMid meet"/>`
-    + (s.Outline === '#000000' ? '' : body('rect', m.w, m.h, { ...s, Fill: 'none' })));
+  // (A free shape turned, about its middle.)
+  const turned = inner => m.rotate ? `<g transform="rotate(${n(m.rotate)} ${n(m.x + m.w / 2)} ${n(m.y + m.h / 2)})">${inner}</g>` : inner;
+  if (m.geometry === 'picture') return turned(g(m.x, m.y, `<image href="${esc(m.src ?? '')}" width="${n(m.w)}" height="${n(m.h)}" preserveAspectRatio="xMidYMid meet"/>`
+    + (s.Outline === '#000000' ? '' : body('rect', m.w, m.h, { ...s, Fill: 'none' }))));
   if (m.geometry === 'legend') return g(m.x, m.y, body('rect', m.w, m.h, { ...s, Dash: 'solid' }) + texts(m.texts, pdf)
     + m.rows.map(r => swatch(r.swatch, r.sw) + texts([r.caption], pdf)).join(''));
-  return g(m.x, m.y, body(m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry, m.w, m.h, s) + texts(m.texts, pdf));
+  return turned(g(m.x, m.y, body(m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry, m.w, m.h, s) + texts(m.texts, pdf)));
 }
 // How much smaller a page is drawn on its sheet: its scale, exactly, so it fills the sheet.
 const fit = page => Math.min(page.sheet.w / page.w, page.sheet.h / page.h);
@@ -430,12 +433,12 @@ const freeform = (q, w, h) => `<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnL
   + q.map(([x, y], i) => `<a:${i ? 'lnTo' : 'moveTo'}><a:pt x="${x}" y="${y}"/></a:${i ? 'lnTo' : 'moveTo'}>`).join('') + '</a:path></a:pathLst></a:custGeom>';
 // A shape as PowerPoint writes one, in r (inches on the slide): of a preset geometry, or a path through points
 // (inches within r); a text box (`box`), or the slide's title placeholder (`title`); holding `body`.
-function sp(id, name, r, geometry, s, k, body, { box = false, title = false } = {}) {
+function sp(id, name, r, geometry, s, k, body, { box = false, title = false, rotate = 0 } = {}) {
   const nv = title ? '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="title"/></p:nvPr>' : `<p:cNvSpPr${box ? ' txBox="1"' : ''}/><p:nvPr/>`;
   // A rounded rectangle's corners, PowerPoint's adjustment of it: their radius in thousandths of its shorter side.
   const adj = geometry === 'rounded' ? `<a:gd name="adj" fmla="val ${Math.round(Math.min(50, Math.max(0, s.Corner ?? Scene.CORNER)) * 1000)}"/>` : '';
   const geom = Array.isArray(geometry) ? freeform(geometry.map(([x, y]) => [E(x), E(y)]), E(r.w), E(r.h)) : `<a:prstGeom prst="${PRESET[geometry] ?? 'rect'}">${adj ? `<a:avLst>${adj}</a:avLst>` : '<a:avLst/>'}</a:prstGeom>`;
-  return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}${geom}${paint(s.Fill, s.Transparency)}${'Outline' in s ? ln(s, k) : ''}${s.Shadow === 'soft' ? SHADOW : ''}</p:spPr>${body}</p:sp>`;
+  return `<p:sp><p:nvSpPr>${cNvPr(id, name)}${nv}</p:nvSpPr><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h), rotate ? ` rot="${Math.round(rotate * 60000)}"` : '')}${geom}${paint(s.Fill, s.Transparency)}${'Outline' in s ? ln(s, k) : ''}${s.Shadow === 'soft' ? SHADOW : ''}</p:spPr>${body}</p:sp>`;
 }
 
 // Lines said as one, as the chart says them: those landing on a frame along one route, the first drawn standing
@@ -474,8 +477,8 @@ function slide(p, scene, { k, ox, oy }, say) {
   const add = (kind, ...args) => { sl[kind](...args); return 2 + count++; };
   // A stand-in for what `write` writes once it has its number. → that number.
   const put = write => add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: `·${parts.push(write) - 1}·` });
-  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title } = {}) =>
-    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset), { box, title }));
+  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title, rotate } = {}) =>
+    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset), { box, title, rotate }));
   // Texts on their own, their lines placed from (x0, y0): a text box at the side they're aligned to, from
   // their first line's top, its margins round them. → its rect.
   const textBox = (items, x0, y0, inset) => {
@@ -547,8 +550,8 @@ function slide(p, scene, { k, ox, oy }, say) {
     }
     if (m.geometry === 'line') return connector(m.points, s, m.ends ?? null, 'Line');
     if (m.geometry === 'picture') {
-      if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), sizing: { type: 'contain', w: L(m.w), h: L(m.h) } });
-      if (s.Outline !== '#000000') shape(rect(m), 'rect', { ...s, Fill: 'none' }, 'Picture');
+      if (m.src) add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h), sizing: { type: 'contain', w: L(m.w), h: L(m.h) }, ...(m.rotate && { rotate: m.rotate }) });
+      if (s.Outline !== '#000000') shape(rect(m), 'rect', { ...s, Fill: 'none' }, 'Picture', { rotate: m.rotate });
       return [rect(m)];
     }
     if (m.geometry === 'legend') return group(m.title || 'Legend', () => {
@@ -567,7 +570,7 @@ function slide(p, scene, { k, ox, oy }, say) {
     if (m.geometry === 'group') return [];
     const text = m.geometry === 'text' || m.geometry === 'frame';
     shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.texts[0]?.text ?? 'Shape',
-      { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title' });
+      { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate });
     return [rect(m)];
   };
   const written = new Set();
@@ -740,7 +743,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // A view's page, as its Page note has it: its paper (null for a size of its own) and which way it's turned.
   const pageNow = id => { const p = App.notes.peek().resolve('Page', viewAt(id))?.value ?? 'slide', named = typeof p === 'object' ? p.size : p; return { paper: PAPERS[named] ? named : null, portrait: !!p?.portrait }; };
   const OWN = 'own';
-  const scene = (id, paper) => Scene.of(App.shown.peek(), App.chart.peek(), id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), ...(paper && { paper }) });
+  const scene = (id, paper) => Scene.of(App.shown.peek(), App.chart.peek(), id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek(), seen: App.seenIn(id), ...(paper && { paper }) });
   // The chart views, in tab order, each as its scene is on that paper, or on its own page: the one shown is App's there.
   const views = paper => charts().map(v => {
     const shown = App.scene.peek(), own = paper === OWN || paper === pageNow(v.id).paper;
@@ -764,7 +767,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     tx.note('Scale', viewAt(view), { scale: s, x: 0, y: 0 });
     for (const m of on.marks) if (m.type === 'box' && !m.revealed) {
       const t = Tree.treeOf(App.state.peek(), m.record), old = N.position(t, view);
-      tx.note('Position', t, { x: half(m.x), y: half(m.y), w: half(m.w), ...(old?.h != null && { h: half(m.h) }), ...((!old || old.kept || !Number.isFinite(old.x)) && { kept: true }) }, { view });
+      tx.note('Position', t, { x: half(m.x), y: half(m.y), w: half(m.w), ...(old?.h != null && { h: half(m.h) }), ...((!old || old.kept || !Number.isFinite(old.x)) && { kept: true }), ...(old?.hand && { hand: true }), ...(old?.lock && { lock: true }) }, { view });
     }
     for (const r of App.shown.peek().rows(App.chart.peek())) if ('shape' in r && r.view === view) {
       const m = on.byId.get(r.shape);

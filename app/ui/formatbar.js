@@ -286,6 +286,7 @@ function preview(label, value) {
   tried = key;
   if (!key) return c.restyle(null);
   if (label === 'Tidy') return c.restyle(c.tidied(), { moves: true });
+  if (label === 'Tidy for every date') return c.restyle(c.tidiedEvery(), { moves: true });
   c.restyle(trying(c, label, value, firstFor(c, scopeOf(scopesOf(c).scopes), label, value).also), label === 'Size' ? { moves: true } : undefined);
 }
 // The chart with a change written on its rows, uncommitted; `more`, what else the change writes.
@@ -753,7 +754,7 @@ function Bar() {
     { label: 'Bring to front', icon: 'front', keys: '$mod+Shift+]', run: () => c.order('front') }, { label: 'Bring forward', icon: 'forward', keys: '$mod+]', run: () => c.order('forward') },
     { label: 'Send backward', icon: 'backward', keys: '$mod+[', run: () => c.order('backward') }, { label: 'Send to back', icon: 'back', keys: '$mod+Shift+[', run: () => c.order('back') },
   ];
-  const grouping = s.group ? { label: 'Ungroup', icon: 'ungroup', keys: '$mod+Shift+G', run: () => c.ungroup() } : { label: 'Group', icon: 'group', keys: '$mod+G', disabled: placeable < 2, run: () => c.group() };
+  const grouping = s.group ? { label: 'Ungroup', icon: 'ungroup', keys: '$mod+Shift+G', disabled: ro, run: () => c.ungroup() } : { label: 'Group', icon: 'group', keys: '$mod+G', disabled: ro || placeable < 2, run: () => c.group() };
   // Tidy lays the view out again, or with boxes selected, those around what stands, as its name says, with nothing to do where nothing in it was placed by hand; pointed
   // at, the pointer moved onto it (not found on it as a menu over it closes), it's drawn as it would be once the
   // pointer has rested there (the canvas's restyle). Made, the change ends the preview.
@@ -813,7 +814,7 @@ function Bar() {
     <button class="btn dd wide" data-fb="align" disabled=${none} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
     <button class="btn dd wide" data-fb="order" disabled=${none} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
     <button class="btn wide" data-fb="group" disabled=${grouping.disabled} onClick=${grouping.run}>${grouping.label}</button>
-    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: none })), '-', grouping, tidy, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }])}>
+    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none || ro, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: none || ro })), '-', grouping, tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', ...[['Gridlines', 'grid'], ['Snap to grid', 'snap'], ['Rulers', 'rulers']].map(([label, k]) => ({ label, checked: Canvas.aids.peek()[k], run: Canvas.aidToggle(k) }))])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
     <button class="btn" data-fb="tidy" disabled=${tidy.disabled} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label}</button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
