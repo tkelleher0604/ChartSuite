@@ -495,8 +495,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const shapeRows = read.shapes.get(view);
   const preview = !!(opts.keep || opts.reveal?.length), drawnAs = `${chart}|${view}`;
   const said = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day)]));
-  const holding = opts.holds?.size ? JSON.stringify([...opts.holds]) : '';
-  const from = [opts.state, notesAre, shapeRows.map(r => r.id).join(), [...said.values()].join('\n'), day, holding], whence = `${drawnAs}|${opts.paper ?? ''}`;
+  // (A Key kept where it's drawn is drawn there: the scene as it was, so what its change made was laid out ahead for.)
+  const boxesHeld = opts.holds?.size ? [...opts.holds].filter(([id]) => !shapeRows.some(r => r.shape === id)) : [];
+  const holding = boxesHeld.length ? JSON.stringify(boxesHeld) : '';
+  const from = [opts.state, notesAre, shapeRows.map(({ id, kept, ...r }) => JSON.stringify(r)).join(), [...said.values()].join('\n'), day, holding], whence = `${drawnAs}|${opts.paper ?? ''}`;
   if (!preview && !opts.looks) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
@@ -895,7 +897,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // what's drawn.
   const sheet = pageOf(N, view, opts.paper);
   const last = preview && !opts.paper ? laidOut.get(drawnAs) ?? null : null;
-  if (last) for (const m of [positions, hints]) for (const [id, p] of m) m.set(id, { ...p, x: p.x + last.page.offset.x, y: p.y + last.page.offset.y });
+  // (The place of a box not drawn yet is where it will stand: as far down as the room for the lanes over them has moved what stands at its height.)
+  const lowered = y => last.lowered.filter(([at]) => at <= y + 4).reduce((a, b) => b[0] > a[0] ? b : a, [-Infinity, 0])[1];
+  if (last) for (const m of [positions, hints]) for (const [id, p] of m) m.set(id, { ...p, x: p.x + last.page.offset.x, y: p.y + last.page.offset.y + (last.at.has(id) ? 0 : lowered(p.y)) });
   const placedBy = r => r.x == null || r.y == null, onPaper = !!opts.paper && sheet.size !== pageOf(N, view).size;
   // Boxes a style fills alike, one row of the Key, are a class: peers the layout sets in one tier where it can.
   // Where the Key has fewer than two such rows, the fill tells nothing apart, and nothing is.
@@ -972,9 +976,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const given = b => squeeze === 1 && (b.entered || !!last?.at.has(b.id)), stood = b => !!last?.at.has(b.id);
     spread(boxes, beside, stood);
     // Boxes in a rank, their tops level, are one height: the tallest of them (see level). A preview keeps every
-    // box as it stood, and what it adds is placed clear of them, and sized among themselves.
+    // box as it stood, and what it adds is placed clear of them and sized among themselves, but that it stands where a
+    // place entered puts it, as tall as the rank it joins there.
     const added = b => !!last && !last.at.has(b.id);
-    for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => `${Math.round(b.y / 4)}|${added(b)}`).values()) level(rank);
+    for (const rank of groupBy(boxes.filter(b => b.shape !== 'triangle'), b => Math.round(b.y / 4)).values()) { level(rank.filter(b => !added(b))); level(rank.filter(added)); level(rank.filter(b => added(b) && b.entered), rank); }
     push(boxes.filter(b => !added(b)), frames, lines.filter(l => l.ranks));
     // And again where that left a line from side to side short of the room its label needs, as the height it runs at
     // moves with the boxes it joins.
@@ -997,13 +1002,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // A line that goes around what's drawn though its trunk gave it a lane takes none: the routes are found again with it
     // aside, the gaps as they were and deepened only for the lanes then drawn, where no more lines go around for it. So a
     // line added that goes around moves no lane, gap or box it doesn't touch.
-    const off = last ? [] : lines.filter(l => l.around && l.placing.laned).map(l => l.id);
+    const off = lines.filter(l => l.around && l.placing.laned).map(l => l.id);
     if (off.length) {
       const astray = () => lines.filter(l => l.blocked || l.astray || l.strained).length, was = { ys: boxes.map(b => b.y), rs, around: lines.filter(l => l.around).length, astray: astray() };
       boxes.forEach((b, i) => { b.y = tops[i]; });
       frameBounds(frames, boxes);
       (rs = routes(boxes, lines, frames, stand, off)).forEach((r, i) => Object.assign(lines[i], r));
-      for (let n = 0; n < 3 && deepen(boxes, lines); n++) {
+      for (let n = 0; n < 3 && !last && deepen(boxes, lines); n++) {
         yield;
         frameBounds(frames, boxes);
         (rs = routes(boxes, lines, frames, stand, off)).forEach((r, i) => Object.assign(lines[i], r));
@@ -1016,7 +1021,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     yield;
     if (last) still(last, boxes, lines, frames);
-    const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper });
+    const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? keyRow.kept ?? null });
     return { ...laid, around: lines.filter(l => l.around).length };
   }
   // A layout just laid, with its faults, and on another paper its lines bent that drop straight on the view's own page
@@ -1098,7 +1103,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const shapes = at.shapes;
   for (const m of shapes) {
     const p = at.places.get(m.row);
-    if (p) { Object.assign(m, { x: p.x, y: p.y }); continue; }
+    if (p) { Object.assign(m, { x: p.x, y: p.y, byPage: true }); continue; }
     if (m.geometry === 'group') continue;
     const dx = Math.min(0, page.w - m.x - m.w) || Math.max(0, -m.x), dy = Math.min(0, page.h - m.y - m.h) || Math.max(0, -m.y);
     if (dx || dy) move(m, Math.max(-m.x, dx), Math.max(-m.y, dy));
@@ -1120,7 +1125,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const g of shapes.filter(m => m.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
 
   const laid = !preview && !opts.paper ? {
-    at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])),
+    at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])), lowered: boxes.filter(b => b.laid).map(b => [b.laid.y, b.y - page.offset.y - b.laid.y]),
     frames: new Map([...frames.values()].map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }])),
     routes: new Map(lines.map(l => [l.id, { from: l.from, to: l.to, points: l.points, labelAt: l.labelAt, down: l.down, landed: l.landed }])),
     page, places: at.places,
@@ -1155,8 +1160,8 @@ function shapeOf(row, scene) {
 // triangle set taller than its own text needs is set again for the height it has (see pyramid), in the fewest
 // lines.
 const alone = b => b.texts.some(it => it.lines.some(l => l.cut)) || b.texts[0]?.lines.length > 6;
-function level(ms) {
-  const h = Math.max(0, ...ms.filter(b => !alone(b)).map(b => b.h));
+function level(ms, among = ms) {
+  const h = Math.max(0, ...among.filter(b => !alone(b)).map(b => b.h));
   for (const b of ms) {
     if (b.h >= h) continue;
     b.h = h;
@@ -1406,7 +1411,9 @@ function relabel(boxes, lines, frames, s = null, at = s) {
 const placedFor = new Map();
 // A preview's lines: those it had keep their routes and labels where both their boxes (and the frame one lands
 // on) stand as they stood, to a hundredth of a pixel, as a frame set round its boxes again on the page comes
-// out; so lines drawn as one stay one. What it adds is routed around what's drawn, its labels clear of the rest.
+// out; so lines drawn as one stay one. What it adds takes the route it will have, as the router gives it among them, but
+// where that would run over a line it shares no box with, or found no way: that goes around what's drawn. Its labels
+// go clear of the rest.
 function still(last, boxes, lines, frames) {
   const near = (a, b) => Math.abs(a - b) < 0.01, geo = new Map(boxes.map(b => [b.id, b]));
   const same = (a, b) => !!a && !!b && near(a.x, b.x) && near(a.y, b.y) && near(a.w, b.w) && near(a.h, b.h);
@@ -1420,8 +1427,14 @@ function still(last, boxes, lines, frames) {
   if (!added.length) return;
   const kept = lines.filter(l => !added.includes(l));
   const labels = kept.filter(l => l.labelAt && l.label).map(l => ({ x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h })), cs = captions(frames);
-  const segs = kept.flatMap(l => l.points.slice(1).map((p, i) => [l.points[i], p]));
+  const legs = l => l.points.slice(1).map((p, i) => [l.points[i], p]), segs = kept.flatMap(legs);
+  const along = ([a, b], [c, d]) => {
+    const flat = Math.abs(a[1] - b[1]) < 0.5 && Math.abs(c[1] - d[1]) < 0.5 && Math.abs(a[1] - c[1]) < 0.5, up = Math.abs(a[0] - b[0]) < 0.5 && Math.abs(c[0] - d[0]) < 0.5 && Math.abs(a[0] - c[0]) < 0.5, k = flat ? 0 : 1;
+    return (flat || up) && Math.min(Math.max(a[k], b[k]), Math.max(c[k], d[k])) - Math.max(Math.min(a[k], b[k]), Math.min(c[k], d[k])) > 0.5;
+  };
+  const free = l => !!l.points && !l.blocked && !kept.some(o => o.from !== l.from && o.to !== l.to && o.from !== l.to && o.to !== l.from && legs(l).some(s => legs(o).some(t => along(s, t))));
   for (const l of added) {
+    if (free(l)) continue;
     const way = { avoid: [...labels, ...cs], segs, page: last.page }, ps = Layout.around(geo, l.from, l.to, way) ?? Layout.around(geo, l.from, l.to, { ...way, strict: false });
     if (ps) Object.assign(l, { points: ps, down: ps.at(-1)[1] > ps[0][1] + 1, landed: undefined });
   }
@@ -1681,7 +1694,7 @@ const obstaclesOf = rows => rows.filter(r => r.x != null && r.y != null && !['li
 // far down, right-aligned to the chart where that's as high; failing all of them, what fits the chart. The Key beside
 // the title takes the room there, its captions wrapping. A preview keeps the page as it was. → { s, dx, dy, shapes,
 // places: rowId → { x, y }, placed }, in the page's pixels.
-function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placed = false }) {
+function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placed = false, keptAt = null }) {
   const W = sheet.w, H = sheet.h, M = MARGIN;
   // What the chart draws, each as a rect.
   const rects = [...boxes, ...[...frames.values()].map(f => f.lone ? { x: f.x, y: f.y, w: Math.max(f.w, widest([f.caption])), h: f.h } : f)].map(m => ({ x: m.x, y: m.y, w: m.w, h: m.h }));
@@ -1728,7 +1741,12 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
         side = keyed(rows.find(r => r.id === key.row), room * u);
       }
       const r = { x: W - M - side.w * s, y: M, w: side.w * s, h: side.h * s };
-      if (!footed && r.w <= room + 0.5 && fits(r) && clearOfFree(r)) {
+      // Where a change kept it, on the sheet (`keptAt`), while that's clear of the chart and what's over it there.
+      if (keptAt && !footed) {
+        const under = keptAt.y < y, k = under ? side : key, kw = k.w * s, q = { x: Math.min(keptAt.x, W - M - kw), y: Math.min(keptAt.y, H - M - k.h * s), w: kw, h: k.h * s };
+        if (fits(q) && clearOfFree(q) && !set(top).some(c => meets(c, q, 21)) && (!under || q.x >= W - M - room - 0.5)) { places.set(key.row, q); shapes[shapes.indexOf(key)] = key = k; alongside = q; }
+      }
+      if (!places.has(key.row) && !footed && r.w <= room + 0.5 && fits(r) && clearOfFree(r)) {
         const under = Math.max(top, r.y + r.h + 32), by = Math.max(0, ...set(top).filter(q => q.y < r.y + r.h + 21).map(q => q.x + q.w + 21 - r.x));
         const left = !placed && R(top).x - by >= M - 0.5 ? by / s : 0;
         dx -= left;

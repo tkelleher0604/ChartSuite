@@ -235,7 +235,9 @@ const Time = (() => {
     c.adds.forEach(r => put(r, 'now'));
     // What a change keeps where it's drawn (a box the layout placed) is no part of what it says.
     const keeps = i => { const r = i.type === 'note' && i.now.length && Log.latest(i.now); return !!r && r.label === 'Position' && !!r.value?.kept; };
-    const all = [...items.values()].filter(i => back || !keeps(i)), rec = i => Log.latest(i.now.length ? i.now : i.was);
+    // (And the Key where the page placed it, all that's changed of its row.)
+    const rest = r => { const { id, kept, ...p } = r; return JSON.stringify(p); }, keptKey = i => i.type === 'shape' && i.was.length && i.now.length && rest(Log.latest(i.was)) === rest(Log.latest(i.now));
+    const all = [...items.values()].filter(i => (back || !keeps(i)) && !keptKey(i)), rec = i => Log.latest(i.now.length ? i.now : i.was);
     // A relation a definition works out, entered with something recorded at it (a tax year, with its payment), was
     // entered to bear it: what's at it is said, at its place; and so when they go together.
     const worked = i => { const r = rec(i); return r.args && 'tag' in r && App.definitions.peek().some(d => Tree.same(d.name, N.nameOf(recs, i.id))); };

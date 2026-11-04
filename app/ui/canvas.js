@@ -381,7 +381,12 @@ function mount(el) {
       const s = cell.getSize();
       w.container?.classList.toggle('narrow', s.width * z < 40);
       w.container?.classList.toggle('short', s.height * z < 40);
+      // A triangle has no grip at its apex or off its slopes, where its relate handles and nothing of it are: its corners
+      // and its base resize it (see showHandles).
+      w.container?.classList.toggle('triangular', scene?.byId.get(cell.id)?.shape === 'triangle');
     }
+    // (The relate handles keep clear of them, from the click that selects it.)
+    if (near) showHandles(near);
   };
   graph.use(new Snapline({ enabled: true, sharp: true, tolerance: 5, filter: c => c.isVisible() }));
 
@@ -680,11 +685,19 @@ function mount(el) {
   const own = (x, y, page = scene.page) => { const o = origin(page); return [round(x - o.x), round(y - o.y)]; };
   function place(tx, places) {
     const view = viewOf(), n = App.notes.peek(), page = scene.page;
+    // (In a chart placed, a box's in a place's terms, as the layout reads it: less what the room the lanes over it take moves
+    // what stands at that height, so it's drawn where it's dropped; see `laid`.)
+    const lift = y => {
+      if (!page.placed) return 0;
+      let near = null;
+      for (const b of scene.marks) if (b.type === 'box' && b.laid && !places.has(b.id)) { const d = b.y - page.offset.y; if (d <= y + 1 && (!near || d > near.d)) near = { d, by: d - b.laid.y }; }
+      return near?.by ?? 0;
+    };
     for (const [id, p] of places) {
       const m = scene.byId.get(id);
       if (!m) continue;
       if (m.type === 'box') {
-        const old = n.position(treeOf(m.record), view), [x, y] = own(Math.max(0, p.x), Math.max(0, p.y));
+        const old = n.position(treeOf(m.record), view), [x, drawnAt] = own(Math.max(0, p.x), Math.max(0, p.y)), y = round(drawnAt - lift(drawnAt));
         tx.note('Position', treeOf(m.record), { x, y, w: round(p.w ?? m.w), ...((p.h !== undefined || old?.h) && { h: round(p.h ?? old.h) }) }, { view });
       } else if (m.type === 'shape') {
         const points = rowOf(id)?.points;
@@ -717,6 +730,13 @@ function mount(el) {
       } else if (Math.abs(p.x - m.x) > 0.01 || Math.abs(p.y - m.y) > 0.01 || Math.abs(sz.width - m.w) > 0.01 || Math.abs(sz.height - m.h) > 0.01) {
         places.set(id, { x: p.x, y: p.y, ...(Math.abs(sz.width - m.w) > 0.01 || Math.abs(sz.height - m.h) > 0.01 ? { w: sz.width, h: sz.height } : {}) });
       }
+    }
+    // A box dropped with its middle level with a row of its like joins it, its top on theirs, so it shares their height.
+    if (places.size === 1) {
+      const [[id, p]] = places, m = scene.byId.get(id), tri = m?.shape === 'triangle';
+      const row = m?.type === 'box' && p.w === undefined ? scene.marks.filter(b => b.type === 'box' && b.id !== id && (b.shape === 'triangle') === tri && p.y + m.h / 2 > b.y && p.y + m.h / 2 < b.y + b.h && Math.abs(b.y - p.y) <= m.h / 2) : [];
+      const near = row.sort((a, b) => Math.abs(a.x + a.w / 2 - p.x - m.w / 2) - Math.abs(b.x + b.w / 2 - p.x - m.w / 2))[0];
+      if (near) p.y = near.y;
     }
     moveTo(places);
   }
@@ -1321,7 +1341,10 @@ function mount(el) {
       const q = k.points[i];
       if (Math.max(p[0], q[0]) >= m.x - r && Math.min(p[0], q[0]) <= m.x + m.w + r && Math.max(p[1], q[1]) >= m.y - r && Math.min(p[1], q[1]) <= m.y + m.h + r) segs.push([q, p]);
     });
-    const dots = !gripped ? [] : [0, 0.5, 1].flatMap(fx => [0, 0.5, 1].filter(fy => (fx !== 0.5 || fy !== 0.5) && (fx !== 0.5 || m.w * z >= 40) && (fy !== 0.5 || m.h * z >= 40))
+    // (A triangle's, selected or not, so its handles stand where they stand either way: its base and corners alone.)
+    const tri = m.shape === 'triangle';
+    const dots = tri ? [[m.x, m.y + m.h], [m.x + m.w, m.y + m.h], ...m.w * z >= 40 ? [[m.x + m.w / 2, m.y + m.h]] : []]
+      : !gripped ? [] : [0, 0.5, 1].flatMap(fx => [0, 0.5, 1].filter(fy => (fx !== 0.5 || fy !== 0.5) && (fx !== 0.5 || m.w * z >= 40) && (fy !== 0.5 || m.h * z >= 40))
       .map(fy => [m.x + m.w * fx, m.y + m.h * fy]));
     const clear = p => segs.every(([a, b]) => toSegment(p, a, b) * z >= CLEAR) && dots.every(d => Math.hypot(p[0] - d[0], p[1] - d[1]) * z >= CLEAR);
     for (const h of handles) {
@@ -1956,22 +1979,24 @@ function mount(el) {
   function tidying() {
     const base = App.scene.peek(), some = tidyBoxes(), writes = new Map();
     for (const m of some.length ? some : base.marks.filter(m => m.type === 'box' && !m.revealed)) writes.set(m.record, { order: round(m.x), ...(some.length && { around: true }) });
-    if (some.length) for (const [id, p] of holdsOf(base)) if (!writes.has(id)) writes.set(id, p);
+    if (some.length) for (const [id, p] of holdsOf(base)) if (!writes.has(id) && treeOf(id)) writes.set(id, p);
     const ws = [...writes].map(([id, value]) => ({ t: treeOf(id), value })).filter(w => w.t), keys = new Set(ws.map(w => Tree.key(w.t)));
-    return { writes: ws, gone: some.length ? [] : placedHere().filter(n => !keys.has(Tree.key(n.pattern))), n: some.length };
+    // (Tidy places the Key afresh, as it does the chart.)
+    const key = some.length ? null : base.marks.find(m => m.geometry === 'legend' && m.byPage && rowOf(m.id)?.kept);
+    return { writes: ws, gone: some.length ? [] : placedHere().filter(n => !keys.has(Tree.key(n.pattern))), n: some.length, key: key?.id };
   }
   let triedTidy = 0;
   function tidied() {
-    const { writes, gone } = tidying(), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
+    const { writes, gone, key } = tidying(), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
     // (Each note tried is new, as a look tried is, so nothing worked out from another is kept for it.)
-    const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))),
+    const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))).map(r => key && r.shape === key ? { ...r, kept: null } : r),
       ...writes.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; })];
     const notes = Notes.index(rows.filter(r => 'note' in r));
     return { ...wb, rows: () => rows, notes: () => notes, tidy: tidyName() };
   }
   function tidy() {
-    const { writes, gone, n } = tidying(), view = viewOf();
-    if (!App.change(tx => { gone.forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, w.value, { view })); }, { say: n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout', keep: false, dated: false })) return;
+    const { writes, gone, n, key } = tidying(), view = viewOf();
+    if (!App.change(tx => { gone.forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, w.value, { view })); if (key) tx.update(key, { kept: null }); }, { say: n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout', keep: false, dated: false })) return;
     if (n) return;
     framed = true; left = null;
     settle();
@@ -1989,6 +2014,9 @@ function mount(el) {
       const [x, y] = base.page.placed && m.laid ? [m.laid.x, m.laid.y] : [m.x - o.x, m.y - o.y];
       out.set(m.record, { x: round(x), y: round(y), w: round(m.w), kept: true });
     }
+    // And the Key the page placed, where it's drawn on the sheet, so it keeps its corner as the chart is edited.
+    const key = base.marks.find(m => m.geometry === 'legend' && m.byPage), s = base.page.scale;
+    if (key) out.set(key.id, { x: round(key.x * s), y: round(key.y * s) });
     return out;
   }
   const stopKeep = App.keeping(tx => {
@@ -1997,8 +2025,9 @@ function mount(el) {
     const view = base.view;
     for (const [id, p] of holdsOf(base)) {
       const t = treeOf(id);
-      const old = t && tx.noteAt('Position', t, { view })?.value;
-      if (t && tx.item(id).length && (old?.loose ?? true)) tx.note('Position', t, { ...p, ...(old?.h != null && { h: old.h }) }, { view });
+      if (!t) { const was = rowOf(id)?.kept; if (rowOf(id) && (was?.x !== p.x || was?.y !== p.y)) tx.update(id, { kept: p }); continue; }
+      const old = tx.noteAt('Position', t, { view })?.value;
+      if (tx.item(id).length && (old?.loose ?? true)) tx.note('Position', t, { ...p, ...(old?.h != null && { h: old.h }) }, { view });
     }
   });
 

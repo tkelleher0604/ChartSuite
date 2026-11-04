@@ -491,9 +491,12 @@ async function run() {
   }
   check('every box’s handles sit on its outline, clear of the lines at it', !busy.length, busy.join(' '));
   Shell.select(['fund']); await tick(80);
-  const gripped = await handlesOn(tri), z0 = g.zoom(), grips = [0, 0.5, 1].flatMap(fx => [0, 0.5, 1].filter(fy => (fx !== 0.5 || fy !== 0.5) && (fx !== 0.5 || tri.w * z0 >= 40) && (fy !== 0.5 || tri.h * z0 >= 40))
-    .map(fy => [tri.x + tri.w * fx, tri.y + tri.h * fy]));
-  check('… and clear of its grips when it’s selected', gripped.every(({ p }) => grips.every(q => Math.hypot(p[0] - q[0], p[1] - q[1]) * g.zoom() >= 15.9)), gripped.map(x => `${x.side} ${x.p.map(Math.round)}`).join('; '));
+  // (A triangle's grips are its corners and its base's middle, none at its apex or off its slopes, drawn as they're counted.)
+  const gripEls = $$('.x6-widget-transform-resize').filter(e => getComputedStyle(e).display !== 'none'), onScreenGrips = gripEls.map(e => { const b = e.getBoundingClientRect(); return g.graphToLocal(b.left + b.width / 2 - r.left, b.top + b.height / 2 - r.top); }).map(p => [p.x, p.y]);
+  const gripped = await handlesOn(tri);
+  check('… and clear of its grips when it’s selected, a triangle’s corners and base alone, none at its apex or off its slopes, its handles where they stood unselected', onScreenGrips.length === 5 && !gripEls.some(e => ['top', 'left', 'right'].includes(e.dataset.position))
+    && gripped.every(({ p }) => onScreenGrips.every(q => Math.hypot(p[0] - q[0], p[1] - q[1]) * g.zoom() >= 15.9)) && gripped.every(h => hs.some(k => k.side === h.side && Math.hypot(k.p[0] - h.p[0], k.p[1] - h.p[1]) < 0.5)),
+    JSON.stringify({ grips: onScreenGrips.map(p => p.map(Math.round)), handles: gripped.map(x => `${x.side} ${x.p.map(Math.round)}`), was: hs.map(x => `${x.side} ${x.p.map(Math.round)}`) }));
   Shell.select(['halvard']); await tick(80);
   const [one] = await handlesOn(tri), hr = one?.h.getBoundingClientRect();
   if (one) {
@@ -1263,8 +1266,16 @@ async function keptAsDrawn() {
   const now = boxAt(), ln = routes(), moved = [...was].filter(([id, p]) => !near(now.get(id), p)), rerouted = [...lw].filter(([id, p]) => !near(ln.get(id), p)).map(([id]) => id);
   check('an edit that places nothing moves no box and re-routes no line: Northwind, bought into Tessellate among owners just imported, made an LLC', !!nw && was.has(nw) && !moved.length && !rerouted.length,
     JSON.stringify({ moved: moved.map(([id, p]) => [id, p, now.get(id)]), rerouted }));
-  for (let i = 0; i < 3; i++) { Shell.parts.peek().undo.undo(); await tick(200); }
-  check('… and undone, as it was', App.wb.changes().length === n0 + 6 && !st()[nw], App.wb.changes().length - n0);
+  // A box dropped in a row the lanes over it have moved down lands where it's dropped: on screen, by as much as it was dragged.
+  Shell.select([]); await tick(150);
+  const low = sc().byId.get('northpine'), onScreen = m => cv().graph.localToGraph(m.x, m.y), from = onScreen(low), lowered = low.y - sc().page.offset.y - low.laid.y;
+  await drag(low, 200, 38);
+  const landed = onScreen(sc().byId.get('northpine'));
+  // (To the guides' 5 pixels, which it may snap to.)
+  check('a box dropped among rows the lanes have moved down lands where it’s dropped', lowered > 2 && Math.abs(landed.x - from.x - 200) < 6 && Math.abs(landed.y - from.y - 38) < 6,
+    JSON.stringify({ lowered, from, to: landed }));
+  for (let i = 0; i < 4; i++) { Shell.parts.peek().undo.undo(); await tick(200); }
+  check('… and undone, as it was', App.wb.changes().length === n0 + 8 && !st()[nw], App.wb.changes().length - n0);
 }
 
 // ---- Tidy what's selected (gui2 L-2.2): with boxes selected it's named for them, and tidies only them, around everything else,
@@ -1287,23 +1298,24 @@ async function tidiedSome() {
   Shell.select([]); await tick(150);
 }
 
+// A box dragged by the mouse from a point of it, by (dx, dy) on screen.
+async function drag(m, dx, dy) {
+  const r = cv().root.getBoundingClientRect(), p = cv().graph.localToGraph(m.x + m.w / 2, m.y + m.h - 3), [x, y] = [r.left + p.x, r.top + p.y], el = $(`.dc [data-cell-id="${m.id}"]`);
+  const mouse = (t, [x, y], on = document) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'mouseup' ? 0 : 1, view: window }));
+  mouse('mousedown', [x, y], el.querySelector('path, rect') ?? el);
+  for (let i = 1; i <= 10; i++) { mouse('mousemove', [x + dx * i / 10, y + dy * i / 10]); await tick(16); }
+  mouse('mouseup', [x + dx, y + dy]); await tick(400);
+}
+
 async function stillAsMade() {
   const g = () => cv().graph, R = () => cv().root.getBoundingClientRect();
   const scr = (x, y) => { const p = g().localToGraph(x, y); return [R().left + p.x, R().top + p.y]; };
-  const mouse = (t, [x, y], on = document) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'mouseup' ? 0 : 1, view: window }));
   const pointer = (t, [x, y], on = document, buttons = 1) => on.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons, pointerId: 1, isPrimary: true, view: window }));
   const name = async text => { const ed = $('.dc-edit'); if (!ed) return false; ed.textContent = text; ed.dispatchEvent(new Event('input', { bubbles: true })); ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(500); return true; };
   const box = s => sc().marks.find(m => m.type === 'box' && m.texts[0]?.text.startsWith(s));
   const onScreenAt = m => g().localToGraph(m.x, m.y);
   const at = () => new Map(sc().marks.filter(m => m.type === 'box').map(m => [m.record, onScreenAt(m)]));
   const held = (was, but = []) => [...was].filter(([id]) => !but.includes(id)).every(([id, p]) => { const m = sc().byId.get(id), q = m && onScreenAt(m); return q && Math.abs(q.x - p.x) < 0.5 && Math.abs(q.y - p.y) < 0.5; });
-  // A box dragged by the mouse from a point of it, by (dx, dy) on screen.
-  async function drag(m, dx, dy) {
-    const [x, y] = scr(m.x + m.w / 2, m.y + m.h - 3), el = $(`.dc [data-cell-id="${m.id}"]`);
-    mouse('mousedown', [x, y], el.querySelector('path, rect') ?? el);
-    for (let i = 1; i <= 10; i++) { mouse('mousemove', [x + dx * i / 10, y + dy * i / 10]); await tick(16); }
-    mouse('mouseup', [x + dx, y + dy]); await tick(400);
-  }
   // A dot dragged from a box's side to a point on the page, as a person relates a new box to it.
   async function dot(m, side, to) {
     const tri = m.shape === 'triangle', p = { n: [m.x + m.w / 2, m.y], e: [m.x + m.w * (tri ? 0.75 : 1), m.y + m.h / 2], w: [m.x + (tri ? m.w / 4 : 0), m.y + m.h / 2] }[side];
@@ -1380,6 +1392,27 @@ async function stillAsMade() {
   // History says what was done, and nothing of what was kept where it stood.
   const says = App.wb.changes().slice(n0).map(c => Time.describe(c));
   check('History says each change as it was made, nothing of the boxes kept where they stood', !says.some(s => /^Moved Larkspur Credit GP|^Moved Larkspur Capital|, and \d+ more/.test(s)), says.join(' | '));
+  // The Key keeps its corner as the chart is edited (gui2 D-16): a change keeps it where it's drawn on the sheet, which
+  // History doesn't say; Tidy places it afresh, as it does the chart.
+  const keyMark = () => sc().marks.find(m => m.geometry === 'legend'), keyAt = () => [keyMark().x * sc().page.scale, keyMark().y * sc().page.scale], keyRow = () => App.wb.rows(App.chart.peek()).find(r => r.geometry === 'legend');
+  const k0 = keyAt(), f3 = box('Larkspur Credit Fund');
+  await dot(f3, 'e', [f3.x + f3.w + 200, f3.y + f3.h + 110]);
+  await name('State of Ohio Public Employees Deferred Compensation Retirement Trust');
+  const k1 = keyAt();
+  check('the Key keeps its corner as the chart is edited, which History doesn’t say', Math.abs(k1[0] - k0[0]) < 1 && Math.abs(k1[1] - k0[1]) < 1 && !!keyRow().kept && !/Key/.test(Time.describe(App.wb.changes().at(-1))), JSON.stringify({ k0, k1, kept: keyRow().kept, said: Time.describe(App.wb.changes().at(-1)) }));
+  // A box dragged with its middle level with a row of its like joins it (gui2 D-20): its top on theirs, and they share its height.
+  Shell.select([]); await tick(150);
+  const tall = box('State of Ohio'), row = box('Fund II Investors'), z1 = g().zoom(), h0 = tall.h, others = at();
+  await drag(tall, 0, (row.y + row.h / 2 - tall.y - tall.h / 2) * z1);
+  const t1 = box('State of Ohio'), r1 = box('Fund II Investors');
+  check('a box dragged level with a row joins it, its top on theirs, and they share its height, and it moves no other box across', Math.abs(t1.y - r1.y) < 0.75 && Math.abs(t1.h - r1.h) < 0.75 && r1.h >= h0 - 0.75 && [...others].filter(([id]) => id !== t1.record).every(([id, p]) => Math.abs(onScreenAt(sc().byId.get(id)).x - p.x) < 0.5),
+    JSON.stringify({ t1: [t1.x, t1.y, t1.h], r1: [r1.x, r1.y, r1.h], h0 }));
+  Shell.parts.peek().undo.undo(); await tick(400);
+  Shell.select([]); await tick(150);
+  cv().tidy(); await tick(600);
+  check('… and Tidy places the Key afresh', !keyRow().kept, JSON.stringify(keyRow().kept));
+  Shell.parts.peek().undo.undo(); await tick(400);
+  check('… and undone, it stands where it stood', !!keyRow().kept && Math.abs(keyAt()[0] - k1[0]) < 1 && Math.abs(keyAt()[1] - k1[1]) < 1, JSON.stringify([keyRow().kept, keyAt(), k1]));
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);

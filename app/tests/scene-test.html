@@ -634,6 +634,25 @@ function run() {
     const year = Object.keys(st).find(id => st[id].kind === 'Tax Year' && !base.byId.has(id));
     const lone = Scene.of(wb, C, MAIN, DAY, { state: st, computed: R, reveal: [year] }).byId.get(year);
     check('… and places a box it reveals on the page', lone && lone.x >= 0 && lone.y >= 0 && lone.x + lone.w <= base.page.w && lone.y + lone.h <= base.page.h, j(lone && [lone.x, lone.y, base.page.w, base.page.h]));
+    // A box that starts later, selected, is drawn where it will be, its lines on the route they will have, the box as tall as
+    // its row, and everything else as it was: as of that day, it's drawn so.
+    const THEN = '2027-03-02', asLater = (to, up, x, y) => {
+      const w = fresh(), tx = w.edit({ chart: C, who: WHO }), [e] = entity(tx, 'Hollis Bay Holdings, LLC', 'Limited Liability Company');
+      tx.add('record', { at: e, edge: 'Formation Date', field: 'date', value: THEN });
+      const o = tx.add('record', { args: up ? [{ edge: 'Owner', at: e }, { edge: 'Owned', at: to }] : [{ edge: 'Owner', at: to }, { edge: 'Owned', at: e }], tag: true });
+      tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: 0.3 });
+      tx.note('Position', { id: e, kind: 'Entity' }, { x, y, w: 132 }, { view: MAIN });
+      if (typeof tx.commit() === 'string') throw new Error('no later box');
+      const S = w.schema(C), N = w.notes(C), on = d => Formulas.computeState(w.asOf(C, d), N.definitions(S), { relations: N.relations(S) }), now = on(DAY), then = w.asOf(C, THEN);
+      const today = Scene.of(w, C, MAIN, DAY, { state: now.records, computed: now }), I = Tree.index(then), its = {}, put = i => { its[i] = then[i]; (I.entries.get(i) ?? []).forEach(put); };
+      put(e); put(o);
+      const faint = Scene.of(w, C, MAIN, DAY, { state: { ...now.records, ...its }, computed: now, reveal: [e] }), R2 = on(THEN), final = Scene.of(w, C, MAIN, THEN, { state: R2.records, computed: R2 });
+      const own = (s, ps) => ps.map(p => [Math.round(p[0] - s.page.offset.x), Math.round(p[1] - s.page.offset.y)]), place = s => { const b = s.byId.get(e); return own(s, [[b.x, b.y], [b.x + b.w, b.y + b.h]]); };
+      const others = today.marks.filter(m => m.type === 'line').filter(l => j(faint.byId.get(l.id)?.points) !== j(l.points)).map(l => l.id);
+      return { to, ok: j(place(faint)) === j(place(final)) && j(own(faint, faint.byId.get(o).points)) === j(own(final, final.byId.get(o).points)) && !others.length, faint: [place(faint), own(faint, faint.byId.get(o).points)], final: [place(final), own(final, final.byId.get(o).points)], others };
+    };
+    const asTheyWillBe = [['fund', true, 660, 60], ['tessellate', true, 1020, 640], ['aivblk', false, 300, 780], ['feeder', true, 880, 100]].map(a => asLater(...a));
+    check('a box that starts later, selected, is drawn where it will be, its line on the route it will have, nothing else moving', asTheyWillBe.every(x => x.ok), j(asTheyWillBe.filter(x => !x.ok)));
   }
 
   // ---- On Letter, the default PDF ----
@@ -909,10 +928,12 @@ function run() {
       const touches = !!r && gp.points.slice(1).some((q, i) => { const p0 = gp.points[i];
         return Math.abs(p0[0] - q[0]) < 0.5 ? p0[0] > r.x - 8 / 3 + 0.01 && p0[0] < r.x + r.w + 8 / 3 - 0.01 && Math.max(p0[1], q[1]) > r.y + 0.5 && Math.min(p0[1], q[1]) < r.y + r.h - 0.5
           : p0[1] > r.y - 4 / 3 + 0.01 && p0[1] < r.y + r.h + 4 / 3 - 0.01 && Math.max(p0[0], q[0]) > r.x + 0.5 && Math.min(p0[0], q[0]) < r.x + r.w - 0.5; });
-      return { placed: p, paper, teeth: teeth.filter(t => !t.ok), owners: owners.length, gp: !!gp, touches };
+      const backs = new Set(owners.filter(l => l.points.length > 2).map(l => Math.round(l.points[1][1])));
+      return { placed: p, paper, teeth: teeth.filter(t => !t.ok), owners: owners.length, gp: !!gp, touches, backs: [...backs] };
     }));
     check('owners’ lines run together into a fund’s apex: each percentage on its own drop, just under its owner, never on the run they share, placed by hand or laid out, slide and Letter',
       combs.every(c => c.owners === 4 && !c.teeth.length), j(combs));
+    check('… on one back, a comb’s, whichever side of the apex they stand', combs.every(c => c.backs.length === 1), j(combs.map(c => c.backs)));
     check('… and a label never touches its own line: “General partner” 2 pt or more clear of its drop and its lane', combs.every(c => c.gp && !c.touches), j(combs));
     // Laid out with nothing placed, what's beside each other stands in the order it was made (gui2 D-15), never reversed.
     const laid = halvard(false), across = ['State Teachers', 'Ridgeway', 'Harbor', 'Coastal'].map(n => laid.marks.find(m => m.type === 'box' && m.texts[0]?.text.startsWith(n)).x);
@@ -932,6 +953,31 @@ function run() {
         && s.page.scale === was.page.scale && (dy > -125 || Math.abs(own(s, o)[1] - own(was, o0)[1]) < 1) && (dx === -170 && dy === -125 ? true : Math.abs(own(s, o)[0] - own(was, o0)[0]) < 1), at: own(s, o), was: own(was, o0), fund: own(s, f), end, page: [was.page.offset.y, s.page.offset.y, s.page.scale] };
     }));
     check('the first owner of a fund, dropped anywhere round it and related, stands over it near where it was dropped, its line into the apex, the fund and the page as they stood', stays.every(x => x.ok), j(stays.filter(x => !x.ok)));
+    // The Key keeps its corner (gui2 D-16): where a change kept it, on the sheet, while that's clear of the chart; a Key grown
+    // keeps its right edge on the margin; and where the chart has taken its room, it goes where it would.
+    const kept = at => {
+      let o = null;
+      const n = newChart((tx, view) => {
+        const [f] = entity(tx, 'Halvard Capital Fund IV, L.P.', 'Limited Partnership');
+        o = entity(tx, 'State Teachers Pension Plan', 'Corporation')[0];
+        owns(tx, o, f, 0.4);
+        tx.note('Position', { id: f, kind: 'Entity' }, { x: 460, y: 300 }, { view });
+      });
+      const row = n.wb.rows(n.c).find(r => r.geometry === 'legend');
+      // (As a change keeps it, with what it changes: a scene isn't drawn again for where the Key's kept alone.)
+      const tx = n.wb.edit({ chart: n.c, who: WHO });
+      tx.note('Position', { id: o, kind: 'Entity' }, { x: 240, y: 140 }, { view: n.view });
+      if (at) tx.update(row.shape, { kept: at });
+      if (typeof tx.commit() === 'string') throw new Error('not kept');
+      const N = n.wb.notes(n.c), R = Formulas.computeState(n.wb.asOf(n.c, DAY), N.definitions(n.wb.schema(n.c)), { relations: N.relations(n.wb.schema(n.c)) }), s = Scene.of(n.wb, n.c, n.view, DAY, { state: R.records, computed: R });
+      const k = s.marks.find(m => m.geometry === 'legend'), boxes = s.marks.filter(m => m.type === 'box').map(m => [m.x - s.page.offset.x, m.y - s.page.offset.y]);
+      return { x: k.x * s.page.scale, y: k.y * s.page.scale, w: k.w * s.page.scale, right: s.page.w * s.page.scale, boxes, over: s.marks.find(m => m.type === 'box' && m.texts[0]?.text.startsWith('State')), s: s.page.scale };
+    };
+    const free = kept(null), foot = kept({ x: 700, y: 560 }), wide = kept({ x: 5000, y: 560 }), taken = kept({ x: free.over.x * free.s + 4, y: free.over.y * free.s + 4 });
+    const same = (a, b) => Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1, boxesSame = (a, b) => j(a.boxes) === j(b.boxes);
+    check('the Key stands where a change kept it on the sheet, the chart as it was', Math.abs(foot.x - 700) < 1 && Math.abs(foot.y - 560) < 1 && boxesSame(foot, free), j({ foot: [foot.x, foot.y], free: [free.x, free.y] }));
+    check('… its right edge within the margin, however wide it’s grown', wide.x + wide.w <= wide.right && Math.abs(wide.y - 560) < 1, j([wide.x, wide.w, wide.right]));
+    check('… and where the chart has taken its room, it goes where it would', same(taken, free) && boxesSame(taken, free), j({ taken: [taken.x, taken.y], free: [free.x, free.y] }));
   }
   {
     // Tidy (gui2 D-15, L-2.2) takes each box's place away but for where it stood across: every row of every sample view, on

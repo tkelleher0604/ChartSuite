@@ -43,7 +43,8 @@
 .dc .x6-widget-transform-resize:is([data-position="top"], [data-position="bottom"]) { left: calc(50% - 3px) !important; }
 .dc .x6-widget-transform-resize:is([data-position="left"], [data-position="right"]) { top: calc(50% - 3px) !important; }
 .dc .x6-widget-transform.narrow .x6-widget-transform-resize:is([data-position="top"], [data-position="bottom"]),
-.dc .x6-widget-transform.short .x6-widget-transform-resize:is([data-position="left"], [data-position="right"]) { display: none !important; }
+.dc .x6-widget-transform.short .x6-widget-transform-resize:is([data-position="left"], [data-position="right"]),
+.dc .x6-widget-transform.triangular .x6-widget-transform-resize:is([data-position="top"], [data-position="left"], [data-position="right"]) { display: none !important; }
 .dc .x6-widget-snapline line { stroke: #e8432a !important; stroke-width: 1px !important; shape-rendering: crispEdges; }
 .dc .x6-widget-transform-rotate { display: none !important; }
 
@@ -72,7 +73,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-relating { fill: none; stroke: var(--accent); stroke-width: 1.5px; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
 
 /* The handles a relation is drawn from, on the outline of the box whose edge the pointer nears. */
-.dc-handle { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #fff; border: 1.5px solid var(--accent); cursor: crosshair; opacity: 0; transition: opacity var(--quick) var(--ease); }
+.dc-handle { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--accent); border: 1.5px solid #fff; box-shadow: 0 0 0 0.5px var(--accent); cursor: crosshair; opacity: 0; transition: opacity var(--quick) var(--ease); }
 .dc-handle::before { content: ""; position: absolute; inset: -6px; border-radius: 50%; }
 .dc.relating-on .dc-handle { opacity: 1; }
 .dc:not(.relating-on) .dc-handle { pointer-events: none; }

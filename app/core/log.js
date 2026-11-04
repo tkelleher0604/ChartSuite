@@ -10,8 +10,9 @@ const TYPES = ['chart', 'spec', 'record', 'note', 'shape'];
 const typeOf = row => TYPES.find(t => t in row);
 const itemOf = row => row[typeOf(row)];
 const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v); };
-let counter = 0;
-const newId = () => Date.now().toString(36) + (counter++ % 1296).toString(36).padStart(2, '0') + Math.random().toString(36).slice(2, 6);
+// (In the order they're made: what's made first of one millisecond sorts first, so the first made stands: see Scene's givesWay.)
+let counter = 0, lastMs = 0;
+const newId = () => { const ms = Date.now(); counter = ms === lastMs ? counter + 1 : 0; lastMs = ms; return ms.toString(36) + counter.toString(36).padStart(2, '0') + Math.random().toString(36).slice(2, 6); };
 const today = () => Tree.isoOf(new Date());
 const byTime = (a, b) => a.when < b.when ? -1 : a.when > b.when ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 const validOn = (r, d) => (!r.since || r.since <= d) && (!r.before || d < r.before);

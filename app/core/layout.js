@@ -877,7 +877,9 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   }
   const within = (x, [a, b]) => x > a + 0.5 && x < b - 0.5;
   const crossings = (near, far) => within(far.x, near.span) + near.lands.filter(l => within(l.tx, far.span)).length;
-  const overlap = (a, b) => a.span[0] < b.span[1] + 6 && b.span[0] < a.span[1] + 6;
+  // (But trunks of one line each into one apex by one relation share a lane, its owners' teeth on a comb's one back.)
+  const oneBack = (a, b) => a.ls.length === 1 && b.ls.length === 1 && a.ls[0].apex && b.ls[0].apex && a.ls[0].to === b.ls[0].to && a.ls[0].trunk === b.ls[0].trunk;
+  const overlap = (a, b) => !oneBack(a, b) && a.span[0] < b.span[1] + 6 && b.span[0] < a.span[1] + 6;
   const channels = [];
   for (const t of [...trunks].filter(t => !t.flankSide).sort((a, b) => a.x - b.x)) {
     const ch = channels.find(c => c.dir === t.dir && Math.abs(c.edge - t.edge) < 40);
@@ -929,10 +931,12 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
     } else if (t.dir === 'down') {
       // (A box's one line that runs with others into an apex carries its label on its own drop, under the box: its lane
       // leaves it the room, as a comb's teeth.)
+      // (On one back, from the lowest of the boxes they leave.)
+      const back = (laneOf.get(t)?.trunks ?? []).filter(o => oneBack(o, t)), edge = Math.max(t.edge, ...back.map(o => o.edge));
       const limit = Math.min(...ls.map(l => l.ty - short(l)), ...over(t)) - LANE * (lanes - 1 - t.lane), out = Math.max(...shades(t));
-      const comb = t.ls.length === 1 && t.ls[0].apex && t.ls[0].crowd > 1 && t.ls[0].label ? [t.edge + room(t.ls[0])] : [];
-      const floor = Math.max(t.edge + 8 + LANE * t.lane, ...comb, ...joins(t).filter(y => y <= limit), ...stand ? [] : [out]);
-      t.laneY = Math.max(floor, Math.min(Math.max(t.edge + 18 + LANE * t.lane, out), limit));
+      const comb = [t, ...back].filter(o => o.ls.length === 1 && o.ls[0].apex && o.ls[0].crowd > 1 && o.ls[0].label).map(o => edge + room(o.ls[0]));
+      const floor = Math.max(edge + 8 + LANE * t.lane, ...comb, ...joins(t).filter(y => y <= limit), ...stand ? [] : [out]);
+      t.laneY = Math.max(floor, Math.min(Math.max(edge + 18 + LANE * t.lane, out), limit));
       for (const f of fixed) {
         if (Math.min(f.x1, t.span[1]) - Math.max(f.x0, t.span[0]) < 4 || Math.abs(t.laneY - f.y) >= LANE) continue;
         if (f.y + LANE <= limit) t.laneY = f.y + LANE;
