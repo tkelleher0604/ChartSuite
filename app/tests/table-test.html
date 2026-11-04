@@ -1592,7 +1592,7 @@ async function run() {
   visits.length = 0;
   $$('.status .counts .btn').find(b => b.textContent === '1 overdue').click(); await tick(120);
   const due = $('.float .menu.needs .menu-item'), dueRec = R0[dueIds[1]];
-  check('… a date by what falls due and whose, its day at its end', txt(due?.querySelector('.label')) === `${App.notes.peek().nameOf(R0, dueIds[1])} · ${whoseOf(dueRec.at)}`
+  check('… a date by what falls due and whose, and who’s on the hook for it, its day at its end', txt(due?.querySelector('.label')) === [App.notes.peek().nameOf(R0, dueIds[1]), whoseOf(dueRec.at), App.responsible(dueIds[1])?.name].filter(Boolean).join(' · ')
     && txt(due?.querySelector('.detail')) === Tree.formatDate(dueRec.value, 'short'), `${txt(due?.querySelector('.label'))} | ${txt(due?.querySelector('.detail'))}`);
   Shell.closeAll(); await tick(60);
   $$('.status .counts .btn').find(b => b.textContent === '1 due soon').click(); await tick(60);

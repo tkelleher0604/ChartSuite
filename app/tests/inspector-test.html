@@ -447,6 +447,7 @@ async function run() {
   check('a relation recorded from a later day is said with that day, and not offered again', !!later && / is an owner of Northpine/.test(later.textContent) && later.querySelector('.when')?.textContent === 'From Dec 1, 2027' && !offeredAgain,
     `${later?.textContent} / ${offeredAgain}`);
   later?.querySelector('.when .lk')?.click(); await tick(60);
+  await pick('Show the chart then'); await tick(60);
   check('… its day a link to the chart then', Shell.time.peek()?.asOf === '2027-12-01');
   Shell.at(null); Shell.parts.value.undo.undo(); await tick(60);
   // A relation's amount is asked first, in its row and the bar, one state: typed, it's redlined as Enter will add it, and
@@ -1452,6 +1453,128 @@ async function saysWhen(C, keep) {
     && spoken(document.querySelector('.toast span')) === `Elena Vasquez isn’t on ${N().nameOf(st(), here2)}` && [...document.querySelectorAll('.toast button')].some(b => b.textContent === 'Show'), document.querySelector('.toast')?.textContent);
   Shell.parts.value.undo.undo(); await tick(60);
   Shell.parts.value.undo.undo(); await tick(60);
+
+  // ---- A change can be changed (dendra.md, Change): its act made again, one change, saying what moved ----
+  const amToast = () => spoken(document.querySelector('.toast span') ?? document.createElement('i')), amPct = (recs, rel) => Object.values(recs).find(x => x.at === rel && x.edge === 'Percentage')?.value;
+  Shell.select([halvardStake]); App.transferring(halvardStake); await tick(80);
+  await typeIn('Northpine Software, LLC'); await pick('Northpine Software, LLC'); await tick(60);
+  const partIn = $('.asking .amount');
+  partIn.value = '10%'; partIn.dispatchEvent(new Event('input', { bubbles: true })); await tick(60);
+  await type($('.asking .from input'), 'November 1, 2036'); await tick(80);
+  const tr1 = last(), act1 = Time.act(tr1), nAm = App.wb.changes().length, madeRel = act1?.made;
+  check('a transfer reads back as an act: its parties, its part and its day', act1?.type === 'transfer' && act1.rid === halvardStake && act1.q === 0.1 && act1.day === '2036-11-01' && !!madeRel && !act1.whole, JSON.stringify(act1));
+  check('its row in History offers Change…', (Time.open('all'), await tick(120), !!$$('.hist-row .change').length), '');
+  Time.close(); await tick(60);
+  App.amending(tr1); await tick(140);
+  check('Change… opens its own bar, its day and amount in place, its verb Change, nothing yet made', pb('.btn.primary')?.textContent === 'Change' && pb('.amount')?.value === '10%' && pb('.from input')?.value === 'Nov 1, 2036' && App.wb.changes().length === nAm, pb()?.textContent);
+  const pIn = pb('.amount'); pIn.value = '15%'; pIn.dispatchEvent(new Event('input', { bubbles: true })); await tick(60);
+  const dIn = pb('.from input'); await type(dIn, 'December 1, 2036'); await tick(100);
+  const tr2 = last(), mid36 = App.wb.asOf(C, '2036-11-15'), dec36 = App.wb.asOf(C, '2036-12-01');
+  check('made, it’s one change that says what it amends and what moved', tr2.amends === tr1.id && App.wb.changes().length === nAm + 1 && Time.describe(tr2) === 'Changed the transfer: 10% → 15%, Nov 1 → Dec 1' && spoken(document.querySelector('.toast span')) === Time.describe(tr2), Time.describe(tr2));
+  check('… both sides together: 82% until then, 67% and 15% from it, the relation it made keeping its id', amPct(mid36, halvardStake) === 0.82 && !mid36[madeRel] && amPct(dec36, halvardStake) === 0.67 && amPct(dec36, madeRel) === 0.15, `${amPct(mid36, halvardStake)} ${amPct(dec36, halvardStake)} ${amPct(dec36, madeRel)}`);
+  check('… it reads as the act it now is, and can be changed again', (a => a?.type === 'transfer' && a.q === 0.15 && a.day === '2036-12-01' && a.made === madeRel)(Time.act(tr2)), JSON.stringify(Time.act(tr2)));
+  Time.open('all'); await tick(150);
+  const amHeads = $$('.hist-row .what').map(x => spoken(x));
+  check('History has the one entry, what it was folded in it', amHeads.includes(Time.describe(tr2)) && !amHeads.includes(Time.describe(tr1)), amHeads.slice(0, 3).join(' | '));
+  Time.close(); await tick(60);
+  Shell.parts.value.undo.undo(); await tick(80);
+  const back36 = App.wb.asOf(C, '2036-11-15');
+  check('Undo takes back the amendment alone, and the first stands as it was', amPct(back36, halvardStake) === 0.72 && amPct(back36, madeRel) === 0.1 && amToast() === `Undid: ${Time.describe(tr2)}`, amToast());
+  // A later change that rests on it is said, and it can't be begun
+  Shell.select([halvardStake]); await tick(60);
+  App.change(tx => tx.update(Object.keys(back36).find(k => back36[k].at === halvardStake && back36[k].edge === 'Percentage'), { value: 0.5 }), { dated: '2037-02-01' }); await tick(60);
+  const later37 = last();
+  const barredTo = !!Time.barred(tr1), notBegun = App.amending(tr1) === false; await tick(60);
+  check('a later change that took a row of it says so, by name, and Change… isn’t begun', barredTo && notBegun && /^A later change rests on it/.test(amToast()) && !App.pending.peek(), amToast());
+  Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(80);
+  // A value typed from a day: its day and its value, those either side meeting where they met
+  const stakeOf = Object.keys(st()).find(k => st()[k].at === halvardStake && st()[k].edge === 'Percentage');
+  App.put(stakeOf, st()[stakeOf], { field: 'percent', value: 0.55 }); await tick(80);
+  await type(pb('.from input'), 'February 1, 2037'); await tick(100);
+  Shell.select([halvardStake]); await tick(60);
+  const comingBtn = rowOf('Percentage').querySelector('.ver.coming');
+  check('what’s coming stands amBeside the value it’ll replace', /^55% from Feb 1, 2037/.test(comingBtn?.textContent ?? ''), rowOf('Percentage')?.textContent);
+  check('… and on its row in a list, a row dating the value it shows', (Shell.select(['halvard']), await tick(60), /55% from Feb 1, 2037/.test($$('section').find(s => s.dataset.title === 'Owners')?.textContent ?? '')), $$('section').find(s => s.dataset.title === 'Owners')?.textContent);
+  Shell.select([halvardStake]); await tick(60);
+  const row37 = App.wb.item(C, stakeOf).find(r => r.since === '2037-02-01');
+  App.amendingRow(stakeOf, row37); await tick(120);
+  check('Change this day… on a value: its own bar, its figure and day in place', pb('.amt input')?.value === '55%' && pb('.from input')?.value === 'Feb 1, 2037' && /stake in/.test(spoken(pb('.what'))), pb()?.textContent);
+  await type(pb('.from input'), 'March 1, 2037'); await tick(100);
+  const vals = App.wb.item(C, stakeOf).map(r => `${r.value}:${r.since ?? ''}:${r.before ?? ''}`).join();
+  check('… the rows either side meeting on the new day, the one entry saying what moved', /0\.82:[^:]*:2037-03-01/.test(vals) && /0\.55:2037-03-01:/.test(vals) && /: Feb 1 → Mar 1$/.test(Time.describe(last())), `${vals} ${Time.describe(last())}`);
+  Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(80);
+  // Typed over one side of a transfer, the bar asks what was meant
+  // A merger: what it ends, said on its bar; what its holders received asked after; changed as a transfer is
+  const nMg = App.wb.changes().length;
+  Shell.select(['northpine']); await tick(60);
+  App.merging('northpine'); await tick(80);
+  await typeIn('Corvane'); await tick(30);
+  check('a merger’s survivor is found by what it begins with first', spoken(document.querySelector('.float .menu-item.on .label') ?? document.body).startsWith('Corvane'), spoken(document.querySelector('.float .menu-item.on .label') ?? document.body));
+  await pick('Corvane Specialty Chemicals Holdings, LLC'); await tick(60);
+  check('… what it ends is said on its bar, in names and figures', /Ends Fund III’s 64%, the BDC’s 12%/.test(spoken(pb('.what'))), spoken(pb('.what')));
+  await type(pb('.from input'), 'February 1, 2037'); await tick(100);
+  const mg1 = last(), asks = [...document.querySelectorAll('.toast button')].find(b => /holders receive/.test(b.textContent));
+  check('… and stays said: its toast asks what those holders received', !!asks && Time.act(mg1)?.type === 'merger', document.querySelector('.toast')?.textContent);
+  asks?.click(); await tick(120);
+  const amAsked = $$('section').find(s => s.dataset.key === 'merged');
+  check('… as the survivor’s panel does, each by what it held and what it holds there, or Add', Shell.selection.peek().join() === 'corvane' && /What did they receive\?/.test(amAsked?.textContent ?? '') && /held 64%/.test(amAsked?.textContent ?? '') && /held 12%/.test(amAsked?.textContent ?? '') && /here/.test(amAsked?.textContent ?? '') && !!amAsked?.querySelector('.add-entry'), amAsked?.textContent);
+  App.amending(mg1); await tick(120);
+  await type(pb('.from input'), 'March 1, 2037'); await tick(100);
+  check('a merger changed is one entry saying what moved, its date and its relation moved', last().amends === mg1.id && Time.describe(last()) === 'Changed the merger: Feb 1 → Mar 1' && !!App.wb.asOf(C, '2037-02-15').northpine && !App.wb.asOf(C, '2037-03-01').northpine, Time.describe(last()));
+  Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(80);
+  check('… all back as it was', App.wb.changes().length === nMg + 4 && !!st().northpine, `${App.wb.changes().length - nMg}`);
+  // An insertion: what stays with the stake that ends, and its day offered as the new company's start
+  Shell.select([blocked]); App.interposing(blocked); await tick(80);
+  await typeIn('Calder Ridge Holdco, LLC'); await pick('New Entity: Calder Ridge Holdco, LLC'); await tick(80);
+  await type(pb('.from input') ?? $('.asking .from input'), 'January 1, 2037'); await tick(100);
+  const ins1 = last(), amFormed = [...document.querySelectorAll('.toast button')].find(b => /^Formed Jan 1, 2037/.test(b.textContent)), insAct = Time.act(ins1);
+  check('an insertion’s toast offers its day as the new company’s Formation Date', !!amFormed && insAct?.type === 'insert', document.querySelector('.toast')?.textContent);
+  App.amending(ins1); await tick(120);
+  await type(pb('.from input'), 'February 1, 2037'); await tick(100);
+  const insOn = App.wb.asOf(C, '2037-02-01');
+  check('an insertion changed: one entry, its new company and its two stakes keeping their ids, from the new day', last().amends === ins1.id && Time.describe(last()) === 'Changed the insertion: Jan 1 → Feb 1' && !!insOn[insAct.up] && !!insOn[insAct.made] && !App.wb.asOf(C, '2037-01-15')[insAct.up], Time.describe(last()));
+  Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(80);
+  // A box's kind: a dropdown, offering what its relations still fit, saying why not
+  Shell.select(['chen']); await tick(60);
+  $('.ih .path .kind')?.click(); await tick(60);
+  const kinds = [...document.querySelectorAll('.float .menu-item')].map(x => [x.querySelector('.label').textContent, x.getAttribute('aria-disabled'), x.dataset.tip]);
+  const asEnt = kinds.find(k => k[0] === 'Entity');
+  check('a box’s kind is a dropdown, what its relations don’t fit greyed, saying why; what it is and its table a step further', asEnt?.[1] === 'true' && /doesn’t take one/.test(asEnt?.[2] ?? '') && kinds.some(k => k[0] === 'What an individual is') && kinds.some(k => k[0] === 'Open in Individuals'), JSON.stringify(kinds));
+  Shell.closeAll(); await tick(30);
+  let loose = null;
+  App.change(tx => { loose = tx.add('record', { kind: 'Individual' }); tx.add('record', { at: loose, edge: 'Name', field: 'text', value: 'Pinecrest Capital' }); }, { dated: false }); await tick(60);
+  Shell.select([loose]); await tick(60);
+  $('.ih .path .kind')?.click(); await tick(60);
+  await pick('Entity'); await tick(80);
+  check('… one change, every version of it, said', st()[loose]?.kind === 'Entity' && Time.describe(last()) === 'Made Pinecrest Capital an Entity, not an Individual', Time.describe(last()));
+  Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(60);
+  // Who's on the hook: a date's own record's before its entity's
+  check('who’s responsible is the nearest up from a date', App.responsible('fund3a_lei')?.name === 'Rebecca A. Moretti' && App.responsible('fund3a')?.name === 'Jonathan S. Ferraro' && App.responsible('aiv')?.name === 'Rebecca A. Moretti', App.responsible('fund3a')?.name);
+  // Enter on the From list opens it; Esc from a value amBeside it drops what's waiting
+  App.put('fund_target', st().fund_target, { field: 'money', value: 800000000 }); await tick(80);
+  const nE = App.wb.changes().length;
+  pb('.from .sel')?.focus(); key(pb('.from .sel'), 'Enter'); await tick(60);
+  check('Enter on the From list opens it, nothing made, and All along says it’s a correction', !!document.querySelector('.float .menu') && App.wb.changes().length === nE && /a correction/.test(document.querySelector('.float .menu')?.textContent ?? ''), document.querySelector('.float .menu')?.textContent);
+  Shell.closeAll(); await tick(30);
+  Shell.select(['fund']); await tick(60);
+  const amBeside = rowOf('Fiscal Year End')?.querySelector('.cell');
+  amBeside?.focus(); key(amBeside, 'Escape'); await tick(60);
+  check('Esc from a value in the panel with nothing typed drops what’s waiting', !App.pending.peek() && /^Discarded/.test(amToast()), amToast());
+  // A date typed over another says what it replaces
+  App.change(tx => tx.add('record', { at: 'mgmt', edge: 'Scratch Date', field: 'date', value: '2036-01-01' }), { dated: false }); await tick(60);
+  const scratch = Object.keys(st()).find(k => st()[k].edge === 'Scratch Date');
+  App.put(scratch, st()[scratch], { field: 'date', value: '2036-02-02' }); await tick(60);
+  check('a date typed over another says what it replaces', /is Feb 2, 2036, not Jan 1, 2036$/.test(amToast()), amToast());
+  Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(60);
+  // A relation picker finds by both sides, in any order
+  Shell.select(['doc_cert_blk']); await tick(60);
+  $$('section').find(s => s.dataset.title === 'Evidences')?.querySelector('.sect .btn.icon')?.click(); await tick();
+  await typeIn('halvard blocker'); await tick(30);
+  const both = [...document.querySelectorAll('.float .menu-item .label')].map(x => spoken(x));
+  check('a relation picker finds by both sides, in any order', both.length === 1 && /Fund III Blocker → Halvard/.test(both[0]), both.join(' | '));
+  await pick([...document.querySelectorAll('.float .menu-item .label')][0]?.textContent); await tick(80);
+  check('… and a document’s link offers the document’s date', pb('.from input')?.value === 'May 22, 2023', pb()?.textContent);
+  key(pb('.from input'), 'Escape'); await tick(60);
 }
 // The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.
 function describeAffiliated() {

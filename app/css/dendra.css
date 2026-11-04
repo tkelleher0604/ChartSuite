@@ -196,6 +196,11 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 /* ---- History: a change picked, its Undo, and why not where it can't run; what's ended, by its day ---- */
 .hist-row > .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 8px; }
 .hist-row > .acts > .why { font: var(--t12); color: var(--ink-2); }
+/* Change…, where it's read: what a later change rests on, grey, saying so and going there. */
+.hist-row .meta .change { padding: 0; border: 0; background: none; font: inherit; color: var(--accent-ink); }
+.hist-row .meta .change[aria-disabled="true"] { color: var(--ink-3); }
+.pendbar .rests, .asking .rests { margin-right: 8px; color: var(--no); font: var(--t12); }
+.pendbar .stays, .asking .stays { color: var(--ink-2); }
 
 /* The past looks past: a band across the view, the moment shown and the way back. Over a chart's page it stands in the room above
    the sheet, so nothing moves; a table gives it its room. */
@@ -285,6 +290,10 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .sect > .n { font-weight: 400; color: var(--ink-3); }
 .path { display: flex; flex-wrap: wrap; gap: 0 4px; font: var(--t12); color: var(--ink-3); }
 .path > :not(:last-child)::after { content: "›"; margin-left: 4px; }
+/* The kind, a dropdown, drawn as one: it says so where it's read, not only on hover. */
+.path > .kind { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); cursor: pointer; }
+.path > .kind:not(:last-child)::after { content: ""; margin-left: 0; }
+.path > .kind:hover { color: var(--ink); }
 .empty { display: grid; place-items: center; align-content: center; gap: 12px; height: 100%; padding: 24px; color: var(--ink-2); text-align: center; }
 
 /* ---- The window ---- */

@@ -528,8 +528,8 @@ const Time = (() => {
       if (!first || t.day !== f.day || !Tree.same(N.nameOf(recs, f.rel), N.nameOf(recs, t.rel)) || F.choice !== R.choice || side(F, false) !== side(R, false) || side(F, true) === side(R, true)) continue;
       if (!!f.a !== !!t.a || (f.a && !(f.q != null && t.q != null && Math.abs(f.q - t.q) < 1e-9))) continue;
       // Each by its short name, a defined term reading "the Manager" mid-sentence.
-      const q = f.a ? f.q : null, name = x => { const o = Tree.objectOf(recs, x), s = N.shortOf(recs, o); return s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s; };
-      const what = q != null ? Tree.format(rec(f.a).field, Math.round(q * 1e9) / 1e9) : F.choice ?? N.nameOf(recs, f.rel);
+      const q = f.a ? Math.round(f.q * 1e9) / 1e9 : null, name = x => { const o = Tree.objectOf(recs, x), s = N.shortOf(recs, o); return s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s; };
+      const what = q != null ? Tree.format(rec(f.a).field, q) : F.choice ?? N.nameOf(recs, f.rel);
       const to = side(R, true), toMade = all.find(i => i.type === 'record' && i.id === to && !i.was.length);
       return { type: 'transfer', rid: f.rel, to, fresh: !!toMade && madeAs(toMade, rec, recs, N), made: t.fresh ? t.rel : null, whole: !!f.whole, q, field: f.a ? rec(f.a).field : null, day: f.day,
         text: `Transferred ${what} of ${name(side(F, false))} from ${name(side(F, true))} to ${name(to)} on ${short(f.day)}` };

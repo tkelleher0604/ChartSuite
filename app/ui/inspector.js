@@ -296,11 +296,15 @@ function begin(a, b, key, out, rec) {
 // A name that selects what it names: a button, reached by Tab, set as text. `tip` is said on hover: where it goes, or a
 // reason's own words. A relation gone to from a record's panel is remembered, so ending it comes back there (`cameFrom`).
 let cameFrom = null, backTo = null;
+// Gone to from a panel, the way back is at its top, named for where it came from, scrolled where it was (Alt+← walks further).
+const cameBack = signal(null);
 const goTo = to => {
-  const ks = [].concat(to), now = Shell.selection.peek();
-  if (ks.length === 1 && recs()[ks[0]]?.args && now.length === 1 && recs()[now[0]]) cameFrom = { to: ks[0], keys: now, top: host?.closest('.inspector')?.scrollTop ?? 0 };
+  const ks = [].concat(to), now = Shell.selection.peek(), top = host?.closest('.inspector')?.scrollTop ?? 0;
+  if (ks.length === 1 && recs()[ks[0]]?.args && now.length === 1 && recs()[now[0]]) cameFrom = { to: ks[0], keys: now, top };
+  cameBack.value = now.length === 1 && recs()[now[0]] && (recs()[now[0]].kind || recs()[now[0]].args) ? { to: ks.join(), keys: now, top, name: recs()[now[0]].args ? `${nameOf(now[0])}: ${segment(now[0])}` : shortOf(now[0]) } : null;
   select(ks);
 };
+const CameBack = ({ id }) => { const b = cameBack.value; return b?.to === id ? html`<button type="button" class="lk crumb" onClick=${() => { cameBack.value = null; backTo = { key: b.keys.join(), top: b.top }; select(b.keys); }}>${icon('chevron-left')}<span>${bound(b.name)}</span></button>` : null; };
 const Go = ({ to, cls = '', title, tip, children }) => html`<button class=${'lk ' + cls} title=${title} data-tip=${tip || null} onClick=${() => goTo(to)}>${children}</button>`;
 
 // Where Enter goes from a value or a tag's box, as in Excel: down (d = 1) or up (-1) to the next value to type in its
@@ -1101,6 +1105,7 @@ function Head({ path = [], title, more, span, children }) {
 // When a record holds, as its head says it (App.spanOf): "From May 22, 2023, when Fund III Blocker was formed", "Until
 // Feb 1, 2027"; an object's by the act its entries record ("Formed", "Dissolved"). Each day is a link to the chart then.
 function Span({ id }) {
+  App.version.value; App.day.value;
   const { from, until } = App.spanOf(id), before = d => later(d, -1);
   if (!from && !until) return null;
   return html`<p class="span">
@@ -1154,6 +1159,7 @@ function kindChoices(id) {
   for (const r of rows) if (!raw[r.record] || (r.since ?? '') >= (raw[r.record].since ?? '')) raw[r.record] = r;
   const doc = k => Object.values(S).some(s => s.out?.field === 'document' && s.args?.length === 1 && T.same(s.args[0].loc.kind ?? '', k));
   const worked = new Set(App.definitions.value.filter(d => d.edges).flatMap(d => d.covers));
+  if (doc(raw[id].kind) || T.same(raw[id].kind, 'Tax Year')) return [];
   const kinds = [...new Set(Object.values(S).filter(s => !s.args && s.kind && !T.isView(s)).map(s => s.kind))].filter(k => !doc(k) && !T.same(k, 'Tax Year'));
   // The relations it's a side of, itself, entered, each as a specification with its side at the kind.
   const rels = Object.values(raw).filter(r => r.args?.some(a => a.at === id)).map(r => ({ r, t: T.treeOf(raw, r.record) })).filter(x => x.t && !worked.has(T.paramKey(x.t)));
@@ -1161,9 +1167,9 @@ function kindChoices(id) {
   return kinds.sort((a, b) => a.localeCompare(b)).map(kind => { const bad = T.same(kind, raw[id].kind) ? null : rels.find(x => !fits(x, kind)); return { kind, why: bad ? `${n.name(T.bare(bad.t))}: ${[...bad.r.args].map(a => n.shortOf(raw, T.objectOf(raw, a.at))).join(' → ')} doesn’t take one` : null }; });
 }
 function kindMenu(id) {
-  const r = recs()[id], still = App.readOnly.peek(), choose = k => App.change(tx => tx.rekind(id, k), { dated: false, say: c => Time.describe(c) });
-  return [...(still ? [] : kindChoices(id).map(({ kind, why }) => ({ label: kind, checked: T.same(kind, r.kind), disabled: !!why, tip: why, detail: why ? 'Not with its relations' : null, run: () => !T.same(kind, r.kind) && choose(kind) }))),
-    ...(still ? [] : ['-']), { label: `What ${article(r.kind)} ${lower(r.kind)} is`, run: () => select([general({ kind: r.kind })]) }, { label: `Open in ${T.plural(r.kind)}`, run: () => kindTable(id) }];
+  const r = recs()[id], choices = App.readOnly.peek() ? [] : kindChoices(id), choose = k => App.change(tx => tx.rekind(id, k), { dated: false, say: c => Time.describe(c) });
+  return [...choices.map(({ kind, why }) => ({ label: kind, checked: T.same(kind, r.kind), disabled: !!why, tip: why, detail: why ? 'Not with its relations' : null, run: () => !T.same(kind, r.kind) && choose(kind) })),
+    ...(choices.length ? ['-'] : []), { label: `What ${article(r.kind)} ${lower(r.kind)} is`, run: () => select([general({ kind: r.kind })]) }, { label: `Open in ${T.plural(r.kind)}`, run: () => kindTable(id) }];
 }
 function alike(id) {
   const r = recs()[id], sc = App.scene.peek(), ids = !sc ? [] : Object.keys(recs()).filter(x => recs()[x].at && T.same(recs()[x].edge, r.edge) && T.same(recs()[x].choice ?? '', r.choice) && sc.byId.get(recs()[x].at)?.type === 'box').map(x => recs()[x].at);
@@ -1205,7 +1211,7 @@ function RecordView({ id }) {
   const p = App.pending.value, here = p?.chart === App.chart.value && (p.transfer?.rid === id || p.amending?.includes(id) || (p.verb === 'Delete' && p.needs?.length === 1 && p.needs[0] === id)) ? p : null;
   const moving = !here && !App.readOnly.value && r.args && App.transferable(id)
     ? html`<button class="btn ghost add-entry" onClick=${() => App.transferring(id)}>${icon('ArrowRightLeft')}Transfer…</button>` : null;
-  return html`<div class=${'insp' + (goes(id) ? ' going' : '')}>${head}
+  return html`<div class=${'insp' + (goes(id) ? ' going' : '')}><${CameBack} id=${id} />${head}
     ${here ? html`<${App.Asking} key=${here.n} p=${here} />` : null}
     <${Strip} />
     <div class="rows">
@@ -1232,14 +1238,12 @@ function MergedIn({ id }) {
     const was = m.recs[s.rid], rec = { args: was.args.map(a => (T.objectOf(m.recs, a.at) === m.merged ? { edge: a.edge, at: id } : a)), tag: true };
     App.relating(rec, { what: `${nameOf(s.who)} in ${nameOf(id)}`, source: 'merged ' + id, needs: [s.who, id], day: m.on, make: tx => tx.add('record', enterAt(tx, rec)), say: c => Time.describe(c) });
   };
-  return html`<${Section} title="Merged in" id="merged" n=${all.length}>${all.map(m => html`<div key=${m.merged}>
-    <div class="row rel"><div class="k"><${Go} to=${m.merged} tip=${`Open ${N().nameOf(m.recs, m.merged)}`}>${bound(N().nameOf(m.recs, m.merged))}</${Go}></div><div class="v">${short(m.on)}</div></div>
-    ${m.stakes.length ? html`<div class="row src"><div class="k wide">What did its holders receive?</div></div>
+  return all.filter(m => m.stakes.length).map((m, i) => html`<${Section} key=${m.merged} title=${`${N().shortOf(m.recs, m.merged)}’s holders`} id=${i ? `merged${i}` : 'merged'} n=${m.stakes.length}>
+    <div class="row src"><div class="k wide">Merged in ${short(m.on)}. What did they receive?</div></div>
     ${m.stakes.map(s => { const now = recs()[s.who] && stakeIn(s.who), amt = now && recs()[App.transferable(now).amount];
-      return html`<div class="row rel" key=${s.rid} style="--depth:1"><div class="k">${recs()[s.who] ? html`<${Go} to=${s.who}>${bound(shortOf(s.who))}</${Go}>` : bound(N().shortOf(m.recs, s.who))}</div>
+      return html`<div class="row rel" key=${s.rid}><div class="k">${recs()[s.who] ? html`<${Go} to=${s.who}>${bound(shortOf(s.who))}</${Go}>` : bound(N().shortOf(m.recs, s.who))}</div>
         <div class="v">${now ? html`<${Go} to=${now} tip=${`Open this ${lower(nameOf(now))}`}>${T.format(amt.field, amt.value)} here</${Go}>` : App.readOnly.value || !recs()[s.who] ? null : html`<button class="btn ghost add-entry" onClick=${() => add(m, s)}>${icon('plus')}Add</button>`}</div>
-        <div class="facts">held ${s.figure} of ${bound(N().shortOf(m.recs, m.merged))}</div></div>`; })}` : null}
-  </div>`)}</${Section}>`;
+        <div class="facts">held ${s.figure}</div></div>`; })}</${Section}>`);
 }
 // A record not in the chart on the day shown says so as a state, with the way to the chart when it was. One that starts
 // after it says when, by the act its start entry records (Formed) or else From. One that ended before it says when, by
@@ -1254,8 +1258,10 @@ function LaterView({ id }) {
   const entry = test => (T.index(then).entries.get(id) ?? []).find(e => then[e].field === 'date' && test(T.treeOf(then, e)) && then[e].value === (d ?? gone.day));
   const was = d ? entry(t => N().isStart(t)) : entry(t => N().isEnd(t));
   const words = (was && App.actOf(then[was].edge)?.[1]) || (d ? 'From' : 'Ended'), name = x.kind ? N().nameOf(then, id) : `${N().nameOf(then, id)}: ${N().segmentOf(then, id)}`;
+  // (And the way to change that day, as any is.)
+  const change = !App.readOnly.value && dayItems(id, d ? 'from' : 'until', on).find(it => it.label.startsWith('Change'));
   return html`<div class="insp"><${Head} path=${x.kind ? [{ label: x.kind }] : []} title=${bound(name)} />
-    <div class="later"><span>${words} ${short(d ?? gone.day)}</span><button class="btn" onClick=${() => Shell.at(on === Log.today() ? null : { asOf: on })}>Show the chart then</button></div></div>`;
+    <div class="later"><span>${words} ${short(d ?? gone.day)}</span><button class="btn" onClick=${() => Shell.at(on === Log.today() ? null : { asOf: on })}>Show the chart then</button>${change ? html`<button class="btn" disabled=${!!change.disabled} data-tip=${change.tip ?? null} onClick=${change.run}>Change this day…</button>` : null}</div></div>`;
 }
 // A box or line the chart shown hides by its own note (Delete, Hide in this view): said, with the way to show it
 // there again, its own Shown in the view, as the narrowest decides. Any other way out of a chart is the view's.
@@ -1561,7 +1567,7 @@ function RelateView({ a, b }) {
       <span class="ctl"><span class="tag" aria-disabled="true" /></span>
       <span class="nm">${sentence(T.treeOf(st, x.id), n.placed(st, x.id).map(s => s.edge), (e, first) => side(at(e), first), { choice: rel.choice })}</span>
       <span class="val">${its.join(' · ')}</span>
-      <span class="when"><button class="lk" onClick=${() => Shell.at({ asOf: x.since })}>From ${short(x.since)}</button></span>
+      <span class="when">From <${DayOf} id=${x.id} side="from" day=${x.since} shows=${x.since} /></span>
     </div>`;
   };
   // What could: a tag's box to tick, a role to choose in the sentence, or a value to give; a further side,

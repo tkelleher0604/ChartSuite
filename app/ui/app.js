@@ -428,13 +428,14 @@ const App = (() => {
   function dayChanger(id, side) {
     const c = chart.peek(), wb = book.peek(), on = !state.peek()[id] && heldFrom(id), s = spanOf(id, on ? wb.asOf(c, on) : state.peek())[side];
     if (!s) return null;
-    if (s.entry) return { aim: s.entry, at: s.of ?? id, show: on };
+    // What an act wrote, its bar; else the entry that says it, or the day alone.
+    const ofAct = by => { const act = by && Time.act(by); if (!act || !['transfer', 'insert', 'merger'].includes(act.type)) return null; const bar = Time.barred(by); return bar ? { why: `A later change rests on it: ${Time.describe(bar)}`, by: bar } : { run: () => amending(by, { focus: 'day' }) }; };
+    if (s.entry) { const row = wb.item(c, s.entry).at(-1); return (row && ofAct(firstSaid(s.entry, row))) ?? { aim: s.entry, at: s.of ?? id, show: on }; }
     if (s.of) return { at: s.of };
     const which = side === 'from' ? 'since' : 'before', row = wb.item(c, id).find(r => r[which] === s.day);
     if (!row) return null;
-    const by = firstSaid(id, row), act = by && Time.act(by);
-    if (act && ['transfer', 'insert', 'merger'].includes(act.type)) { const bar = Time.barred(by); return bar ? { why: `A later change rests on it: ${Time.describe(bar)}`, by: bar } : { run: () => amending(by, { focus: 'day' }) }; }
-    return { run: () => amendingDay(by, id, which, s.day) };
+    const by = firstSaid(id, row);
+    return ofAct(by) ?? { run: () => amendingDay(by, id, which, s.day) };
   }
   // The first day after the day shown it no longer holds, for what isn't in the chart then but was: the day it ended on,
   // and how, from what it was the day before. null where it never held before then.
@@ -626,7 +627,7 @@ const App = (() => {
     if (!m) return null;
     const side = Object.values(schema.value).filter(s => s.args?.length === 2 && Tree.same(N.name(Tree.bare(s)), m.rel.name)).map(s => s.args.find(a => Tree.same(a.edge, m.rel.edges[1]))).filter(Boolean);
     const list = q => Object.keys(recs).filter(x => recs[x].kind !== undefined && !p.needs.includes(x) && side.some(a => Tree.narrower(Tree.treeOf(recs, x), a.loc)) && Tree.norm(N.nameOf(recs, x) + ' ' + N.shortOf(recs, x)).includes(Tree.norm(q ?? '')))
-      .sort((a, b) => N.nameOf(recs, a).localeCompare(N.nameOf(recs, b))).map(x => ({ label: N.nameOf(recs, x), checked: m.to?.at === x, run: () => { amend(p, { merge: { ...pending.peek().merge, to: { at: x } } }); setTimeout(() => at.current?.closest('.asking, .pendbar')?.querySelector('.when input')?.focus()); } }));
+      .sort((a, b) => (Tree.norm(N.nameOf(recs, a)).startsWith(Tree.norm(q ?? '')) ? 0 : 1) - (Tree.norm(N.nameOf(recs, b)).startsWith(Tree.norm(q ?? '')) ? 0 : 1) || N.nameOf(recs, a).localeCompare(N.nameOf(recs, b))).map(x => ({ label: N.nameOf(recs, x), checked: m.to?.at === x, run: () => { amend(p, { merge: { ...pending.peek().merge, to: { at: x } } }); setTimeout(() => at.current?.closest('.asking, .pendbar')?.querySelector('.when input')?.focus()); } }));
     const choose = el => Shell.menu(el, list, { search: true });
     useLayoutEffect(() => { if (!auto || m.to || !at.current) return; at.current.focus(); choose(at.current); }, []);
     const word = m.rel.lists?.[m.rel.edges[0]]?.[m.rel.edges[1]] ?? m.rel.name, ends = endsWords(p.needs[0], recs);
@@ -647,13 +648,13 @@ const App = (() => {
   const endsWords = (id, recs) => { const N = notes.peek(), name = x => { const s = bind(N.shortOf(recs, x)); return s !== bind(N.nameOf(recs, x)) ? s.replace(/^The /, 'the ') : s; }, xs = stakesAt(id, recs);
     return xs.length ? xs.sort((a, b) => b.held - a.held).map(x => x.held ? `${possess(name(x.who))} ${x.figure}` : `its ${x.figure} of ${name(x.who)}`).join(', ') : ''; };
   // What's merged into a record, by its Merger Date, as the survivor's panel asks what its holders received: each record
-  // merged (a relation named for an end entry, this one its other side), on or before the day shown. → [{ merged, on, stakes, recs }]
+  // merged (a relation named for an end entry, this one its other side). → [{ merged, on, stakes, recs }]
   function mergedInto(id) {
-    const wb = shown.peek(), c = chart.peek(), N = notes.peek(), d = day.peek(), rows = wb.rows(c), nouns = new Set(N.notes('End').map(n => n.pattern.args?.[0]?.edge).filter(Boolean).map(e => Tree.norm(e.replace(/\s+(date|day)$/i, ''))));
+    const wb = shown.peek(), c = chart.peek(), N = notes.peek(), rows = wb.rows(c), nouns = new Set(N.notes('End').map(n => n.pattern.args?.[0]?.edge).filter(Boolean).map(e => Tree.norm(e.replace(/\s+(date|day)$/i, ''))));
     const out = [];
     for (const r of rows) if (r.args?.length === 2 && r.tag === true && r.args[1].at === id && nouns.has(Tree.norm(N.name({ args: r.args.map(a => ({ edge: a.edge, loc: {} })) })))) {
       const x = r.args[0].at, end = rows.find(e => e.at === x && e.field === 'date' && nouns.has(Tree.norm(e.edge.replace(/\s+(date|day)$/i, ''))));
-      if (!end || end.value > d) continue;
+      if (!end) continue;
       const y = new Date(end.value + 'T12:00:00'); y.setDate(y.getDate() - 1);
       const recs = wb.asOf(c, Tree.isoOf(y));
       if (recs[x]) out.push({ merged: x, on: end.value, recs, stakes: stakesAt(x, recs).filter(s => s.held) });
@@ -1025,8 +1026,12 @@ const App = (() => {
   // of values where it's only that, or its row alone.
   function amendingRow(id, row) {
     if (readOnly.peek()) return refuse(), false;
-    const by = firstSaid(id, row), act = by && Time.act(by);
-    return (act?.type === 'value' && act.parts.some(p => p.id === id)) ? amending(by, { focus: 'day' }) : amendingValues(by, [{ id, day: row.since }]) && (setTimeout(() => { const el = document.querySelector('.pendbar .when input'); el?.focus(); el?.select(); }, 60), true);
+    // (The change that said it from that day, whatever's split its row since.)
+    const c = chart.peek(), by = book.peek().changes().find(x => x.chart === c && x.adds.some(r => r.record === id && r.since === row.since)) ?? null, act = by && Time.act(by);
+    if (act?.type === 'value' && act.day === row.since && act.parts.length > 1) return amending(by, { focus: 'day' });
+    if (!amendingValues(by, [{ id, day: row.since }])) return false;
+    setTimeout(() => { const el = document.querySelector('.pendbar .when input'); el?.focus(); el?.select(); }, 60);
+    return true;
   }
   // A value as a sentence says whose, as of `recs`: "Fund III's stake in Corvane".
   const valueWords = (id, recs) => { const r = recs[id]; return !r ? '' : typedWords({ id, slot: r, out: r }, recs).replace(/ is [^]*$/, ''); };

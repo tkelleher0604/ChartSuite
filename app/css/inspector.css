@@ -13,6 +13,11 @@
 .insp :is(.row, .rr, .ih):focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .ih { position: relative; padding: 16px 20px 12px; border-bottom: 1px solid var(--rule); }
 .ih > .path { margin-bottom: 4px; }
+/* The way back to the panel this one was gone to from. */
+.insp > .crumb { display: flex; align-items: center; gap: 2px; max-width: 100%; padding: 8px 16px 0 16px; border: 0; background: none; font: var(--t12); color: var(--ink-3); text-align: left; cursor: pointer; }
+.insp > .crumb:hover { color: var(--ink); }
+.insp > .crumb > svg { width: 12px; height: 12px; flex: none; }
+.insp > .crumb > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* When a record holds, under its title: each day a link to the chart then. */
 .ih > .span { display: flex; flex-wrap: wrap; column-gap: 12px; margin: 2px 0 0; font: var(--t12); color: var(--ink-2); }
 .ih > .span .day { color: var(--accent-ink); cursor: pointer; }
