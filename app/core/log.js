@@ -1,6 +1,6 @@
 // Log: a workbook is its log (dendra.md, Time and Change).
 //
-// A change is { id, who, when, chart, removes: [row id], adds: [row], reverses? }. A row is a version of an
+// A change is { id, who, when, chart, removes: [row id], adds: [row], reverses?, amends? }. A row is a version of an
 // item, and names the item under its type: { id, chart, name }, { id, spec, tree }, { id, record, …record },
 // { id, note, …note } or { id, shape, … }. A record's row carries its validity: since and before, ISO days,
 // either absent. A row is live if a change added it and none removed it, so the order changes arrive in
@@ -184,6 +184,17 @@ function open(data) {
       adds: c.removes.map(rid => ({ ...added.get(rid), id: newId() })), reverses: c.id });
   }
 
+  // An amendment (dendra.md, Change): the first's act made again, one change. It can take back what the first recorded
+  // while every record row it added is live. What it took away, in place of the one it amends: those that one took, and
+  // those it took itself that that one didn't add; what an amendment reads as, and what amending it again puts back.
+  const canAmend = id => { const c = changes.get(id); return !!c && c.adds.every(r => !('record' in r) || twin(c.chart, r)); };
+  const took = c => {
+    const was = c.amends && changes.get(c.amends);
+    if (!was) return c.removes;
+    const made = new Set(was.adds.map(contentOf));
+    return [...took(was), ...c.removes.filter(id => !added.has(id) || !made.has(contentOf(added.get(id))))];
+  };
+
   // Items with rows in the log and none live, each with the change that deleted it, the last to remove one of
   // its rows, and the rows it removed.
   const deleter = rows => rows.map(r => changes.get(removedBy.get(r.id))).reduce((a, b) => byTime(a, b) < 0 ? b : a);
@@ -248,7 +259,7 @@ function open(data) {
   // items it adds, in order, each past its end added to it: so an edit made as another was is that one, ids and all.
   function edit({ chart: c, who, day = null, when, ids = null, note = null } = {}) {
     const d = chart(c), items = new Map([...d.items].map(([k, v]) => [k, [...v]])), adds = new Map(), removes = new Set();
-    let named = 0, said = null;
+    let named = 0, said = null, amended = null;
     const name = () => !ids ? newId() : named < ids.length ? ids[named++] : (ids[named++] = newId());
     // The note rows by what they're at, once a note is written, so each note written finds the one it replaces at once.
     let noted = null;
@@ -308,6 +319,26 @@ function open(data) {
         if (!x) return;
         for (const r of x.adds) { const t = twin(x.chart, r); if (t && !removes.has(t)) drop(live.get(t)); }
         for (const rid of x.removes) put({ ...added.get(rid), id: newId() });
+      },
+      // An amendment's beginning: what a change recorded taken back, its records' rows alone, what it placed and how it
+      // looked standing; and the change this is says it amends it (dendra.md, Change).
+      unmake(cid) {
+        const x = changes.get(cid);
+        if (!x) return;
+        amended = cid;
+        for (const r of x.adds) if ('record' in r) { const t = twin(x.chart, r); if (t && !removes.has(t)) drop(live.get(t)); }
+        for (const rid of took(x)) if ('record' in (added.get(rid) ?? {})) put({ ...added.get(rid), id: newId() });
+      },
+      // A row given other days or another output, as it stands: an amendment of a value's day, or of a relation's; and the
+      // change this is says which it amends.
+      revise(r, u) { if (u) swap(r, u); else drop(r); },
+      // An object given another kind, every version of it. What's noted at it is noted at its id, and stays.
+      rekind(id, kind) { for (const r of (items.get(id) ?? []).slice()) swap(r, { ...r, kind }); },
+      amends(cid) { amended = cid; },
+      // The day a record holds from (`since`) or ends on (`before`) moved, or taken away: each row of it and of what's at it
+      // that begins or ends on that day. An amendment's (dendra.md, Change).
+      redate(id, which, from, to) {
+        for (const x of Tree.dependents(rawOf(items), [id])) for (const r of (items.get(x) ?? []).slice()) if (r[which] === from) { const { [which]: _, ...rest } = r; swap(r, { ...rest, ...(to && { [which]: to }) }); }
       },
       // Reopening what ended on a day: the record and what's at it that ended with it (each row of them ending that
       // day) hold on, as they did before it ended. History's Restore of what Delete… ended.
@@ -384,13 +415,13 @@ function open(data) {
       // History and Undo say in place of going through them.
       says(text) { said = text; },
       commit: () => adds.size || removes.size
-        ? apply({ id: newId(), who, when: when ?? now(), chart: c, ...(note && { note }), removes: [...removes], adds: [...adds.values()], ...(said && { says: said }) }) : null,
+        ? apply({ id: newId(), who, when: when ?? now(), chart: c, ...(note && { note }), removes: [...removes], adds: [...adds.values()], ...(said && { says: said }), ...(amended && { amends: amended }) }) : null,
     };
     return tx;
   }
 
   const wb = {
-    apply, edit, asOf, schema, canReverse, reverse, deleted, restore, disagreements,
+    apply, edit, asOf, schema, canReverse, reverse, canAmend, took, deleted, restore, disagreements,
     changes: list,
     charts: () => [...live.values()].filter(r => typeOf(r) === 'chart'),
     rows: c => chart(c).rows,
