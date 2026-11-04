@@ -1296,7 +1296,29 @@ const FormulaBar = (() => {
     for (const id of tops(d.appear, B)) if (counts(B.records[id])) bump(name(B, id), 'plus');
     for (const id of tops(d.go, A)) if (counts(A.records[id])) bump(name(A, id), 'minus');
     for (const id of d.change) { const a = A.records[id], b = B.records[id]; bump(name(B, id) ?? name(A, id), 'tag' in a ? (b.tag ? 'plus' : 'minus') : 'changed'); }
-    return [...by.values()].sort((x, y) => (y.plus + y.minus + y.changed) - (x.plus + x.minus + x.changed));
+    // The net: of one definition, a holder that gains as many as it loses has lost nothing, so neither is counted.
+    const first = (X, id) => { const r = X.records[id], t = r?.args?.length === 2 && Tree.treeOf(X.records, id), e = t && N().edges(t)[0]; return e ? r.args.find(a => Tree.same(a.edge, e))?.at : null; };
+    const held = new Map(), tally = (X, ids, k) => { for (const id of tops(ids, X)) { const h = first(X, id), n = name(X, id), q = h && n && `${n}|${h}`; if (q && counts(X.records[id])) { const e = held.get(q) ?? held.set(q, { n, plus: 0, minus: 0 }).get(q); e[k]++; } } };
+    tally(B, d.appear, 'plus'); tally(A, d.go, 'minus');
+    for (const { n, plus, minus } of held.values()) { const both = Math.min(plus, minus); if (both) { by.get(n).plus -= both; by.get(n).minus -= both; } }
+    return [...by.values()].filter(x => x.plus + x.minus + x.changed).sort((x, y) => (y.plus + y.minus + y.changed) - (x.plus + x.minus + x.changed));
+  }
+  // What a change pending leaves as it was, said in black where it takes something away: of the first definition of a
+  // relation it takes from that reads as a holding (Control, not an Affiliated Person, a role), who holds what it's about
+  // at the top, and still does: "Margaret A. Chen's control is unchanged".
+  function steady(p) {
+    const ap = p?.from === 'pending' ? App.pending.peek() : null, rid = ap?.transfer?.rid ?? (ap?.verb === 'Delete' && ap.needs?.length === 1 ? ap.needs[0] : null), A = R.peek(), B = p?.R2, rel = rid && A.records[rid];
+    if (rel?.args?.length !== 2) return null;
+    const n = N(), t = Tree.treeOf(A.records, rid), e0 = n.edges(t)[0], at = rel.args.find(a => !Tree.same(a.edge, e0))?.at, about = at && Tree.objectOf(A.records, at);
+    for (const d of p.deltas) {
+      const def = [...defs.peek().values()].find(x => x.name === d.name);
+      if (!def || def.edges?.length !== 2 || !d.minus) continue;
+      const mine = Object.keys(A.computed).filter(id => A.computed[id].def === def.id && A.records[id]?.args?.length === 2), held = id => { const s = n.edges(Tree.treeOf(A.records, id))[0], r = A.records[id]; return [r.args.find(a => Tree.same(a.edge, s))?.at, r.args.find(a => !Tree.same(a.edge, s))?.at]; };
+      if (!mine.length || Tree.same(singular(n.listName(Tree.treeOf(A.records, mine[0]), n.edges(Tree.treeOf(A.records, mine[0]))[0])), def.name)) continue;
+      const pairs = mine.map(id => [id, ...held(id)]), under = new Set(pairs.map(x => x[2])), who = pairs.filter(([id, h, o]) => o === about && !under.has(h) && B.records[id]).map(x => x[1]);
+      if (who.length) { const names = who.slice(0, 2).map(h => { const s = n.shortOf(A.records, Tree.objectOf(A.records, h)); return `${s}${s.endsWith('s') ? '’' : '’s'}`; }); return `${names.join(' and ')} ${lower(def.name)} is unchanged`; }
+    }
+    return null;
   }
   effect(() => {
     const p = pending.value, canvas = Shell.parts.peek().canvas;
@@ -1566,6 +1588,7 @@ const FormulaBar = (() => {
       ${opens && shut ? html`<${Inline} m=${m} />` : null}
       <span class="fx-end">
         <${Delta} p=${p} />
+        ${m.computed && m.rec && 'tag' in m.rec && !m.absent && !App.readOnly.value && !draft.value && !App.held(m.id) ? html`<${Override} m=${m} />` : null}
         ${draft.value && !unchanged(draft.value) ? html`<span class="fx-acts">
           <button class="btn ghost" data-tip="Discard" data-keys="Esc" onClick=${discard}>Discard</button>
           <button class="btn primary" data-tip="Done" data-keys="Enter" onClick=${commitDraft}>Done</button></span>` : null}
@@ -1690,6 +1713,12 @@ const FormulaBar = (() => {
     </div>`;
   }
 
+  // What a formula gives is overridden by saying so: the reason's own command, which redlines what it would change as it's
+  // pointed at, and goes through the change pending's bar (App.overriding).
+  function Override({ m }) {
+    const point = usePoint(() => preview(flipped(m), 'tag'), () => pending.peek()?.from === 'tag' && previewDraft());
+    return html`<button class="btn fx-override" ...${point} onClick=${() => { preview(null); App.overriding(m.id); }}>${m.rec.tag ? 'Rule out…' : 'Attest…'}</button>`;
+  }
   // The rest of what's between two objects, under the one picked: what holds, its box ticked, then what doesn't, each
   // said in full. A click picks it.
   function Between({ m }) {
@@ -1701,21 +1730,23 @@ const FormulaBar = (() => {
       <${Said} runs=${x.runs} cls="fx-why" onClick=${() => { pick.value = x.key; }} /></li>`)}</ul>` : null;
   }
 
-  // The output, in its own control: a tag's checkbox, which previews the other state pointed at or reached by
-  // the keys, and switches to it on a click or Space, as a checkbox's do, committing the change on screen; Enter
-  // goes on, as from a value and as in Excel, back to the view, so no key meant to move on changes it. Or a
-  // value, typed over to enter one. The amber corner where an entry overrides rows.
+  // The output, in its own control: an entered tag's checkbox, which previews the other state pointed at or reached by
+  // the keys, and switches to it on a click or Space, as a checkbox's do (App.put); Enter goes on, as from a value and as in
+  // Excel, back to the view, so no key meant to move on changes it. One a formula gives only says, and its click opens why. Or
+  // a value, typed over to enter one. The amber corner where an entry overrides rows.
   const onward = e => { if (e.key !== 'Enter') return; e.preventDefault(); e.stopPropagation(); document.getElementById('view')?.focus(); };
   function Output({ m }) {
-    const o = m.out, point = usePoint(() => m.rec && preview(flipped(m), 'tag'), () => pending.peek()?.from === 'tag' && previewDraft());
+    // (Previewed as it will be made: from the day it asks, where it asks one.)
+    const asMade = () => { const out = { tag: !m.rec.tag }; return App.would(tx => App.putting(tx, m.id, m.rec, out), { dated: App.asksFrom(m.id, out) ? App.day.peek() : true }); };
+    const o = m.out, point = usePoint(() => m.rec && !m.computed && preview(asMade(), 'tag'), () => pending.peek()?.from === 'tag' && previewDraft());
     if (!o) return null;
     if (o.error) return html`<span class="fx-out err">${o.error.code}</span>`;
     const a = after(m);
     if ('tag' in o) {
-      const state = v => v === true ? ' yes' : v === false ? ' no' : '';
+      const state = v => v === true ? ' yes' : v === false ? ` no ${m.rec ? App.noTone(m.id) : ''}` : '';
       const cls = 'tag' + (a !== undefined ? ' pend' + state(a?.tag) : state(o.tag) + (m.computed ? ' fx' : ''));
-      return html`<span class=${'fx-out' + (m.covered && !m.covered.agrees ? ' over' : '')}><button class=${cls} aria-label=${m.title} disabled=${!!m.absent || App.readOnly.value}
-        ...${point} onKeyDown=${onward} onClick=${() => { if (!m.rec) return; preview(null); commit(flipped(m)); }} /></span>`;
+      return html`<span class=${'fx-out' + (m.covered && !m.covered.agrees ? ' over' : '')}><button class=${cls} aria-label=${m.title} disabled=${!!m.absent || (App.readOnly.value && !m.computed)}
+        ...${point} onKeyDown=${onward} onClick=${() => { if (!m.rec) return; preview(null); if (m.computed) open.value = true; else App.put(m.id, m.rec, { tag: !m.rec.tag }, { auto: true }); }} /></span>`;
     }
     if (a !== undefined && a?.value !== m.rec.value && pending.value.from !== 'value')
       return html`<span class="fx-out"><span class="del">${o.text}</span> <span class="add">${a ? Tree.outputText(a) : '—'}</span></span>`;
@@ -1730,7 +1761,7 @@ const FormulaBar = (() => {
   function Value({ m }) {
     const o = m.out, wrap = 'fx-out' + (m.covered && !m.covered.agrees ? ' over' : ''), typing = pending.value?.from === 'value', still = App.readOnly.value;
     if (!o.field) {
-      const options = m.def?.options ?? [], enter = choice => commit({ records: m.computed ? { 'fx-pending': { ...spotOf(m.rec), choice } } : { [m.id]: { ...spotOf(m.rec), choice } } });
+      const options = m.def?.options ?? [], enter = choice => App.put(m.id, m.rec, { choice }, { auto: true });
       return html`<span class=${wrap}>${options.length && !still
         ? html`<button class=${'btn ghost dd fx-text' + (m.computed ? ' fx' : '')} onClick=${e => Shell.menu(e.currentTarget, options.map(c => ({ label: c, checked: c === o.text, run: () => c !== o.text && enter(c) })))}>${o.text}</button>`
         : html`<span class=${'fx-text' + (m.computed ? ' fx' : '')}>${o.text}</span>`}</span>`;
@@ -1746,7 +1777,7 @@ const FormulaBar = (() => {
       e.preventDefault(); e.stopPropagation();
       const c = e.key === 'Enter' && typed(e.target.value);
       preview(null);
-      if (c) commit(c); else e.target.value = o.text;
+      if (c) App.put(m.id, m.rec, { field: o.field, value: Tree.parse(o.field, e.target.value) }, { auto: true }); else e.target.value = o.text;
       e.target.blur();
     };
     return html`<span class=${wrap}>${typing ? html`<span class="del fx-was">${o.text}</span>` : null}<input key=${m.id + '|' + o.text} disabled=${still}
@@ -1769,10 +1800,14 @@ const FormulaBar = (() => {
   const VERBS = [['plus', 'Adds', 'add'], ['minus', 'Takes away', 'take'], ['changed', 'Changes', 'change']];
   const counted = (n, name) => `${n} ${n === 1 ? lower(name) : Tree.plural(lower(name))}`;
   const Delta = ({ p }) => {
-    const ds = p?.deltas.slice(0, 3) ?? [], said = VERBS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => counted(d[k], d.name))] : null; }).filter(Boolean);
+    const ds = p?.deltas.slice(0, 3) ?? [], said = VERBS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => counted(d[k], d.name))] : null; }).filter(Boolean), calm = p ? steady(p) : null;
+    // A transfer to one named as it's typed takes away what reached through the old holder, till the new one has its own.
+    const to = p?.from === 'pending' && App.pending.peek()?.verb === 'Transfer' && App.pending.peek().transfer?.to, until = to?.kind && ds.some(d => d.minus) ? `until ${to.name} has ${lower(ownerWord(App.pending.peek().transfer.rid))}` : null;
     return said.length ? html`<span class="fx-delta">${said.map(([verb, cls, xs], i) => html`<span>${i ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `}${xs.map((x, j) =>
-      html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<b class=${cls}>${x}</b>`)}${i < said.length - 1 ? ';' : ''}</span>`)}</span>` : null;
+      html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<b class=${cls}>${x}</b>`)}${i < said.length - 1 ? ';' : ''}</span>`)}${until ? html`<span>${until}</span>` : null}${calm ? html`<span class="fx-net">· ${calm}</span>` : null}</span>` : null;
   };
+  // What a relation's holder is called, by the list it makes ("an owner"), as a toast offers one.
+  const ownerWord = rid => { const recs = R.peek().records, t = Tree.treeOf(recs, rid), one = singular(N().listName(t, N().edges(t)[0])); return `${/^[aeiou]/i.test(one) ? 'an' : 'a'} ${one}`; };
 
   function pickMenu(e, m) {
     const Rv = R.peek(), holds = o => !!o.id && o.on !== false;
