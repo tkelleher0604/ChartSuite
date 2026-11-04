@@ -1426,16 +1426,17 @@ const FormulaBar = (() => {
     editing.value = { cm, key, subject: ed?.subject ?? subject.peek() };
     if (!ed) Shell.parts.peek().canvas?.point(true);
   }
-  // The rows never cover what they're about: the boxes of the record worked out are scrolled into the view
-  // below them, as a wheel scrolls the chart, as little as will do, its top left first where not all fit.
+  // The rows never cover what they're about: a box of the record worked out that they or the view's edge cut (by more
+  // than its outline) is scrolled into the view below them, as a wheel scrolls the chart, as little as will do, its top
+  // left first where not all fit. What already shows, however near them, holds still, as the rest of the chart does.
   function clear() {
     const m = model.peek(), recs = R.peek().records, panel = document.querySelector('.fx-panel'), chart = document.querySelector('.dc-graph');
     if (!m || !panel || !chart) return;
     const ids = [...(m.args ?? []).map(a => a.id), m.id && Tree.objectOf(recs, m.id)].filter(id => isObj(recs[id]));
     const boxes = ids.map(id => chart.querySelector(`[data-cell-id="${CSS.escape(id)}"]`)?.getBoundingClientRect()).filter(Boolean);
     if (!boxes.length) return;
-    const v = chart.getBoundingClientRect(), p = panel.getBoundingClientRect(), pad = 16;
-    const into = (lo, hi, from, to) => lo < from + pad ? from + pad - lo : hi > to - pad ? Math.max(from + pad - lo, to - pad - hi) : 0;
+    const v = chart.getBoundingClientRect(), p = panel.getBoundingClientRect(), pad = 16, outline = 4;
+    const into = (lo, hi, from, to) => lo < from - outline ? from + pad - lo : hi > to + outline ? Math.max(from + pad - lo, to - pad - hi) : 0;
     const dx = into(Math.min(...boxes.map(b => b.left)), Math.max(...boxes.map(b => b.right)), Math.max(v.left, p.left), Math.min(v.right, p.right));
     const dy = into(Math.min(...boxes.map(b => b.top)), Math.max(...boxes.map(b => b.bottom)), Math.max(v.top, p.bottom), v.bottom);
     if (dx || dy) chart.dispatchEvent(new WheelEvent('wheel', { deltaX: -dx, deltaY: -dy, bubbles: true, cancelable: true }));
