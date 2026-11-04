@@ -828,6 +828,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // A line's Position is its label's, where it was dragged to (see Layout.pin).
     const pin = N.resolve('Position', t, view)?.value;
     labelOf(l, l.texts.length === 1 && l.texts[0] === own && !isField(r), Number.isFinite(pin?.along) ? { along: pin.along, dx: pin.dx ?? 0, dy: pin.dy ?? 0 } : undefined);
+    // A line's Bend is its route's middle legs, where a hand put them, the page's coordinates.
+    const bend = N.resolve('Bend', t, view)?.value?.points;
+    if (bend?.length) l.bend = bend;
     // The layout and the routes read the relation a line draws, never its look, so restyling a line moves
     // nothing; lines of one look along one route are drawn as one (see below), which is drawing.
     l.trunk = once(l.record, 'relation', () => `${N.name(t)}|${Tree.shapeOf(t)}`);
@@ -1044,7 +1047,20 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     yield;
     if (last) still(last, boxes, lines, frames);
-    const laid = furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? keyRow.kept ?? null });
+    const furnished = () => furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? keyRow.kept ?? null });
+    let laid = furnished();
+    // A Key a hand put on the page: no line runs under it where the router has another way.
+    const dropped = !last && laid.shapes.find(m => m.geometry === 'legend' && !laid.places.has(m.row));
+    if (dropped) {
+      const q = { x: dropped.x - laid.dx, y: dropped.y - laid.dy, w: dropped.w, h: dropped.h }, under = l => l.points?.some((p, i) => i && Math.max(p[0], l.points[i - 1][0]) > q.x && Math.min(p[0], l.points[i - 1][0]) < q.x + q.w && Math.max(p[1], l.points[i - 1][1]) > q.y && Math.min(p[1], l.points[i - 1][1]) < q.y + q.h);
+      const long = ps => ps.slice(1).reduce((s, p, k) => s + Math.hypot(p[0] - ps[k][0], p[1] - ps[k][1]), 0), runUnder = lines.filter(under);
+      // (A way that isn't twice as long, and a little: a Key dropped in the chart's midst leaves its lines be, rather than send them round the page.)
+      if (runUnder.length) {
+        const again = routes(boxes, lines, frames, stand, off, [q]);
+        for (const l of runUnder) { const r = again[lines.indexOf(l)]; if (!r.blocked && r.points && long(r.points) <= long(l.points) * 2 + 80) Object.assign(l, r); }
+        laid = furnished();
+      }
+    }
     return { ...laid, around: lines.filter(l => l.around).length };
   }
   // A layout just laid, with its faults, and on another paper its lines bent that drop straight on the view's own page
@@ -1155,13 +1171,14 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   } : null;
   if (laid && !opts.ahead) laidOut.set(drawnAs, laid);
 
+  // One order over everything drawn: by Layer, and within a layer frames under lines under boxes under free shapes.
   const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
   const marksInOrder = [
     ...[...frames.values()].sort((a, b) => depthOf(frames, a) - depthOf(frames, b)),
-    ...lines.filter(l => !l.merged).sort((a, b) => layer(a) - layer(b)),
-    ...boxes.sort((a, b) => layer(a) - layer(b)),
-    ...shapes.sort((a, b) => layer(a) - layer(b)),
-  ];
+    ...lines.filter(l => !l.merged),
+    ...boxes,
+    ...shapes,
+  ].sort((a, b) => layer(a) - layer(b));
   // A label said once for several lines, a trunk's or a frame's, is said for them all: the line that carries it keeps
   // their ids, its `kin`.
   for (const ls of groupBy(lines.filter(l => l.placing?.kin != null), l => l.placing.kin).values()) for (const l of ls) if (ls.length > 1 && l.labelAt) l.kin = ls.map(o => o.id);
@@ -1384,10 +1401,10 @@ function reflow(scene, rects) {
 // found no free place (`crowded`); and what its label is placed by again (see relabel). The router's working
 // is left behind. Lines may land on frames (Layout.route says when), and keep clear of frames' captions. Where
 // boxes `stand` where they were put, no gap deepens for a lane to keep out of a box's shade.
-function routes(boxes, lines, frames = new Map(), stand = true, aside = []) {
-  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, label: l.label, arrow: l.settings?.Arrow?.value }));
+function routes(boxes, lines, frames = new Map(), stand = true, aside = [], under = []) {
+  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, bend: l.bend, label: l.label, arrow: l.settings?.Arrow?.value }));
   const fs = [...frames.values()].map(f => ({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, members: inFrame(frames, f), depth: depthOf(frames, f) }));
-  Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: captions(frames), stand, aside });
+  Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: [...captions(frames), ...under], stand, aside });
   return copies.map(c => ({ points: c.points, labelAt: c.labelAt, down: c.down, landed: c.landed, around: c.around, astray: c.astray, strained: c.strained, blocked: c.blocked, crowded: c.crowded,
     placing: { quiet: c.quiet, lane: c.lane, apex: c.apex, crowd: c.crowd, kin: c.kin, lack: c.lack, laned: c.laned, size: c.label && { w: c.label.w, h: c.label.h } } }));
 }
@@ -1832,6 +1849,13 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
   return at(Math.max(0.005, Math.min(0.05, most)), true);
 }
 
+// What a page has on it that's likely not what's meant, as the Export dialog says it (dendra.md, Export): a Key over a box.
+function cautions(scene) {
+  const key = scene.marks.find(m => m.geometry === 'legend'), meets = (a, b) => a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
+  const covered = key ? scene.marks.filter(m => m.type === 'box' && meets(key, m)).map(m => m.texts?.[0]?.text.replace(/ /g, ' ')).filter(Boolean) : [];
+  return covered.length ? [`The Key covers ${covered.length > 2 ? `${covered.length} boxes` : covered.join(' and ')}`] : [];
+}
+
 // ---- For the format bar and the inspector ----
 
 // A record's output under a style: the style's pattern with the record's root label, a datatype for a value.
@@ -1912,7 +1936,7 @@ function toPage(v, s, scaleAt) {
 }
 
 return {
-  of, looks, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  of, looks, steps: drawing, reflow, shapeOf, cautions, path, dash, measure, breakLines, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   toSlide, fromSlide, toPage, DEFAULTS, GEOMETRIES, PAGES, PT, CORNER, lineHeight, baseline, fontClass,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };

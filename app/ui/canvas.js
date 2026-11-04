@@ -1402,7 +1402,7 @@ function mount(el) {
     hover(f);
   });
   root.addEventListener('pointerleave', e => { if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); } });
-  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); zoomLevel.value = graph.zoom(); });
+  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); zoomLevel.value = graph.zoom(); });
 
   // A relation being drawn from a box: from one of its handles while the button is held (`down`, its press),
   // or from the middle of the box, for Relate…, until the next click. On another box, the two's relations are
@@ -1608,6 +1608,7 @@ function mount(el) {
     for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 3);
     // A selected line is traced in the accent, as Office marks one.
     for (const c of sel.getSelectedCells()) if (c.isEdge()) { const m = scene.byId.get(c.id); if (m?.points) outline(m, 'dc-sel'); }
+    bendGrips();
     const dim = !!hl?.dim && lit.size;
     for (const c of graph.getCells()) {
       const v = graph.findViewByCell(c);
@@ -1622,6 +1623,48 @@ function mount(el) {
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
     paintFields();
+  }
+  // A line selected alone: a yellow grip on each leg that can move, those between its first and last, as PowerPoint's on an
+  // elbow connector. Dragged, the leg moves square to itself; let go, the route's middle legs are the line's Bend, in a
+  // place's terms, which the router leaves alone. A click that moves it by nothing writes nothing.
+  function bendGrips() {
+    marks.querySelectorAll('.dc-bend').forEach(n => n.remove());
+    const cs = sel.getSelectedCells(), m = cs.length === 1 && cs[0].isEdge() && !still() ? scene.byId.get(cs[0].id) : null;
+    if (m?.type !== 'line' || m.straight || !m.points || m.points.length < 4) return;
+    const z = graph.zoom();
+    m.points.slice(1, -2).forEach((p, i) => {
+      const q = m.points[i + 2], up = Math.abs(p[0] - q[0]) < 0.5, flat = Math.abs(p[1] - q[1]) < 0.5;
+      if (up === flat) return;
+      const c = document.createElementNS(NS, 'rect'), s = 9 / z, [x, y] = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+      c.setAttribute('class', 'dc-bend' + (up ? ' across' : ' updown'));
+      Object.entries({ x: x - s / 2, y: y - s / 2, width: s, height: s, rx: s / 2, 'stroke-width': 1 / z }).forEach(([k, v]) => c.setAttribute(k, v));
+      c.addEventListener('pointerdown', e => bendLeg(e, m, i + 1, up, c));
+      c.addEventListener('mousedown', e => e.stopPropagation());
+      marks.appendChild(c);
+    });
+  }
+  function bendLeg(e, m, k, up, grip) {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const axis = up ? 0 : 1, start = graph.clientToLocal(e.clientX, e.clientY), was = m.points[k][axis], cell = graph.getCellById(m.id);
+    const lab = graph.getCellById(`${m.id}·label`), at = v => m.points.map((p, i) => i === k || i === k + 1 ? (axis ? [p[0], v] : [v, p[1]]) : p);
+    let v = was;
+    astray(m.id); if (lab) astray(lab.id);
+    cell?.setConnector({ name: 'normal' });
+    const move = ev => {
+      const q = graph.clientToLocal(ev.clientX, ev.clientY);
+      v = was + (axis ? q.y - start.y : q.x - start.x);
+      cell?.setVertices(at(v).slice(1, -1).map(([x, y]) => ({ x, y })));
+      grip.setAttribute(axis ? 'y' : 'x', v - +grip.getAttribute(axis ? 'height' : 'width') / 2);
+    };
+    const end = () => {
+      removeEventListener('pointermove', move, true); removeEventListener('pointerup', end, true);
+      if (Math.abs(v - was) < 0.5) return show(true);
+      const o = origin(), ps = at(round(v)).slice(1, -1).map(([x, y]) => [round(x - o.x), round(y - o.y)]);
+      const c = App.change(tx => tx.note('Bend', treeOf(m.record), { points: ps }, { view: viewOf() }), { dated: false, say: `Bent ${called(m)}` });
+      if (!c) show(true);
+    };
+    addEventListener('pointermove', move, true); addEventListener('pointerup', end, true);
   }
   // Range Finder: colors { [record id]: [hue 1–6 or 'loop', depth 0–2] }, each record outlined in its hue;
   // pulse, what a hovered part of a formula means. With dim, the rest fades. null clears it.
@@ -1966,18 +2009,26 @@ function mount(el) {
     moveTo(new Map(ms.map(m => [m.id, { x: m.x, y: m.y, ...(dim === 'width' ? { w: v } : { h: v }) }])));
   }
   function order(how) {
-    const ms = selected().filter(m => m.type !== 'frame');
+    const ms = selected().filter(m => m.type !== 'frame' && m.geometry !== 'group').concat(selected().filter(m => m.geometry === 'group').flatMap(g => g.members.map(id => scene.byId.get(id)).filter(Boolean)));
     if (!ms.length) return;
-    const layer = m => m.settings?.Layer?.value ?? 0, view = viewOf();
-    const peers = scene.marks.filter(m => m.type === ms[0].type);
-    const top = Math.max(0, ...peers.map(layer)), bottom = Math.min(0, ...peers.map(layer));
+    // One order over everything drawn (dendra.md, Layers). What it would go past, or nothing: then it says so, and nothing's written.
+    const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0, view = viewOf(), all = scene.marks.filter(m => m.geometry !== 'group'), them = new Set(ms.map(m => m.id));
+    const up = how === 'front' || how === 'forward', at = m => all.indexOf(m), rest = all.filter(m => !them.has(m.id));
+    const past = up ? rest.filter(o => ms.some(m => at(o) > at(m))) : rest.filter(o => ms.some(m => at(o) < at(m)));
+    const rectOf = m => m.points ? (({ x0, y0, x1, y1 }) => ({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }))({ x0: Math.min(...m.points.map(p => p[0])), y0: Math.min(...m.points.map(p => p[1])), x1: Math.max(...m.points.map(p => p[0])), y1: Math.max(...m.points.map(p => p[1])) }) : m;
+    const meets = (a, b) => { const [p, q] = [rectOf(a), rectOf(b)]; return p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h; };
+    if (!past.length) return Shell.toast(up ? 'Already at the front' : 'Already at the back', { ms: 2500 });
+    const top = Math.max(...all.map(layer)), bottom = Math.min(...all.map(layer));
+    // (Forward and backward go past the next it overlaps, or the next there is: a layer's a layer, so what's level is gone past by one.)
+    const near = past.filter(o => ms.some(m => meets(o, m))), by = up ? Math.min(...(near.length ? near : past).map(layer)) : Math.max(...(near.length ? near : past).map(layer));
+    const said = `${how === 'front' ? 'Brought' : how === 'back' ? 'Sent' : how === 'forward' ? 'Brought' : 'Sent'} ${ms.length === 1 ? called(ms[0]) : `${ms.length} items`} ${how === 'front' ? 'to front' : how === 'back' ? 'to back' : how === 'forward' ? 'forward' : 'backward'}`;
     App.change(tx => {
       for (const m of ms) {
-        const v = how === 'front' ? top + 1 : how === 'back' ? bottom - 1 : layer(m) + (how === 'forward' ? 1 : -1);
+        const v = how === 'front' ? top + 1 : how === 'back' ? bottom - 1 : up ? Math.max(layer(m), by) + 1 : Math.min(layer(m), by) - 1;
         if (m.type === 'shape') tx.update(m.id, { format: { ...rowOf(m.id).format, Layer: v } });
         else tx.note('Layer', treeOf(m.record), v, { view });
       }
-    });
+    }, { say: near.length ? said : `${said}; it overlaps nothing there, so nothing shows`, dated: false });
   }
   function group() {
     const ms = placeable();

@@ -1243,6 +1243,8 @@ async function run() {
 
   await reloaded();
   await wherePut();
+  await bendable();
+  await layered();
   // ---- A new chart holds still as it's made, and a box dragged moves, the first time: as Rita built Larkspur's ----
   await stillAsMade();
 }
@@ -1388,6 +1390,67 @@ async function reloaded() {
   check('after edits on each day, each day still draws what a page opened on the same log draws', !off1.length, off1.join());
   frame.remove();
   Shell.at(null); await show(charts()[0]); Shell.select([]); await tick(150);
+}
+
+// ---- A line can be bent (gui3 P-13): a yellow grip on each leg between its first and last; dragged, the leg moves square to
+// itself, the route's middle legs its Bend, kept by the router, printed as drawn, cleared by Reset ----
+async function bendable() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const line = sc().marks.find(m => m.type === 'line' && m.points.length >= 4 && Math.abs(m.points[1][1] - m.points[2][1]) < 0.5);
+  check('(a line of three legs to bend)', !!line, '');
+  if (!line) return;
+  Shell.select([line.id]); await tick(250);
+  const grips = () => $$('.dc-bend'), n0 = App.wb.changes().length, was = line.points.map(p => [...p]), z = cv().graph.zoom();
+  check('a line selected alone shows a yellow grip on each leg that can move', grips().length === line.points.length - 3 && getComputedStyle(grips()[0]).fill.includes('255'), `${grips().length} on ${line.points.length} points`);
+  const r = grips()[0].getBoundingClientRect(), [x, y] = [r.left + r.width / 2, r.top + r.height / 2], pointer = (t, yy, on) => on.dispatchEvent(new PointerEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: yy, button: 0, buttons: t === 'pointerup' ? 0 : 1, pointerId: 1, isPrimary: true, view: window }));
+  pointer('pointerdown', y, grips()[0]);
+  for (let i = 1; i <= 6; i++) { pointer('pointermove', y + i * 2, window); await tick(16); }
+  pointer('pointerup', y + 12, window); await tick(450);
+  const m = () => sc().byId.get(line.id), note = () => App.notes.peek().resolve('Bend', Tree.treeOf(App.state.peek(), line.record), sc().view);
+  check('dragged, the leg moves square to itself, by what it was dragged; one change, said so', Math.abs(m().points[1][1] - was[1][1] - 12 / z) < 1.5 && Math.abs(m().points[1][0] - was[1][0]) < 0.5 && App.wb.changes().length === n0 + 1 && /^Bent /.test(Time.describe(App.wb.changes().at(-1))), JSON.stringify([m().points, was, Time.describe(App.wb.changes().at(-1))]));
+  check('… a Bend note on the line in the view, the route’s middle legs', note()?.note.view === sc().view && note().value.points.length === m().points.length - 2, JSON.stringify(note()?.value));
+  // The router leaves it alone as the rest change: a look elsewhere; the panel's Reset clears it.
+  App.change(tx => tx.note('Fill', { kind: 'Entity' }, '#fbe5d6', { view: sc().view }), { dated: false }); await tick(350);
+  const still = JSON.stringify(m().points);
+  check('the router leaves a bend alone', Math.abs(m().points[1][1] - was[1][1] - 12 / z) < 1.5, still);
+  Shell.parts.peek().undo.undo(); await tick(350);
+  Shell.select([line.id]); await tick(250);
+  const reset = $$('.insp .sect').find(s => /^Look/.test(txt(s)))?.querySelector('.reset');
+  reset?.click(); await tick(400);
+  check('Reset clears it, and the line’s back on its route', !!reset && !note() && JSON.stringify(m().points) === JSON.stringify(was), JSON.stringify([!!reset, m().points, was]));
+  Shell.parts.peek().undo.undo(); await tick(300); Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([]); await tick(150);
+}
+
+// ---- One layer order (gui3 P-20): Send to back takes a shape behind boxes and lines, the order the canvas, the PDF and the deck
+// all draw; it can still be picked by what shows; Bring to front and Send to back always do something visible or say why ----
+async function layered() {
+  await show(charts().find(v => v.id === 'view_main')); Shell.at(null); Shell.select([]); await tick(150);
+  const box = sc().byId.get('blocker'), n0 = App.wb.changes().length;
+  const band = cv().insert('rect', { x: box.x - 40, y: box.y - 20, w: box.w + 80, h: box.h + 40 }); await tick(350);
+  const order = () => sc().marks.map(m => m.id), before = (a, b) => order().indexOf(a) < order().indexOf(b);
+  check('a rectangle inserted over a box is over it', before('blocker', band));
+  Shell.select([band]); await tick(150);
+  cv().order('back'); await tick(350);
+  check('Send to back takes it behind the boxes and lines', before(band, 'blocker') && sc().marks.filter(m => m.type === 'line').every(l => before(band, l.id)), order().slice(0, 4).join());
+  const said = txt($$('.toast').at(-1));
+  check('… and says so', /^Sent the shape to back|^Sent .* to back/.test(said), said);
+  const cellZ = id => cv().graph.getCellById(id)?.getZIndex();
+  check('… the canvas draws it so', cellZ(band) < cellZ('blocker'), `${cellZ(band)} ${cellZ('blocker')}`);
+  const svg = Export.svg(sc(), {}), at = s => svg.indexOf(s);
+  check('… and the PDF’s page draws it first', svg.includes('Blocker') && svg.indexOf(sc().byId.get('blocker').texts[0].lines[0].text.split('&')[0]) > 0, '');
+  // Picked by what shows, and dragged.
+  const r = cv().root.getBoundingClientRect(), g = cv().graph.localToGraph(sc().byId.get(band).x + 6, sc().byId.get(band).y + 6), el = document.elementFromPoint(r.left + g.x, r.top + g.y);
+  check('a shape behind boxes is picked by any part of it that shows', el?.closest('[data-cell-id]')?.getAttribute('data-cell-id') === band, el?.closest('[data-cell-id]')?.getAttribute('data-cell-id'));
+  Shell.select([band]); await tick(150);
+  const n1 = App.wb.changes().length;
+  cv().order('back'); await tick(200);
+  check('Send to back of what’s at the back says so, and writes nothing', App.wb.changes().length === n1 && /Already at the back/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  cv().order('front'); await tick(300);
+  check('Bring to front brings it over everything', order().at(-1) === band || before('blocker', band), order().slice(-3).join());
+  for (let i = App.wb.changes().length; i > n0; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
+  check('(undone)', !sc().byId.has(band));
+  Shell.select([]); await tick(150);
 }
 
 // ---- What a change keeps where it's drawn is drawn there again (gui2 L-2.6): two owners of Fund III imported, then

@@ -697,7 +697,7 @@ const routes = keeping();
 const ROUTED = ['from', 'to', 'points', 'labelAt', 'down', 'landed', 'around', 'astray', 'strained', 'blocked', 'crowded', 'quiet', 'lane', 'apex', 'crowd', 'kin', 'lack', 'laned'];
 function route(geo, lines, opts = {}) {
   const k = JSON.stringify([[...geo.values()].map(g => [g.id, g.x, g.y, g.w, g.h, g.shape]), opts.frames?.map(f => [f.id, f.x, f.y, f.w, f.h, f.members, f.depth]), opts.labels, !!opts.stand, opts.aside ?? [],
-    opts.avoid?.map(r => [r.x, r.y, r.w, r.h]), lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight, l.arrow, l.label && [l.label.w, l.label.h, l.label.base, l.label.shared, l.label.text, l.label.pin]])]);
+    opts.avoid?.map(r => [r.x, r.y, r.w, r.h]), lines.map(l => [l.id, l.from, l.to, l.trunk, l.straight, l.arrow, l.bend, l.label && [l.label.w, l.label.h, l.label.base, l.label.shared, l.label.text, l.label.pin]])]);
   const out = routes(k, () => { routing(geo, lines, opts); return lines.map(l => Object.fromEntries(ROUTED.map(p => [p, l[p]]))); });
   lines.forEach((l, i) => Object.assign(l, out[i]));
 }
@@ -706,12 +706,14 @@ function route(geo, lines, opts = {}) {
 // that runs along its trunk's lane is `laned`.
 function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = false, aside: off = [] } = {}) {
   geo = new Map(geo);
-  if (frames.length) land(geo, lines, frames);
+  if (frames.length) land(geo, lines.filter(l => !l.bend), frames);
   const G = id => geo.get(id), solid = [...geo.values()].filter(g => g.shape !== 'frame'), nearSolid = grid(solid);
   const main = mainOf(lines.map(l => ({ trunk: l.trunk, names: !!l.label?.shared })));
   for (const l of lines) {
     const s = G(l.from), t = G(l.to);
     l.points = null;
+    // (A line bent by a hand runs where it was put, and takes no lane of its trunk's.)
+    if (l.bend) { l.dir = 'bent'; continue; }
     if (l.straight) { l.dir = 'straight'; continue; }
     l.dir = t.y >= s.y + s.h + 16 ? 'down' : s.y >= t.y + t.h + 16 ? 'up' : 'side';
     if (l.dir === 'down' && t.shape === 'frame' && (t.x > centerX(s) + 8 || t.x + t.w < centerX(s) - 8)) { l.dir = 'ell'; continue; }
@@ -984,6 +986,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
       const rightward = centerX(s) < centerX(t);
       l.points = [[sideX(s, l.y, rightward), l.y], [sideX(t, l.y, !rightward), l.y]];
     } else if (l.dir === 'straight') l.points = [exit(s, centerOf(t)), exit(t, centerOf(s))];
+    else if (l.dir === 'bent') l.points = bentRoute(s, t, l.bend);
     // (Points where it doesn't turn go.)
     const on = (a, p, b, k) => Math.abs(a[k] - p[k]) < 0.5 && Math.abs(b[k] - p[k]) < 0.5 && (p[1 - k] - a[1 - k]) * (b[1 - k] - p[1 - k]) > 0;
     l.points = l.points.filter((p, i, ps) => i === 0 || Math.hypot(p[0] - ps[i - 1][0], p[1] - ps[i - 1][1]) > 0.5)
@@ -993,7 +996,7 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
     if (l.points.length === 1) l.points.push([...l.points[0]]);
     if (l.points.length === 3 && Math.abs(l.points[0][0] - l.points[2][0]) < 1) l.points = [l.points[0], l.points[2]];
     const [a, b] = [l.points[0], l.points[l.points.length - 1]];
-    l.down = l.dir === 'down' || l.dir === 'ell' || ((l.dir === 'straight' || l.dir === 'stub') && b[1] > a[1] + 1);
+    l.down = l.dir === 'down' || l.dir === 'ell' || ((l.dir === 'straight' || l.dir === 'stub' || l.dir === 'bent') && b[1] > a[1] + 1);
   }
   // No route runs through a box it doesn't end at, or through a frame's caption, or breaks the router's rules (see
   // SHADE): one that would is found again around what's drawn (see around), from where it leaves its box to where it
@@ -1022,15 +1025,18 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   };
   for (const l of lines) { l.around = false; l.astray = false; l.blocked = false; l.strained = false; }
   for (const pass of [0, 1]) for (const [i, l] of lines.entries()) {
-    if (!l.points || l.points.length < 2 || l.around || l.blocked) continue;
+    if (!l.points || l.points.length < 2 || l.around || l.blocked || l.bend) continue;
     if (!aside.has(l) && (pass ? !strays(l.points, G(l.from), G(l.to), boxesNear, drawn.without(i), mates(l)) : !blockedRoute(l.points, new Set([l.from, l.to]), solid, avoid, near))) continue;
     // (Where it leaves its box's top or bottom, it may leave anywhere along that edge, 9 pt in from its ends: see search.)
     const port = (p, q, at, g) => { const dx = Math.sign(Math.round(p[0] - q[0])), dy = Math.sign(Math.round(p[1] - q[1])), dir = dy < 0 ? 0 : dx > 0 ? 1 : dy > 0 ? 2 : 3, [ux, uy] = [[0, -1], [1, 0], [0, 1], [-1, 0]][dir];
       const m = g && Math.min(12, g.w / 4), slide = g && g.shape !== 'frame' && (dir === 2 || (dir === 0 && g.shape !== 'triangle')) ? [g.x + m, g.x + g.w - m] : null;
       return pad => ({ at, out: [at[0] + ux * (pad + 0.25), at[1] + uy * (pad + 0.25)], dir, ...slide && { slide } }); };
-    const ps = l.points, n = ps.length;
+    const ps = l.points, n = ps.length, length = q => q.slice(1).reduce((s, p, k) => s + Math.hypot(p[0] - q[k][0], p[1] - q[k][1]), 0), was = { points: ps, apex: l.apex, down: l.down };
     ends.set(l, [port(ps[1], ps[0], ps[0], G(l.from)), port(ps[n - 2], ps[n - 1], ps[n - 1])]);
-    if (!detour(i, l)) l.blocked = true;
+    if (!detour(i, l)) { l.blocked = true; continue; }
+    // (A way round a box it could have run straight past, only to keep its distance from another line, wraps it for no one's
+    // good: half as long again and more, it keeps its lane, as near that line as the gap leaves it.)
+    if (pass && !aside.has(l) && length(l.points) > length(ps) * 1.5 + 24) { Object.assign(l, was, { around: false, astray: false, strained: true }); drawn.moved(i); }
   }
   if (!labels) return;
   // A trunk whose lines all say the same thing, like a GP's to each of its funds, says it once, on its lane: the
@@ -1069,6 +1075,20 @@ function routing(geo, lines, { frames = [], labels = true, avoid = [], stand = f
   placeLabels(geo, lines.filter(l => !l.quiet), lines, [], avoid);
 }
 
+// A line bent by a hand (a Bend note): its middle legs where they were put, as the page's coordinates, and from and to its
+// boxes by the first and last legs they leave: square off the box's edge over or beside where the next leg starts, where
+// the box spans that, or else from the middle of its top or bottom with one turn more.
+function bentRoute(s, t, mid) {
+  const meets = (g, x, under) => g.shape === 'triangle' && !under ? g.y + g.h * Math.min(1, Math.abs(x - centerX(g)) / (g.w / 2)) : edgeY(g, x, under);
+  const end = (g, [x, y]) => {
+    const across = x >= g.x && x <= g.x + g.w, level = y >= g.y && y <= g.y + g.h;
+    if (across && !level) return [[x, meets(g, x, y > g.y)]];
+    if (level && !across) return [[sideX(g, y, x > centerX(g)), y]];
+    const cx = centerX(g), under = y > g.y + g.h / 2;
+    return [[cx, meets(g, cx, under)], [cx, y]];
+  };
+  return [...end(s, mid[0]), ...mid, ...end(t, mid.at(-1)).reverse()];
+}
 // The height a side-to-side line runs at: the middle of where the two boxes overlap, or a triangle's
 // mid-height, where it's within that.
 function sideY(s, t) {
@@ -1221,16 +1241,17 @@ function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = fal
       const before = legs.length > 1 && !upright(legs[legs.length - 2]) ? legs[legs.length - 2] : null;
       const corner = before ? (x => [{ x, y: before.b[1] - h - 2 }, { x, y: before.b[1] + 3 }])(before.b[0] > before.a[0] ? before.b[0] - w - 6 : before.b[0] + 6) : [];
       if (together) yield* corner;
+      const tipped = l.arrow === 'end' || l.arrow === 'both' || (l.arrow === 'auto' && !l.down);
       if (upright(last)) {
-        const down = last.b[1] > last.a[1], x = last.b[0] + 4, [top, bottom] = down ? [last.a[1], last.b[1]] : [last.b[1], last.a[1]];
+        // (Clear of an arrowhead's wings, where it has one.)
+        const down = last.b[1] > last.a[1], off = tipped ? 9 : 4, x = last.b[0] + off, [top, bottom] = down ? [last.a[1], last.b[1]] : [last.b[1], last.a[1]];
         const y0 = down ? last.b[1] - 5.3 - base : last.b[1] + 5.3;
         for (let k = 0, y = y0; k < 4 && y + h > top && y < bottom; k++, y = down ? y0 - k * (h + 2) : y0 + k * (h + 2)) {
           yield { x, y };
           // (Or, where right isn't free, left of it, on the baseline the labels of the drops beside it sit on.)
-          if (!k) yield { x: last.b[0] - 4 - w, y };
+          if (!k) yield { x: last.b[0] - off - w, y };
         }
       } else {
-        const tipped = l.arrow === 'end' || l.arrow === 'both' || (l.arrow === 'auto' && !l.down);
         const leftward = last.b[0] < last.a[0], y = last.b[1], pad = 6 + (tipped ? 8 : 0);
         for (let k = 0; k < 3; k++) yield { x: leftward ? last.b[0] + pad + k * 12 : last.b[0] - pad - w - k * 12, y: y - h - 2 };
         yield { x: leftward ? last.b[0] + pad : last.b[0] - pad - w, y: y + 3 };
@@ -1285,7 +1306,7 @@ function placeLabels(geo, lines, all = lines, taken = [], avoid = [], keep = fal
           : a[1] === b[1] && a[1] > r.y - TOUCH.y && a[1] < r.y + h + TOUCH.y && Math.max(a[0], b[0]) > x0 && Math.min(a[0], b[0]) < x1)) crossed++;
         if (!self.has(o) && !others.has(o) && gap(r, a, b) <= ON) others.add(o);
       }
-      const beside = own.some(g => gap(r, g.a, g.b) <= ON), room = grow(r, APART), near = nearPlaced.near(room).some(k => meets(room, placed[k]));
+      const wing = l.arrow === 'end' || l.arrow === 'both' || (l.arrow === 'auto' && !l.down) ? 5 : 0, beside = own.some(g => gap(r, g.a, g.b) <= ON + wing), room = grow(r, APART), near = nearPlaced.near(room).some(k => meets(room, placed[k]));
       return { ...s, i, hard, covers, crossed, beside, others: others.size, on: beside && !others.size && !crossed, near };
     };
     // Of two places that aren't free, the better: one that covers nothing, or else less; then one beside its own

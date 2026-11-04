@@ -72,7 +72,8 @@ const BEFORE = { left: 0, center: 0.5, right: 1 };
 
 // A page's marks as it's read: its title, its date, then the rest as the scene draws them. Nothing overlaps
 // the title or the date, so where they stand in the drawing's order doesn't show.
-const reading = marks => { const first = ['title', 'date'].flatMap(role => marks.filter(m => m.role === role)); return [...first, ...marks.filter(m => !first.includes(m))]; };
+const reading = marks => { const first = ['title', 'date'].flatMap(role => marks.filter(m => m.role === role)), under = marks.filter(m => !first.includes(m) && (m.settings?.Layer?.value ?? m.look?.Layer ?? 0) < 0);
+  return [...under, ...first, ...marks.filter(m => !first.includes(m) && !under.includes(m))]; };
 
 // ---- SVG: the PDF, and the preview ----
 
@@ -757,6 +758,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       ${drawn && charts().length > 1 ? html`<div class="ex-views" role="group" aria-label="Views">${charts().map(v => html`<label>
         <input type="checkbox" checked=${ids.includes(v.id)} disabled=${ids.length === 1 && ids[0] === v.id} onChange=${e => tick(v.id, e.target.checked)} />${v.name}</label>`)}</div>` : null}
       ${table?.says ? html`<p class="ex-says">${table.says(all)}</p>` : null}
+      ${drawn ? chosen.flatMap(s => Scene.cautions(s).map(w => chosen.length > 1 ? `${s.name}: ${w}` : w)).map(w => html`<p class="ex-says ex-warn">${w}</p>`) : null}
       ${drawn ? html`<div class=${'ex-well' + (one ? ' full' : pages.length > 1 ? ' many' : '')}>
         ${(one ? [one] : pages).map((pg, i) => html`<figure class="ex-page" key=${pg.name} style=${`--a: ${pg.aspect}`}>
           <button type="button" aria-label=${pg.name} aria-pressed=${!!one} onClick=${() => setFull(one ? null : i)}><img src=${pg.src} alt="" /></button>

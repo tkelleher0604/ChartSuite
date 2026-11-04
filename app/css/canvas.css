@@ -54,6 +54,9 @@
    the chart; a line is traced where it lies, under the boxes, so a line lit never crosses a name. */
 :root { --rf-page-1: #1f6fa8; --rf-page-2: #187a74; --rf-page-3: #a3570f; --rf-page-4: #a63a68; --rf-page-5: #5c6a17; --rf-page-6: #6e5a43; --no-page: #c2372b; }
 .dc-marks { pointer-events: none; }
+.dc-bend { fill: #ffc000; stroke: #7f6000; pointer-events: auto; }
+.dc-bend.across { cursor: ew-resize; }
+.dc-bend.updown { cursor: ns-resize; }
 .dc-hl { --hue: var(--rf-page-1); --w: 2px; --o: 1; }
 .dc-hl.h2 { --hue: var(--rf-page-2); } .dc-hl.h3 { --hue: var(--rf-page-3); } .dc-hl.h4 { --hue: var(--rf-page-4); }
 .dc-hl.h5 { --hue: var(--rf-page-5); } .dc-hl.h6 { --hue: var(--rf-page-6); }

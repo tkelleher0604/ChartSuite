@@ -461,6 +461,7 @@ const Time = (() => {
       // A line's Position is its label's, dragged.
       case 'Position': return Number.isFinite(n.value?.along) ? `${gone ? 'Reset' : 'Moved'} the label of ${of}${inView}`
         : gone ? `Reset the position of ${of}${inView}` : `${i.was.length && resized(Log.latest(i.was).value, n.value) ? 'Resized' : 'Moved'} ${of}${inView}`;
+      case 'Bend': return `${gone ? 'Reset the route of' : 'Bent'} ${of}${inView}`;
       case 'Formula': return gone ? `Deleted the formula of ${of}` : i.was.length ? `Changed the formula of ${of}` : `Defined ${of}`;
       case 'Name': return gone ? `Unnamed ${of}` : !i.was.length ? (Tree.same(of, n.value) ? `Named ${n.value}` : `Named ${of} ${n.value}`)
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;
