@@ -228,6 +228,7 @@ const Time = (() => {
   // A change, said from itself: what it did to which items, in the chart's words, what it records read where it
   // records it. What a reversal or a restore brings back is restored.
   function describe(c) {
+    if (c.says) return c.says;
     const { rows, recs: logged } = ever.peek(), own = recordsOf(c.adds), N = App.notes.peek(), items = new Map(), back = !!(c.reverses || c.restores);
     const recs = Object.keys(own).every(id => id in logged) ? logged : { ...logged, ...own };
     const put = (r, side) => { const type = Log.typeOf(r), k = type + ':' + r[type]; if (!items.has(k)) items.set(k, { type, id: r[type], was: [], now: [] }); items.get(k)[side].push(r); };

@@ -680,8 +680,8 @@ const App = (() => {
   // Workbook), whatever view is shown as it's begun; the old chart's own pages stay behind, and its page starts
   // afresh. Its chart draws what it records: each relation of two sides no formula gives, of any kind or option
   // at its sides, though the chart it's begun from left it out (Structure, Membership); what that one rules out
-  // (not an owner) stays out.
-  function startChart(wb) {
+  // (not an owner) stays out. `style`, a house style chosen, a look to begin in instead of the first chart view's.
+  function startChart(wb, style) {
     const c = Log.newId(), names = new Set(wb.charts().map(x => Tree.norm(x.name))), from = chart.peek(), src = book.peek();
     let name = 'Untitled', i = 2;
     while (names.has(Tree.norm(name))) name = `Untitled ${i++}`;
@@ -689,6 +689,7 @@ const App = (() => {
     tx.add('chart', { name }, c);
     const vs = from ? views.peek() : [], like = vs.find(v => v.layout === 'chart')?.id;
     const recorded = new Map();
+    let look = null, given = () => false;
     if (from) {
       const L = layouts.peek(), own = v => [...L.kinds, ...L.relations, ...L.datatypes].some(l => Tree.same(l.name, v.name) && JSON.stringify(l.rows) === JSON.stringify(v.rows));
       const sides = t => t.args.map(a => a.edge).sort().join('|'), worked = new Set(src.notes(from).notes('Formula').filter(n => n.pattern.args?.length === 2).map(n => sides(n.pattern)));
@@ -701,32 +702,30 @@ const App = (() => {
       }
       for (const v of vs) if (v.id === like || (v.layout === 'table' && own(v))) kept.set(v.id, tx.add('record', { kind: 'View' }));
       const moved = t => t.args ? { ...t, args: t.args.map(a => ({ ...a, loc: moved(a.loc) })) } : t.id === undefined ? t : { ...t, id: kept.get(t.id) };
-      // The house look: of the first chart's notes in it, those that give a look (every format property, Text, and the
-      // order of the fields), less a style of a relation a formula gives (§57's affiliates); its Shown notes only of
-      // fields, and those keeping a kind off the page (Documents), never a filter; and the Captions of what it keeps.
-      // Nor the day it keeps.
-      const field = r => !!r.param || (r.pattern.args?.length === 1 && !(r.pattern.out && ('choice' in r.pattern.out || 'tag' in r.pattern.out)));
-      const offPage = r => r.value === false && !!r.pattern.kind && !r.pattern.args && r.pattern.id === undefined;
-      const given = p => !!p && ((p.args?.length === 2 && worked.has(sides(p))) || (p.args ?? []).some(a => given(a.loc)));
-      const looks = r => !given(r.pattern)
-        && (r.label === 'Shown' ? field(r) || offPage(r) : ['Text', 'Order'].includes(r.label) || (Notes.FORMATS.has(r.label) && r.label !== 'Position'));
-      const house = new Set(src.rows(from).filter(r => 'note' in r && r.view === like && looks(r))), styled = new Set([...house].map(r => Tree.key(r.pattern)));
-      const keeps = r => r.view !== like ? !(r.label === 'As Of' && r.pattern.id === like) : house.has(r) || (r.label === 'Caption' && styled.has(Tree.key(r.pattern)));
-      for (const r of src.rows(from)) if ('note' in r && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && keeps(r))
+      // The house look (dendra.md, Workbook), less a style of a relation a formula gives (§57's affiliates). Nor the day
+      // it keeps. The rest of the first chart's notes in it are its records', and stay behind.
+      given = p => !!p && ((p.args?.length === 2 && worked.has(sides(p))) || (p.args ?? []).some(a => given(a.loc)));
+      look = style ?? Notes.houseLook(src.rows(from), like);
+      for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(r.label === 'As Of' && r.pattern.id === like))
         tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Structure' : r.value, { view: kept.get(r.view), param: r.param });
     }
     const first = kept.get(like) ?? tx.add('record', { kind: 'View' });
+    if (look) Notes.takeLook(tx, [], first, look, { begun: true, has: p => !given(p) && (!style || hasPattern(src.schema(from), src.notes(from), p)) });
     for (const p of recorded.values()) tx.note('Shown', p, true, { view: first });
     tx.note('Name', viewTree(first), 'Structure');
-    page(tx, first, name);
+    page(tx, first, name, look);
     return tx.commit();
   }
+  // Whether a chart has what a pattern reaches, by its specifications: a house style's styles of what it hasn't don't come.
+  const hasPattern = (S, N, p) => N.fitting(S, p.out && 'tag' in p.out ? Tree.bare(p) : p).length > 0;
   // A chart's page, begun as every page of the sample is: its title, the chart's name, under it the day it's as
-  // of, and its Key, which the page sets at the sheet's size and places, as it does every page's.
-  function page(tx, view, title) {
-    tx.add('shape', { view, geometry: 'text', role: 'title', text: title });
-    tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")' });
-    tx.add('shape', { view, geometry: 'legend', title: 'Key', columns: 2 });
+  // of, and its Key, which the page sets at the sheet's size and places, as it does every page's; in `look`, where
+  // it's begun in one.
+  function page(tx, view, title, look) {
+    const of = f => look?.furniture?.[f] ?? {};
+    tx.add('shape', { view, geometry: 'text', role: 'title', text: title, ...of('title') });
+    tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")', ...of('date') });
+    tx.add('shape', { view, geometry: 'legend', title: 'Key', columns: 2, ...of('key') });
   }
   // What's made on a chart, the chart shows (dendra.md, Views): boxes `ids` that tx makes on chart view `view`, where
   // the view would draw one nowhere (a filter of the affiliates hides its kind, say), are shown there by the same
@@ -744,10 +743,10 @@ const App = (() => {
     const wb = shown.peek(), v = lastView.get(id) ?? viewsIn(wb.asOf(id, day.peek()), wb.notes(id))[0]?.id;
     if (v) preactSignals.batch(() => { Shell.select([]); Shell.show(v); });
   }
-  // A new chart is named as it begins, in the title bar.
-  function newChart() {
+  // A new chart is named as it begins, in the title bar. `style`, a house style chosen to begin it in.
+  function newChart(style) {
     if (readOnly.peek()) return Shell.toast('Can’t change the past');
-    const c = startChart(book.peek());
+    const c = startChart(book.peek(), style?.notes ? style : null);
     if (typeof c === 'string') return Shell.toast(c);
     open(c.chart);
     Shell.nameChart();
@@ -819,7 +818,9 @@ const App = (() => {
     rename,
     menu: () => {
       const all = (version.value, book.value.charts()), here = Store.where()?.id, others = books.value.filter(b => b.id !== here);
-      return [{ label: 'New chart', run: newChart }, { label: 'New workbook', run: blank }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
+      const styles = typeof FormatBar === 'undefined' ? [] : FormatBar.houseStyles();
+      return [styles.length ? { label: 'New chart', items: [{ label: 'In the house look', run: () => newChart() }, '-', ...styles.map(s => ({ label: `In ${s.name}`, run: () => newChart(s.look) }))] } : { label: 'New chart', run: () => newChart() },
+        { label: 'New workbook', run: blank }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
         { label: 'Delete chart', danger: true, disabled: readOnly.value || all.length < 2, tip: all.length < 2 ? 'It’s this workbook’s only chart' : null, run: deleteChart }, '-',
         { label: 'Charts', items: all.map(c => ({ label: c.name, checked: c.chart === chart.value, run: () => c.chart !== chart.peek() && open(c.chart) })) },
         { label: 'Workbooks', items: [
@@ -919,6 +920,7 @@ const App = (() => {
       const v = views.peek().find(x => x.id === id);
       return [
         { label: 'Show', items: shows((_, rows) => change(tx => tx.note('Layout', viewTree(id), rows && { rows }), { dated: false }), v) },
+        ...(v.layout === 'chart' && typeof FormatBar !== 'undefined' ? ['-', ...FormatBar.lookMenu(id)] : []),
         '-',
         { label: 'Duplicate', run: () => { const copy = addView(v.name, undefined, id); if (copy) Shell.show(copy); } },
         { label: 'Delete', danger: true, disabled: views.peek().length < 2, run: () => change(tx => tx.remove(id), { say: `Deleted ${v.name}`, dated: false }) },
@@ -973,12 +975,12 @@ const App = (() => {
     { id: 'file.download', name: 'Download a copy', run: () => Store.download() },
   ].forEach((a, i) => Shell.register('action', { ...a, menu: 'chart', order: 1 + i }));
   Shell.register('action', { id: 'settings', name: 'Settings', menu: 'chart', order: 20, run: settings });
-  Shell.register('action', { id: 'chart.new', name: 'New chart', run: newChart });
+  Shell.register('action', { id: 'chart.new', name: 'New chart', run: () => newChart() });
   Shell.register('action', { id: 'file.new', name: 'New workbook', run: blank });
 
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
-    readOnly, change, keeping, would, asksDay, endOf, heldFrom, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade,
+    readOnly, change, keeping, would, asksDay, endOf, heldFrom, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
   };
 })();

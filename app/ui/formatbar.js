@@ -740,6 +740,79 @@ const opener = {
   paragraph: at => pop(at, () => html`<${ParagraphPop} />`),
 };
 
+// ---- House styles (dendra.md, Workbook): a view's look, carried to another view, kept in this browser, passed around as a file ----
+
+const houses = signal([]);
+const listHouses = () => (Store.houseStyles?.() ?? Promise.resolve([])).then(list => { houses.value = list; });
+const chartViews = () => App.views.peek().filter(v => v.layout === 'chart');
+const viewNamed = id => App.views.peek().find(v => v.id === id)?.name ?? 'this view';
+const chartRows = () => App.shown.peek().rows(App.chart.peek());
+const hasHere = p => App.hasPattern(App.schema.peek(), App.notes.peek(), p);
+// Views take a look, as one change, one Undo, said as one act.
+function giveLook(ids, look, say) {
+  let left = 0;
+  const rows = chartRows();
+  App.change(tx => { for (const id of ids) left = Math.max(left, Notes.takeLook(tx, rows, id, look, { has: hasHere }).left); tx.says(say); },
+    { dated: false, say: () => left ? `${say}, but for ${left} ${left === 1 ? 'setting' : 'settings'} of what this chart hasn’t got` : say, empty: () => Shell.toast(`${ids.length > 1 ? 'They already have' : `${viewNamed(ids[0])} already has`} that look`) });
+}
+const matchLook = (id, from) => giveLook([id], Notes.houseLook(chartRows(), from), `Gave ${viewNamed(id)} the look of ${viewNamed(from)}`);
+const applyHouse = (id, s) => giveLook([id], s.look, `Gave ${viewNamed(id)} the house style ${s.name}`);
+const applyHouseAll = s => giveLook(chartViews().map(v => v.id), s.look, `Gave every chart view the house style ${s.name}`);
+const keepHouse = (name, look) => {
+  const was = houses.peek().find(s => Tree.same(s.name, name));
+  return Store.keepHouseStyle({ id: was?.id ?? Log.newId(), name, look }).then(listHouses).then(() => was);
+};
+function saveHouse(id) {
+  let name = '';
+  Shell.dialog({ title: 'Save this look as a house style', width: 360, actions: [{ label: 'Cancel', value: false }, { label: 'Save', value: true, primary: true }],
+    body: () => html`<div class="settings"><label class="field"><span>Name</span><input aria-label="Name" placeholder="New house style" spellcheck="false" autocomplete="off" autofocus onInput=${e => { name = e.target.value; }} /></label></div>` })
+    .then(async ok => {
+      name = Tree.clean(name);
+      if (!ok || !name) return;
+      const taken = houses.peek().some(s => Tree.same(s.name, name));
+      if (taken && !await Shell.confirm(`There’s a house style named ${name} in this browser.`, { title: 'Replace it?', ok: 'Replace' })) return;
+      await keepHouse(name, Notes.houseLook(chartRows(), id));
+      Shell.toast(`Saved the house style ${name}`);
+    });
+}
+const forgetHouse = s => Shell.confirm(`${s.name} goes from this browser. A chart that took it keeps its look.`, { title: 'Delete the house style?', ok: 'Delete', danger: true })
+  .then(ok => ok && Store.forgetHouseStyle(s.id).then(listHouses).then(() => Shell.toast(`Deleted the house style ${s.name}`)));
+// A small file a firm can pass around: nothing in it names a record.
+function downloadHouse(s) {
+  const blob = new Blob([JSON.stringify({ dendraStyle: 1, name: s.name, look: s.look })], { type: 'application/json' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `${s.name.replace(/[\\/:*?"<>|]+/g, ' ').trim()}.dendra-style.json` });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  Shell.toast(`Downloaded the house style ${s.name}`);
+}
+// Read from a file, a look and nothing else (Notes.lookFrom), so loading one never touches a record; offered at once.
+function loadHouse() {
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,application/json' });
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    let data = null;
+    try { data = JSON.parse(await f.text()); } catch {}
+    const look = data?.dendraStyle ? Notes.lookFrom(data.look) : null, name = Tree.clean(String(data?.name ?? '')) || f.name.replace(/(\.dendra-style)?\.json$/i, '');
+    if (!look) return Shell.toast(`${f.name} isn’t a house style`);
+    const was = await keepHouse(name, look), s = houses.peek().find(x => Tree.same(x.name, name)), view = Shell.view.peek();
+    Shell.toast(`${was ? 'Replaced' : 'Loaded'} the house style ${name}`, chartViews().some(v => v.id === view) && !App.readOnly.peek() ? { go: [`Apply to ${viewNamed(view)}`, () => applyHouse(view, s)] } : {});
+  };
+  input.click();
+}
+const houseItems = id => {
+  const ro = App.readOnly.peek();
+  return [...houses.value.map(s => ({ label: s.name, items: [
+      { label: `Apply to ${viewNamed(id)}`, disabled: ro, run: () => applyHouse(id, s) }, { label: 'Apply to every chart view', disabled: ro, run: () => applyHouseAll(s) }, '-',
+      { label: 'Download', run: () => downloadHouse(s) }, { label: 'Delete', danger: true, run: () => forgetHouse(s) }] })),
+    ...(houses.value.length ? ['-'] : []),
+    { label: 'Save this look as a house style…', run: () => saveHouse(id) }, { label: 'Load a house style…', run: loadHouse }];
+};
+const matchItems = id => chartViews().filter(v => v.id !== id).map(v => ({ label: v.name, run: () => matchLook(id, v.id) }));
+// A chart tab's: the chart's other chart views to take the look of, and the house styles.
+const lookMenu = id => { const others = matchItems(id);
+  return [{ label: 'Match look', disabled: !others.length || App.readOnly.peek(), tip: others.length ? null : 'This chart has no other chart view', items: others }, { label: 'House style', items: houseItems(id) }]; };
+
 // While the inspector is widened over the chart there's nothing here to format.
 function Bar() {
   App.scene.value; Shell.selection.value; Canvas.fieldPicked?.value;
@@ -870,6 +943,16 @@ function mount(el) {
   ].map(([id, name, keys, run, enabled = edit, names]) => Shell.register('action', { id, name, ...(keys && { keys }), ...(names && { names }), run, enabled,
     // Not now, and why: Find says so beside it, rather than leave it out.
     why: () => App.readOnly.peek() ? 'Can’t change the past' : !onScreen() ? 'Show a chart first' : 'Select a box, line or shape first' }));
+  // A house style's, for Find, by every word people look for one by; each for the chart view shown.
+  const HOUSE = ['Style', 'Theme', 'Template', 'House style', 'Master', 'Slide master', 'Match'], chartShown = () => chartViews().some(v => v.id === Shell.view.peek());
+  const fromTab = items => () => setTimeout(() => Shell.menu(document.getElementById(`tab-${Shell.view.peek()}`) ?? document.body, items(Shell.view.peek()), { placement: 'top-start' }));
+  listHouses();
+  actions.push(...[
+    ['look.match', 'Match look…', fromTab(matchItems), () => chartShown() && !App.readOnly.peek() && chartViews().length > 1],
+    ['look.house', 'House styles…', fromTab(houseItems), chartShown],
+    ['look.save', 'Save this look as a house style…', () => saveHouse(Shell.view.peek()), chartShown],
+    ['look.load', 'Load a house style…', loadHouse, () => true],
+  ].map(([id, name, run, enabled]) => Shell.register('action', { id, name, names: HOUSE, run, enabled, why: () => App.readOnly.peek() ? 'Can’t change the past' : !chartShown() ? 'Show a chart first' : 'This chart has no other chart view' })));
   // Insert's, for Find, by what each makes: a box of each of the chart's kinds, as the page's right-click says it ("New
   // entity", found by Add or Insert too), then its text box, frame, Key and picture.
   actions.push(Shell.register('find', { items: () => {
@@ -928,7 +1011,7 @@ function open(what, at) {
   if (anchor) opener[what]?.(anchor);
 }
 
-Shell.register('formatbar', { mount });
+Shell.register('formatbar', { mount, relist: () => listHouses() });
 return { apply, value, colorName, shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
-  copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook };
+  copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value };
 })();

@@ -51,8 +51,10 @@
 <script src="../core/sharepoint.js"></script>
 <script>
 // The workbook opened at once, in memory: nothing is kept.
+const kept = new Map();
 const Store = { open: async ({ sample }) => Log.open(sample), who: () => 'Dana Jordan', status: () => ({ text: '' }), subscribe: () => () => {}, books: async () => [], where: () => null,
-  openFile: async () => null, saveAs: async () => null, download() {}, fix() {} };
+  openFile: async () => null, saveAs: async () => null, download() {}, fix() {},
+  houseStyles: async () => [...kept.values()], keepHouseStyle: async s => { kept.set(s.id, s); }, forgetHouseStyle: async id => { kept.delete(id); } };
 </script>
 <script src="../sample/calder-ridge.js"></script>
 <script src="../ui/shell.js"></script>
@@ -1427,8 +1429,102 @@ async function stillAsMade() {
   check('… and undone, it stands where it stood', !!keyRow().kept && Math.abs(keyAt()[0] - k1[0]) < 1 && Math.abs(keyAt()[1] - k1[1]) < 1, JSON.stringify([keyRow().kept, keyAt(), k1]));
 }
 
+// ---- The format bar and house styles (FIXG3, F), on the sample chart ----
+async function format() {
+  await until(() => App.views.peek().length && sc(), 15000);
+  const wbPart = Shell.parts.peek().workbook, sample = App.wb.charts().find(c => /Calder Ridge/.test(c.name));
+  if (App.chart.peek() !== sample.chart) { wbPart.open(sample.chart); await until(() => App.chart.peek() === sample.chart); await tick(300); }
+  const named = n => charts().find(v => v.name === n), rows = () => App.wb.rows(App.chart.peek());
+  const notesIn = (v, l) => rows().filter(r => 'note' in r && r.view === v.id && (!l || r.label === l) && !Tree.idsIn(r.pattern).size);
+  const shapeIn = (v, f) => rows().find(r => 'shape' in r && r.view === v.id && f(r));
+  const FUNDS = { args: [{ edge: 'Vehicle Type', loc: {} }], out: { choice: 'Main Fund' } };
+  const noteAt = (v, l, p) => notesIn(v, l).find(n => Tree.key(n.pattern) === Tree.key(p));
+
+  // ---- A view takes the look of another: one change, one Undo; styles both have take its look, one only in it comes, the
+  // view's own Shown, frames, places and words stay, and its title, date and Key take theirs ----
+  const st = named('Structure'), act = named('40 Act');
+  await show(st);
+  const NEW = { args: [{ edge: 'Fiscal Year End', loc: {} }] };
+  const titleSt = shapeIn(st, r => r.role === 'title'), keySt = shapeIn(st, r => r.geometry === 'legend');
+  App.change(tx => {
+    tx.note('Fill', FUNDS, '#1f3864', { view: st.id }); tx.note('Corner', FUNDS, 40, { view: st.id }); tx.note('Shadow', FUNDS, 'soft', { view: st.id }); tx.note('Bold', NEW, true, { view: st.id });
+    tx.update(titleSt.shape, { format: { Font: 'Garamond', Size: 18 } }); tx.update(keySt.shape, { format: { Font: 'Garamond' }, columns: 1 });
+  }, { dated: false });
+  await tick(300);
+  const filter = notesIn(act, 'Shown').filter(n => n.value === false), frames = notesIn(act, 'Frame').map(n => Tree.key(n.pattern)).sort().join(), caps = notesIn(act, 'Caption').map(n => n.value).sort().join();
+  const placed = rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length, n0 = App.wb.changes().length, keyActWas = shapeIn(act, r => r.geometry === 'legend');
+  const oldFill = noteAt(act, 'Fill', FUNDS)?.value, onlyTarget = notesIn(act).find(n => JSON.stringify(n.pattern).includes('Close Affiliate') && n.label !== 'Shown');
+  await show(act);
+  let items = FormatBar.lookMenu(act.id);
+  const match = items.find(i => i.label === 'Match look');
+  check('a chart tab offers Match look, the chart’s other chart views, and its house styles', !!match && match.items.some(i => i.label === 'Structure') && !match.items.some(i => i.label === '40 Act') && items.some(i => i.label === 'House style'), JSON.stringify(items.map(i => i.label)));
+  match.items.find(i => i.label === 'Structure').run(); await tick(500);
+  const said = Time.describe(App.wb.changes().at(-1));
+  check('… Match look is one change, said as one act', App.wb.changes().length === n0 + 1 && said === 'Gave 40 Act the look of Structure', said);
+  check('… a style both have takes the look', noteAt(act, 'Fill', FUNDS)?.value === '#1f3864' && noteAt(act, 'Corner', FUNDS)?.value === 40 && noteAt(act, 'Shadow', FUNDS)?.value === 'soft', noteAt(act, 'Fill', FUNDS)?.value);
+  check('… a style only in the look comes across', noteAt(act, 'Bold', NEW)?.value === true);
+  check('… the title and the Key take theirs, their words and places their own', shapeIn(act, r => r.role === 'title').format?.Font === 'Garamond' && shapeIn(act, r => r.geometry === 'legend').columns === 1 && /Affiliates/.test(shapeIn(act, r => r.role === 'title').text) && shapeIn(act, r => r.geometry === 'legend').x === keyActWas.x);
+  check('… the view’s own Shown, frames, captions and places stay', notesIn(act, 'Shown').filter(n => n.value === false).length === filter.length && notesIn(act, 'Frame').map(n => Tree.key(n.pattern)).sort().join() === frames
+    && notesIn(act, 'Caption').map(n => n.value).sort().join().includes(caps) && rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length >= placed, caps);
+  check('… a style only in the view stays', !onlyTarget || !!notesIn(act).find(n => n.note === onlyTarget.note));
+  const ordered = App.notes.peek().styles(act.id).map(s => s.key), inLook = App.notes.peek().styles(st.id).map(s => s.key), there = ordered.filter(k => inLook.includes(k));
+  check('… its styles in the look’s order, its own after them', JSON.stringify(there) === JSON.stringify(inLook.filter(k => ordered.includes(k))) && ordered.slice(0, there.length).every(k => inLook.includes(k)));
+  Shell.parts.peek().undo.undo(); await tick(400);
+  check('… and Undo takes it all back', noteAt(act, 'Fill', FUNDS)?.value === oldFill && !noteAt(act, 'Bold', NEW) && shapeIn(act, r => r.role === 'title').format?.Font !== 'Garamond');
+  // A view that already has the look says so, and writes nothing.
+  const nA = App.wb.changes().length;
+  FormatBar.lookMenu(st.id).find(i => i.label === 'Match look').items.find(i => i.label === 'Fund III').run(); await tick(300);
+  FormatBar.lookMenu(named('Fund III').id).find(i => i.label === 'Match look').items.find(i => i.label === 'Structure').run(); await tick(300);
+  const nB = App.wb.changes().length;
+  FormatBar.lookMenu(named('Fund III').id).find(i => i.label === 'Match look').items.find(i => i.label === 'Structure').run(); await tick(300);
+  check('… and a view with that look already says so, writing nothing', App.wb.changes().length === nB && nB >= nA && /already has that look/.test(txt($('.toasts'))), txt($('.toasts')));
+  Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(300);
+
+  // ---- A house style: saved, listed, applied to a view or every chart view, and passed around as a file naming no record ----
+  await show(st);
+  const look = Notes.houseLook(rows(), st.id);
+  check('a look names no record', look.notes.every(n => !Tree.idsIn(n.pattern).size) && look.order.every(p => !Tree.idsIn(p).size) && !JSON.stringify(look).includes('"id"'));
+  check('… and holds no filter, no place', !look.notes.some(n => n.label === 'Position') && !look.notes.some(n => n.label === 'Shown' && n.pattern.out && ('choice' in n.pattern.out || 'tag' in n.pattern.out) && !n.param));
+  check('… and reads back from a file as it was', JSON.stringify(Notes.lookFrom(JSON.parse(JSON.stringify(look)))?.notes.length) === JSON.stringify(look.notes.length) && !!Notes.lookFrom(look).furniture.key);
+  const bad = Notes.lookFrom({ notes: [{ label: 'Fill', pattern: { id: 'fund', kind: 'Entity' }, value: '#000000' }], order: [] }), odd = Notes.lookFrom({ notes: [{ label: 'Name', pattern: { kind: 'Entity' }, value: 'x' }, { label: 'Formula', pattern: { kind: 'Entity' }, value: [] }], order: [] });
+  check('… a file that names a record is no house style, and what isn’t a look doesn’t come from one', bad === null && odd?.notes.length === 0);
+  await Store.keepHouseStyle({ id: 'hs1', name: 'Firm', look }); await tick(50);
+  FormatBar.lookMenu(st.id); // (the list read as a menu opens)
+  await Shell.parts.peek().formatbar.relist?.();
+  await tick(100);
+  const firm = FormatBar.houseStyles().find(s => s.name === 'Firm');
+  items = FormatBar.lookMenu(act.id);
+  const house = items.find(i => i.label === 'House style').items, firmItem = house.find(i => i.label === 'Firm');
+  check('a house style kept is listed, with Apply on the view or on every chart view, Download and Delete; and Save and Load after it',
+    !!firm && !!firmItem && firmItem.items.some(i => i.label === 'Apply to 40 Act') && firmItem.items.some(i => i.label === 'Apply to every chart view') && firmItem.items.some(i => i.label === 'Download') && house.some(i => /^Save this look/.test(i.label)) && house.some(i => /^Load/.test(i.label)), JSON.stringify(house.map(i => i.label)));
+  const n1 = App.wb.changes().length;
+  firmItem.items.find(i => i.label === 'Apply to every chart view').run(); await tick(600);
+  const views = charts();
+  check('… applied to every chart view, as one change', App.wb.changes().length === n1 + 1 && views.every(v => noteAt(v, 'Fill', FUNDS)?.value === '#1f3864') && /house style Firm/.test(Time.describe(App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  Shell.parts.peek().undo.undo(); await tick(400);
+  // Another chart's look, some of which this chart has nothing for: what it hasn't doesn't come, and it's said.
+  const foreign = { ...look, notes: [...look.notes, { label: 'Fill', pattern: { kind: 'Spaceship' }, value: '#ff0000' }, { label: 'Bold', pattern: { args: [{ edge: 'Warp Factor', loc: {} }], out: { choice: 'Nine' } }, value: true }] };
+  await Store.keepHouseStyle({ id: 'hs2', name: 'Elsewhere', look: foreign }); await Shell.parts.peek().formatbar.relist?.(); await tick(100);
+  await show(act);
+  FormatBar.lookMenu(act.id).find(i => i.label === 'House style').items.find(i => i.label === 'Elsewhere').items.find(i => i.label === 'Apply to 40 Act').run(); await tick(500);
+  check('… what a chart hasn’t got of a look doesn’t come, and it’s said', !noteAt(act, 'Fill', { kind: 'Spaceship' }) && /but for 2 settings/.test(txt($('.toasts'))), txt($('.toasts')));
+  Shell.parts.peek().undo.undo(); await tick(300);
+  // A new chart begun in one, whole, frames and all.
+  const before = App.chart.peek(), withFrame = { ...look, notes: [...look.notes, { label: 'Frame', pattern: FUNDS, value: 'solid' }] };
+  App.newChart(withFrame); await tick(500);
+  $('.chartmenu.naming input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(80);
+  const v0 = charts()[0];
+  check('a new chart can begin in a house style, whole', App.chart.peek() !== before && noteAt(v0, 'Fill', FUNDS)?.value === '#1f3864' && noteAt(v0, 'Frame', FUNDS)?.value === 'solid' && shapeIn(v0, r => r.role === 'title')?.format?.Font === 'Garamond', `${noteAt(v0, 'Fill', FUNDS)?.value}`);
+  Shell.parts.peek().workbook.menu().find(x => x.label === 'Delete chart').run(); await tick(300);
+  await show(named('Structure'));
+  const acts = () => [...Shell.parts.peek().action ?? []];
+  check('Find reaches them by Style, Theme, Template, House, Master, Match', ['look.match', 'look.house', 'look.save', 'look.load'].every(id => acts().find(a => a.id === id)?.names?.includes('Theme')) && ['Style', 'Template', 'House style', 'Master', 'Match'].every(w => acts().find(a => a.id === 'look.match').names.includes(w)));
+  await Store.forgetHouseStyle('hs1'); await Store.forgetHouseStyle('hs2'); await Shell.parts.peek().formatbar.relist?.();
+  Shell.parts.peek().undo.undo(); await tick(300);
+}
+
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);
-Shell.ready.then(() => run())
+Shell.ready.then(() => location.search.includes('format') ? null : run()).then(format)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

@@ -245,7 +245,7 @@ function open(data) {
   // items it adds, in order, each past its end added to it: so an edit made as another was is that one, ids and all.
   function edit({ chart: c, who, day = null, when, ids = null } = {}) {
     const d = chart(c), items = new Map([...d.items].map(([k, v]) => [k, [...v]])), adds = new Map(), removes = new Set();
-    let named = 0;
+    let named = 0, said = null;
     const name = () => !ids ? newId() : named < ids.length ? ids[named++] : (ids[named++] = newId());
     // The note rows by what they're at, once a note is written, so each note written finds the one it replaces at once.
     let noted = null;
@@ -370,8 +370,11 @@ function open(data) {
         if (!noted) { noted = new Map(); for (const r of all()) if ('note' in r) push(noted, noteKey(r), r); }
         return noted.get(JSON.stringify([label, view ?? null, param ?? null, Tree.key(pattern)]))?.[0] ?? null;
       },
+      // What it says of itself, where what it does is one act of many rows ("Gave 40 Act the look of Structure"), which
+      // History and Undo say in place of going through them.
+      says(text) { said = text; },
       commit: () => adds.size || removes.size
-        ? apply({ id: newId(), who, when: when ?? now(), chart: c, removes: [...removes], adds: [...adds.values()] }) : null,
+        ? apply({ id: newId(), who, when: when ?? now(), chart: c, removes: [...removes], adds: [...adds.values()], ...(said && { says: said }) }) : null,
     };
     return tx;
   }
