@@ -826,19 +826,20 @@ async function run() {
     Sh.at({ asOf: '2037-12-31' }); await tick(300);
     const dated = await exported('pdf', one);
     Sh.at(null); await tick(300);
-    check('an as-of day other than today is in the file’s name', dated.name === `${chart} - ${charts[0].name} - as of Dec 31, 2037.pdf`, dated.name);
+    // (The chart's name ends in its first page's, Structure, which isn't said twice.)
+    check('an as-of day other than today is in the file’s name', dated.name === `${chart} - as of Dec 31, 2037.pdf`, dated.name);
     // While the past is shown, the moment is: in the file's name, on its page, and on a calendar's; and nothing's written.
     const past = A.wb.changes().at(-1), logged = () => A.wb.changes().length, logged0 = logged();
     Sh.at({ stood: past.id, at: past.when }); await tick(400);
     const words = Log.stoodText(past.when, 'short'), inName = words[0].toLowerCase() + words.slice(1).replace(':', '.');
     const pastFile = await exported('pdf', one), pastCal = await exported('ics');
-    check('While the past is shown, a file’s name says the moment, without a colon', pastFile.name === `${chart} - ${charts[0].name} - ${inName}.pdf` && /, \d+\.\d\d [AP]M\.pdf$/.test(pastFile.name), pastFile.name);
+    check('While the past is shown, a file’s name says the moment, without a colon', pastFile.name === `${chart} - ${inName}.pdf` && /, \d+\.\d\d [AP]M\.pdf$/.test(pastFile.name), pastFile.name);
     check('… as the page’s date line does, as a calendar’s name does, and nothing is written', A.scene.peek().marks.filter(m => m.role === 'date').every(m => m.texts[0].text.startsWith('As it stood on ')) && pastCal.name === `${chart} - ${inName}.ics` && logged() === logged0, j([pastCal.name, logged() - logged0]));
     Sh.at(null); await tick(300);
     // In Viewing, Export works and writes nothing.
     A.setViewing(true); await tick(200);
     const viewed = await exported('pdf', one);
-    check('In Viewing, Export writes its file and nothing else', viewed.name === `${chart} - ${charts[0].name}.pdf` && viewed.blob.size > 0 && logged() === logged0, j([viewed.name, logged() - logged0]));
+    check('In Viewing, Export writes its file and nothing else', viewed.name === `${chart}.pdf` && viewed.blob.size > 0 && logged() === logged0, j([viewed.name, logged() - logged0]));
     A.setViewing(false); await tick(200);
     // A table's file says what it writes: as the table shows it, or every row.
     const S = G('Shell'), entities = A.views.peek().find(v => v.name === 'Entities'), back = S.view.peek();

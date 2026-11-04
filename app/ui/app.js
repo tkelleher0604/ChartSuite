@@ -325,22 +325,29 @@ const App = (() => {
     if (!out) return mine && tx.remove(id);
     if (mine) tx.set(id, withOut(id, slot, out)); else tx.add('record', enterAt(tx, withOut(id, slot, out)));
   }
-  // Whether a value typed asks from when: an output put in place of one a record has, where there's history to keep. A
-  // date says its own day, and a value where there was none has nothing to keep; nor has one typed lately, as a slip is
-  // (today, or since the chart was opened), while it's for the day shown. What a formula gives, typed over, asks.
+  // Whether a value typed asks from when, wherever it's typed (the panel, the chart, the bar, a table's cell): an output
+  // put in place of one a record has, where there's history to keep. A date says its own day, and a value where there was
+  // none has nothing to keep; nor has what a Fixed note says doesn't change over time (an EIN, a file number), nor one typed
+  // lately, as a slip is (today, or since the chart was opened), while it's for the day shown. What a formula gives, typed
+  // over, asks.
   function asksFrom(id, out) {
     const r = id && state.peek()[id];
     if (!r || !out || r.kind !== undefined || r.field === 'date' || out.field === 'date') return false;
     if (result.peek().computed[id]) return true;
+    if (fixedAt(id)) return false;
     const row = book.peek().item(chart.peek(), id).find(v => Log.validOn(v, day.peek()));
     return !!row && !(lately(firstSaid(id, row)) && (!Shell.time.peek()?.asOf || row.since === day.peek()));
   }
+  // What a Fixed note says doesn't change over time, a record or a blank one (`slot`), which is one fact, whatever the day shown.
+  const fixedAt = (id, slot) => { const recs = state.peek(), t = id && recs[id] ? Tree.treeOf(recs, id) : slot?.at && recs[slot.at] ? Tree.treeOf({ ...recs, '': { at: slot.at, edge: slot.edge, tag: true } }, '') : null; return !!t && notes.peek().fixed(t); };
   // A value as a sentence says it: whose, by the short names of what it's at, and what it is, a relation's percentage
   // being its holder's stake in the other side; a tag, by what it is and where, which its button's verb says the rest of.
   const possess = s => `${s}${s.endsWith('s') ? '’' : '’s'}`, lowered = s => s.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
   function typedWords({ id, slot, out }) {
     const recs = state.peek(), N = notes.peek(), r = recs[id] ?? slot, at = r.at && recs[r.at], is = `is ${Tree.outputText(out)}`;
     const term = x => bind(N.shortOf(recs, Tree.objectOf(recs, x))), mid = x => term(x).replace(/^The /, 'the ');
+    // (A relation's side typed over, in a table: the relation as it would then be.)
+    if (out.args) return `${N.nameOf(recs, id)}: ${N.placed({ ...recs, [id]: { ...r, args: out.args } }, id).map(s => s.join + s.text).join('')}`;
     if ('tag' in out) return r.at ? `${r.edge} of ${N.whereOf(recs, r)}` : `${N.nameOf(recs, id)}: ${N.segmentOf(recs, id)}`;
     if (!at) return `${N.nameOf(recs, id)}: ${N.segmentOf(recs, id)} ${is}`;
     if (at.kind !== undefined) return `${possess(term(r.at))} ${lowered(r.edge)} ${is}`;
@@ -351,8 +358,10 @@ const App = (() => {
   // for a tag, Rename for a name; several, each.
   const typedPending = typed => {
     const [t] = typed, r = state.peek()[t.id] ?? t.slot;
-    const act = typed.length > 1 ? null : 'tag' in t.out ? (t.out.tag ? 'Attest' : 'Rule out') : Tree.same(r.edge ?? '', 'Name') ? 'Rename' : null;
-    return { typed, act, what: typed.length > 1 ? `${typed.length} values` : typedWords(t), parts: typed.length > 1 ? typed.map(x => html`<span class="add">${typedWords(x)}</span>`) : null,
+    const act = typed.length > 1 || t.out.args ? null : 'tag' in t.out ? (t.out.tag ? 'Attest' : 'Rule out') : Tree.same(r.edge ?? '', 'Name') ? 'Rename' : null;
+    // (A long run says its last few, the newest being what's just typed, and how many before them.)
+    const shown = typed.slice(-3), more = typed.length - shown.length;
+    return { typed, act, what: typed.length > 1 ? `${typed.length} values` : typedWords(t), parts: typed.length > 1 ? [...(more ? [html`<span class="add">${more} more</span>`] : []), ...shown.map(x => html`<span class="add">${typedWords(x)}</span>`)] : null,
       needs: typed.map(x => x.id).filter(x => !result.peek().computed[x]) };
   };
   // Typed: made at once, where it asks nothing; or a change pending, asking from when, the day shown till another is
@@ -366,7 +375,7 @@ const App = (() => {
       if (left.length) amend(p, typedPending(left)); else discard({ quiet: true });
       return;
     }
-    if (!asksFrom(id, out) && !now?.some(t => t.id === id)) return change(tx => putting(tx, id, slot, out));
+    if (!asksFrom(id, out) && !now?.some(t => t.id === id)) return change(tx => putting(tx, id, slot, out), { dated: !fixedAt(id, slot) });
     const typed = [...(now ?? []).filter(t => t.id !== id), { id, slot, out }];
     if (now) { amend(p, typedPending(typed)); if (auto) setTimeout(() => { const i = document.querySelector('.pendbar .when input'); i?.focus(); i?.select(); }); return; }
     let told = null;
@@ -857,10 +866,12 @@ const App = (() => {
     previewed = { p, v, d };
     FormulaBar.preview(would(tx => p.make(tx, p.day, p), { dated: datedOf(p), ids: p.ids }), 'pending');
   }));
-  // Enter makes it, wherever the keys are, but in what's being typed in or pressed.
+  // Enter makes it, wherever the keys are, but in what's being typed in or pressed; and in a table's cells, where values
+  // typed go on one bar and Enter goes down the column, as Excel's does, till the keys go to the bar's day (F6).
   addEventListener('keydown', e => {
     if (e.key !== 'Enter' || !mine() || e.defaultPrevented || e.isComposing) return;
     if (e.target.closest?.('input, textarea, select, button, a[href], [contenteditable], .CodeMirror, dialog, .float')) return;
+    if (mine().typed && e.target.closest?.('.grid .cells')) return;
     e.preventDefault(); e.stopPropagation();
     commit();
   }, true);
@@ -913,7 +924,7 @@ const App = (() => {
     return html`<span class="amount"><span class="word">${v.edge}</span><span class="hug"><input ref=${input} class="cell" spellcheck=${false} autocomplete="off" aria-label=${v.edge}
       aria-invalid=${v.v === undefined ? 'true' : null} value=${text ?? (v.v === null || v.v === undefined ? '' : Tree.format(v.field, v.v))} onInput=${typed} onKeyDown=${key} onBlur=${() => { if (v.v !== undefined) setText(null); }} /></span></span>`;
   }
-  function Controls({ p, auto }) {
+  function Controls({ p, auto, hint }) {
     const enter = e => { if (e.key === 'Enter' && !e.defaultPrevented && !e.target.closest('.lk')) { e.preventDefault(); e.stopPropagation(); commit(); } };
     const shown = typeof FormulaBar !== 'undefined' ? FormulaBar.pending.value : null, fails = failsOf(shown?.from === 'pending' ? shown.R2 : null);
     // A check it fails, clicked, is asked about in the formula bar, at the record it's about.
@@ -922,6 +933,7 @@ const App = (() => {
     return html`${fails.length ? html`<button type="button" class="fails" title=${fails.length > 1 ? fails.map(f => f.text).join('\n') : null} onClick=${() => why(fails[0])}>${Shell.icon('alert')}<span>Fails ${fails[0].text}${fails.length > 1 ? ` and ${fails.length - 1} more` : ''}</span></button>` : null}
       ${endable.length ? html`<button type="button" class="btn too" onClick=${() => endToo(p, endable)}>${endable.length > 1 ? 'End those too' : 'End that too'}</button>` : null}
       ${p.value ? html`<span class="amt" onKeyDown=${enter}><${Amount} key=${p.n} p=${p} auto=${auto} /></span>` : null}
+      ${hint && p.asks ? html`<kbd class="tokey">F6</kbd>` : null}
       ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} alts=${p.alts?.(p)} set=${d => amend(p, { day: d })} /></span>`
         : p.from ? html`<span class="when">From ${p.from > day.value ? dayLink(p.from) : Tree.formatDate(p.from, 'short')}</span>` : null}
       <span class="acts"><button class="btn" onClick=${() => discard()}>Discard</button>
@@ -932,9 +944,9 @@ const App = (() => {
   function Pending() {
     const p = pending.value;
     if (!p || p.chart !== chart.value) return null;
-    return html`<div class="pendbar" role="region" aria-label=${p.verb} onKeyDown=${escaped}>
+    return html`<div class="pendbar" role="region" aria-label=${p.verb} data-region="bar" onKeyDown=${escaped}>
       <span class="what">${p.Fill ? html`<${p.Fill} p=${p} />` : (p.parts ?? [html`<span class=${p.verb === 'Delete' ? 'del' : 'add'}>${p.what}</span>`]).map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
-      <${Controls} p=${p} auto=${p.auto && !p.inline} />
+      <${Controls} p=${p} auto=${p.auto && !p.inline} hint=${!!p.typed} />
     </div>`;
   }
   // Where it was asked, its controls there too, the bar's state, so it's confirmed where the eye is: under the two-box
@@ -1288,6 +1300,6 @@ const App = (() => {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, state, needs,
     readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, heldFrom, heldUntil, spanOf, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
-    enterAt, putting, put, asksFrom, held: typedOut, overriding, noTone,
+    enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone,
   };
 })();
