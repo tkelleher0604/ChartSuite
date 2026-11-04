@@ -917,6 +917,21 @@ function run() {
     // Laid out with nothing placed, what's beside each other stands in the order it was made (gui2 D-15), never reversed.
     const laid = halvard(false), across = ['State Teachers', 'Ridgeway', 'Harbor', 'Coastal'].map(n => laid.marks.find(m => m.type === 'box' && m.texts[0]?.text.startsWith(n)).x);
     check('laid out with nothing placed, siblings stand in the order they were made: Dana’s four owners, left to right', across.every((x, i) => !i || x > across[i - 1]), j(across));
+    // The first owner of a fund, dropped anywhere round it (gui2 D-11), then related: it stands where it was dropped, as far as
+    // it's over what it owns, its line down into the apex; the fund and the page stand as they stood.
+    const dropped = (dx, dy, related) => newChart((tx, view) => {
+      const [f] = entity(tx, 'Halvard Capital Fund IV, L.P.', 'Limited Partnership'), [o] = entity(tx, 'State Teachers Pension Plan', 'Corporation');
+      if (related) owns(tx, o, f, null);
+      tx.note('Position', { id: f, kind: 'Entity' }, { x: 640, y: 420, loose: true }, { view });
+      tx.note('Position', { id: o, kind: 'Entity' }, { x: 640 + dx, y: 420 + dy, loose: true }, { view });
+    }).s;
+    const stays = [-340, -220, -125, -60, 0, 90].flatMap(dy => [-300, -170, 300].map(dx => {
+      const was = dropped(dx, dy, false), s = dropped(dx, dy, true), name = (x, n) => x.marks.find(m => m.type === 'box' && m.texts[0]?.text.startsWith(n)), [o, f, o0, f0] = [name(s, 'State'), name(s, 'Halvard'), name(was, 'State'), name(was, 'Halvard')];
+      const l = s.marks.find(m => m.type === 'line'), end = l.points.at(-1), own = (x, m) => [m.x - x.page.offset.x, m.y - x.page.offset.y];
+      return { dx, dy, ok: o.y + o.h + 30 <= f.y && Math.abs(end[0] - (f.x + f.w / 2)) < 1 && Math.abs(end[1] - f.y) < 1 && Math.abs(own(s, f)[0] - own(was, f0)[0]) < 1 && Math.abs(own(s, f)[1] - own(was, f0)[1]) < 1
+        && s.page.scale === was.page.scale && (dy > -125 || Math.abs(own(s, o)[1] - own(was, o0)[1]) < 1) && (dx === -170 && dy === -125 ? true : Math.abs(own(s, o)[0] - own(was, o0)[0]) < 1), at: own(s, o), was: own(was, o0), fund: own(s, f), end, page: [was.page.offset.y, s.page.offset.y, s.page.scale] };
+    }));
+    check('the first owner of a fund, dropped anywhere round it and related, stands over it near where it was dropped, its line into the apex, the fund and the page as they stood', stays.every(x => x.ok), j(stays.filter(x => !x.ok)));
   }
   {
     // Tidy (gui2 D-15, L-2.2) takes each box's place away but for where it stood across: every row of every sample view, on

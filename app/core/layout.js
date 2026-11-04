@@ -484,7 +484,12 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
     const share = dir => [...new Set((dir === 'down' ? downs.get(b.id) ?? [] : ups.get(b.id) ?? []).flatMap(l => { const o = dir === 'down' ? l.to : l.from;
       return !geo.has(o) ? [] : (dir === 'down' ? ups.get(o) ?? [] : downs.get(o) ?? []).filter(x => x.trunk === l.trunk).map(x => dir === 'down' ? x.from : x.to); }))];
     const alike = [...share('down'), ...share('up')].filter(id => id !== b.id && geo.has(id)).map(id => geo.get(id));
-    const sibs = alike.length ? alike : [...new Set([...kids.flatMap(id => linked(id, 'up')), ...parents.flatMap(id => linked(id, 'down'))])].filter(id => id !== b.id && geo.has(id)).map(id => geo.get(id));
+    // Related, it stands on the right side of what it's related to, wherever it was made: over what it owns, by as much as its
+    // line needs to come down, and under what owns it; never level with them or past them (but one flanking triangles, which
+    // meets their side). So of those that share them, only a row on that side is its row.
+    const overTop = kids.length && !tris.length ? Math.min(...kids.map(id => geo.get(id).y)) - b.h - 40 : Infinity, underFoot = parents.length ? Math.max(...parents.map(id => geo.get(id).y + geo.get(id).h)) + 40 : -Infinity;
+    const sideOf = y => overTop < underFoot || (y <= overTop + 0.01 && y >= underFoot - 0.01), ya = overTop < underFoot ? y0 : Math.min(overTop, Math.max(underFoot, y0)), inRow = alike.filter(g => sideOf(g.y));
+    const sibs = inRow.length ? inRow : alike.length ? alike : [...new Set([...kids.flatMap(id => linked(id, 'up')), ...parents.flatMap(id => linked(id, 'down'))])].filter(id => id !== b.id && geo.has(id)).map(id => geo.get(id));
     const sib = sibs.sort((p, q) => Math.abs(p.x + p.w / 2 - cx) - Math.abs(q.x + q.w / 2 - cx))[0];
     // Where it was made, so a box dropped stays near where it was dropped, on that side of its relatives; but made within its
     // width of their middle, or made elsewhere, at their middle, square over or under them.
@@ -493,7 +498,7 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
     // (imported, bought in or added from a list) that would stand further than one box off them makes room beside them, that
     // row's boxes sliding apart by the least that's needed, in their order (see roomBeside); what's dropped or tidied around
     // what stands moves nothing. Only where the row is full, on a page that stays as it is, is it put in a row of its own.
-    if (sib && alike.length) {
+    if (sib && inRow.length) {
       const y = Math.max(m / 2, sib.y), toward = hint ? Math.sign(x0 + b.w / 2 - cx) || 1 : -1;
       let found = null;
       for (let i = 0; i < 600 && !found; i++) for (const dir of i ? [toward, -toward] : [toward]) {
@@ -501,12 +506,12 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
         if (clear(q)) { found = q; break; }
       }
       const row = placedBoxes.filter(g => Math.min(g.y + g.h, y + b.h) - Math.max(g.y, y) > Math.min(g.h, b.h) / 2).sort((p, q) => p.x - q.x);
-      const off = found && Math.min(...alike.filter(g => row.includes(g)).map(g => row.filter(o => (o.x + o.w / 2 - g.x - g.w / 2) * (o.x + o.w / 2 - found.x - b.w / 2) < 0).length));
+      const off = found && Math.min(...inRow.filter(g => row.includes(g)).map(g => row.filter(o => (o.x + o.w / 2 - g.x - g.w / 2) * (o.x + o.w / 2 - found.x - b.w / 2) < 0).length));
       if (!hint && !b.around && !keep && !bounds && (!found || off > 1)) {
         // (Clear of the lines that pass the row: its boxes' own move with them.)
         const passing = routed.filter(l => !row.some(g => g.id === l.from || g.id === l.to)).flatMap(l => (l.points ?? []).slice(1).map((p, i) => [l.points[i], p]));
         const fits = q => !obstacles.some(o => !apart(q, o, 16, 16)) && !passing.some(s => meets(q, s, -1)), rowKey = Math.round(y);
-        const r = roomBeside(b, y, row, alike, slidIn.get(rowKey), cx, Math.min(...placedBoxes.map(g => g.x)), fits, placedBoxes.filter(g => !row.includes(g)));
+        const r = roomBeside(b, y, row, inRow, slidIn.get(rowKey), cx, Math.min(...placedBoxes.map(g => g.x)), fits, placedBoxes.filter(g => !row.includes(g)));
         if (r) {
           for (const [g, dx] of r.moves) { g.x += dx; out.get(g.id).x = g.x; nearBoxes.add(g, placedBoxes.indexOf(g)); }
           if (r.moves.length) { route(geo, routed, { labels: false }); segs = routed.flatMap(l => (l.points ?? []).slice(1).map((p, i) => [l.points[i], p])); nearSegs = grid(segs.map(span)); }
@@ -524,12 +529,13 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
     // And a row of its own over that row (an owner's), or under it, where that row is full; or, where no box of its own
     // relation shares its relatives, the row of those of another that do (its fund's general partner's) where there's room
     // near, or a row of its own over or under them.
-    const rows = [];
+    let rows = [];
     if (sib) rows.push(...alike.length ? [] : [{ y: sib.y, cost: 60 }], ...kids.length && !tris.length ? [{ y: sib.y - b.h - GAP.down, cost: 120 }] : [], ...parents.length ? [{ y: sib.y + sib.h + GAP.down, cost: 120 }] : []);
-    rows.push({ y: y0, cost: 120 });
+    rows.push({ y: ya, cost: 120 });
     const between = (lo, hi) => { const mid = (lo + hi - b.h) / 2; for (let y = lo + 24; y <= hi - 24 - b.h; y += 8) rows.push({ y, cost: 120 + Math.abs(y - mid) * 0.5 }); rows.push({ y: mid, cost: 120 }); };
     if (kids.length) { const top = Math.min(...kids.map(id => geo.get(id).y)); between(sib ? sib.y + sib.h : top - b.h - 96, top); }
     if (parents.length) { const bottom = Math.max(...parents.map(id => geo.get(id).y + geo.get(id).h)); between(bottom, sib ? sib.y : bottom + b.h + 96); }
+    if (rows.some(r => sideOf(r.y))) rows = rows.filter(r => sideOf(r.y));
     // On a page that stays as it is, any row on it, nearest first, where none near its relatives is clear.
     if (bounds) for (let y = m / 2; y <= bounds.h - m / 2 - b.h; y += 24) rows.push({ y, cost: 240 + Math.abs(y - y0) * 0.5 });
     // Along each row, the nearest place that's clear either way, from where it goes (`from`), toward the side of its
@@ -539,13 +545,13 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
     for (const row of rows) {
       const y = Math.max(page.margin / 2, row.y), ideal = from;
       for (const [dir, extra] of [[toward, 0], [-toward, hint ? 48 : 0]]) for (let i = 0; i < 300; i++) {
-        const d = dir * i * 8, cost = row.cost + Math.abs(d) + extra + Math.abs(y - y0) * 0.25;
+        const d = dir * i * 8, cost = row.cost + Math.abs(d) + extra + Math.abs(y - ya) * 0.25;
         if (best && cost >= best.cost) break;
         const q = { x: Math.max(page.margin / 2, ideal + d), y, w: b.w, h: b.h };
         if (clear(q)) { best = { ...q, cost }; break; }
       }
     }
-    const p = best ?? { x: Math.max(m, bounds ? Math.min(x0, bounds.w - m - b.w) : x0), y: Math.max(m, bounds ? Math.min(y0, bounds.h - m - b.h) : y0), w: b.w, h: b.h };
+    const p = best ?? { x: Math.max(m, bounds ? Math.min(x0, bounds.w - m - b.w) : x0), y: Math.max(m, bounds ? Math.min(ya, bounds.h - m - b.h) : ya), w: b.w, h: b.h };
     geo.set(b.id, { id: b.id, x: p.x, y: p.y, w: b.w, h: b.h, shape: b.shape });
     nearBoxes.add(geo.get(b.id), placedBoxes.push(geo.get(b.id)) - 1);
     out.set(b.id, { x: p.x, y: p.y });
