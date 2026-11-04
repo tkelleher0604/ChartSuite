@@ -1854,6 +1854,18 @@ async function tidiedSome() {
   const back = boxAt(), diff = [...was].filter(([id, p]) => !back.get(id) || Math.abs(back.get(id)[0] - p[0]) > 0.75 || Math.abs(back.get(id)[1] - p[1]) > 0.75);
   check('… and Undo puts them back', !diff.length, JSON.stringify(diff));
   Shell.select([]); await tick(150);
+  // A box only the layout has placed, no change having kept it yet, dragged the first time, stands where it's put.
+  let fresh; App.change(tx => { fresh = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: fresh, edge: 'Name', field: 'text', value: 'First Drag LLC' }); }); await tick(400);
+  const m0 = sc().byId.get(fresh), z0 = cv().graph.zoom(), n1 = App.wb.changes().length;
+  check('(a box the layout placed)', !!m0 && !m0.placed, JSON.stringify(m0 && [m0.x, m0.placed]));
+  if (m0) {
+    await drag(m0, 40, 30);
+    const m1 = sc().byId.get(fresh);
+    check('… dragged the first time, it stands where it was put, one change, said so', Math.abs(m1.x - m0.x - 40 / z0) < 2 && m1.y > m0.y + 20 / z0 && App.wb.changes().length === n1 + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), JSON.stringify([m0.x, m0.y, m1.x, m1.y, Time.describe(App.wb.changes().at(-1))]));
+    Shell.parts.peek().undo.undo(); await tick(300);
+  }
+  Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([]); await tick(150);
 }
 
 // A box dragged by the mouse from a point of it, by (dx, dy) on screen.

@@ -832,6 +832,8 @@ function mount(el) {
         tx.update(id, { x: r(clamp(p.x, 0, page.w - w)), y: r(clamp(p.y, 0, page.h - h)), ...((p.w !== undefined || p.h !== undefined) && { w: r(w), h: r(h) }) });
       }
     }
+    // (What a hand put, the same change doesn't keep where the layout had it: see keep.)
+    for (const id of places.keys()) { const m = scene.byId.get(id); if (m?.type === 'box') placedNow.add(m.record); }
   }
   // Marks moved, written, as one change; and nothing, where nothing moved. What was moved stays where it was put,
   // and nothing else moves (see draw, and keep).
