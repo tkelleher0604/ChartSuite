@@ -318,7 +318,7 @@ const Shell = (() => {
   const virtual = p => ({ getBoundingClientRect: () => ({ x: p.x, y: p.y, left: p.x, top: p.y, right: p.x, bottom: p.y, width: 0, height: 0 }) });
   function place(anchor, el, placement, gap = 4) {
     const ref = anchor instanceof Element ? anchor : virtual(anchor);
-    const update = () => computePosition(ref, el, { strategy: 'fixed', placement, middleware: [offset(gap), flip({ padding: 8 }), shift({ padding: 8 })] })
+    const update = () => computePosition(ref, el, { strategy: 'fixed', placement, middleware: [offset(gap), flip({ padding: 8 }), shift({ padding: 8, crossAxis: true })] })
       .then(({ x, y }) => { el.style.left = x + 'px'; el.style.top = y + 'px'; });
     if (!(anchor instanceof Element)) { update(); return () => {}; }
     return autoUpdate(ref, el, update);
@@ -421,13 +421,14 @@ const Shell = (() => {
       onInput=${read} onCompositionEnd=${read} onKeyDown=${e => { if (e.key === 'Enter') e.preventDefault(); }} onFocus=${e => caretAt(e.currentTarget, Infinity)} />`;
   }
 
-  // A menu; with `search`, a field that ranks its items, or that `items(query)` answers.
+  // A menu; with `search`, a field that ranks its items, or that `items(query)` answers. An item `asked` (a new option named
+  // as it's typed, from `more(query)`) is never the one Enter takes of itself: it's chosen, by the pointer or the arrows.
   function Menu({ f }) {
     const [q, setQ] = useState(f.query ?? '');
     const [act, setAct] = useState(-1);
-    const items = typeof f.items === 'function' ? f.items(q.trim()) : f.search && q.trim() ? rank(f.items.filter(selectable), q) : f.items;
+    const items = typeof f.items === 'function' ? f.items(q.trim()) : f.search && q.trim() ? [...rank(f.items.filter(it => selectable(it) && !it.asked), q), ...(f.more?.(q.trim()) ?? [])] : f.items;
     const live = items.map((it, i) => selectable(it) ? i : -1).filter(i => i >= 0);
-    const active = f.search && q.trim() && act < 0 ? live[0] : act;
+    const active = f.search && q.trim() && act < 0 ? live.find(i => !items[i].asked) ?? -1 : act;
     const checks = items.some(it => it && it.checked !== undefined);
     const mi = i => `mi${f.id}-${i}`, el = i => document.getElementById(mi(i));
     const run = it => {
@@ -715,7 +716,7 @@ const Shell = (() => {
   const away = computed(() => shut.value && !wide.value && !aside.value);
   function Main() {
     const v = current.value, layout = v?.layout || 'chart', kinds = layout === 'chart' && part('canvas')?.kinds;
-    const bare = kinds && v && !App.readOnly.value && App.scene.value && !App.scene.value.marks.some(m => m.type === 'box');
+    const bare = kinds && v && !App.readOnly.value && App.scene.value && !App.scene.value.marks.some(m => m.type === 'box') && !App.later.value;
     const resize = e => {
       if (e.button !== 0) return;
       e.preventDefault();
