@@ -1559,7 +1559,8 @@ async function saysWhen(C, keep) {
   // Who's on the hook: a date's own record's before its entity's
   check('who’s responsible is the nearest up from a date', App.responsible('fund3a_lei')?.name === 'Rebecca A. Moretti' && App.responsible('fund3a')?.name === 'Jonathan S. Ferraro' && App.responsible('aiv')?.name === 'Rebecca A. Moretti', App.responsible('fund3a')?.name);
   // Enter on the From list opens it; Esc from a value amBeside it drops what's waiting
-  App.put('fund_target', st().fund_target, { field: 'money', value: 800000000 }); await tick(80);
+  const amAsks = Object.keys(st()).find(k => st()[k].field === 'percent' && !st()[k].args && App.asksFrom(k, { field: 'percent', value: 0.33 }));
+  App.put(amAsks, st()[amAsks], { field: 'percent', value: 0.33 }); await tick(80);
   const nE = App.wb.changes().length;
   pb('.from .sel')?.focus(); key(pb('.from .sel'), 'Enter'); await tick(60);
   check('Enter on the From list opens it, nothing made, and All along says it’s a correction', !!document.querySelector('.float .menu') && App.wb.changes().length === nE && /a correction/.test(document.querySelector('.float .menu')?.textContent ?? ''), document.querySelector('.float .menu')?.textContent);

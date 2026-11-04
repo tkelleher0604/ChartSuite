@@ -469,7 +469,7 @@ const Table = (() => {
       el.classList.toggle('none', c.type !== 'edge' && !c.key.startsWith('$') && !m?.at);
       el.classList.toggle('pend', !!m && 'was' in m && c.type !== 'tag' && m.was !== null && v !== null);
       if (tip) el.dataset.tip = tip; else delete el.dataset.tip;
-      if (m?.next && !('was' in m)) return `${shown(v, m)} <span class="nx">${esc(m.next)}</span>`;
+      if (m?.next && !('was' in m)) { if (!tip) el.dataset.tip = m.next; return `${shown(v, m)} <span class="nx">${esc(m.next)}</span>`; }
       if (!m || !('was' in m) || c.type === 'tag') return shown(v, m);
       return [m.was !== null && `<span class="del">${shown(m.was, null, m.type ?? c.type)}</span>`, v !== null && `<span class="add">${shown(v, m)}</span>`].filter(Boolean).join(' ');
     };
