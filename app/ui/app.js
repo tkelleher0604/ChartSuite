@@ -966,13 +966,15 @@ const App = (() => {
     if (parts.some(p => !row(p))) return false;
     const then = wb.asOf(c, day0), r = one && row(one), figure = r && 'field' in r && r.field !== 'document' && r.field !== 'date';
     const words = p => valueWords(p.id, then);
+    // (It amends the change that said it only where that's all that change did: a bulk entry stands, and this is a change of its own.)
+    const whole = by && Time.act(by)?.type === 'value' && parts.every(p => Time.act(by).parts.some(q => q.id === p.id)) ? by : null;
     const fits = d => d === null || parts.every(p => (!prev(p)?.since || d > prev(p).since) && (!row(p).before || d < row(p).before));
     stage({ verb: 'Change', what: one ? words(one) : `${parts.length} values`, source: 'amend value ' + day0, needs: parts.map(p => p.id), amends: by, asks: 'from', word: undefined, day: day0, along: 'a correction',
       ...(figure && { value: { edge: r.edge ?? N.nameOf(then, one.id), field: r.field, v: r.value } }), fits: p => fits(p.day), bad: p => p.day && !fits(p.day) ? 'It has to fall between the days either side' : null,
       make: (tx, d, p) => {
         const value = p.value?.v ?? r?.value;
         if (d === day0 && (!one || value === r.value)) return;
-        if (by) tx.amends(by.id);
+        if (whole) tx.amends(whole.id);
         for (const q of parts) {
           const now = tx.item(q.id), a = now.find(x => x.since === day0), b = now.find(x => x.before === day0), set = one && figure ? { value } : {};
           if (d === null) {
@@ -993,10 +995,12 @@ const App = (() => {
   function amendingDay(by, id, which, was) {
     const wb = book.peek(), c = chart.peek(), then = wb.asOf(c, which === 'since' ? was : (d => { const y = new Date(d + 'T12:00:00'); y.setDate(y.getDate() - 1); return Tree.isoOf(y); })(was)), N = notes.peek();
     const what = then[id]?.args ? `${N.nameOf(then, id)}: ${N.segmentOf(then, id)}` : N.nameOf(then, id);
+    // (As a value's: a bulk entry stands.)
+    const whole = by && ['added', 'ended'].includes(Time.act(by)?.type) && Time.act(by).id === id ? by : null;
     stage({ verb: 'Change', what, source: 'amend day ' + id, needs: [id], amending: [id], amends: by, ...(which === 'since' ? { asks: 'from' } : { asks: 'on', word: 'Ends on' }), day: was,
       make: (tx, d) => {
         if (d === was || d === undefined) return;
-        if (by) tx.amends(by.id);
+        if (whole) tx.amends(whole.id);
         tx.redate(id, which, was, d);
         tx.says(whatMoved(`the day of ${what}`, [movedDay(was, d)]));
       }, say: x => Time.describe(x) });
@@ -1162,7 +1166,7 @@ const App = (() => {
       ${p.value ? html`<span class="amt" onKeyDown=${enter}><${Amount} key=${p.n} p=${p} auto=${auto} /></span>` : null}
       ${p.instead ? html`<button type="button" class="btn too" onClick=${p.instead.run}>${p.instead.label}</button>` : null}
       ${p.amends && p.verb === 'Change' && !p.typed ? (t => (t.length ? html`<span class="rests">Takes with it: ${t.join('; ')}</span>` : null))(restsOn(p.amends, p)) : null}
-      ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} alts=${p.alts?.(p)} along=${p.along} bad=${p.bad?.(p)} change=${!!p.amends} set=${d => amend(p, { day: d })} /></span>`
+      ${p.asks ? html`<span class="when" onKeyDown=${enter}><${From} key=${p.n} day=${p.day} auto=${auto && !p.value} asks=${p.asks} word=${p.word} alts=${p.alts?.(p)} along=${p.along} bad=${p.bad?.(p)} change=${String(p.source).startsWith('amend')} set=${d => amend(p, { day: d })} /></span>`
         : p.from ? html`<span class="when">From ${p.from > day.value ? dayLink(p.from) : Tree.formatDate(p.from, 'short')}</span>` : null}
       <span class="acts"><button class="btn" onClick=${() => discard()}>Discard</button>
       <button class="btn primary" disabled=${!ready(p)} onClick=${commit}>${actOn(p)}</button></span>`;

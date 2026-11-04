@@ -1806,7 +1806,15 @@ function holdsStill(pane) {
 }
 function Inspector() {
   const sel = Shell.selection.value, key = sel.join();
-  useLayoutEffect(() => { const pane = host?.closest('.inspector'); return pane ? holdsStill(pane) : undefined; }, []);
+  useLayoutEffect(() => {
+    const pane = host?.closest('.inspector');
+    if (!pane) return;
+    // Esc from a row of the panel, with what's typed in its own hands, drops a value waiting, before the selection goes.
+    const esc = e => { if (e.key !== 'Escape' || e.defaultPrevented || !App.pending.peek()?.typed || e.target.closest('input, textarea, .float, .asking')) return; e.preventDefault(); e.stopPropagation(); App.discard(); };
+    pane.addEventListener('keydown', esc);
+    const off = holdsStill(pane);
+    return () => { off(); pane.removeEventListener('keydown', esc); };
+  }, []);
   useLayoutEffect(() => {
     const s = host?.closest('.inspector'), top = backTo?.key === key ? backTo.top : null;
     // (Again once it's drawn, as its strip takes its room only then.)
