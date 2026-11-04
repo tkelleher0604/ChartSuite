@@ -1516,7 +1516,7 @@ const FormulaBar = (() => {
     open.value = !open.peek();
   }
   // The rows open on one, to read; with `write`, with the cursor in it, to type into. Reading a rule isn't editing it:
-  // a row is written only by a double-click, its pencil, or a new row.
+  // a row is written only by a double-click, its pencil, typing at it, or a new row.
   const openAt = (key, { write = false } = {}) => {
     claimed = true; open.value = true; wanted.value = true;
     if (!write) { reading.value = key; return; }
@@ -1644,6 +1644,13 @@ const FormulaBar = (() => {
       });
       cm.on('inputRead', (c, ch) => { if (/[\w[.]/.test(ch.text.join(''))) c.showHint(hints); });
       cm.on('focus', c => { hover.value = null; if (!c.getOption('readOnly')) startEditing(c, props.current.row.key); });
+      // Typed at a row being read, as at a cell selected, it's written, from where the click left the cursor; F2 too.
+      cm.on('keydown', (c, e) => {
+        if (!c.getOption('readOnly') || App.readOnly.peek() || !props.current.m.def || e.ctrlKey || e.metaKey || e.altKey || !(e.key.length === 1 || ['F2', 'Backspace', 'Delete'].includes(e.key))) return;
+        writing.value = draft.peek()?.def ?? model.peek()?.def?.id ?? null;
+        c.setOption('readOnly', false);
+        startEditing(c, props.current.row.key);
+      });
       const wrap = cm.getWrapperElement();
       wrap.addEventListener('mousemove', e => {
         const { row } = props.current;

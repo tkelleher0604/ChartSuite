@@ -145,7 +145,8 @@ input.bare { border-color: transparent; background: transparent; }
 .float.in { animation: rise var(--quick) var(--ease); }
 @keyframes rise { from { opacity: 0; transform: translateY(-2px); } }
 .menu, .pop { background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r-pop); box-shadow: var(--shadow-pop); }
-.menu { min-width: 200px; max-width: 360px; padding: 4px; max-height: min(480px, calc(100vh - 80px)); overflow: auto; outline: none; }
+.menu { min-width: 200px; max-width: 360px; padding: 4px; max-height: calc(100vh - 24px); overflow: auto; outline: none; }
+.menu:has(> .menu-find) { max-height: min(480px, calc(100vh - 80px)); }
 .menu-item b { font-weight: 600; }
 /* A menu's search field: the menu is its frame, so it takes no ring of its own. After "=", functions are in
    small capitals, as in the formula bar. */

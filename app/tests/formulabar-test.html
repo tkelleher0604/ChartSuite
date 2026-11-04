@@ -800,6 +800,12 @@ async function checks() {
   FormulaBar.discard(); await wait(30);
   check('… and Esc leaves it as it was, read', !document.querySelector('.fxbar input.fx-label') && !!document.querySelector('.fxbar .fx-pencil') && cmOf('r1').getOption('readOnly') === true && App.version.peek() === v2);
   await openRows();
+  cmOf('r1').getInputField().dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true })); await wait(40);
+  check('… as does typing at a row being read, as at a cell selected', !!document.querySelector('.fxbar input.fx-label') && cmOf('r1').getOption('readOnly') === false);
+  FormulaBar.discard(); await wait(30);
+  cmOf('r1').getInputField().dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', ctrlKey: true, bubbles: true })); await wait(20);
+  check('… but not a key that types nothing', cmOf('r1').getOption('readOnly') === true && !document.querySelector('.fxbar input.fx-label'));
+  await openRows();
   document.querySelector('.fxbar [data-key="r3"] .fx-pencil').click(); await wait(40);
   check('… as does its pencil', !!document.querySelector('.fxbar input.fx-label') && !!document.querySelector('.fxbar [data-key="r3"] .fx-x'));
   document.querySelector('.fxbar [data-key="r3"] .fx-x')?.dispatchEvent(new PointerEvent('pointerenter')); await wait(10);
