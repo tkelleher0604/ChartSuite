@@ -185,15 +185,18 @@ async function run() {
   check('Skip goes to the last card, with the selection the tour began on', step() === 'last' && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
   press('Escape', $('.tour-card input')); await tick(150);
   check('Esc ends it', step() === null);
-  // In a step, Esc is the window's: it leaves what's being done (here, the selection), and the tour goes on; on the
-  // tour's own card, it ends it, with the selection it began on.
+  // In a step, Esc first leaves what's being done (a menu open, what's typed), and then ends the tour, with the selection it began on,
+  // the chart having the keys; on the tour's own card too.
   Shell.parts.peek().action.find(a => a.id === 'tour').run(); await tick(200);
   Shell.select(['blocker']); await tick(150);
-  // (Each Esc leaves one thing: what's open over the view first, then the selection.)
-  for (let i = 0; i < 4 && Shell.selection.peek().length; i++) { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(150); }
-  check('Esc in a step leaves what’s being done, not the tour', step() === '2 / 7' && !Shell.selection.peek().length, `${step()} ${Shell.selection.peek().join()}`);
+  Shell.menu({ x: 200, y: 200 }, [{ label: 'One', run: () => {} }]); await tick(80);
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(150);
+  check('Esc in a step leaves what’s being done first, not the tour', step() === '2 / 7' && !document.querySelector('.float .menu'), `${step()}`);
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(150);
+  check('… and with nothing else to leave, it ends the tour, with the selection it began on', step() === null && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
+  Shell.parts.peek().action.find(a => a.id === 'tour').run(); await tick(200);
   press('Escape', $('.tour-card .skip')); await tick(150);
-  check('… and Esc on the tour’s card ends it, with the selection it began on', step() === null && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
+  check('… and Esc on the tour’s card ends it too', step() === null && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
   check('Nothing threw', !errors.length, errors.join(' / '));
 }
 

@@ -2159,14 +2159,16 @@ Shell.register('find', { items: q => {
   if (!q || !id || viewShown()?.layout !== 'chart') return [];
   const o = objectOf(id), name = shortOf(o), inside = within(o), r = recs(), label = edge => ({ of: '§fields', label: `${name} › ${edge}`, names: [edge], detail: 'Field' });
   return [...inside.filter(x => x !== o && r[x].edge && !T.same(r[x].edge, 'Name')).map(x => ({ ...label(r[x].edge), run: () => { aim.value = x; select([o]); } })),
-    ...(App.readOnly.peek() ? [] : inside.flatMap(at => unentered(at).filter(s => !('tag' in s.out)).map(s => ({ ...label(s.args[0].edge), run: () => { select([o]); draft.value = { at, type: 'field' in s.out ? 'field' : 'choice', edge: s.args[0].edge, ...kindAt(tree(at), s.args[0].edge) }; } }))))];
+    // (Where it has its row already, blank, the keys go there, rather than to a second one begun.)
+    ...(App.readOnly.peek() ? [] : inside.flatMap(at => unentered(at).filter(s => !('tag' in s.out)).map(s => ({ ...label(s.args[0].edge), run: () => { if (slots(at).some(x => !x.id && T.same(x.edge, s.args[0].edge))) { aim.value = `${at}|${s.args[0].edge}`; select([o]); return; } select([o]); draft.value = { at, type: 'field' in s.out ? 'field' : 'choice', edge: s.args[0].edge, ...kindAt(tree(at), s.args[0].edge) }; } }))))];
 } });
 // Add to each of the selected record's lists, by the word for one of it ("Add owner"), as its + does: Find opens its search.
 const one = w => w.replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
 Shell.register('find', { items: () => {
   const id = theOne();
   if (!id || App.readOnly.peek() || !(recs()[id].kind || recs()[id].args)) return [];
-  return relatives(id).lists.filter(([, items]) => !items[0].rest.length && !items.every(it => fx(it.rid))).map(([list]) => ({ label: `Add to ${list}…`, detail: 'Action',
+  const has = relatives(id).lists;
+  return [...has.filter(([, items]) => !items[0].rest.length && !items.every(it => fx(it.rid))).map(([list]) => ({ label: `Add to ${list}…`, detail: 'Action',
     names: [`Add ${one(list).toLowerCase()}`, `New ${one(list).toLowerCase()}`], run: () => {
       aim.value = 'list:' + list;
       // Once Find has closed and the list is open, brought into view, its + pressed.
@@ -2175,7 +2177,10 @@ Shell.register('find', { items: () => {
         s?.scrollIntoView({ block: 'start' });
         s?.querySelector('.sect .btn.icon')?.click();
       }, 150);
-    } }));
+    } })),
+    // A list it has nothing on yet is as much to add to: its Add's search, on that list's who.
+    ...(recs()[id].kind ? listsOf(id).filter(l => !has.some(([n]) => T.same(n, l.name))).map(l => ({ label: `Add ${one(l.name).toLowerCase()}…`, detail: 'Action',
+      names: [`Add to ${l.name}`, `New ${one(l.name).toLowerCase()}`], run: () => setTimeout(() => addToList(id, l.name)) })) : [])];
 } });
 // Who's Responsible, for the record selected, or a date's own record: Find asks it by the word for it, as its Add does.
 Shell.register('find', { items: () => {

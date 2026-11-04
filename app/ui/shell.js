@@ -234,7 +234,12 @@ const Shell = (() => {
   // as what the keys are on has to be seen; the pointer shows both itself.
   const usingKeys = signal(false);
   let keyed = false;
-  addEventListener('keydown', e => { if (!keyed && e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'Alt' && e.key !== 'Meta') { keyed = true; usingKeys.value = true; document.documentElement.dataset.keyed = ''; } }, true);
+  addEventListener('keydown', e => {
+    if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
+    if (!keyed) { keyed = true; usingKeys.value = true; document.documentElement.dataset.keyed = ''; }
+    // (A key pressed puts away a tooltip: what it named may be changing. Where the keys land next says its own.)
+    if (tip.peek()) { tip.value = null; tipEl = null; }
+  }, true);
   addEventListener('pointerdown', () => { if (keyed) { keyed = false; usingKeys.value = false; delete document.documentElement.dataset.keyed; } }, true);
   const TABBABLE = ['a[href]', 'button:not(:disabled)', 'input:not(:disabled)', 'select:not(:disabled)', 'textarea:not(:disabled)', '[tabindex]', '[contenteditable="true"]'].map(s => s + ':not([tabindex="-1"])').join(', ');
   const shown = el => el.getClientRects().length > 0;

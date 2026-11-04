@@ -2524,10 +2524,10 @@ function mount(el) {
 
   // Tab and Shift+Tab select the next box and the one before, in reading order (by rows, top down, then
   // left to right), as PowerPoint's step through its shapes. Esc lets go of a box and not the place: the next goes on from the one
-  // last stepped from (`walked`).
+  // it let go of (`walked`), while nothing else has been selected.
   let walked = null;
   const hereNow = () => keysOfSelection()[0] ?? walked;
-  const stopWalk = Shell.on('select', keys => { const m = keys.length === 1 && scene?.byId.get(keyParts(keys[0])[0]); if (m?.type === 'box') walked = m.id; });
+  const stopWalk = Shell.on('select', keys => { if (keys.length) walked = null; });
   function next(by) {
     const rows = [];
     for (const b of scene.marks.filter(m => m.type === 'box').sort((a, b) => a.y - b.y)) {
@@ -2571,7 +2571,7 @@ function mount(el) {
     'F2': () => { const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length === 1) edit(k[0]); },
     'Enter': () => { if (relateNow) return relateNow.take(); const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length !== 1) return false; edit(k[0]); },
     // Esc backs out a step: from a field to its box, from the selection to none.
-    'Escape': () => { if (fieldNow()) return pickField(null); if (!keysOfSelection().length) return false; entered = null; Shell.select([]); },
+    'Escape': () => { if (fieldNow()) return pickField(null); const k = keysOfSelection(); if (!k.length) return false; entered = null; Shell.select([]); walked = k[0]; },
   };
   const wrapped = Object.fromEntries(Object.entries(keyMap).map(([k, f]) => [k, e => { if (f(e) !== false) { e.preventDefault(); e.stopPropagation(); } }]));
   const unbind = tinykeys.tinykeys(root, wrapped);

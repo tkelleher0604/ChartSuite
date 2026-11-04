@@ -1766,8 +1766,19 @@ const FormulaBar = (() => {
     </div>`;
   }
 
+  // With the keys in the reason, Alt+← and Alt+→ go back along the breadcrumb and on again, the rows staying open and the keys with them.
+  let ahead = [];
+  function alongTrail(e) {
+    const m = model.peek(), t = trail.peek(), crumb = () => ({ id: m?.id, clause: asked.peek()?.clause ?? null, keys: Shell.selection.peek() });
+    if (e.key === 'ArrowLeft' && t.length) { ahead.push(crumb()); back(); }
+    else if (e.key === 'ArrowRight' && ahead.length) { const to = ahead.pop(); goTo(to.id, to.clause, to.keys, true); }
+    else return false;
+    into();
+    return true;
+  }
   // Enter and Esc in a row's label belong to the bar while it has something to commit or discard.
   function onKey(e) {
+    if (e.altKey && e.target.closest?.('.fx-said') && alongTrail(e)) { e.preventDefault(); e.stopPropagation(); return; }
     if (e.key !== 'Escape' && e.key !== 'Enter') return;
     if (e.target.closest?.('.CodeMirror')) { e.stopPropagation(); return; }
     if (!draft.peek() || !e.target.matches?.('input.fx-label, .fx-reason input')) return;
@@ -1820,7 +1831,8 @@ const FormulaBar = (() => {
   // A fact that steps down: hovered, its records pulse on the chart, until the pointer leaves it or it goes.
   function Fact({ fact, children }) {
     const mine = useRef(null), point = usePoint(() => { touch.value = mine.current = fact.ids; }, () => { if (touch.peek() === mine.current) touch.value = null; });
-    const go = e => { e.preventDefault(); e.stopPropagation(); stepTo(fact); };
+    // (By the keys, a new step down is a new way on, and they stay in the reason.)
+    const go = e => { e.preventDefault(); e.stopPropagation(); stepTo(fact); if (e.type === 'keydown') { ahead = []; into(); } };
     return html`<span class="fx-fact go" role="button" tabindex="0" ...${point} onClick=${go} onKeyDown=${e => { if (e.key === 'Enter' || e.key === ' ') go(e); }}>${children}</span>`;
   }
 
