@@ -1618,6 +1618,8 @@ async function saysWhen(C, keep) {
   const amAsks = Object.keys(st()).find(k => st()[k].field === 'percent' && !st()[k].args && App.asksFrom(k, { field: 'percent', value: 0.33 }));
   App.put(amAsks, st()[amAsks], { field: 'percent', value: 0.33 }); await tick(80);
   const nE = App.wb.changes().length;
+  pb('.why-add')?.click(); await tick(40);
+  check('Why… on the bar, asked for, takes the keys', document.activeElement?.getAttribute('aria-label') === 'Why', document.activeElement?.outerHTML.slice(0, 80));
   pb('.from .sel')?.focus(); key(pb('.from .sel'), 'Enter'); await tick(60);
   check('Enter on the From list opens it, nothing made, and All along says it’s a correction', !!document.querySelector('.float .menu') && App.wb.changes().length === nE && /a correction/.test(document.querySelector('.float .menu')?.textContent ?? ''), document.querySelector('.float .menu')?.textContent);
   Shell.closeAll(); await tick(30);

@@ -1225,9 +1225,11 @@ const App = (() => {
   // saying; a word away on anything else. Kept apart from the change pending, so what's typed here redlines nothing.
   const why = signal('');
   function Why({ p, enter }) {
-    const [on, setOn] = preactHooks.useState(p.act === 'Rule out' || p.act === 'Attest' || !!why.peek());
-    if (!on) return html`<button type="button" class="lk why-add" onClick=${() => setOn(true)}>Why…</button>`;
-    return html`<label class="why-in" onKeyDown=${enter}><span>Why</span><input class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${why.value} onInput=${e => { why.value = e.target.value; }} /></label>`;
+    const [on, setOn] = preactHooks.useState(p.act === 'Rule out' || p.act === 'Attest' || !!why.peek()), asked = preactHooks.useRef(false), field = preactHooks.useRef();
+    // (Asked for, it takes the keys.)
+    preactHooks.useLayoutEffect(() => { if (on && asked.current) { asked.current = false; field.current?.focus(); } }, [on]);
+    if (!on) return html`<button type="button" class="lk why-add" onClick=${() => { asked.current = true; setOn(true); }}>Why…</button>`;
+    return html`<label class="why-in" onKeyDown=${enter}><span>Why</span><input ref=${field} class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${why.value} onInput=${e => { why.value = e.target.value; }} /></label>`;
   }
   function Controls({ p, auto, hint }) {
     const enter = e => { if (e.key === 'Enter' && !e.defaultPrevented && !e.target.closest('.lk')) { e.preventDefault(); e.stopPropagation(); commit(); } };
