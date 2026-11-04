@@ -290,7 +290,7 @@ const Table = (() => {
       const row = { id, _m: {}, _red: null };   // _red: 'add' or 'go' while a change is pending (redlined)
       for (const c of cols) {
         const m = cellOf(id, c), r = m.id && st[m.id], f = field(c), type = typeIn(c, r);
-        row[f] = c.type === 'tag' && !r && m.at && Formulas.notTested(N, st, m.at, c.path.at(-1)) ? NA : m.v ?? null;
+        row[f] = c.type === 'tag' && !r && m.at && Formulas.notTested(N, S, st, m.at, c.path.at(-1)) ? NA : m.v ?? null;
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
         // A value of another datatype than its column's reads as its own.
         const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;

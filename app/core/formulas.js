@@ -3629,11 +3629,22 @@ function saysBoth(rows) {
   }
   return twoSided.get(rows);
 }
-// Whether the tag `edge` at the record `at` is untested: a definition covers it that can say both yes and no, and has said
-// neither. One that can only say yes says no by its silence; one that can only say no finds nothing wrong by it.
-function notTested(N, recs, at, edge) {
+// The schema's specifications of an entry, by its label; and a location with its options taken away, so a record's reads
+// as those of its entry's specifications do, whatever option it has.
+const entriesOf = new WeakMap();
+const specified = (S, edge) => {
+  if (!entriesOf.has(S)) { const m = new Map(); for (const s of Object.values(S)) if (s.args?.length === 1) { const k = normal(s.args[0].edge); if (!m.has(k)) m.set(k, []); m.get(k).push(s.args[0].loc); } entriesOf.set(S, m); }
+  return entriesOf.get(S).get(normal(edge)) ?? [];
+};
+const optionless = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: optionless(a.loc) })) } : t.kind !== undefined ? { kind: t.kind } : {};
+// Whether the tag `edge` at the record `at` is untested: a definition covers it, at a record of a kind the entry is specified
+// at, that can say both yes and no, and has said neither. One that can only say yes says no by its silence; one that can
+// only say no finds nothing wrong by it.
+function notTested(N, S, recs, at, edge) {
   const t = recs[at] && !Tree.entryAt(recs, at, edge) && Tree.treeOf(recs, at), n = t && N.resolve('Formula', { args: [{ edge, loc: t }] });
-  return !!n && saysBoth(n.value);
+  if (!n || !saysBoth(n.value)) return false;
+  const here = optionless(t);
+  return specified(S, edge).some(l => Tree.narrower(here, optionless(l)));
 }
 
 return {

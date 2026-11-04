@@ -1810,7 +1810,192 @@ async function run() {
   check('the record’s page, widened, shows the way back, named for the view', !!back && back.textContent.trim() === viewName, `${back?.outerHTML.slice(0, 120)} wide=${Shell.wide.peek()} main=${!!$('.main.wide')} view=${viewName}`);
   back?.click(); await tick(300);
   check('… and it goes back', !Shell.wide.peek() && !$('.inspector > .back'));
+  await tablesG3();
   check('Nothing threw along the way, the ruler measuring itself included', !errors.length, errors.join(' / '));
+}
+
+// ---- Columns stay as set, what's untested says so, a computed tick is no click from a false fact, Why, rows that stay, no
+// traps, and what the marks mean ----
+async function tablesG3() {
+  const heads = () => Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean);
+  const edge = () => $$('.grid .tabulator-header .tabulator-col.pin').at(-1).getBoundingClientRect().right;
+  const left = title => column(title).getElement().getBoundingClientRect().left;
+  const listed = async fn => { $$('.tbar .btn').find(b => b.textContent === 'Columns').click(); await tick(60); const out = await fn(); Shell.closeAll(); await tick(); return out; };
+  const rowNamed = label => $$('.cols .colrow').find(r => r.textContent.trim() === label);
+  const toggle = label => listed(async () => { rowNamed(label).querySelector('input').click(); await tick(300); });
+  const allBtn = label => $$('.cols .col-all .btn').find(b => b.textContent === label);
+  const fund3 = named('Calder Ridge Capital Partners III, L.P.'), corvane = named('Corvane Specialty Chemicals Holdings, LLC');
+
+  await addTable('Records', 'Entities', true);
+  const v = Shell.view.peek();
+  const cell = (id, title) => rowOf(id).getCells().find(c => c.getColumn().getDefinition().title === title);
+
+  // A nested column shows whether or not its parent does, and comes into view.
+  await toggle('Entity Type › Tax Classification');
+  check('A nested column ticked shows, under its own name', heads().includes('Tax Classification') && $('.grid .tabulator-col.c-choice .up') === null, heads().join());
+  await toggle('Entity Type');
+  check('… and stays shown, its parent hidden', heads().includes('Tax Classification') && !heads().includes('Entity Type') && left('Tax Classification') >= edge() - 1, `${heads().join()} ${left('Tax Classification')} ${edge()}`);
+
+  // Show all and Hide all, what names the rows kept, each one change.
+  let n = N();
+  await listed(async () => { allBtn('Show all').click(); await tick(400); });
+  const allCols = Table.model(v).cols.filter(c => c.pattern);
+  check('Show all shows every column, as one change', allCols.every(c => c.shown) && N() === n + 1 && /^Showed \d+ columns in /.test($('.toast span')?.textContent ?? ''), `${allCols.filter(c => !c.shown).map(c => c.title).join()} ${N() - n} ${$('.toast span')?.textContent}`);
+  // Scrolled across, a column hidden before the edge moves nothing there; one hidden at the edge gives way to the next, clear of the frozen columns.
+  const el = () => Table.grid.rowManager.element;   // the grid's as it's built again
+  const h = { get scrollLeft() { return el().scrollLeft; }, set scrollLeft(x) { el().scrollLeft = x; }, get scrollTop() { return el().scrollTop; }, set scrollTop(x) { el().scrollTop = x; }, get clientWidth() { return el().clientWidth; } };
+  h.scrollLeft = 900; await tick(150);
+  const shownFree = () => Table.grid.getColumns().filter(c => c.getField() && !/\bpin\b/.test(c.getDefinition().cssClass));
+  const atEdge = () => shownFree().find(c => c.getElement().getBoundingClientRect().right > edge() + 1);
+  const first = atEdge(), title0 = first.getDefinition().title, x0 = first.getElement().getBoundingClientRect().left, before = shownFree()[0].getDefinition().title;
+  await listed(async () => { $$('.cols .colrow').find(r => r.querySelector('input').checked && r.textContent.trim().endsWith(before) && !r.textContent.includes('›'))?.querySelector('input').click(); await tick(400); });
+  check('Scrolled across, a column hidden before the edge moves nothing there', Math.abs(atEdge().getElement().getBoundingClientRect().left - x0) <= 2 && atEdge().getDefinition().title === title0 && before !== title0, `${before} ${title0} → ${atEdge().getDefinition().title} ${x0} → ${atEdge().getElement().getBoundingClientRect().left}`);
+  await listed(async () => { allBtn('Hide all').click(); await tick(400); });
+  check('Hide all hides every column but what names the rows', heads().join() === 'Name' && h.scrollLeft === 0, heads().join());
+  check('… said in one toast, a count', /^Hid \d+ columns in /.test($('.toast span')?.textContent ?? ''), $('.toast span')?.textContent);
+  undo(); await tick(300); undo(); await tick(300); undo(); await tick(300);
+  check('… and each is one Undo', heads().includes('Tax Classification') && !heads().includes('Entity Type') && N() >= n, heads().join());
+
+  // A row of the list doesn't move as it's ticked; opened again, what's ticked is first.
+  await listed(async () => {
+    const r0 = rowNamed('Short Name'), y0 = r0.getBoundingClientRect().top;
+    r0.querySelector('input').click(); await tick(300);
+    check('A row of the Columns list stays under the pointer as it’s unticked', Math.abs(rowNamed('Short Name').getBoundingClientRect().top - y0) <= 2 &&!rowNamed('Short Name').querySelector('input').checked, `${y0} → ${rowNamed('Short Name').getBoundingClientRect().top} ${rowNamed('Short Name').querySelector('input').checked} ${heads().join()}`);
+    rowNamed('Short Name').querySelector('input').click(); await tick(300);
+  });
+  // A failing check adds no column: it's marked on its row.
+  n = N();
+  App.change(tx => tx.add('record', { at: Tree.entryAt(st(), fund3, 'Entity Type'), edge: 'Formation Document on File', tag: false }), { dated: false }); await tick(250);
+  check('A check ruled out adds no column, and its row is marked', !heads().includes('Formation Document on File') && rowOf(fund3).getElement().classList.contains('fails'), heads().join());
+  undo(); await tick(250);
+
+  // A two-line heading hidden moves no row under the pointer; a column just shown is lit, and in view.
+  await toggle('Entity Type › Formation Document on File');
+  { const e = column('Formation Document on File').getElement(), e0 = e.offsetLeft - h.scrollLeft;
+    check('A column just shown comes into view, a check’s too', e0 >= 48 + column('Name').getWidth() - 1 && e0 + e.offsetWidth <= h.clientWidth + 1, `${e.offsetLeft} ${e.offsetWidth} ${h.scrollLeft} ${h.clientWidth}`); }
+  const rowTop = () => rowOf(fund3).getElement().getBoundingClientRect().top, top0 = rowTop();
+  await toggle('Entity Type › Formation Document on File');
+  check('Hiding a two-line heading leaves the rows where they were', !heads().includes('Formation Document on File') && Math.abs(rowTop() - top0) <= 1, `${top0} → ${rowTop()}`);
+  await toggle('Entity Type › Formation Document on File');
+
+  // What a rule hasn't tested is n/a, apart from no: Formation Document on File can say both; BDC Affiliate only yes.
+  const fm = 'Formation Document on File', fc = () => cell(corvane, fm).getElement();
+  check('A tag its rule’s guard skips shows n/a, grey, not a box', fc().querySelector('.na')?.textContent === 'n/a' && !fc().querySelector('.tag') && getComputedStyle(fc().querySelector('.na')).color !== getComputedStyle(cell(corvane, 'Name').getElement()).color, fc().innerHTML);
+  check('… and one it tested a box', !!cell(fund3, fm).getElement().querySelector('.tag.yes'), cell(fund3, fm).getElement().innerHTML);
+  check('… on hover, it says what it means', fc().dataset.tip === 'Not tested: its rule doesn’t apply here', fc().dataset.tip);
+  const N0 = App.notes.peek(), S0 = App.schema.peek(), s0 = st(), type = Tree.entryAt(s0, corvane, 'Entity Type');
+  check('A rule that can say both and says neither hasn’t tested a record', Formulas.notTested(N0, S0, s0, type, fm) && Formulas.notTested(N0, S0, s0, corvane, 'Ownership Adds Up'), '');
+  const doc = named('Code of Ethics');
+  check('… one that can only say yes says no by its silence, and none is tested where its entry isn’t specified', !Formulas.notTested(N0, S0, s0, corvane, 'Private Fund') && !Formulas.notTested(N0, S0, s0, doc, 'Ownership Adds Up'), '');
+  const own0 = Object.keys(s0).find(id => s0[id].args?.some(a => a.edge === 'Owner') && !Tree.entryAt(s0, id, 'Percentages In Range'));
+  check('… one that can only say no finds nothing wrong by it', !Formulas.notTested(N0, S0, s0, own0, 'Percentages In Range'), own0);
+  column(fm).getElement().querySelector('.col-menu').click(); await tick();
+  item('Filter…').click(); await tick(80);
+  check('The filter’s list has Yes, No and n/a apart', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join() === 'Yes,n/a', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join());
+  const naRow = $$('.tfilter .tf-row:not(.all)').find(r => r.querySelector('.v').textContent === 'Yes');
+  naRow.querySelector('input').click(); await tick(150);
+  check('… and filters by it', Table.grid.getRows('active').every(r => r.getData()[`f:${Table.model(v).cols.find(c => c.title === fm).key}`] === 'n/a') && Table.grid.getRows('active').length > 0, Table.grid.getRows('active').length);
+  Shell.closeAll(); await tick();
+  $$('.tbar .btn').find(b => b.textContent === 'Clear filters').click(); await tick(150);
+  {
+    const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === fm);
+    const i = Table.grid.getRows('active').findIndex(r => r.getData().id === corvane), at = (r, c) => ws[XLSX.utils.encode_cell({ r, c })]?.v;
+    check('… and exports as n/a, a Yes as Yes', at(i + 1, j) === 'n/a' && at(Table.grid.getRows('active').findIndex(r => r.getData().id === fund3) + 1, j) === 'Yes', `${at(i + 1, j)}`);
+  }
+
+  // A computed tick is no click from a false fact: clicked, or by Space, it opens its reason, and writes nothing.
+  n = N();
+  let asked = null;
+  const off = Shell.on('why-open', id => { asked = id; });
+  cell(fund3, fm).getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(100);
+  check('A computed tick clicked opens its reason and changes nothing', N() === n && st()[asked]?.edge === fm, `${N() - n} ${asked}`);
+  asked = null;
+  Table.grid.addRange(cell(fund3, fm)); await tick(); Table.focus(); await tick();
+  press(' ', Table.grid.rowManager.element); await tick(100);
+  check('… by Space too', N() === n && st()[asked]?.edge === fm, `${N() - n} ${asked}`);
+  off();
+  const typedTag = cell(fund3, 'Good Standing');
+  if (typedTag) { const was = typedTag.getValue(); typedTag.getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(100);
+    check('… and a tag nobody’s rule covers still ticks', N() === n + 1 && typedTag.getValue() !== was); undo(); await tick(150); }
+  // What the marks mean, on hover.
+  const fxCell = cell(named('Calder Ridge III AIV-1 Blocker, Inc.'), 'Tax Classification').getElement();
+  check('An italic says it’s computed, on hover', getComputedStyle(fxCell).fontStyle === 'italic' && fxCell.dataset.tip === 'Worked out by a formula', fxCell.dataset.tip);
+  const overCell = cell(named('Calder Ridge Capital BDC, Inc.'), 'Tax Classification').getElement();
+  check('… and a corner triangle that it’s typed over what’s worked out, saying what that is', overCell.classList.contains('over') && overCell.dataset.tip === 'Typed over what’s worked out, which is C Corporation', overCell.dataset.tip);
+
+  // A row typed stays where it's typed, under the rest, till it's left; Esc goes back to it, selected, the grid where it was.
+  {
+    await toggle('Entity Type › Formation Document on File');
+    const input = $('.newslot .nr-name'), type = (name, key) => { input.value = name; input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })); };
+    h.scrollTop = 1e6; await tick(100);
+    n = N(); type('AAA Holdings, LLC', 'Enter'); await tick(300);
+    const id = named('AAA Holdings, LLC'), order = () => Table.grid.getRows('active').map(r => r.getData().id);
+    const top = h.scrollTop;
+    check('A row typed stays under the rest, though its name sorts first', N() === n + 1 && order().at(-1) === id, order().indexOf(id));
+    press('Escape', input); await tick(200);
+    check('… and Esc leaves the grid where it was, on that row, selected', Shell.selection.peek().join() === id && Table.grid.modules.selectRange.getActiveCell()?.row.getData().id === id && Math.abs(h.scrollTop - top) < 40 && input.value === '', `${Shell.selection.peek().join()} ${top} → ${h.scrollTop}`);
+    Shell.select([fund3]); await tick(200);
+    check('… and left, it takes its place', order().indexOf(id) === 0 && Table.grid.getRows('active').length === order().length, order().indexOf(id));
+    undo(); await tick(200);
+    h.scrollTop = 0; await tick(60);
+    Shell.select([]); await tick(60);
+    const empty = $('.newslot .nr-name'); empty.focus(); h.scrollTop = 200; await tick(60);
+    const at0 = h.scrollTop; press('Escape', empty); await tick(150);
+    check('With no row typed, Esc leaves the grid where it’s scrolled', Math.abs(h.scrollTop - at0) < 2, `${at0} → ${h.scrollTop}`);
+  }
+
+  // Why: a table of what's worked out can show why each row holds, wrapped, and export it; a list a formula gives opens as one.
+  {
+    await addTable(null, 'Dates', true);
+    await toggle('Why');
+    const f = 'f:$why', row = Table.grid.getRows('active').find(r => /Annual Tax Due/.test(r.getData()['f:$entry'] ?? '')).getData();
+    const reason = FormulaBar.because?.(row.id) ?? FormulaBar.sentence(row.id);
+    check('Dates can show Why, as the reason says it', heads().at(-1) === 'Why' && !!reason && row[f] === reason, `${heads().join()} ${row[f]}`);
+    const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Why');
+    const i = Table.grid.getRows('active').findIndex(r => r.getData().id === row.id);
+    check('… and it exports, whole', ws[XLSX.utils.encode_cell({ r: 0, c: j })]?.v === 'Why' && ws[XLSX.utils.encode_cell({ r: i + 1, c: j })]?.v === reason, ws[XLSX.utils.encode_cell({ r: i + 1, c: j })]?.v);
+    check('… and History says it as a column', Time.describe(last()) === `Showed Why in ${views().find(x => x.id === Shell.view.peek()).name}`, Time.describe(last()));
+    const bdc = named('Calder Ridge Capital BDC, Inc.'), s = st(), close = Object.keys(s).find(id => s[id].args?.some(a => a.edge === 'BDC') && s[id].args.some(a => a.edge === 'Close Affiliate'));
+    n = N();
+    Table.openList('Close Affiliates', close, bdc); await tick(400);
+    const nClose = Object.keys(s).filter(id => s[id].args?.some(a => a.edge === 'Close Affiliate') && s[id].tag !== false).length;
+    check('A computed list opens as a table of its rows, each with why, as one change', N() === n + 1 && views().find(x => x.id === Shell.view.peek()).name === 'Close Affiliates' && heads().includes('Why') && Table.grid.getRows('active').length === nClose && !!Table.grid.getRows('active')[0].getData()[f], `${N() - n} ${heads().join()} ${Table.grid.getRows('active').length}/${nClose}`);
+    const again = Shell.view.peek();
+    Shell.show(views()[0].id); await tick(150);
+    Table.openList('Close Affiliates', close, bdc); await tick(300);
+    check('… and again, the table the chart has', Shell.view.peek() === again && N() === n + 1);
+    undo(); await tick(200);
+    Shell.show(v); await tick(200);
+  }
+
+  // No traps: a side takes only some kinds, and a name of another kind says so, never offering a new record of the wrong sort.
+  {
+    await addTable('Relations', 'Evidence', true);
+    const ev0 = Table.grid.getRows('active').map(r => r.getData());
+    check('Evidence says what it evidences, by its place, of whichever kind', ev0.some(d => /^Fund III → Fund III Blocker, 100%$/.test(d['f:@evidenced'])) && ev0.some(d => /^Margaret A\. Chen → Cayman GP, Director$/.test(d['f:@evidenced'])) && ev0.some(d => /Managing Member$/.test(d['f:@evidenced'])), ev0.map(d => d['f:@evidenced']).slice(0, 4).join(' | '));
+    const go = $('.newslot .nr-go'); go.click(); await tick(60);
+    const q = async text => { const f = $('.float .menu-find'); f.textContent = text; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60); };
+    await q('Calder Ridge Capital Partners III, L.P.');
+    check('A document’s side, given an entity’s name, says so and offers no new one', $$('.float .menu-item').map(x => x.textContent.trim()).join() === 'Fund III is an entity; this takes documents' && !$$('.float .menu-item.on').length, $$('.float .menu-item').map(x => x.textContent.trim()).join(' / '));
+    await q('Stock Certificate No. 1'); press('Enter', $('.float .menu')); await tick(100);
+    await q('Fund III → Fund III Blocker');
+    const list0 = $$('.float .menu-item').map(x => x.textContent.trim());
+    check('What’s evidenced is picked from its records, by their place, and nothing new is offered', list0.join() === 'Fund III → Fund III Blocker, 100%', list0.join(' / '));
+    await q('Calder Ridge Capital Partners III, L.P.');
+    check('… and a name of a record it can’t be says what it takes', /^Fund III is an entity; this takes (ownerships|.*), .* or /.test($$('.float .menu-item').map(x => x.textContent.trim()).join()) , $$('.float .menu-item').map(x => x.textContent.trim()).join(' / '));
+    Shell.closeAll(); await tick(60);
+    Shell.show(views().find(x => x.name === 'Ownership').id); await tick(250);
+    n = N();
+    paste('Owner\tOwned\nCalder Ridge Capital Partners III, L.P.\tMargaret A. Chen'); await tick(200);
+    check('A paste naming a person where an entity goes makes no one: it says so', !App.pending.peek() && N() === n && /^Margaret A\. Chen is an individual; this takes /.test($$('.toast span').at(-1)?.textContent ?? '') && !named('Margaret A. Chen 2'), `${!!App.pending.peek()} ${$$('.toast span').at(-1)?.textContent}`);
+    App.discard(); await tick(60);
+    const firstRow = Table.grid.getRows('active')[0], owned = firstRow.getCells().find(c => c.getColumn().getDefinition().title === 'Owned');
+    Table.grid.addRange(owned); await tick(); owned.edit(true); await tick();
+    const ie = owned.getElement().querySelector('input'); ie.value = 'Margaret A. Chen'; ie.dispatchEvent(new Event('input', { bubbles: true })); await tick();
+    check('A side’s cell, given a name of another kind, says so', /^Margaret A\. Chen is an individual; this takes /.test($('.float.pick .menu-none')?.textContent ?? '') && !$('.float.pick .menu-item'), $('.float.pick')?.textContent);
+    ie.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(60);
+    Shell.show(v); await tick(200);
+  }
 }
 
 function report() {
