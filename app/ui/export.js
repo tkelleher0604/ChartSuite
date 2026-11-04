@@ -601,11 +601,25 @@ function slide(p, scene, { k, ox, oy }, say) {
       { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate });
     return [rect(m)];
   };
+  // A crossing, as the chart draws it (Scene's `runs`). A connector can't be broken, so a patch of the page's white goes over
+  // the line that's broken there, under the line crossing it: the one is written before the other, and the patch between
+  // them. Lines that cross each other both ways round have a patch only where that order allows. Moved in the deck, a
+  // line leaves its patch where it was, white on white.
+  const flat = scene.marks.filter(m => m.type === 'line' && (m.settings?.Layer?.value ?? 0) === 0), legsOf = l => l.points.slice(1).map((p, i) => [l.points[i], p]);
+  const gaps = new Map(flat.map(l => [l, (l.runs ?? []).slice(1).map((r, i) => { const [p, q] = [l.runs[i].at(-1), r[0]], x0 = Math.min(p[0], q[0]), x1 = Math.max(p[0], q[0]);
+    return { x0, x1, y: p[1], by: flat.filter(o => o !== l && legsOf(o).some(([a, b]) => Math.abs(a[0] - b[0]) < 0.5 && a[0] > x0 && a[0] < x1 && p[1] > Math.min(a[1], b[1]) && p[1] < Math.max(a[1], b[1]))) }; })]));
+  const under = new Map(flat.map(l => [l, new Set()]));
+  for (const [l, gs] of gaps) for (const g of gs) for (const o of g.by) under.get(o).add(l);
+  const inOrder = [], unwritten = new Set(flat);
+  while (unwritten.size) { const next = [...unwritten].find(l => [...under.get(l)].every(x => !unwritten.has(x))) ?? unwritten.values().next().value; inOrder.push(next); unwritten.delete(next); }
+  const patched = l => { for (const g of gaps.get(l) ?? []) if (!g.by.some(o => done.has(o.id))) shape({ x: X(g.x0), y: Y(g.y) - L(look(l).Weight * 4 / 3 + 1.5) / 2, w: L(g.x1 - g.x0), h: L(look(l).Weight * 4 / 3 + 1.5) }, 'rect', { Fill: '#ffffff' }, 'Crossing'); };
   const written = new Set();
-  for (const m of reading(scene.marks)) {
+  let nextLine = 0;
+  for (const mark of reading(scene.marks)) {
+    const m = flat.includes(mark) ? inOrder[nextLine++] : mark;
     if (written.has(m.id)) continue;
     const g = inGroup.get(m.id), of = g ? g.members.map(id => scene.byId.get(id)).filter(Boolean) : [];
-    if (of.length < 2) { write(m); continue; }
+    if (of.length < 2) { write(m); patched(m); continue; }
     of.forEach(x => written.add(x.id));
     const names = of.map(x => x.texts?.[0]?.text ?? x.title ?? 'Shape');
     group(names.length < 3 ? names.join(' and ') : `${names[0]} and ${names.length - 1} more`, () => of.flatMap(write));
@@ -621,25 +635,28 @@ function grouped(id, name, rects, alt) {
     + `<p:grpSpPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/><a:chOff x="${x}" y="${y}"/><a:chExt cx="${w}" cy="${h}"/></a:xfrm></p:grpSpPr>`;
 }
 
-// A route as PowerPoint's connector: straight, or an elbow of one to four legs (bentConnector3 for one or
-// three, 2 and 4 for two and four), its legs set by the adjustments, so it stays square when what it joins is
-// moved; a route no connector draws is a freeform. An elbow whose first leg is upright is one whose first leg
-// runs across, turned a quarter.
+// A route as PowerPoint's connector: straight, or an elbow of one to five legs (bentConnector3 for one or
+// three, 2, 4 and 5 for two, four and five), its legs set by the adjustments, so it stays square when what it joins is
+// moved, a line bent by a hand as any other; a route no connector draws is a freeform. An elbow whose first leg is
+// upright is one whose first leg runs across, turned a quarter.
 function cxn(id, name, ps, s, ends, { X, Y, k, alt }) {
   const q = ps.map(([x, y]) => [E(X(x)), E(Y(y))]);
+  // A detour whose ends line up has no width for its adjustments to be fractions of: its far end a tenth of a point out of
+  // line gives it one, too little to see, as PowerPoint's own hold such a line. A box moved there, PowerPoint routes it afresh.
+  if (q.length > 2) for (const c of [0, 1]) if (q[0][c] === q.at(-1)[c]) { const n = q.length - 1, on = q[n - 1][c] === q[n][c]; q[n] = [...q[n]]; q[n][c] += 1270; if (on) { q[n - 1] = [...q[n - 1]]; q[n - 1][c] += 1270; } }
   const [x0, y0] = q[0], [x1, y1] = q.at(-1), dx = x1 - x0, dy = y1 - y0, legs = q.length - 1;
   const elbow = s.Connector === 'elbow' && (legs > 1 || !dx || !dy), upright = legs > 1 ? q[1][0] === x0 : elbow && !dx;
   const square = legs === 1 || q.slice(1).every((p, i) => (i % 2 === 0) === upright ? p[0] === q[i][0] : p[1] === q[i][1]);
   const line = ln(s, k, `${['start', 'both'].includes(s.Arrow) ? headEnd('headEnd', Scene.headOf(s, 'start')) : ''}${['end', 'both'].includes(s.Arrow) ? headEnd('tailEnd', Scene.headOf(s, 'end')) : ''}`);
   const nv = (tag, inner) => `<p:nv${tag}Pr>${cNvPr(id, name || 'Line', alt)}<p:cNv${tag}Pr>${inner}</p:cNv${tag}Pr><p:nvPr/></p:nv${tag}Pr>`;
-  if (legs > 4 || !square || (legs > 1 && (!dx || !dy)) || (!dx && !dy)) {
+  if (legs > 5 || !square || (legs > 1 && (!dx || !dy)) || (!dx && !dy)) {
     const x = Math.min(...q.map(p => p[0])), y = Math.min(...q.map(p => p[1])), w = Math.max(...q.map(p => p[0])) - x, h = Math.max(...q.map(p => p[1])) - y;
     return `<p:sp>${nv('Sp', '')}<p:spPr>${xfrm(x, y, w, h)}${freeform(q.map(([px, py]) => [px - x, py - y]), w, h)}<a:noFill/>${line}</p:spPr></p:sp>`;
   }
   const W = Math.abs(upright ? dy : dx), H = Math.abs(upright ? dx : dy);
   const flipH = upright ? dy < 0 : dx < 0, flipV = upright ? dx > 0 : dy < 0;
   const along = [p => upright ? (p[1] - y0) / dy : (p[0] - x0) / dx, p => upright ? (p[0] - x0) / dx : (p[1] - y0) / dy];
-  const adj = legs === 3 ? [along[0](q[1])] : legs === 4 ? [along[0](q[1]), along[1](q[2])] : legs === 1 && elbow ? [0.5] : [];
+  const adj = legs === 3 ? [along[0](q[1])] : legs === 4 ? [along[0](q[1]), along[1](q[2])] : legs === 5 ? [along[0](q[1]), along[1](q[2]), along[0](q[3])] : legs === 1 && elbow ? [0.5] : [];
   const prst = legs > 1 ? `bentConnector${legs}` : elbow ? 'bentConnector3' : 'straightConnector1';
   const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
   const glue = (tag, e) => e ? `<a:${tag} id="${e.id}" idx="${e.idx}"/>` : '';
@@ -905,7 +922,9 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const tick = (id, on) => { setFull(null); setIds(now => charts().map(v => v.id).filter(x => x === id ? on : now.includes(x))); };
     const papers = charts().map(v => pageNow(v.id).paper), differ = new Set(papers).size > 1 || papers.includes(null), stay = [...new Set(chosen.map(s => pageNow(s.view).paper))];
     const oneOff = drawn && paper !== OWN && stay.some(p => p !== paper);
-    const said = chosen.flatMap(s => Scene.says(s, called(s), paper === OWN ? PAPERS[pageNow(s.view).paper] : PAPERS[paper]).map(t => ({ t, s, off: !s.page.paper && t.endsWith(' runs off the page') })));
+    const said = chosen.flatMap(s => Scene.says(s, called(s), paper === OWN ? PAPERS[pageNow(s.view).paper] : PAPERS[paper]).map(t => ({ t, s, off: !s.page.paper && (t.endsWith(' runs off the page') || t.endsWith(' a printer prints')) })));
+    // (A line with more bends than a connector takes is a drawing in the deck.)
+    if (format === 'pptx') said.push(...chosen.flatMap(s => s.marks.filter(m => m.type === 'line' && m.points.length > 6).map(m => ({ t: `The line from ${called(s)(s.byId.get(m.from))} to ${called(s)(s.byId.get(m.to))} has more bends than a PowerPoint connector: in the deck it stays where it’s drawn`, s }))));
     const named = x => chosen.length > 1 ? `${x.s.name}: ${x.t}` : x.t;
     // What's wrong with the chart is said before it goes out, a click from each: what's overdue, in error or blank.
     const open = Shell.problems().filter(c => c.kind !== 'soon');

@@ -100,6 +100,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-field.drop { stroke: var(--accent); stroke-width: 2px; fill: rgb(44 76 124 / .06); }
 .dc-tip { position: absolute; z-index: 4; transform: translateX(-50%); padding: 3px 7px; border-radius: var(--r); background: var(--ink); color: var(--surface); font: var(--t12); white-space: nowrap; pointer-events: none; }
 .dc-over > .dc-tip { pointer-events: none; }
+.dc-tip.dc-next { transform: none; }
 /* What says the chart drawn is a preview of Tidy, over it at the top, in the middle: a quiet pill, as the
    window's own words are, never the chart's. */
 .dc-over > .dc-previewing { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 3px 10px; border-radius: 999px;
@@ -129,7 +130,8 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* The scope: two parts, the selection and all like it, the one a change goes to pressed in the accent, and the
    ▾ that chooses the group joined to its part. It keeps one width, selected or not, so nothing after it in the bar moves
    as what it names changes; a name too long for it is cut short, and shown whole on hover. */
-.fb .scope { display: inline-flex; flex: none; width: clamp(138px, calc(100cqw - 1164px), 300px); height: 28px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+/* The scope takes what the bar has left, up to its most: every other control is of one width, whatever's selected, so nothing moves and nothing goes off the bar. */
+.fb .scope { display: inline-flex; flex: 1 1 0; min-width: 96px; max-width: 300px; height: 28px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--surface); overflow: hidden; }
 .fb .scope.off { opacity: .4; }
 .fb .scope > button { height: 26px; padding: 0 10px; border: 0; background: transparent; color: var(--ink-2); display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; cursor: default; }
 .fb .scope > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -162,8 +164,10 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
 @container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } }
-@container (max-width: 1310px) { .fb .font { width: 110px; } .fb .scope { width: clamp(120px, calc(100cqw - 1106px), 240px); } }
-@container (max-width: 1230px) { .fb .scope { width: 138px; } .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb [data-fb="tidy"], .fb .arrange > span { display: none; } }
+@container (max-width: 1310px) { .fb .font { width: 110px; } }
+@container (max-width: 1230px) { .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb .arrange > span { display: none; } }
+@container (max-width: 1010px) { .fb > .sep { margin: 0 2px; } .fb .font { width: 72px; } .fb [data-fb="underline"], .fb [data-fb="strike"], .fb [data-fb="paragraph"] { display: none; } }
+@container (max-width: 880px) { .fb [data-fb="painter"], .fb [data-fb="clear"], .fb [data-fb="shape"] { display: none; } .fb .font { width: 56px; } }
 /* A color's bar under its glyph: the paint bucket's, the pen's; the A's is its own baseline, in the color. */
 .fb .well { display: inline-grid; grid-template-rows: 15px 4px; justify-items: center; width: 18px; height: 20px; }
 .fb .well > svg { width: 15px; height: 15px; }
@@ -173,7 +177,11 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .well.a .edge { stroke: var(--rule-2); stroke-width: 5; stroke-linecap: butt; }
 :root[data-theme="dark"] .fb .well > i { box-shadow: inset 0 0 0 1px var(--rule-2); }
 .fb .glyph { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
-.fb .zoom { margin-left: auto; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+/* Tidy says what it tidies in room kept for that, so nothing beside it moves (where the bar is short, by the count alone, the rest on hover); the zoom is of one width, at the bar's end, and stays there however little room the bar has. */
+.fb [data-fb="tidy"] { display: inline-block; width: 110px; line-height: 26px; text-align: left; overflow: hidden; white-space: nowrap; }
+@container (max-width: 1560px) { .fb [data-fb="tidy"] { width: 64px; } }
+.fb [data-fb="group"] { width: 76px; }
+.fb .zoom { margin-left: auto; width: 62px; justify-content: flex-end; position: sticky; right: 0; background-color: var(--paper); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .fb .btn:disabled, .fb .btn[aria-disabled="true"] { opacity: .4; }
 /* The painter armed: the brush, everywhere on the chart. */
 .dc.painting, .dc.painting * { cursor: var(--brush) !important; }
@@ -263,7 +271,10 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 /* The Export dialog: what's exported, and the file's pages in a well, each fitted, or one at full size. More
    than one go two across, two rows of them in view, each page as large as that allows (--a its width over its
    height). */
-.ex { display: flex; flex-direction: column; gap: 12px; height: min(calc(56vh + 144px), 664px); }
+.ex { display: flex; flex-direction: column; gap: 12px; height: min(calc(56vh + 144px), 664px); overflow: hidden; }
+.ex > * { flex-shrink: 0; }
+.ex > .ex-warns { flex: 0 1 auto; min-height: 20px; overflow: auto; }
+.ex > .ex-well { flex: 1 1 0; }
 .ex-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ex-pick > .ex-rows { margin: 0; width: 200px; }
 /* The views to export, each a checkbox, as many rows as they take. */
