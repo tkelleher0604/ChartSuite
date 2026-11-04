@@ -265,7 +265,12 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .dayrow > .w { display: grid; min-width: 0; }
 .dayrow .it { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
 .dayrow .it > b { font-weight: 500; color: var(--ink); }
-.date-keep { display: flex; align-items: center; gap: 8px; margin: -12px; padding: 10px 12px; border-top: 1px solid var(--rule); color: var(--ink-2); }
+.date-keep { display: flex; align-items: center; gap: 8px; min-height: var(--row); margin: -4px 0; color: var(--ink); }
+.date-keep > span { flex: 1; font-weight: 500; }
+.date-reads { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -12px; padding: 8px 12px; border-top: 1px solid var(--rule); color: var(--ink-2); }
+.step-form { display: grid; gap: 8px; }
+.step-form > .field { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 8px; }
+.step-form input { height: var(--row); padding: 0 8px; border: 1px solid var(--rule-2); border-radius: 3px; background: var(--surface); color: var(--ink); font: inherit; }
 
 /* ---- The ruler, at the view's foot: the chart's days as ticks ---- */
 .scrub { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; height: 32px; background: var(--paper); border-top: 1px solid var(--rule); user-select: none; touch-action: none; outline-offset: -2px; }

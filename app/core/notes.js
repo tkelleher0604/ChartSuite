@@ -9,7 +9,7 @@ const { narrower, shapeOf, weight, key, bare, paramKey, treeOf, isObject, isChoi
 // The format properties, how a view draws what a note reaches: every label but the model's others (dendra.md,
 // Notes), so a new property is only a word in the scene's defaults and its drawing. A Text note, a box's free text,
 // is a note of its own, not a look.
-const OTHERS = new Set(['Name', 'Description', 'Order', 'Required', 'Check', 'Start', 'End', 'Formula', 'Caption', 'Position', 'Bend', 'Layout', 'As Of', 'Page', 'Scale', 'Footer', 'Text']);
+const OTHERS = new Set(['Name', 'Description', 'Order', 'Required', 'Check', 'Start', 'End', 'Formula', 'Caption', 'Position', 'Bend', 'Layout', 'As Of', 'Changes', 'Plan', 'Page', 'Scale', 'Footer', 'Text']);
 const FORMATS = { has: label => typeof label === 'string' && !OTHERS.has(label) };
 const typeOfSpec = t => !t ? 'tag' : 'field' in t.out ? 'field' : 'choice' in t.out ? 'choice' : 'tag';
 // Words begun mid-sentence, in lower case but for initials (GP, BDC); and the preposition a list's name ends
@@ -61,10 +61,16 @@ function index(rows) {
   // A relation's list of relatives in one role (Owners), or else that role's edge label.
   const listName = (t, edge) => value('Name', t, undefined, edge) ?? edge;
 
-  // How a view draws a record: each format property that a note decides, with its note.
+  // How a view draws a record: each format property that a note decides, with its note; a note at a pattern leaving a
+  // location open (what a comparison says of a mark: see Scene) fitting records of any shape.
+  const openLooks = [...new Set(rows.filter(n => FORMATS.has(n.label) && isOpen(n.pattern)).map(n => n.label))];
   function formats(t, view) {
     const out = {};
     for (const label of byShape.get(shapeOf(t)) ?? []) if (FORMATS.has(label)) {
+      const r = resolve(label, t, view);
+      if (r) out[label] = r;
+    }
+    for (const label of openLooks) if (!(label in out)) {
       const r = resolve(label, t, view);
       if (r) out[label] = r;
     }

@@ -312,8 +312,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .find { height: var(--row); width: 100%; padding: 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--rule); border-radius: var(--r); background: var(--surface); color: var(--ink-3); cursor: text; }
 .find:hover { border-color: var(--rule-2); }
 /* The day shown; another day, or the log as it stood, is a chip filled in the accent, its × back to today. */
-.asof { display: flex; align-items: center; border-radius: var(--r); }
+.asof { display: flex; flex: none; align-items: center; min-width: 228px; border-radius: var(--r); }
 .asof > .btn { color: var(--ink-2); }
+.asof > .btn.dd { flex: 1; justify-content: flex-end; }
 .asof.past { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 .asof.past > .btn { color: var(--accent-ink); font-weight: 500; }
 .asof.past > .btn.dd { padding-right: 4px; }
@@ -393,6 +394,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .sheet[aria-selected="true"] { color: var(--ink); font-weight: 500; background: var(--surface); box-shadow: inset 1px 0 var(--rule), inset -1px 0 var(--rule); }
 .sheet[aria-selected="true"]::before { content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 2px; background: var(--accent); }
 .sheet > input { min-width: 8ch; height: 24px; margin: 0 -5px; padding: 0 4px; font-weight: 500; }
+.sheet > .keeps { margin-left: 6px; color: var(--ink-3); font-weight: 400; font-size: 11px; }
 .foot > .btn.icon { align-self: center; flex: none; margin-left: 4px; }
 .foot > .btn.icon.views + .btn.icon { margin-left: 0; }
 .status { margin-left: auto; padding: 0 16px; flex: none; color: var(--ink-2); }

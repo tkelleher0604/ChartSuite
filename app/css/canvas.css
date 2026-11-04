@@ -263,7 +263,7 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 /* The Export dialog: what's exported, and the file's pages in a well, each fitted, or one at full size. More
    than one go two across, two rows of them in view, each page as large as that allows (--a its width over its
    height). */
-.ex { display: grid; gap: 12px; }
+.ex { display: flex; flex-direction: column; gap: 12px; height: min(calc(56vh + 144px), 664px); }
 .ex-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ex-pick > .ex-rows { margin: 0; width: 200px; }
 /* The views to export, each a checkbox, as many rows as they take. */
@@ -276,18 +276,20 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .ex-foot > label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
 /* The dialog with the page in it stands at once: nothing of the chart under it shows through as it comes. */
 dialog.dlg:has(.ex)[open] { animation: none; }
-.ex-well { height: min(calc(56vh - var(--said, 0px)), 520px); overflow: auto; display: grid; align-content: safe center; justify-content: safe center; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; background: var(--side); border: 1px solid var(--rule); border-radius: var(--r); }
+.ex-well { flex: 1; min-height: 120px; overflow: auto; display: grid; align-content: safe center; justify-content: safe center; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; background: var(--side); border: 1px solid var(--rule); border-radius: var(--r); }
 .ex-well:not(.full):not(.many) { container-type: size; }
 .ex-well:not(.full):not(.many) .ex-page { width: min(100%, (100cqh - 32px) * var(--a)); justify-self: center; }
 .ex-well.full { grid-template-columns: max-content; }
 .ex-well.many { grid-template-columns: repeat(2, minmax(0, 1fr)); container-type: size; }
-.ex-well.many .ex-page { width: min(100%, (50cqh - 28px) * var(--a)); justify-self: center; }
+.ex-well.many .ex-page { width: min(100%, max(280px, (50cqh - 44px) * var(--a))); justify-self: center; }
 .ex-page { margin: 0; display: grid; gap: 4px; }
 .ex-page > button { display: block; padding: 0; border: 0; border-radius: 0; background: #fff; box-shadow: 0 0 0 1px var(--rule-2); cursor: zoom-in; }
 .ex-page img { display: block; width: 100%; height: auto; }
 .ex-well.full .ex-page > button { cursor: zoom-out; }
 .ex-well.full .ex-page img { width: auto; max-width: none; }
-.ex-page > figcaption { font: var(--t12); color: var(--ink-2); }
+.ex-page > figcaption { font-weight: 500; color: var(--ink); }
+.ex-page > figcaption > span { font-weight: 400; color: var(--ink-2); white-space: nowrap; }
+.ex-well.many .ex-page { align-self: start; }
 /* Gridlines and rulers, the session's: never printed. */
 .dc-grid { fill: none; stroke: var(--rule-2); stroke-opacity: .55; stroke-width: 1px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .dc-over > .dc-ruler { position: absolute; left: 0; top: 0; pointer-events: none; }

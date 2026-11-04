@@ -1261,6 +1261,11 @@ function ViewPanel() {
         put=${out => layout(out.choice === 'Table' ? { rows: v.rows } : undefined)} /></div></div>
       ${v.layout === 'table' ? html`<div class="row in"><div class="k">Rows</div><div class="v ctl"><${Choice} fixed label="Rows" r=${rowsName ? { choice: rowsName } : null} options=${all.map(l => l.name)}
         put=${out => layout({ rows: all.find(l => l.name === out.choice).rows })} /></div></div>` : null}
+      ${v.layout === 'chart' ? html`<div class="row"><div class="k">Changes</div><div class="v ctl"><${Choice} fixed label="Changes" r=${{ choice: !v.changes ? 'None' : v.changes.since ? 'Since a date' : 'Since the page before' }} options=${['None', 'Since the page before', 'Since a date']}
+        put=${out => Time.showChanges(v.id, out.choice === 'None' ? null : out.choice === 'Since a date' ? { since: v.changes?.since ?? Time.dayBefore(App.day.peek()) } : { page: true })} /></div></div>
+        ${v.changes?.since ? html`<div class="row in"><div class="k">Since</div><div class="v ctl"><${Field} r=${{ field: 'date', value: v.changes.since }} datatype="date" label="Since" put=${out => out && Time.showChanges(v.id, { since: out.value })} /></div></div>` : null}` : null}
+      ${v.plan ? html`<div class="row"><div class="k">Places</div><div class="v ctl"><${Choice} fixed label="Places" r=${{ choice: 'Shared by the plan' }} options=${['Shared by the plan', 'This page’s own']}
+        put=${out => { if (out.choice !== 'Shared by the plan') App.change(tx => tx.note('Plan', t, undefined), { dated: false, say: `Gave ${v.name} places of its own` }); }} /></div></div>` : null}
     </div>
     ${hiddenFirst ? html`<${HiddenList} key=${v.id} v=${v} />` : null}
     ${v.layout === 'chart' && stylesOf(v.id).length ? html`<${Section} title="Styles"><div class="styles"><${Styles} v=${v.id} /></div></${Section}>` : null}
@@ -1602,9 +1607,12 @@ function GeneralView({ p, style }) {
   const addFormula = () => { if (App.change(tx => tx.note('Formula', p, [{ label: '', formula: type === 'tag' ? '← ' : '= ' }]))) FormulaBar.focus('r0', { write: true }); };
   const v = viewShown()?.layout === 'chart' ? Shell.view.value : null, described = !law?.any && (describing || !!n.description(p));
   const adds = still ? [] : [...(law?.any || described ? [] : [{ label: 'Description', run: () => setDescribing(true) }]), ...(def || kind ? [] : [{ label: 'Formula', run: addFormula }])];
+  // As of a day past, today's rule is what's read: where it's changed since, it says so.
+  const since = def && typeof Time !== 'undefined' ? Time.ruleSince(def.pattern) : null;
   return html`<div class="insp">
     <${Head} title=${name} path=${style ? [{ label: 'Style' }] : kind || rel ? [] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Tag') }]}>
       <${Field} r=${{ field: 'text', value: name }} datatype="text" label="Name" title put=${out => out && setName(out.value)} /></${Head}>
+    ${since ? html`<div class="later"><span>Today’s rule: changed ${since.day} by ${since.who}</span>${since.stand ? html`<button class="btn" onClick=${since.stand}>As it stood</button>` : null}</div>` : null}
     <div class="rows">
       ${described ? html`<div class="row"><div class="k">Description</div><div class="v ctl"><${Prose} text=${n.description(p) ?? ''} label="Description" auto=${describing}
         put=${text => { setDescribing(false); App.change(tx => tx.note('Description', p, text || undefined)); }} done=${() => setDescribing(false)} /></div></div>` : null}

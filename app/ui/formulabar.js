@@ -1797,10 +1797,12 @@ const FormulaBar = (() => {
   // What reads this definition, from the engine's plan; each opens its own.
   function Uses({ m }) {
     const uses = R.value.uses ?? {}, by = m.def ? Object.keys(uses).filter(d => uses[d].includes(m.def.id)).map(defOf).filter(Boolean) : [];
-    if (!by.length) return null;
+    // (As of a day past, where today's rule has changed since.)
+    const rule = m.def && typeof Time !== 'undefined' ? N().notes('Formula').find(n => n.note === m.def.id) : null, since = rule ? Time.ruleSince(rule.pattern) : null;
+    if (!by.length && !since) return null;
     const link = d => html`<button class="fx-link" onClick=${() => openDef(d.id)}>${d.name}</button>`;
-    return html`<span class="fx-used">Used by ${by.slice(0, 3).map((d, i) => html`${i ? ', ' : ''}${link(d)}`)}${by.length > 3
-      ? html`, <button class="fx-link" onClick=${e => Shell.menu(e.currentTarget, by.slice(3).map(d => ({ label: d.name, run: () => openDef(d.id) })), { placement: 'bottom-end' })}>${by.length - 3} more</button>` : null}</span>`;
+    return html`${since ? html`<span class="fx-used">Today’s rule: changed ${since.day} by ${since.who}${since.stand ? html` <button class="fx-link" onClick=${since.stand}>As it stood</button>` : null}</span>` : null}${by.length ? html`<span class="fx-used">Used by ${by.slice(0, 3).map((d, i) => html`${i ? ', ' : ''}${link(d)}`)}${by.length > 3
+      ? html`, <button class="fx-link" onClick=${e => Shell.menu(e.currentTarget, by.slice(3).map(d => ({ label: d.name, run: () => openDef(d.id) })), { placement: 'bottom-end' })}>${by.length - 3} more</button>` : null}</span>` : null}`;
   }
 
   // What a pending change does to what formulas give, in plain words, by what each definition gives, the most first:
