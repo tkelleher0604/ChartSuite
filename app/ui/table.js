@@ -46,6 +46,10 @@ const Table = (() => {
   }
   const looked = Shell.signal(0);
   const frozenOf = l => l.frozen ?? 1;
+  // Viewing, the columns shown and hidden, for this tab: by view, a column's key and whether it shows. A column shown in
+  // Editing is the view's, and logged.
+  const viewed = Shell.signal(new Map());
+  const seeColumn = (c, on) => { const m = new Map(viewed.peek()), v = new Map(m.get(current.view) ?? []); v.set(c.key, on); m.set(current.view, v); viewed.value = m; return true; };
 
   // How a column's values compare, as its sort, its filter's list and its groups put them: numbers and dates as such,
   // a choice in its options' order, a tag Yes first, text and names as words, figures in them as numbers.
@@ -231,6 +235,8 @@ const Table = (() => {
         const said = c.pattern ? N.value('Shown', c.pattern, view, c.param) : undefined;
         c.shown = !c.pattern || (said ?? (c.type !== 'list' && (!!c.param || c.path.length === 1)));
         c.said = said !== undefined;
+        // Viewing, a column shown or hidden is the session's, in no log.
+        if (c.pattern && App.viewing.peek()) { const seen = viewed.peek().get(view)?.get(c.key); if (seen !== undefined) { c.shown = seen; c.said = true; } }
         c.check = c.type === 'tag' && !!c.specs?.some(s => N.check(s));
       }
       cols.sort((a, b) => a.place - b.place || ownOrder(a, b));
@@ -806,7 +812,7 @@ const Table = (() => {
     owed = !el.offsetParent;
     if (owed) return;
     // What it shows is worked out from these: shown again with them as they were, the grid is as it was.
-    const from = [view, p, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value];
+    const from = [view, p, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value, App.viewing.value, viewed.value];
     if (table && ready && !flight && drewFrom?.every((x, i) => x === from[i])) return settle();
     const now = model(view);
     real = now;
@@ -1426,7 +1432,9 @@ const Table = (() => {
   const note = (tx, label, c, view, value) => tx.note(label, c.pattern, value, { view, param: c.param });
   const called = c => c.parent ? `${c.parent} › ${c.title}` : c.title;
   const canWrite = () => !App.readOnly.peek() && !current?.red;
-  const show = (c, on) => edit(tx => note(tx, 'Shown', c, current.view, on), ch => Time.describe(ch));
+  const show = (c, on) => App.viewing.peek() ? seeColumn(c, on) : edit(tx => note(tx, 'Shown', c, current.view, on), ch => Time.describe(ch));
+  // Whether columns can be shown and hidden: in Editing, as a change; Viewing, for the session.
+  const canShow = () => canWrite() || (App.viewing.peek() && !Shell.time.peek()?.stood && !current?.red);
   // The columns in this order, as Order notes in the view, as one change: those given, then the rest as they were;
   // `also`, what else the change does (a column inserted shows); `moved`, the column a gesture moved, which the grid
   // then shows where it went (arrive). It says what it did as History says it.
@@ -1679,7 +1687,7 @@ const Table = (() => {
     if (!c) return;
     const l = lookOf(m.view), [up, down] = sortWords(c), sorted = l.sort?.key === c.key, filtered = !!l.filters?.[c.key];
     const shown = table.getColumns().filter(x => x.getField()), i = shown.indexOf(col), frozen = Math.min(frozenOf(l), shown.length);
-    const order = movable(), k = order.indexOf(c), writes = canWrite() && !!c.pattern;
+    const order = movable(), k = order.indexOf(c), writes = canWrite() && !!c.pattern, shows = canShow() && !!c.pattern;
     col.getElement().classList.add('open');
     return Shell.menu(at, [
       { label: `Sort ${up}`, run: () => sortBy(c, 'asc') },
@@ -1690,14 +1698,14 @@ const Table = (() => {
       '-',
       ...(m.base && canWrite() ? [{ label: 'Insert column left', run: () => insert(col, false) }, { label: 'Insert column right', run: () => insert(col, true) }] : []),
       ...(writes && renamable(c) ? [{ label: 'Rename column', run: () => rename(col) }] : []),
-      ...(writes ? [{ label: 'Hide column', run: () => show(c, false) },
-        { label: 'Move left', disabled: k <= 0, run: () => shift(c, -1) }, { label: 'Move right', disabled: k < 0 || k === order.length - 1, run: () => shift(c, 1) }] : []),
+      ...(shows ? [{ label: 'Hide column', run: () => show(c, false) }] : []),
+      ...(writes ? [{ label: 'Move left', disabled: k <= 0, run: () => shift(c, -1) }, { label: 'Move right', disabled: k < 0 || k === order.length - 1, run: () => shift(c, 1) }] : []),
       ...(writes && c.fresh ? [{ label: 'Delete column', danger: true, run: () => dropColumn(c) }] : []),
       '-',
       i === frozen - 1 ? { label: 'Unfreeze columns', run: () => freeze(0) } : { label: 'Freeze up to here', run: () => freeze(i + 1) },
       { label: 'Fit width', run: () => fit(col) },
       l.group === c.key ? { label: 'Ungroup', run: () => group(null) } : { label: 'Group by this column', run: () => group(c) },
-      ...(c.pattern && canWrite() ? ['-', { label: 'Columns', items: columnItems(m) }] : []),
+      ...(c.pattern && canShow() ? ['-', { label: 'Columns', items: columnItems(m) }] : []),
     ], { onClose: () => col.getElement().classList.remove('open') });
   }
 
@@ -1943,7 +1951,7 @@ const Table = (() => {
     if (!m || m.view !== view) return null;
     // Found as they're typed, as a long list's fields are; dragged among those found, each lands among them all.
     const t = q.trim().toLowerCase(), found = c => !t || called(c).toLowerCase().includes(t);
-    const writes = canWrite(), mv = m.cols.filter(c => c.pattern), vis = mv.filter(found);
+    const writes = canWrite(), shows = canShow(), mv = m.cols.filter(c => c.pattern), vis = mv.filter(found);
     const down = (e, c) => {
       if (!writes || e.target.closest('input, button')) return;
       Shell.drag(e, { item: e.currentTarget, items: [...ref.current.querySelectorAll('.colrow.mv')], onDrop: (from, i) => {
@@ -1958,7 +1966,7 @@ const Table = (() => {
       <div class="cols-list">
       ${m.cols.filter(found).map(c => c.pattern
         ? html`<div class="colrow mv" key=${c.key} onPointerDown=${e => down(e, c)}><span class="colgrip" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: GRIP }} />
-            <label><input type="checkbox" checked=${c.shown} disabled=${!writes} onChange=${() => show(c, !c.shown)} /><span>${called(c)}</span></label></div>`
+            <label><input type="checkbox" checked=${c.shown} disabled=${!shows} onChange=${() => show(c, !c.shown)} /><span>${called(c)}</span></label></div>`
         : html`<div class="colrow" key=${c.key}><span class="colgrip" /><label><input type="checkbox" checked disabled /><span>${called(c)}</span></label></div>`)}
       ${m.base && writes ? naming
         ? html`<div class="colrow new"><span class="colgrip" /><input class="col-new" placeholder="New column" aria-label="New column" spellcheck=${false} ref=${x => x && !x.dataset.on && (x.dataset.on = 1, x.focus())} onKeyDown=${add} onBlur=${e => { if (!clean(e.target.value)) setNaming(false); }} /></div>`
@@ -2248,11 +2256,12 @@ const Table = (() => {
     if (mod && (k === 'd' || k === 'r') && !e.shiftKey && !e.altKey) { e.preventDefault(); if (canWrite()) fillFrom(k === 'd'); return; }
     if (e.key === 'F2') { e.preventDefault(); if (canEdit(cell)) { ranged = cellsOf(); atEnd = true; cell.edit(true); if (!table.modules.edit.currentCell) atEnd = false; } return; }
     // Delete clears the cells of the range; rows selected whole, by their numbers, it deletes, after the redline.
-    if ((e.key === 'Delete' || e.key === 'Backspace') && !App.readOnly.peek()) { e.preventDefault(); const ids = wholeRows(); if (ids.length) deletion(ids).stage(); else clear(); }
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); if (App.readOnly.peek()) return Shell.toast(App.whyNot()); const ids = wholeRows(); if (ids.length) deletion(ids).stage(); else clear(); }
     else if (e.key === ' ' && columnOf(cell)?.type === 'tag') { e.preventDefault(); flip(cell); }
     else if (e.key.length === 1 && !mod && !e.altKey && cell.getField()) {
       const c = columnOf(cell);
-      if (c.type === 'tag' || App.readOnly.peek() || !canEdit(cell)) return;
+      if (App.readOnly.peek() && c.type !== 'tag') return Shell.toast(App.whyNot());
+      if (c.type === 'tag' || !canEdit(cell)) return;
       // What's typed begins the value, or in a choice finds its option.
       typed0 = e.key; ranged = cellsOf();
       e.preventDefault();
@@ -2359,7 +2368,7 @@ const Table = (() => {
   // what's new is added, the headings nothing matches asked about, the whole redlined until Enter. A date reads as its
   // day, whatever format the sheet shows it in.
   function importFile() {
-    if (App.readOnly.peek()) return Shell.toast('Can’t change the past');
+    if (App.readOnly.peek()) return Shell.toast(App.whyNot());
     const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.xlsx,.xlsm,.xls,.csv,.tsv,.txt' });
     input.onchange = async () => {
       const f = input.files[0];
@@ -2403,7 +2412,7 @@ const Table = (() => {
     if (tries) setTimeout(() => importInto(view, text, file, tries - 1), 25);
   }
   Shell.register('action', { id: 'table.import', name: 'Import…', names: ['Import a file', 'Import CSV', 'Import Excel', 'Upload'], enabled: () => !App.readOnly.peek() && importTables().length > 0,
-    why: () => App.readOnly.peek() ? 'Can’t change the past' : 'Add a table first', run: importFile });
+    why: () => App.readOnly.peek() ? App.whyNot() : 'Add a table first', run: importFile });
   let unexport = null;
   effect(() => {
     const on = viewOf(Shell.view.value)?.layout === 'table';

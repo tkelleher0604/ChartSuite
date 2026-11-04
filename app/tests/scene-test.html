@@ -94,6 +94,13 @@ function run() {
     },
   };
 
+  // ---- A page's date line ----
+  {
+    const w = fresh(), at = w.changes().at(-1).when, said = m => (m?.texts?.map(t => t.lines?.map(l => l.text ?? l).join(' ')).join(' ') ?? m?.text ?? '').replace(/ /g, ' ');
+    const stood = scene(w.at(at)).marks.find(m => m.role === 'date'), plain = scene(w).marks.find(m => m.role === 'date');
+    check('A page’s date line says the day it’s as of, and as it stood, the moment shown, so its export does too', /^As it stood on \w+ \d+, \d{4}, \d+:\d\d [AP]M$/.test(said(stood)) && /^As of /.test(said(plain)), `${said(stood)} / ${said(plain)}`);
+  }
+
   // ---- The narrowest decides ----
   {
     const wb = fresh(), s = scene(wb), fund = s.byId.get('fund');

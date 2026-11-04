@@ -604,7 +604,7 @@ function typedBy(anchor, id) {
   Shell.popover(anchor, close => html`<div class="typed">
     <p class="who">${by.who}</p><p class="meta">${whenTyped(by.when)}${by.since ? ` · from ${short(by.since)}` : ''}${by.before ? ` · until ${short(by.before)}` : ''}</p>
     ${by.note ? html`<p class="note">${by.note}</p>` : null}
-    <button class="btn ghost" onClick=${() => { close(); select([id]); if (Time.of) Time.of([id]); else Time.open('all'); }}>History</button></div>`, { placement: 'bottom-start' });
+    <button class="btn ghost" onClick=${() => { close(); select([id]); Time.of([id]); }}>History</button></div>`, { placement: 'bottom-start' });
 }
 function Label({ it, fx }) {
   const r = it.id && recs()[it.id];
@@ -1016,7 +1016,7 @@ function moreOf(id) {
   const sections = [
     [...(r.kind ? [{ label: `Open in ${T.plural(r.kind)}`, run: () => kindTable(id) }] : []),
       ...(first ? [{ label: `Select every ${recs()[first.id].choice}`, disabled: !chart, run: () => alike(first.id) }] : []),
-      { label: 'History', run: () => { select([id]); Time.open('all'); } }],
+      { label: 'History', run: () => { select([id]); Time.of([id]); } }],
     chart && (r.kind || r.args) ? [drawn ? { label: 'Hide in this view', disabled: still, run: hide }
       : hiddenNote(id, v.id) ? { label: 'Show in this view', disabled: still, run: () => showHere([id], v) } : null].filter(Boolean) : [],
     [...(App.transferable(id) ? [{ label: 'Transfer…', disabled: still, run: () => App.transferring(id) }] : []),
@@ -1606,7 +1606,7 @@ function chosen(sel) {
 // Going to one selects the record it's at and aims at its row, with the formula bar on it: a deadline's why, as an
 // error's; an error, which is no record, at the row where its value would be, the formula that gave it asked. A blank
 // has no formula: its row takes the keys, to be typed into. A failed check is app.js's.
-const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' || a.error).map(a => {
+const attending = a => {
   const go = (id, edge, why) => () => {
     const obj = recs()[id] && objectOf(id);
     if (!obj) return;
@@ -1616,7 +1616,8 @@ const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' 
   };
   const p = a.error && (placeOf(a.error) ?? a.error.args?.[0]);
   return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, go: a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
-}));
+};
+const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' || a.error).map(attending));
 
 // A list's Add, asked for from elsewhere (a transfer's toast: Add an owner of Holdco…): the record shown, its Add's search open
 // on that list's who.
@@ -1627,11 +1628,11 @@ function addToList(id, list) {
   if (l) setTimeout(() => { const at = document.querySelector('.insp .addrow .add-entry'); if (at) addTo(at, id, l); }, 120);
 }
 Shell.register('inspector', { addTo: addToList, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
-Shell.register('attention', { items: () => attention.value });
+Shell.register('attention', { items: () => attention.value, within: days => App.needsWithin(days).filter(a => a.kind === 'soon').map(attending) });
 // What the panel's ⋯ changes, for Find, of the one record selected: Transfer… (by the words a sale goes by) and Delete…,
 // with why not, where they can't be.
 const theOne = () => { const ks = Shell.selection.peek(); return ks.length === 1 && recs()[ks[0]] ? ks[0] : null; };
-const notNow = (can, what) => () => App.readOnly.peek() ? 'Can’t change the past' : !theOne() ? `Select ${what} first` : can;
+const notNow = (can, what) => () => App.readOnly.peek() ? App.whyNot() : !theOne() ? `Select ${what} first` : can;
 Shell.register('action', { id: 'record.transfer', name: 'Transfer…', names: ['Sell', 'Sale', 'Assign', 'Transfer ownership'],
   enabled: () => !App.readOnly.peek() && !!theOne() && !!App.transferable(theOne()), run: () => App.transferring(theOne()),
   why: notNow('Only a relation of two sides transfers', 'an ownership or another relation') });

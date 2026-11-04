@@ -39,6 +39,8 @@ const Tour = (() => {
   function start() {
     store.set('toured', '1');
     Shell.closeAll();
+    // Each step is done by doing what it teaches, which Viewing wouldn't let it.
+    if (App.viewing?.peek()) App.setViewing(false);
     if (at.peek() < 0) began = Shell.selection.peek();
     at.value = 0;
   }

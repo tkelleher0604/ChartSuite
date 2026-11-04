@@ -813,7 +813,8 @@ function mount(el) {
   // A field typed over, in a box or on a line's label: a value, as entered; an option, from its list; a tag, ticked or
   // ruled out; a blank, its record made as it's typed; a free text, its words, {Entry} and all (see Fields).
   function editField(m, it, typed) {
-    if (!it || still()) return;
+    if (!it) return;
+    if (still()) return Shell.toast(App.whyNot());
     // What's typed in is the field selected, so Tab goes on from it and its row stays lit.
     if (isField(it)) field = { box: m.id, id: it.id };
     if (it.free) return writeText(m, it, typed);
@@ -1254,7 +1255,8 @@ function mount(el) {
   // a blank where it's shown at a scope; hiding it is the eye's, or its menu's. Only what's entered clears.
   const clears = f => !!f?.it && (!!f.it.free || (!f.it.blank && f.it.id in App.entered.peek()));
   function clearField(f = fieldNow()) {
-    if (!f?.it || still()) return;
+    if (!f?.it) return;
+    if (still()) return Shell.toast(App.whyNot());
     if (!clears(f)) return f.it.blank ? undefined : Shell.toast('A formula works this out');
     if (f.it.free) return unText(f.m);
     App.change(tx => tx.remove(f.it.id), { say: c => Time.describe(c) });
@@ -1452,8 +1454,8 @@ function mount(el) {
       ...formatItems(ms, ro),
       ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
       ...(one?.type === 'box' && !ro ? [{ label: 'Relate…', run: () => relating(one) }] : []),
-      // History, as the title menu's opens it with these selected: of them.
-      ...(bound.length ? [{ label: 'History', run: () => Time.open('all') }, '-', { label: 'Hide in this view', disabled: ro, run: () => remove() }] : []),
+      // Their own History.
+      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }, '-', { label: 'Hide in this view', disabled: ro, run: () => remove() }] : []),
       // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring).
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: ro, run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: 'Insert an entity between…', disabled: ro, run: () => App.interposing(one.record) }] : []),
@@ -2236,7 +2238,7 @@ const here = () => !!active.value && active.value.root.clientWidth > 0;
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
 Shell.register('action', { id: 'chart.relate', name: 'Relate…', names: ['Connect', 'Link', 'Add a relation', 'Draw a line'], enabled: () => here() && !App.readOnly.peek() && !!active.peek().relatable(), run: call('relate'),
-  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? 'Can’t change the past' : 'Select one box first' });
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one box first' });
 
 return { active, zoom: zoomLevel, keyParts, kinds, fieldLit, fieldPicked, scope: () => scopeNow(), named, groupsAt };
 })();
