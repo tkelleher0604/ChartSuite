@@ -502,6 +502,8 @@ const FormulaBar = (() => {
   // The rows close when the selection changes, unless a row is being edited; and what the inspector pointed at
   // goes with what it was in: a clause lights nothing, and a tag's preview is redlined no more.
   on('select', () => { if (!editing.peek() && !holding) open.value = false; lit.value = null; if (pending.peek()?.from === 'outside') preview(null); });
+  // (And as another tab is shown: what they say is of the view left.)
+  on('view-switch', () => { if (!editing.peek() && !holding) open.value = false; });
   // Back to a record on the breadcrumb, the last by default.
   function back(i = trail.peek().length - 1) {
     const to = trail.peek()[i];
@@ -2106,7 +2108,7 @@ const FormulaBar = (() => {
     const allWith = xs => { const ones = xs.map(([, of]) => withOne(of)), one = ones[0]; return xs.length > 1 && one && ones.every(o => o?.id === one.id) ? one : null; };
     const lead = (i, verb) => i || moved.length || spoils.length ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `;
     return said.length || moved.length || spoils.length ? html`<span class="fx-delta" ref=${box}>${spoils.map((s, i) => html`<span><b class="change">${s}</b>${i < spoils.length - 1 || moved.length || said.length ? ';' : ''}</span>`)}${moved.map((m, i) => html`<span>${m.pre}<button type="button" class="fx-count" aria-haspopup="dialog" onClick=${e => which(e, m.pre + m.who, m.words, m.of)}><b class=${m.cls}>${m.who}</b></button>${m.words ? ` ${m.words}` : ''}${i < moved.length - 1 || said.length ? ';' : ''}</span>`)}${said.map(([verb, cls, xs], i) => html`<span>${lead(i, verb)}${xs.map(([x, of], j) =>
-      html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<button type="button" class="fx-count" aria-haspopup="dialog" onClick=${e => which(e, verb, x, of)}><b class=${cls}>${allWith(xs) ? x : countedAs(x, of)}</b></button>`)}${allWith(xs) ? ` with ${short(allWith(xs))}` : ''}${i < said.length - 1 || rest.length ? ';' : ''}</span>`)}${rest.length ? html`<span><button type="button" class="fx-count" aria-haspopup="dialog" onClick=${more}><b>${rest.length} more</b></button></span>` : null}${until ? html`<span>${until}</span>` : null}${calm ? html`<span class="fx-net" title=${calm}>· ${calm}</span>` : null}</span>` : null;
+      html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<button type="button" class="fx-count" aria-haspopup="dialog" onClick=${e => which(e, verb, x, of)}><b class=${cls + (/^\d+ errors?$/.test(x) ? (cls === 'take' ? ' good' : cls === 'add' ? ' bad' : '') : '')}>${allWith(xs) ? x : countedAs(x, of)}</b></button>`)}${allWith(xs) ? ` with ${short(allWith(xs))}` : ''}${i < said.length - 1 || rest.length ? ';' : ''}</span>`)}${rest.length ? html`<span><button type="button" class="fx-count" aria-haspopup="dialog" onClick=${more}><b>${rest.length} more</b></button></span>` : null}${until ? html`<span>${until}</span>` : null}${calm ? html`<span class="fx-net" title=${calm}>· ${calm}</span>` : null}</span>` : null;
   };
   // What a relation's holder is called, by the list it makes ("an owner"), as a toast offers one.
   const ownerWord = rid => { const recs = R.peek().records, t = Tree.treeOf(recs, rid), one = singular(N().listName(t, N().edges(t)[0])); return `${/^[aeiou]/i.test(one) ? 'an' : 'a'} ${one}`; };

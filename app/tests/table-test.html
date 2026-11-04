@@ -1528,20 +1528,22 @@ async function run() {
   list.slice(y2024).find(b => b.querySelector?.('.d')?.textContent === 'Jul 1').click(); await tick(100);
   check('Picking one of them shows the chart as of that day', Shell.time.peek()?.asOf === '2024-07-01' && $('.titlebar .asof').textContent.includes('July 1, 2024'));
   check('While another day shows, the title bar’s date says which, filled, with an × back to today, and no band repeats it', $('.titlebar .asof.past .dd')?.textContent === 'As of July 1, 2024'
-    && !!$('.titlebar .asof.past .btn.icon[aria-label="Today"]') && !$('.band') && getComputedStyle($('.titlebar .asof.past')).backgroundColor !== 'rgba(0, 0, 0, 0)', $('.titlebar .asof')?.outerHTML);
-  check('The ruler shows under the view, a tick for each day', $$('.scrub > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
+    && !!$('.titlebar .asof.past .btn.icon[aria-label="Today"]') && !$('.band') && getComputedStyle($('.titlebar .asof.past .dd')).backgroundColor !== 'rgba(0, 0, 0, 0)', $('.titlebar .asof')?.outerHTML);
+  check('The ruler shows under the view, a tick for each day', $$('.scrub-track > i').length === new Set([...Time.events.peek().map(e => e.day), Log.today()]).size);
+  check('… each by what it does: tall where something comes to be or ends, short where a date is only noted', $$('.scrub-track > i.w3').length > 0 && $$('.scrub-track > i.w1').length > 0 && $('.scrub-track > i.w3').offsetHeight > $('.scrub-track > i.w1').offsetHeight);
   await tick(60);
   const ruler = $('.scrub').getBoundingClientRect();
-  check('Each year’s label stays inside the ruler, or its line stands alone', $$('.scrub > .yr').filter(y => y.textContent).every(y => y.getBoundingClientRect().right <= ruler.right - 16 + 0.5),
-    $$('.scrub > .yr').map(y => `${y.textContent} ${Math.round(y.getBoundingClientRect().right)} ${y.style.left}`).join(' ') + ` of ${ruler.left}–${ruler.right}, ${$('.scrub').clientWidth}`);
+  check('Each year’s label stays inside the ruler, or its mark stands alone', $$('.scrub-track > .yr > span').every(y => y.getBoundingClientRect().right <= ruler.right - 8 + 0.5),
+    $$('.scrub-track > .yr > span').map(y => `${y.textContent} ${Math.round(y.getBoundingClientRect().right)}`).join(' ') + ` of ${ruler.left}–${ruler.right}, ${$('.scrub').clientWidth}`);
   [...$$('.date-pop .cal-grid .d')].find(b => b.textContent === '15' && !b.classList.contains('out')).click(); await tick(100);
   check('Or any day from the calendar', Shell.time.peek()?.asOf === '2024-07-15');
   Shell.closeAll(); await tick();
-  const s = $('.scrub'), r = s.getBoundingClientRect();
-  s.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r.left + 18, clientY: r.top + 10, pointerId: 1, button: 0 }));
-  s.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: r.left + 18, clientY: r.top + 10, pointerId: 1 }));
+  const s = $('.scrub-track'), r = s.getBoundingClientRect();
+  s.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r.left + 1, clientY: r.top + 10, pointerId: 1, button: 0 }));
+  s.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: r.left + 1, clientY: r.top + 10, pointerId: 1 }));
   await tick(60);
   check('Pressing the strip scrubs to the nearest day', Shell.time.peek()?.asOf === Time.events.peek()[0].day, JSON.stringify(Shell.time.peek()));
+  $('.scrub').dispatchEvent(new PointerEvent('pointerleave', { bubbles: false }));
   Shell.show(own); Shell.at({ asOf: '2024-07-01' }); await tick(60);
   Time.keep(own, '2024-07-01'); await tick(60);
   check('A view keeps a date as an As Of note on its View object', App.notes.peek().resolve('As Of', { id: own, kind: 'View' })?.value === '2024-07-01');

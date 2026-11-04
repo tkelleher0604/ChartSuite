@@ -605,8 +605,8 @@ const App = (() => {
   }
   // Who typed a record over a rule, when, why and until when, as it stands on the day shown; null where nothing did.
   const overOf = id => { const by = enteredBy(id); return by && { who: by.who, when: by.when, why: by.note, until: by.before, since: by.since }; };
-  // What a "no" is (dendra.md, Color): a check failed, 'fails', in red; a typed one a Check note says needs attention,
-  // 'heeds', in amber; any other, plain.
+  // What a "no" is (dendra.md, Part 3, States): a check failed, 'fails'; a typed one a Check note says needs heeding, 'heeds', both
+  // red, as the chart and the status bar have them; any other, plain.
   function noTone(id, recs = state.peek()) {
     const t = recs[id] && Tree.treeOf(recs, id), N = notes.peek();
     return !t ? '' : N.check(t) ? 'fails' : N.heeds(t) ? 'heeds' : '';
@@ -1857,7 +1857,8 @@ const App = (() => {
     render: () => {
       const st = status.value;
       return st.fix ? html`<button class="keeping fix" onClick=${() => Store.fix()}>${st.text}</button>`
-        : html`<span class=${'keeping' + (st.tone ? ' is-' + st.tone : '')} title=${st.detail ?? ''}>${st.text}</span>`;
+        // (Where it's cut short, it says itself whole on hover, as the chart's name does.)
+        : html`<span class=${'keeping' + (st.tone ? ' is-' + st.tone : '')} title=${st.detail ?? ''} onPointerOver=${e => { const k = e.currentTarget; if (k.scrollWidth > k.clientWidth) k.dataset.tip = st.text; else delete k.dataset.tip; }}>${st.text}</span>`;
     },
   });
   const opened = p => p.then(wb => wb && use(wb), e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t open it'));
@@ -1866,7 +1867,7 @@ const App = (() => {
   // Settings: who you are, and signing in to the SharePoint library the team keeps its workbooks and documents
   // in. The connection to it is IT's to set up (docs/sharepoint-setup.md), so it's folded away, and opens
   // when signing in needs it.
-  function settings() {
+  function settings(opening = false) {
     const v = { name: store.get('name') ?? '', ...SharePoint.settings() };
     const keep = () => SharePoint.configure({ tenant: v.tenant.trim(), client: v.client.trim(), library: v.library.trim() });
     const field = (k, label) => html`<label class="field"><span>${label}</span><input value=${v[k]} spellcheck="false" onInput=${e => { v[k] = e.target.value; }} /></label>`;
@@ -1881,20 +1882,22 @@ const App = (() => {
         <div class="field"><span>SharePoint</span><span class="account">${me
           ? html`<span class="who">${me.name}</span><button type="button" class="btn" onClick=${() => go(SharePoint.signOut())}>Sign out</button>`
           : html`<button type="button" class="btn" onClick=${() => { keep(); go(SharePoint.signIn()); }}>Sign in</button>`}</span></div>
-        <details ref=${connection}><summary>Connection</summary><div class="settings">${field('tenant', 'Tenant ID')}${field('client', 'Client ID')}${field('library', 'Library')}</div></details>
+        <details ref=${connection} open=${opening}><summary>Connection</summary><div class="settings">${field('tenant', 'Tenant ID')}${field('client', 'Client ID')}${field('library', 'Library')}</div></details>
       </div>`;
     }
-    Shell.dialog({ title: 'Settings', width: 480, actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }], body: () => html`<${Body} />` })
-      .then(ok => { if (ok) { store.set('name', Tree.clean(v.name) || null); keep(); } });
+    return Shell.dialog({ title: 'Settings', width: 480, actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }], body: () => html`<${Body} />` })
+      .then(ok => { if (ok) { store.set('name', Tree.clean(v.name) || null); keep(); } return ok; });
   }
+  // With no library set, saving to one goes where one is set, and saves once it is.
+  const toLibrary = () => SharePoint.settings().library ? saved(Store.saveAs('library')) : settings(true).then(ok => { if (ok && SharePoint.settings().library) saved(Store.saveAs('library')); });
   // Saving somewhere keeps the workbook there from now on, as Office's Save As does; a copy is downloaded.
   [
     { id: 'file.open', name: 'Open…', keys: '$mod+O', run: () => opened(Store.openFile()) },
     { id: 'file.save', name: 'Save as…', keys: '$mod+Shift+S', run: () => saved(Store.saveAs('file')) },
-    { id: 'file.library', name: 'Save to SharePoint…', run: () => saved(Store.saveAs('library')) },
+    { id: 'file.library', name: 'Save to SharePoint…', run: toLibrary },
     { id: 'file.download', name: 'Download a copy', run: () => Store.download() },
   ].forEach((a, i) => Shell.register('action', { ...a, menu: 'chart', order: 1 + i }));
-  Shell.register('action', { id: 'settings', name: 'Settings', menu: 'chart', order: 20, run: settings });
+  Shell.register('action', { id: 'settings', name: 'Settings', menu: 'chart', order: 20, run: () => settings() });
   // Editing or Viewing, for Find, by the words it goes by.
   Shell.register('action', { id: 'mode.viewing', name: 'Viewing', names: ['Read only', 'Read-only', 'View only', 'Lock'], run: () => setViewing(true) });
   Shell.register('action', { id: 'mode.editing', name: 'Editing', names: ['Edit', 'Unlock'], run: () => setViewing(false) });

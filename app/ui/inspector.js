@@ -1234,7 +1234,7 @@ function Look({ id }) {
   const bent = n.resolve('Bend', t, v)?.note;
   // An arrow its style leaves Auto is said so: this line has it by which way it runs, and it's no look of this line's own.
   const look = [...Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
-    .map(([label, s]) => ({ label, value: s.value, ...(label === 'Arrow' && s.note.value === 'auto' && { said: `Auto: ${s.value === 'none' ? 'none, as it runs down' : `${s.value === 'both' ? 'both ends' : `at the ${s.value}`}, as it doesn’t run down`}` }), from: from(s.note, label), rank: rank(s.note) })), ...(bent ? [{ label: 'Route', value: 'Bent', from: 'This line', rank: 0 }] : [])].sort((a, b) => a.rank - b.rank);
+    .map(([label, s]) => ({ label, value: s.value, ...(label === 'Arrow' && s.note.value === 'auto' && { said: `Auto (${s.value === 'none' ? 'none, as it runs down' : `${s.value === 'both' ? 'both ends' : `at the ${s.value}`}, as it doesn’t run down`})` }), from: from(s.note, label), rank: rank(s.note) })), ...(bent ? [{ label: 'Route', value: 'Bent', from: 'This line', rank: 0 }] : [])].sort((a, b) => a.rank - b.rank);
   // (And what's this box's alone of its fields, beside it, as a look pasted on it gives.)
   const beside = n.notes('Size').length ? WORDS.flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
