@@ -303,9 +303,8 @@ async function run() {
   // ---- Sizes in slide points, on the half-point grid; a frame shows its caption's ----
   const shown = () => +$('[data-fb="size"]').value;
   check('the format bar shows a size in slide points, to the half point', shown() * 2 === Math.round(shown() * 2) && Math.abs(shown() - Scene.toSlide(sc().page, sizeOf())) <= 0.25, `${shown()} for ${Scene.toSlide(sc().page, sizeOf())}`);
-  // A size picked reads back as picked where the chart can keep a scale for it, though the box grows and the
-  // chart's scale drops with it (12 on Fund III); and where it can't, the bar says what it prints, as near the
-  // pick as the page allows (14).
+  // A size picked is what's printed: it reads back as picked, however the box grows, the scale the view keeps as it was
+  // for what a hand placed; and a size typed isn't snapped to a half point.
   Shell.select(['fund']); await tick(120);
   const scaleWas = sc().page.scale, pickSize = async z => {
     $('[data-fb="sizes"]').click(); await tick(120);
@@ -315,10 +314,12 @@ async function run() {
   const at12 = await pickSize(12), scale12 = sc().page.scale, shown12 = shown();
   Shell.parts.peek().undo.undo(); await tick(150);
   const at14 = await pickSize(14);
-  check('a size picked reads back as picked, and prints so, though the chart is drawn smaller for it', shown12 === 12 && Math.abs(at12 - 12) < 0.01 && scale12 < scaleWas,
+  check('a size picked reads back as picked, and prints so, the scale kept as it was', shown12 === 12 && Math.abs(at12 - 12) < 1e-6 && scale12 === scaleWas,
     `bar ${shown12}, drawn ${at12}, scale ${scaleWas} → ${scale12}`);
-  check('… or, where no scale the chart can keep allows it, the bar says what prints, as near as the page allows', shown() === Math.round(at14 * 2) / 2 && at14 > 12.5 && at14 <= 14,
-    `bar ${shown()}, drawn ${at14}, scale ${sc().page.scale}`);
+  check('… 14 too', shown() === 14 && Math.abs(at14 - 14) < 1e-6 && sc().page.scale === scaleWas, `bar ${shown()}, drawn ${at14}, scale ${sc().page.scale}`);
+  Shell.parts.peek().undo.undo(); await tick(150);
+  { const f = $('[data-fb="size"]'); f.focus(); f.value = '9.3'; f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(300); }
+  check('… and 9.3 typed prints at 9.3, not at a half point, and reads so', shown() === 9.3 && Math.abs(Scene.toSlide(sc().page, sc().byId.get('fund').texts[0].look.Size) - 9.3) < 1e-6, `bar ${shown()}`);
   Shell.parts.peek().undo.undo(); await tick(150);
   Shell.select(['halvard']); await tick(120);
   const v40 = charts().find(v => v.name === '40 Act');
@@ -758,7 +759,7 @@ async function run() {
     `${Math.round(newKey.w)}×${Math.round(newKey.h)} at ${sc().page.scale}`);
   for (let i = 0; i < 2; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
 
-  // ---- A box moved past the page's edge: the page grows round it, and the chart holds still, the zoom as it was,
+  // ---- A box moved past the page's edge stays there: the page as it was, and the chart holds still, the zoom as it was,
   // in a view framed or zoomed in alike, the box where it was put on screen and every other where it was ----
   cv().zoom('fit'); await tick(120);
   Shell.select(['halvard']); await tick(80);
@@ -766,8 +767,8 @@ async function run() {
   const fundBefore = onSc('fund'), hvBefore = onSc('halvard');
   cv().nudge(0, 300); await tick(150);
   const fundAfter = onSc('fund'), hvAfter = onSc('halvard');
-  check('a box moved past the page’s edge in a view framed: the page grows round it, the zoom as it was, the box where it was put and every other where it was',
-    `${sc().page.w}×${sc().page.h}` !== size0 && g.zoom() === zf && Math.abs(fundAfter.x - fundBefore.x) < 0.5 && Math.abs(fundAfter.y - fundBefore.y) < 0.5
+  check('a box moved past the page’s edge in a view framed: the page as it was, the zoom as it was, the box where it was put and every other where it was',
+    `${sc().page.w}×${sc().page.h}` === size0 && g.zoom() === zf && Math.abs(fundAfter.x - fundBefore.x) < 0.5 && Math.abs(fundAfter.y - fundBefore.y) < 0.5
     && Math.abs(hvAfter.x - hvBefore.x) < 0.5 && Math.abs(hvAfter.y - hvBefore.y - 300 * zf) < 0.5, `${size0} → ${sc().page.w}×${sc().page.h}; ${JSON.stringify({ zf, z: g.zoom(), fundBefore, fundAfter, hvBefore, hvAfter })}`);
   Shell.parts.peek().undo.undo(); await tick(150);
   cv().zoom(1); await tick(80);
@@ -775,7 +776,7 @@ async function run() {
   const at0 = g.localToGraph(hv().x, hv().y), z0h = g.zoom();
   cv().nudge(0, 300); await tick(150);
   const at1 = g.localToGraph(hv().x, hv().y);
-  check('… and in a view zoomed in, it stays where it was put on screen, though the page grows', `${sc().page.w}×${sc().page.h}` !== size0 && g.zoom() === z0h
+  check('… and in a view zoomed in, it stays where it was put on screen, the page as it was', `${sc().page.w}×${sc().page.h}` === size0 && g.zoom() === z0h
     && Math.abs(at1.x - at0.x) < 0.5 && Math.abs(at1.y - at0.y - 300 * z0h) < 0.5, `${size0} → ${sc().page.w}×${sc().page.h}; moved ${(at1.x - at0.x).toFixed(1)}, ${((at1.y - at0.y) / z0h).toFixed(1)}`);
   Shell.parts.peek().undo.undo(); await tick(150);
   cv().zoom('fit'); await tick(120);
@@ -929,7 +930,7 @@ async function run() {
   // ---- A page drawn very small (as a chart of hundreds of boxes is) opens whole, not at 60% on its blank
   // margin or its title many times its size ----
   const pageOf = { id: main.id, kind: 'View' };
-  App.change(tx => tx.note('Page', pageOf, { w: 240, h: 135 }), { dated: false }); await tick(200);
+  App.change(tx => { tx.note('Page', pageOf, { w: 240, h: 135 }); for (const n of App.notes.peek().notes('Scale')) if (n.pattern.id === main.id) tx.remove(n.note); }, { dated: false, keep: false }); await tick(200);
   // (Opened again, after another view: the page's size changed holds the zoom, as every change does.)
   await show(charts()[1]); await show(main);
   { const p = sc().page, { z, W, H } = onScreen(), t = titleAt();
@@ -1489,7 +1490,7 @@ async function layered() {
   const key = sc().marks.find(m => m.geometry === 'legend'), n2 = App.wb.changes().length, target = sc().byId.get('northpine');
   if (key) {
     App.change(tx => tx.update(key.id, { x: target.x - 10, y: target.y - 6 }), { dated: false }); await tick(350);
-    check('a Key dropped on a box warns on Export', Scene.cautions(sc()).some(w => /^The Key covers /.test(w) && /Northpine/.test(w)), JSON.stringify(Scene.cautions(sc())));
+    check('a Key dropped on a box warns on Export', Scene.says(sc()).some(w => /^The Key overlaps /.test(w) && /Northpine/.test(w)), JSON.stringify(Scene.says(sc())));
     const k = sc().marks.find(m => m.geometry === 'legend'), under = sc().marks.filter(m => m.type === 'line' && m.points.slice(1).some((p, i) => { const q = m.points[i]; return Math.max(p[0], q[0]) > k.x + 1 && Math.min(p[0], q[0]) < k.x + k.w - 1 && Math.max(p[1], q[1]) > k.y + 1 && Math.min(p[1], q[1]) < k.y + k.h - 1 && m.from !== 'northpine' && m.to !== 'northpine'; }));
     check('… and a line goes round it where its way isn’t long', under.length <= 3, under.map(m => m.id).join());
     for (let i = App.wb.changes().length; i > n2; i--) { Shell.parts.peek().undo.undo(); await tick(150); }

@@ -261,12 +261,18 @@ const Time = (() => {
     c.adds.forEach(r => put(r, 'now'));
     // What a change keeps where it's drawn (a box the layout placed) is no part of what it says.
     const keeps = i => { const r = i.type === 'note' && i.now.length && Log.latest(i.now); return !!r && r.label === 'Position' && !!r.value?.kept; };
-    // (And the Key where the page placed it, all that's changed of its row.)
+    // (And the Key where the page placed it, all that's changed of its row; and the scale the page keeps.)
     const rest = r => { const { id, kept, ...p } = r; return JSON.stringify(p); }, keptKey = i => i.type === 'shape' && i.was.length && i.now.length && rest(Log.latest(i.was)) === rest(Log.latest(i.now));
-    const held = [...items.values()].filter(i => (back || !keeps(i)) && !keptKey(i)), rec = i => Log.latest(i.now.length ? i.now : i.was);
+    const scaled = i => i.type === 'note' && Log.latest(i.now.length ? i.now : i.was).label === 'Scale';
+    const held = [...items.values()].filter(i => (back || !keeps(i)) && !keptKey(i) && !scaled(i)), rec = i => Log.latest(i.now.length ? i.now : i.was);
     const about = i => i.type === 'record' ? near.has(i.id) : i.type === 'note' && [...Tree.idsIn(rec(i).pattern)].some(id => near.has(id));
     const all = near ? held.filter(about) : held, whole = (text, sub = []) => [{ text, sub }];
     if (near && !all.length) return [];
+    // A view fit to its page; and a view put on another page, by its paper, what it's placed anew for.
+    const fitted = [...items.values()].find(i => scaled(i) && i.now.length && Log.latest(i.now).value?.fit);
+    if (fitted) return whole(`Fit ${N.nameOf(recs, Log.latest(fitted.now).pattern.id)} to its page`);
+    const paged = all.find(i => i.type === 'note' && i.now.length && rec(i).label === 'Page');
+    if (paged) { const v = rec(paged).value, named = typeof v === 'object' ? v.size : v; return whole(`Set the page of ${N.nameOf(recs, rec(paged).pattern.id)} to ${(typeof Scene !== 'undefined' && Scene.PAPERS[named]) || 'its own size'}${v?.portrait ? ', portrait' : ''}`); }
     // A relation a definition works out, entered with something recorded at it (a tax year, with its payment), was
     // entered to bear it: what's at it is said, at its place; and so when they go together.
     const worked = i => { const r = rec(i); return r.args && 'tag' in r && isDefined(N, N.nameOf(recs, i.id)); };
@@ -588,6 +594,7 @@ const Time = (() => {
       case 'Name': return gone ? `Unnamed ${of}` : !i.was.length ? (Tree.same(of, n.value) ? `Named ${n.value}` : `Named ${of} ${n.value}`)
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;
       case 'As Of': return gone ? `Stopped keeping a date in ${of}` : `Kept ${short(n.value)} in ${of}`;
+      case 'Footer': return gone ? 'Took the footer off' : 'Set the footer';
       case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
       // A field's look in a group's boxes, given beside its output (dendra.md, Fields): "Made Jurisdiction not bold in the
       // Cayman Islands boxes in Structure". A look one record kept of its own, cleared, as the format bar says it.

@@ -25,7 +25,7 @@ const fieldLit = signal(null);
 const fieldPicked = signal(null);
 const BLUE = '#1f5fbf', RED = '#c2372b';
 // Cells that draw no mark of their own, so nothing selects or moves them: the page, a line's label, a redline's ink.
-const UNMARKED = new Set(['page', 'label', 'ink']);
+const UNMARKED = new Set(['page', 'label', 'ink', 'foot']);
 // As far out as the canvas goes: a chart of hundreds of boxes still fits.
 const LEAST = 0.02;
 const ANCHOR = { left: 'start', center: 'middle', right: 'end' };
@@ -289,7 +289,8 @@ function cellsOf(scene, ink = null) {
       else {
         const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
         const body = bodyMarkup(geometry, m.w, m.h, s, null, m.geometry === 'frame' ? { 'pointer-events': 'visibleStroke' } : {});
-        node(m, 'shape', [body, ...(m.geometry === 'text' || m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.geometry === 'frame' ? 18 : m.h, fill: 'transparent' } }] : []),
+        // (The footer and its number are the sheet's, set in Page setup.)
+        node(m, m.role === 'footer' || m.role === 'number' ? 'foot' : 'shape', [body,...(m.geometry === 'text' || m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.geometry === 'frame' ? 18 : m.h, fill: 'transparent' } }] : []),
           ...m.texts.map(it => textMarkup(it))]);
       }
     }
@@ -478,6 +479,9 @@ function mount(el) {
       const z = zooms.get(view);
       framed = z ? z.framed : true;
       left = z && !z.framed ? z : null;
+      settle();
+    } else if (was && framed && (was.scale !== page.scale || was.sheet.w !== page.sheet.w || was.sheet.h !== page.sheet.h)) {
+      // (A page drawn at another scale is the same sheet: framed, it stays as large on screen. Another sheet is framed anew.)
       settle();
     } else if (was && page.placed && was.placed) {
       const dx = page.offset.x - was.offset.x, dy = page.offset.y - was.offset.y;
@@ -757,7 +761,7 @@ function mount(el) {
     // where it's drawn from now on, as a place of its own.)
     baked = new Set();
     if (page.placed && [...places.keys()].some(id => scene.byId.get(id)?.type === 'box')) for (const b of scene.marks) {
-      if (b.type !== 'box' || !b.laid || b.hand || places.has(b.id) || Math.abs(b.y - page.offset.y - b.laid.y) < 0.01) continue;
+      if (b.type !== 'box' || !b.laid || b.exact || places.has(b.id) || Math.abs(b.y - page.offset.y - b.laid.y) < 0.01) continue;
       const t = treeOf(b.record), old = t && n.position(t, view), [x, y] = own(b.x, b.y);
       if (t) { tx.note('Position', t, { x, y, w: round(b.w), ...(old?.h && { h: old.h }), kept: true }, { view }); baked.add(b.record); }
     }
@@ -1132,6 +1136,7 @@ function mount(el) {
   graph.on('node:dblclick', ({ e, node }) => {
     const k = node.getData()?.kind;
     if (k === 'page') return addAt(e);
+    if (k === 'foot') return Export.setup();
     // A field double-clicked is typed in, a line's label's too; the room of a box that was selected already starts
     // a free text there.
     if (k === 'box' || k === 'label') {
@@ -2149,6 +2154,7 @@ function mount(el) {
   // change, each place still saying `order` (so History says Tidy): every box stands where Tidy drew it, on every day shown
   // after. `tidied` is the workbook as the layout finds it for Tidy, which a preview draws; `tidyName`, what it's called, by which.
   const placedHere = () => [...App.notes.peek().notes('Position'), ...App.notes.peek().notes('Bend')].filter(n => n.view === viewOf());
+  const scaleHere = () => App.notes.peek().notes('Scale').filter(n => n.pattern.id === viewOf());
   const tidyBoxes = () => { const base = App.scene.peek(); return !base || !scene ? [] : placeable().filter(m => m.type === 'box').map(m => base.byId.get(m.id)).filter(Boolean); };
   const tidySaid = n => `${n} box${n === 1 ? '' : 'es'}`;
   const tidyName = () => { const n = tidyBoxes().length; return n > 1 ? `Tidy ${tidySaid(n)}` : 'Tidy'; };
@@ -2162,9 +2168,9 @@ function mount(el) {
     const ws = [...writes].map(([id, value]) => ({ id, t: treeOf(id), value })).filter(w => w.t), keys = new Set(ws.map(w => Tree.key(w.t)));
     // (Tidy places the Key afresh, as it does the chart.)
     const key = some.length ? null : base.marks.find(m => m.geometry === 'legend' && m.byPage && rowOf(m.id)?.kept);
-    // (A line's bend goes with what it's bent among: all of them, or those of the boxes tidied.)
+    // (A line's bend goes with what it's bent among: all of them, or those of the boxes tidied. And all of them, the scale, set afresh.)
     const these = new Set(some.map(m => m.record)), bentHere = n => n.label === 'Bend' && [...Tree.idsIn(n.pattern)].some(id => these.has(id));
-    return { writes: ws, gone: placedHere().filter(n => some.length ? bentHere(n) : !keys.has(Tree.key(n.pattern))), n: some.length, key: key?.id };
+    return { writes: ws, gone: some.length ? placedHere().filter(bentHere) : [...placedHere().filter(n => !keys.has(Tree.key(n.pattern))), ...scaleHere()], n: some.length, key: key?.id };
   }
   let triedTidy = 0;
   function tidied() {
@@ -2180,7 +2186,7 @@ function mount(el) {
     // (What its preview draws, entered: the place of each box it lays out, in a place's terms, and the Key where it set it.)
     const laid = holdsOf(Scene.of(tidied(), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true })), keyId = !n && base.marks.find(m => m.geometry === 'legend' && m.byPage)?.id;
     const entered = w => { if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value }; };
-    if (!App.change(tx => { gone.forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null }); }, { say: o?.say ?? (n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'), keep: false, dated: false })) return;
+    if (!App.change(tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); }, { say: o?.say ?? (n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'), keep: false, dated: false })) return;
     if (n) return;
     framed = true; left = null;
     settle();
@@ -2205,8 +2211,8 @@ function mount(el) {
       states.push(d === App.day.peek() ? App.state.peek() : App.workOn(d).records);
     }
     const union = Object.assign({}, ...states), computed = App.computed.peek();
-    // (Without the notes that place anything, as Tidy lays it out.)
-    const placed = new Set(placedHere().map(n => n.note)), rows = wb.rows(c).filter(r => !placed.has(r.note)).map(r => r.geometry === 'legend' && r.kept ? { ...r, kept: null } : r), notes = Notes.index(rows.filter(r => 'note' in r)), bare = { ...wb, rows: () => rows, notes: () => notes };
+    // (Without the notes that place anything, or the scale, as Tidy lays it out.)
+    const placed = new Set([...placedHere(), ...scaleHere()].map(n => n.note)), rows = wb.rows(c).filter(r => !placed.has(r.note)).map(r => r.geometry === 'legend' && r.kept ? { ...r, kept: null } : r), notes = Notes.index(rows.filter(r => 'note' in r)), bare = { ...wb, rows: () => rows, notes: () => notes };
     const lay = st => Scene.of(bare, c, view, App.day.peek(), { state: st, computed, ahead: true });
     let sc = lay(union);
     // A line skips what's between its ends where another way runs from one to the other, by boxes none of which holds with it on any day.
@@ -2226,16 +2232,18 @@ function mount(el) {
     return { ws, key: sc.marks.find(m => m.geometry === 'legend' && m.byPage)?.id, keyAt: laid };
   }
   function tidiedEvery() {
-    const { ws, key, keyAt } = everyWrites(), wb = App.shown.peek(), view = viewOf(), out = new Set(placedHere().map(n => n.note));
+    const { ws, key, keyAt } = everyWrites(), wb = App.shown.peek(), view = viewOf(), out = new Set([...placedHere(), ...scaleHere()].map(n => n.note));
     const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note)).map(r => key && r.shape === key ? { ...r, kept: keyAt.get(key) } : r),
-      ...ws.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; })];
+      ...ws.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; }),
+      // (Every date at the one scale, that holds them all: not as large as the day shown would be alone.)
+      { id: `·tidy${++triedTidy}`, note: `·tidy${triedTidy}`, label: 'Scale', pattern: { id: view, kind: 'View' }, value: keyAt.page }];
     const notes = Notes.index(rows.filter(r => 'note' in r));
     return { ...wb, rows: () => rows, notes: () => notes, tidy: 'Tidy for every date' };
   }
   function tidyEvery() {
     if (still()) return Shell.toast(App.whyNot());
     const { ws, key, keyAt } = everyWrites(), view = viewOf(), out = placedHere();
-    if (!App.change(tx => { out.forEach(n => tx.remove(n.note)); ws.forEach(w => tx.note('Position', w.t, w.value, { view })); if (key) tx.update(key, { kept: keyAt.get(key) ?? null }); }, { say: 'Tidied the layout for every date', keep: false, dated: false })) return;
+    if (!App.change(tx => { out.forEach(n => tx.remove(n.note)); ws.forEach(w => tx.note('Position', w.t, w.value, { view })); if (key) tx.update(key, { kept: keyAt.get(key) ?? null }); tx.note('Scale', { id: view, kind: 'View' }, keyAt.page); }, { say: 'Tidied the layout for every date', keep: false, dated: false })) return;
     framed = true; left = null;
     settle();
   }
@@ -2255,15 +2263,20 @@ function mount(el) {
     // And the Key the page placed, where it's drawn on the sheet, so it keeps its corner as the chart is edited.
     const key = base.marks.find(m => m.geometry === 'legend' && m.byPage), s = base.page.scale;
     if (key) out.set(key.id, { x: round(key.x * s), y: round(key.y * s) });
+    // And the scale it's drawn at, and how far the page has moved it (a kept note; see Scene's furnish).
+    out.page = { scale: s, x: o.x, y: o.y };
     return out;
   }
   const stopKeep = App.keeping(tx => {
     const base = App.scene.peek();
     if (!base || still() || active.peek() !== canvas || base.view !== viewShown || Shell.view.peek() !== base.view || !root.clientWidth) return;
-    const view = base.view;
-    const done = baked;
+    const view = base.view, holds = holdsOf(base), at = { id: view, kind: 'View' };
+    if (JSON.stringify(tx.noteAt('Scale', at)?.value) !== JSON.stringify(holds.page)) tx.note('Scale', at, holds.page);
+    const placed = placedNow, done = baked;
+    placedNow = new Set();
     baked = null;
-    for (const [id, p] of holdsOf(base)) {
+    for (const [id, p] of holds) {
+      if (placed.has(id)) continue;
       const t = treeOf(id);
       if (!t) { const was = rowOf(id)?.kept; if (rowOf(id) && (was?.x !== p.x || was?.y !== p.y)) tx.update(id, { kept: p }); continue; }
       const old = tx.noteAt('Position', t, { view })?.value;
@@ -2430,7 +2443,9 @@ function mount(el) {
     out.set(id, { x, y, w: round(b.w), kept: true });
     return out;
   }
-  function between(tx, at, kind) { const base = App.scene.peek(); for (const [x, p] of placesBetween(base, at)) tx.note('Position', x === at.id ? { id: x, kind } : treeOf(x), p, { view: base.view }); }
+  // (What it places, the same change doesn't keep where it stood: see keep.)
+  let placedNow = new Set();
+  function between(tx, at, kind) { const base = App.scene.peek(), places = placesBetween(base, at); placedNow = new Set(places.keys()); for (const [x, p] of places) tx.note('Position', x === at.id ? { id: x, kind } : treeOf(x), p, { view: base.view }); }
   // What a change pending keeps where it stands, and what it places itself, over any place entered.
   function holdsFor(base) { const h = holdsOf(base), at = App.pending.peek()?.placing?.(); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
