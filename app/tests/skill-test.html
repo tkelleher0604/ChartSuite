@@ -45,7 +45,7 @@ function runAll() {
 
   // What needs attention: the status bar's counts.
   const c = run('check', { day: DAY });
-  check('check counts what needs attention as the status bar does: 2 overdue · 4 errors · 2 due soon · 5 blank', c.ok && c.text.includes('2 overdue · 4 errors · 2 due soon · 5 blank')
+  check('check counts what needs attention as the status bar does: 2 overdue · 4 errors · 2 due soon · 1 blank', c.ok && c.text.includes('2 overdue · 4 errors · 2 due soon · 1 blank')
     && /David R\. Okafor for Fund III, via GP III: Capacity Held fails/.test(c.text), c.text.split('\n')[0]);
 
   // A plan recorded: an LLC and an LP, a general partner at the LP's Entity Type, an ownership.

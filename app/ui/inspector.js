@@ -818,7 +818,8 @@ function Relatives({ id }) {
   const worked = items => items.every(it => fx(it.rid)), typing = linking.value === id;
   const held = lists.flatMap(([, items]) => items);
   return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${items.length}
-      shut=${worked(items)} act=${items[0].rest.length || worked(items) ? null : plus(`Add to ${name}`, e => add(e, name))}>${items.map(item)}</${Section}>`)}
+      shut=${worked(items)} act=${items[0].rest.length || worked(items) ? null : plus(`Add to ${name}`, e => add(e, name))}>${items.map(item)}
+      ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t…</button></div>` : null}</${Section}>`)}
     ${docs.length || typing ? html`<${Section} title="Documents" n=${docs.length} act=${recs()[id].kind ? plus('Link a document', e => linkAdd(e.currentTarget, id)) : null}>
       ${docs.map(docRow)}
       ${typing ? html`<div class="row"><div class="k wide"><input class="cell" placeholder="Link" aria-label="Link" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
@@ -1370,7 +1371,7 @@ function Typeset({ r, def }) {
       : t.k === 'str' || t.k === 'op' ? html`<span class="muted">${src}</span>` : src);
   });
   if (last < text.length) lines.at(-1).push(text.slice(last));
-  return html`<div class="st-set" onClick=${() => FormulaBar.focus('r' + r.i)}>${lines.map((l, i) => html`<div class=${i ? 'cont' : null}>${l}</div>`)}</div>`;
+  return html`<div class="st-set" onClick=${e => FormulaBar.focus('r' + r.i, { write: e.detail > 1 && !App.readOnly.peek() })}>${lines.map((l, i) => html`<div class=${i ? 'cont' : null}>${l}</div>`)}</div>`;
 }
 // How many records a clause gives, in the words of the list they make ("15 close affiliates") or of the kind
 // they're at ("3 entities").
@@ -1384,7 +1385,7 @@ function Statute({ def, p, law }) {
   const { lead, groups, tail, put } = law, mine = Object.entries(App.computed.value.computed).filter(([, c]) => c.def === def.note);
   const gives = g => mine.filter(([, c]) => g.rows.some(r => c.holds?.length ? c.holds.includes(r.i) : c.row === r.i)).map(([id]) => id);
   const write = g => () => { const key = 'n' + Math.random().toString(36).slice(2, 8), tag = App.definitions.value.find(d => d.id === def.note)?.type === 'tag';
-    FormulaBar.edit(def.note, xs => [...xs, { key, label: g.label, formula: tag ? '← ' : '= ' }]); FormulaBar.focus(key); };
+    FormulaBar.edit(def.note, xs => [...xs, { key, label: g.label, formula: tag ? '← ' : '= ' }]); FormulaBar.focus(key, { write: true }); };
   const words = (x, cls) => x.at === undefined ? html`<span class=${cls} />`
     : html`<${Prose} cls=${cls} text=${x.law} label=${x.label || 'Description'} put=${to => App.change(tx => tx.note('Description', p, put(x, to) || undefined))} />`;
   return html`<div class="statute">
@@ -1420,7 +1421,7 @@ function GeneralView({ p, style }) {
   const ats = kind ? [] : rel ? n.edges(p).map(e => [e, [...new Set(specs.map(s => where(s.args.find(a => T.same(a.edge, e)).loc)))].join(', ')])
     : [['At', [...new Set(specs.map(s => where(s.args[0].loc)))].join('\n')]];
   const below = kind ? [...new Map(Object.values(S).filter(s => s.args?.length === 1 && s.args[0].loc.kind && T.same(s.args[0].loc.kind, p.kind)).map(s => [T.norm(s.args[0].edge), s])).values()] : [];
-  const addFormula = () => { if (App.change(tx => tx.note('Formula', p, [{ label: '', formula: type === 'tag' ? '← ' : '= ' }]))) FormulaBar.focus('r0'); };
+  const addFormula = () => { if (App.change(tx => tx.note('Formula', p, [{ label: '', formula: type === 'tag' ? '← ' : '= ' }]))) FormulaBar.focus('r0', { write: true }); };
   const v = viewShown()?.layout === 'chart' ? Shell.view.value : null, described = !law?.any && (describing || !!n.description(p));
   const adds = still ? [] : [...(law?.any || described ? [] : [{ label: 'Description', run: () => setDescribing(true) }]), ...(def || kind ? [] : [{ label: 'Formula', run: addFormula }])];
   return html`<div class="insp">

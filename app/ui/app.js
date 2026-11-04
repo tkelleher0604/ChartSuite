@@ -863,7 +863,7 @@ const App = (() => {
     const N = notes.value, rels = new Map(), kinds = new Set(), byName = (a, b) => a.name.localeCompare(b.name);
     for (const t of Object.values(schema.value)) {
       if (!t.args) { if (!Tree.isView(t)) kinds.add(t.kind); }
-      else if (t.args.length > 1) { const p = strip(t); rels.set(Tree.key(p), p); }
+      else if (t.args.length > 1) { const p = N.relationPattern(t); rels.set(Tree.key(p), p); }
     }
     return {
       kinds: [...kinds].map(kind => ({ name: Tree.plural(kind), rows: { kind } })).sort(byName),

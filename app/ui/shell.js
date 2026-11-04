@@ -618,7 +618,7 @@ const Shell = (() => {
     if (q.startsWith('?')) { const ks = acts.filter(a => a.keys && a.id !== 'keys').map(a => ({ ...a, detail: null })); return q.slice(1).trim() ? rank(ks, q.slice(1).trim()) : ks; }
     const vs = views.value.map(v => ({ label: v.name, detail: 'View', run: () => show(v.id) })), can = acts.filter(a => !a.disabled);
     if (!q) return headed([...vs, ...can]);
-    const all = [...many('find').flatMap(s => s.items()), ...counted(), ...vs, ...acts];
+    const all = [...many('find').flatMap(s => s.items(q)), ...counted(), ...vs, ...acts];
     return headed(rank(all, q), all);
   }
   // A result chosen keeps the focus it gave itself (a field, a dialog); otherwise the view has the keys, wherever
