@@ -650,7 +650,10 @@ function OnChart({ it, at }) {
   const state = () => { const s = Canvas.scope(); return { s, on: s.own ? c.fields.shown(host, it.edge, at) : [...s.marks].every(id => { const x = alikeIn(host, at, id); return !!x && c.fields.shown(id, it.edge, x); }) }; };
   const { s, on } = pointed ?? state();
   const say = ({ s, on }) => `${on ? 'Hide from' : 'Show in'} ${s.own ? (recs()[host]?.args ? 'this line' : 'this box') : Canvas.named(s)}`;
-  return html`<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say({ s, on })}
+  // Its right-click: here, or in every box that has it, kept true as more get it; and with its name, so "High" says what it is.
+  const where = e => { e.preventDefault(); e.stopPropagation(); const here = c.fields.shown(host, it.edge, at), all = c.fields.everywhere(it.edge), named = c.fields.captioned(it.edge);
+    menu({ x: e.clientX, y: e.clientY }, [{ label: recs()[host]?.args ? 'In this line' : 'In this box', checked: here, run: () => c.fields.showHere(host, it.edge, !here, at) }, { label: 'In every box that has it', checked: all, run: () => c.fields.setEverywhere(it.edge, !all) }, '-', { label: 'With its name', checked: named, run: () => c.fields.setCaptioned(it.edge, !named) }]); };
+  return html`<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say({ s, on })} onContextMenu=${where}
     onPointerEnter=${e => { const now = state(); setPointed(now); e.currentTarget.dataset.tip = say(now); if (now.s.marks) c.cue?.([...now.s.marks]); }} onPointerLeave=${() => { setPointed(null); c.cue?.(null); }}
     onClick=${e => { e.stopPropagation(); const now = state(); c.fields.show(host, it.edge, !now.on, at); setPointed(null); }}>${Shell.icon('eye')}</button>`;
 }
@@ -969,7 +972,7 @@ function LookSection({ look, reset, named }) {
   const from = [...new Set(look.map(x => x.from))];
   return html`<${Section} title="Look" id="look" act=${reset}>${from.map(f => html`
     ${f ? html`<div class="row src" key=${f}><div class="k wide">${f}</div></div>` : null}
-    ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${labelOf(x.label, named)}</div><div class="v">${val(x.label, x.value, named)}</div></div>`)}`)}</${Section}>`;
+    ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${labelOf(x.label, named)}</div><div class="v">${x.said ?? val(x.label, x.value, named)}</div></div>`)}`)}</${Section}>`;
 }
 // A place on the page, where it's drawn, in points on the slide (the page is drawn smaller to fit it, by its scale), so the
 // numbers are the ones PowerPoint shows: typed over to move or size it, and read back as typed, to a tenth. `lock`, keeping
@@ -1002,12 +1005,14 @@ function Look({ id }) {
   const sc = App.scene.value, v = sc.view, t = tree(id), n = N(), drawn = recs()[id].kind ? sc.byId.get(id) : null, entered = drawn ? n.position(t, v) : null, cv = Shell.parts.peek().canvas?.active?.();
   // This mark's own: a box's at its object, a line's at its relation's own tree, as the format bar notes them.
   const mine = x => x.pattern.id === id || (!!recs()[id].args && T.key(T.bare(x.pattern)) === T.key(T.bare(t)));
-  const rank = x => mine(x) ? 0 : x.view ? 1 : 2;
-  const from = x => mine(x) ? (recs()[id].args ? 'This line' : 'This box') : !x.view ? 'Default'
+  const rank = x => mine(x) ? 0 : x.view ? 1 : x.pattern.kind === 'View' ? 2 : 3;
+  // (The page's own, a note at the view itself, is what All text says.)
+  const from = x => mine(x) ? (recs()[id].args ? 'This line' : 'This box') : x.pattern.kind === 'View' ? 'All text' : !x.view ? 'Default'
     : (s => { const c = Scene.captionOf(n, x.pattern, v); return T.norm(c).startsWith(T.norm(s)) ? c : `${s}: ${c}`; })(Scene.styleName(n, T.bare(x.pattern)));
   const bent = n.resolve('Bend', t, v)?.note;
+  // An arrow its style leaves Auto is said so: this line has it by which way it runs, and it's no look of this line's own.
   const look = [...Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
-    .map(([label, s]) => ({ label, value: s.value, from: from(s.note), rank: rank(s.note) })), ...(bent ? [{ label: 'Route', value: 'Bent', from: 'This line', rank: 0 }] : [])].sort((a, b) => a.rank - b.rank);
+    .map(([label, s]) => ({ label, value: s.value, ...(label === 'Arrow' && s.note.value === 'auto' && { said: `Auto: ${s.value === 'none' ? 'none, as it runs down' : `${s.value === 'both' ? 'both ends' : `at the ${s.value}`}, as it doesn’t run down`}` }), from: from(s.note), rank: rank(s.note) })), ...(bent ? [{ label: 'Route', value: 'Bent', from: 'This line', rank: 0 }] : [])].sort((a, b) => a.rank - b.rank);
   // (And what's this box's alone of its fields, beside it, as a look pasted on it gives.)
   const beside = n.notes('Size').length ? ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'].flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
@@ -1189,7 +1194,8 @@ function HiddenHere({ id }) {
 function Swatch({ sw, off }) {
   const stroke = sw.Outline === 'none' ? 'none' : sw.Outline, dash = Scene.dash(sw.Dash, sw.Weight), w = stroke === 'none' ? 0 : Math.min(sw.Weight * Scene.PT, 2.5);
   return html`<svg class=${'sw' + (off ? ' off' : '')} viewBox="0 0 28 16" aria-hidden="true">${sw.kind === 'line'
-    ? html`<path d="M2 8H26" fill="none" stroke=${stroke} stroke-width=${Math.min(sw.Weight * Scene.PT, 3)} stroke-dasharray=${dash} />`
+    ? html`<path d="M2 8H26" fill="none" stroke=${stroke} stroke-width=${Math.min(sw.Weight * Scene.PT, 3)} stroke-dasharray=${dash} />
+      ${['end', 'both'].includes(sw.Arrow) && stroke !== 'none' ? html`<path d="M27 8l-6-3.2v6.4z" fill=${stroke} />` : null}${['start', 'both'].includes(sw.Arrow) && stroke !== 'none' ? html`<path d="M1 8l6-3.2v6.4z" fill=${stroke} />` : null}`
     // A frame as the chart draws one: a bracket over its boxes, or a box round them.
     : sw.kind === 'frame' ? html`<path d=${sw.Frame === 'bracket' ? 'M2 13V7H26V13' : 'M2.5 2.5H25.5V13.5H2.5Z'} fill="none" stroke="#595959" stroke-width="1"
         stroke-dasharray=${['bracket', 'solid'].includes(sw.Frame) ? null : Scene.dash(sw.Frame === 'dotted' ? 'dotted' : 'dashed', 0.75)} />`
@@ -1204,15 +1210,26 @@ const stylesOf = (v, only) => N().styles(v).filter(s => !only || T.narrower(only
   .map(s => ({ ...s, outputs: s.outputs.filter(o => Object.keys(o.formats).some(k => k !== 'Shown')) })).filter(s => s.outputs.length);
 function Styles({ v, only }) {
   const n = N(), all = n.styles(v), listed = new Set(stylesOf(v, only).map(s => s.key)), styleAt = new Map(all.map(s => [s.key, s]));
+  // What a row reaches on this page: its marks, those keeping their own and what another style decides of them.
+  const fb = typeof FormatBar !== 'undefined' && FormatBar.reachOf ? FormatBar : null, sc = App.scene.value, reach = g => fb && sc?.view === v ? fb.reachOf(g) : { marks: 1, own: 0, masked: [] };
+  const [offOpen, setOffOpen] = useState(false);
+  const keyShape = sc?.view === v ? App.shown.value.rows(App.chart.value).find(r => 'shape' in r && r.view === v && r.geometry === 'legend') : null, keyWord = g => keyShape?.captions?.[g.key];
+  const groups = Scene.groupsOf(n, v).filter(g => listed.has(g.style)), reached = new Map(groups.map(g => [g, reach(g)]));
   // The styles listed, by their groups (Scene.groupsOf) in their order, each group a row as the Key has it: those
-  // under their style's name, then apart, after them all, the styles that are their one row (Names).
-  const blocks = [...Map.groupBy(Scene.groupsOf(n, v).filter(g => listed.has(g.style)), g => g.style)].map(([k, rows]) => ({ s: styleAt.get(k), rows, lone: !rows[0].name }));
+  // under their style's name, then apart, after them all, the styles that are their one row (Names). A row that reaches
+  // nothing on this page is folded apart at the foot, so a chart with no funds isn't told about funds.
+  // (Which are folded is settled as the panel opens on the view, so no row moves under the pointer as a box is shown or hidden.)
+  const folded = useRef(null);
+  if (folded.current?.v !== v) folded.current = { v, keys: new Set(groups.filter(g => !reached.get(g).marks).map(g => g.key)), seen: new Set(groups.map(g => g.key)) };
+  for (const g of groups) if (!folded.current.seen.has(g.key)) { folded.current.seen.add(g.key); if (!reached.get(g).marks) folded.current.keys.add(g.key); }
+  const off = only ? [] : groups.filter(g => folded.current.keys.has(g.key)), here = groups.filter(g => !off.includes(g));
+  const blocks = [...Map.groupBy(here, g => g.style)].map(([k, rows]) => ({ s: styleAt.get(k), rows, lone: !rows[0].name }));
   const parts = [blocks.filter(b => !b.lone), blocks.filter(b => b.lone)];
   // Dragged among those of its part; the rest keep their places in the view's order.
   const order = part => (from, i) => { const q = moved(part.map(b => b.s), from, i), keys = new Set(q.map(s => s.key));
     App.change(tx => all.map(s => keys.has(s.key) ? q.shift() : s).forEach((s, k) => s.order !== k + 1 && tx.note('Order', s.pattern, k + 1, { view: v }))); };
-  // A caption typed as an output's own name is no caption.
-  const cap = (ps, text) => App.change(tx => ps.forEach(p => tx.note('Caption', p, text && text !== Scene.outputName(n, p) ? text : undefined, { view: v })));
+  // A caption typed as an output's own name is no caption; and what the Key called it goes, as it's named afresh.
+  const cap = (g, text) => App.change(tx => { g.outputs.forEach(p => tx.note('Caption', p, text && text !== Scene.outputName(n, p) ? text : undefined, { view: v })); if (keyWord(g)) { const { [g.key]: _, ...captions } = keyShape.captions; tx.update(keyShape.shape, { captions }); } });
   const grip = part => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order(part))}>${GRIP}</button>`;
   // Its own place among those of its part, a step up or down: what a row's menu offers beside its grip.
   const steps = (part, s) => { const i = part.findIndex(b => b.s.key === s.key), go = to => order(part)(i, to);
@@ -1221,15 +1238,20 @@ function Styles({ v, only }) {
   // caption calls it, what it stands for: beneath, where several, or on hover. A style's one row, `alone`, is
   // dragged among that part. Its swatch clicked is its caption clicked.
   const output = (g, alone, part, s) => {
-    const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]);
-    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onClick=${e => { if (!e.target.closest('.grip, .cellbox, input')) aimAt(g); }}>${alone ? grip(alone) : null}<div class="k" onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
-      <div class="v" title=${said && names.length === 1 ? names[0] : null}><${Caption} g=${g} label=${names.join(', ')} put=${out => cap(g.outputs, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
+    const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]), on = reached.get(g) ?? { own: 0, masked: [] };
+    // What doesn't read as this row: those of its marks with a look of their own, and what another style decides of them all.
+    const notes = [...on.own ? [`${on.own} ${on.own === 1 ? 'keeps its' : 'keep their'} own`] : [], ...on.masked.map(([l, by]) => `${l} decided by ${by}`)];
+    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onClick=${e => { if (!e.target.closest('.grip, .cellbox, input, .lk')) aimAt(g); }}>${alone ? grip(alone) : null}<div class="k" onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
+      <div class="v" title=${said && names.length === 1 ? names[0] : null}><span class="capline"><${Caption} g=${keyWord(g) ? { ...g, caption: keyWord(g) } : g} label=${names.join(', ')} put=${out => cap(g, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
+        ${notes.length ? html`<span class="onote" title=${notes.join(', ')}>${on.own && fb ? html`<button type="button" class="lk" onClick=${() => fb.selectDiffers()}>${notes[0]}</button>` : notes[0]}${notes.length > 1 ? `, ${notes.slice(1).join(', ')}` : ''}</span>` : null}</span>
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
   // A style that is its one group is that row alone: Names, not Name over Names.
-  return parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
+  return html`${parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
     ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname">${Scene.isChange(s.pattern) ? rows[0].name : html`<${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}>`}</div></div>${rows.map(g => output(g, null, part, s))}`}
-  </div>`));
+  </div>`))}
+  ${off.length ? html`<div class="row styles-off"><button type="button" class="lk" aria-expanded=${offOpen} onClick=${() => setOffOpen(x => !x)}>Not on this page (${off.length})</button></div>
+    ${offOpen ? off.map(g => { const s = styleAt.get(g.style); return html`<div class="ent style lone" key=${g.key}>${output(g, null, [], s)}</div>`; }) : null}` : null}`;
 }
 
 // A Styles row aimed at: the ribbon's scope, what it reaches lit on the chart (the format bar's aim), till it's clicked again.
@@ -1312,12 +1334,28 @@ function ShapeView({ id, part }) {
     <div class="rows">
       ${worded ? html`<div class="row"><div class="k">Text</div><div class="v ctl"><${Prose} text=${row.text ?? ''} label="Text" put=${text => set({ text })} /></div></div>` : null}
       ${key ? html`<div class="row"><div class="k">Columns</div><div class="v ctl"><${Choice} fixed label="Columns" r=${{ choice: String(row.columns ?? 1) }} options=${['1', '2', '3']}
-        put=${out => set({ columns: +out.choice })} /></div></div>` : null}
+        put=${out => set({ columns: +out.choice })} /></div></div>
+      <div class="row"><div class="k">Corner</div><div class="v ctl"><${Choice} fixed label="Corner" r=${{ choice: row.x != null ? 'Where it was put' : row.corner ? upper(`${row.corner.v} ${row.corner.h}`) : 'Where the page places it' }} options=${[...(row.x != null ? ['Where it was put'] : []), 'Where the page places it', 'Top left', 'Top right', 'Bottom left', 'Bottom right']}
+        put=${out => { if (out.choice === 'Where it was put') return; const [v, h] = out.choice.toLowerCase().split(' '); App.change(tx => Canvas.keyCorner(tx, id, out.choice === 'Where the page places it' ? null : [v, h]), { dated: false, say: out.choice === 'Where the page places it' ? 'Let the page place the Key' : `Put the Key in the ${out.choice.toLowerCase()} corner` }); }} /></div></div>` : null}
     </div>
     ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
     ${m && g !== 'line' ? html`<${Place} at=${m} keys=${key ? 'xyw' : 'xywh'} put=${(k, x) => Shell.parts.peek().canvas?.active?.()?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' ? null : { on: row.lock, set: on => set({ lock: on || undefined }) }} turn=${key || g === 'group' || row.role ? null : { at: row.rotate, set: a => Shell.parts.peek().canvas?.active?.()?.turn(m.id, a) }} />` : null}
     ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} />` : null}
     <${LookSection} look=${look} reset=${reset} />
+  </div>`;
+}
+// The footer: its words and whether pages are numbered, the chart's own, on every chart view; its look, which the ribbon
+// gives it; the page places it.
+function FootView() {
+  const f = N().resolve('Footer', { kind: 'View' })?.value ?? {}, still = App.readOnly.value, write = next => App.change(tx => tx.note('Footer', { kind: 'View' }, next.text || next.number ? next : undefined), { dated: false, say: next.text || next.number ? 'Set the footer' : 'Took the footer off' });
+  const look = Object.entries(f.format ?? {}).map(([label, value]) => ({ label, value, from: null })), { format: _, ...plain } = f;
+  return html`<div class="insp">
+    <${Head} title="Footer" />
+    <div class="rows">
+      <div class="row"><div class="k">Text</div><div class="v ctl"><${Prose} text=${f.text ?? ''} label="Footer" put=${text => write({ ...f, text })} /></div></div>
+      <label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${!!f.number} disabled=${still} onChange=${e => write({ ...f, number: e.target.checked })} />Page numbers</span></label>
+    </div>
+    <${LookSection} look=${look} reset=${still || !look.length ? null : html`<button class="btn ghost reset" onClick=${() => write(plain)}>Reset</button>`} />
   </div>`;
 }
 // A row of the Key's panel: its grip, dragged among the rest; its box, which shows or hides it where it stands; and its
@@ -1690,6 +1728,7 @@ function chosen(sel) {
   if (frame?.output) return html`<${GeneralView} key=${sel[0]} p=${T.bare(frame.output)} style />`;
   if (sel.length === 1) {
     const [id, part] = sel[0].split('#'), rid = id.split('@')[0], rows = App.shown.value.item(App.chart.value, rid);
+    if (rid === Scene.FOOTER || rid === Scene.NUMBER) return html`<${FootView} key=${rid} />`;
     if (rows.at(-1) && 'shape' in rows.at(-1)) return html`<${ShapeView} key=${rid} id=${rid} part=${part} />`;
     if (recs()[rid] || rows.length) return html`<${RecordView} key=${rid} id=${rid} />`;
   }
@@ -1848,6 +1887,6 @@ document.addEventListener('paste', e => {
   link(id, text);
 });
 
-// What settles a deadline, as a menu item, for the Dates table's right-click (settling).
-return { settling };
+// What settles a deadline, as a menu item, for the Dates table's right-click (settling); and a style's swatch, for the format bar's list of what a house style holds.
+return { settling, Swatch };
 })();

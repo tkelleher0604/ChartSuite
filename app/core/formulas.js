@@ -3552,13 +3552,22 @@ function requiredAt(N, t, edge) {
   const byTree = asked.get(N) ?? asked.set(N, new WeakMap()).get(N), m = byTree.get(t) ?? byTree.set(t, new Map()).get(t);
   return m.get(edge) ?? m.set(edge, N.required({ args: [{ edge, loc: t }] })).get(edge);
 }
+// The entries a formula asks ISBLANK of, by which it says what's the chart's own to track (dendra.md, Ours to track). Kept while the notes stand.
+const tracked = new WeakMap();
+function tracking(N) {
+  if (tracked.has(N)) return tracked.get(N);
+  const out = new Set();
+  for (const n of N.notes('Formula')) for (const row of n.value ?? []) for (const m of String(row.formula ?? '').matchAll(/ISBLANK\(\s*\[([^\]]+)\]\s*\)/g)) out.add(normal(m[1]));
+  tracked.set(N, out);
+  return out;
+}
 function attention(R, N, day, within = 30) {
   const recs = R.records, items = [], soon = new Date(day + 'T12:00:00');
   soon.setDate(soon.getDate() + within);
   const by = Tree.isoOf(soon), checks = N.notes('Check').length > 0;
   const required = N.notes('Required').filter(n => !n.view && n.pattern.args?.length === 1).map(n => n.pattern.args[0]);
-  const edges = new Map();
-  for (const r of Object.values(recs)) if (r.at) { let s = edges.get(r.at); if (!s) edges.set(r.at, s = new Set()); s.add(normal(r.edge)); }
+  const edges = new Map(), anyone = new Set();
+  for (const r of Object.values(recs)) if (r.at) { let s = edges.get(r.at); if (!s) edges.set(r.at, s = new Set()); const e = normal(r.edge); s.add(e); anyone.add(e); }
   for (const [id, r] of Object.entries(recs)) {
     if ('field' in r) {
       if (r.field === 'date' && (R.computed[id] || R.covered[id]) && r.value <= by) items.push({ kind: r.value < day ? 'overdue' : 'soon', id });
@@ -3570,7 +3579,8 @@ function attention(R, N, day, within = 30) {
     const has = edges.get(id), blank = new Set();
     for (const a of required) {
       const e = normal(a.edge);
-      if (has?.has(e) || blank.has(e) || !Tree.narrower(t, a.loc) || !requiredAt(N, t, a.edge)) continue;
+      // (What says what's the chart's own to track, which no record of it has yet, is no blank of this one: a chart with no funds isn't asked what vehicle each box is.)
+      if (has?.has(e) || blank.has(e) || (tracking(N).has(e) && !anyone.has(e)) || !Tree.narrower(t, a.loc) || !requiredAt(N, t, a.edge)) continue;
       blank.add(e);
       items.push({ kind: 'blank', id, edge: a.edge });
     }

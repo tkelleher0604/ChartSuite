@@ -257,19 +257,24 @@ async function run() {
   check('… and Bold for it bolds every text of its boxes, the jurisdiction they write too', caymanBoxes.length === caymans && caymanBoxes.every(b => b.texts.length > 1 && b.texts.every(it => it.look.Bold)),
     caymanBoxes.map(b => b.texts.map(it => `${it.text}:${it.look.Bold}`).join(',')).join(' / '));
   Shell.parts.peek().undo.undo(); await tick(120); Shell.parts.peek().undo.undo(); await tick(120);
-  // A look given a group is what each of its marks then has: where a later style gave some of them otherwise (Funds'
-  // fill over the limited partnerships'), the group's style goes after it in Styles, in the same change, saying so.
+  // A look given a group goes to each of its marks: where a later style gives some of them otherwise (Funds' fill over the
+  // limited partnerships'), it says which still decides, the Styles rows holding their order, and offers to put it after.
   const lpBox = drawnBoxes.find(b => { const e = entryOf(b, 'Entity Type'); return e && rs[e].choice === 'Limited Partnership'; });
   Shell.select([lpBox.id]); await tick(120);
   $('[data-fb="groups"]').click(); await tick(120);
   const lpRow = $$('.float .menu-item').find(e => txt(e).startsWith('Limited partnership ('));
   lpRow?.click(); await tick(120);
-  const lps = [...FormatBar.scope().marks], n1 = App.wb.changes().length;
+  const lps = [...FormatBar.scope().marks], n1 = App.wb.changes().length, orderOf = () => App.notes.peek().styles(sc().view).map(s => s.key).join();
+  const orderWas = orderOf();
   FormatBar.apply('Fill', '#fbe5d6'); await tick(150);
-  const peach = lps.filter(id => App.scene.peek().byId.get(id)?.settings.Fill.value === '#fbe5d6').length, lpSaid = $('.toast span')?.textContent ?? '';
-  check('a look given a group that a later style overrode reaches every mark of it, the style put after, in one change', lps.length > 1 && peach === lps.length
-    && App.wb.changes().length === n1 + 1 && /now comes after .* in Styles$/.test(lpSaid), `${peach} of ${lps.length}; ${lpSaid}`);
-  Shell.parts.peek().undo.undo(); await tick(120);
+  const peachIs = () => lps.filter(id => App.scene.peek().byId.get(id)?.settings.Fill.value === '#fbe5d6').length, lpSaid = $('.toast span')?.textContent ?? '';
+  check('a look given a group that a later style overrides says which still decides, its rows holding their order', lps.length > 1 && peachIs() < lps.length && orderOf() === orderWas
+    && App.wb.changes().length === n1 + 1 && /still decides? it for/.test(lpSaid), `${peachIs()} of ${lps.length}; ${lpSaid}`);
+  const putAfter = $$('.toast button').find(b => /^Put /.test(txt(b)));
+  check('… offering to put it after', !!putAfter, txt($('.toast')));
+  putAfter?.click(); await tick(200);
+  check('… which, taken, reaches every mark of it, as one more change', peachIs() === lps.length && App.wb.changes().length === n1 + 2 && orderOf() !== orderWas, `${peachIs()} of ${lps.length}`);
+  Shell.parts.peek().undo.undo(); await tick(120); Shell.parts.peek().undo.undo(); await tick(120);
   Shell.select(['halvard']); await tick(120);
 
   // ---- Live preview: a swatch or an option pointed at is drawn, and leaving ends it ----
@@ -2075,7 +2080,7 @@ async function format() {
   await Store.keepHouseStyle({ id: 'hs2', name: 'Elsewhere', look: foreign }); await Shell.parts.peek().formatbar.relist?.(); await tick(100);
   await show(act);
   FormatBar.lookMenu(act.id).find(i => i.label === 'House style').items.find(i => i.label === 'Elsewhere').items.find(i => i.label === 'Apply to 40 Act').run(); await tick(500);
-  check('… what a chart hasn’t got of a look doesn’t come, and it’s said', !noteAt(act, 'Fill', { kind: 'Spaceship' }) && /but for 2 settings/.test(txt($('.toasts'))), txt($('.toasts')));
+  check('… what a chart hasn’t got of a look doesn’t come, and it’s said', !noteAt(act, 'Fill', { kind: 'Spaceship' }) && /2 settings of what this chart hasn’t got/.test(txt($('.toasts'))), txt($('.toasts')));
   Shell.parts.peek().undo.undo(); await tick(300);
   // A new chart begun in one, whole, frames and all.
   const before = App.chart.peek(), withFrame = { ...look, notes: [...look.notes, { label: 'Frame', pattern: FUNDS, value: 'solid' }] };
@@ -2090,7 +2095,7 @@ async function format() {
   await Store.forgetHouseStyle('hs1'); await Store.forgetHouseStyle('hs2'); await Shell.parts.peek().formatbar.relist?.();
   Shell.parts.peek().undo.undo(); await tick(300);
 
-  // ---- A look's paper and footer are for a chart begun in it; a view that takes the look keeps its own. No place, Bend or Scale is in one ----
+  // ---- A look brings its paper; the words of the chart's footer stay, but where it has none. No place, Bend or Scale is in one ----
   await show(named('Structure'));
   const stP = named('Structure'), actP = named('40 Act'), atView = id => ({ id, kind: 'View' }), pageAt = id => App.notes.peek().resolve('Page', atView(id))?.value, footAt = id => App.notes.peek().resolve('Footer', atView(id))?.value;
   const firstView = () => charts()[0], endNaming = async () => { $('.chartmenu.naming input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(80); };
@@ -2103,8 +2108,9 @@ async function format() {
   await show(actP);
   const actPage = pageAt(actP.id), actSheet = JSON.stringify([sc().page.w, sc().page.h]), footWas = JSON.stringify(footAt(actP.id));
   FormatBar.lookMenu(actP.id).find(i => i.label === 'Match look').items.find(i => i.label === 'Structure').run(); await tick(500);
-  check('… a view that takes the look keeps its paper, and the chart’s footer stays as it was', pageAt(actP.id) === actPage && JSON.stringify([sc().page.w, sc().page.h]) === actSheet && JSON.stringify(footAt(actP.id)) === footWas, `${pageAt(actP.id)} ${actSheet}`);
+  check('… a view that takes the look takes its paper, placed for it, and the chart’s footer stays as it was', pageAt(actP.id) === 'legal' && sc().page.size === 'legal' && JSON.stringify(footAt(actP.id)) === footWas, `${pageAt(actP.id)} ${actSheet}`);
   Shell.parts.peek().undo.undo(); await tick(300);
+  check('… one Undo puts its paper back', pageAt(actP.id) === actPage && JSON.stringify([sc().page.w, sc().page.h]) === actSheet, `${pageAt(actP.id)}`);
   const fromStyle = App.chart.peek();
   App.newChart(paged); await tick(500); await endNaming();
   const v1 = firstView(), own1 = l => rows().filter(r => 'note' in r && r.label === l && r.view === v1.id);
@@ -2118,6 +2124,169 @@ async function format() {
   check('… and a chart begun in the house look has the first chart view’s paper and the chart’s footer', pageAt(firstView().id) === 'legal' && footAt(firstView().id)?.text === 'Confidential' && rows().filter(r => 'note' in r && r.label === 'Footer').length === 1 && rows().filter(r => 'note' in r && r.label === 'Page' && r.pattern.id === firstView().id).length === 1, `${pageAt(firstView().id)}`);
   await dropChart();
   App.change(tx => { tx.note('Page', atView(stP.id), undefined); tx.note('Footer', { kind: 'View' }, undefined); }, { dated: false }); await tick(300);
+
+  // ---- All text; the footer; the Key's corner and captions; what differs; what a style holds; a box of no form ----
+  await show(named('Structure'));
+  Shell.select([]); await tick(200);
+  const stE = named('Structure'), actE = named('40 Act'), selfE = id => ({ id, kind: 'View' }), rootOf = (id, l) => App.notes.peek().value(l, selfE(id));
+  const scopeBtn = () => $('[data-fb="all"]'), fontBtn = () => $('[data-fb="font"]');
+  check('nothing selected, the scope says All text, and the font box what the page has', txt(scopeBtn()) === 'All text' && txt(fontBtn()) === 'Arial', txt(fontBtn()));
+  FormatBar.apply('Font', 'Georgia'); await tick(500);
+  check('All text set, it’s a note at the view itself, one change, every text in it', rootOf(stE.id, 'Font') === 'Georgia' && txt(fontBtn()) === 'Georgia' && sc().marks.filter(m => m.type === 'box').every(b => b.texts.every(it => it.look.Font === 'Georgia')) && sc().marks.find(m => m.role === 'title').texts[0].look.Font === 'Georgia' && sc().marks.find(m => m.geometry === 'legend').rows.every(r => r.caption.look.Font === 'Georgia'), JSON.stringify(App.wb.changes().at(-1).adds.map(r => r.label)));
+  check('… said as what it did', /font of all text to Georgia/.test(Time.describe(App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  const allAct = acts().find(a => a.id === 'format.alltext');
+  check('Find reaches it by All text and Theme, with nothing selected', !!allAct && allAct.name.startsWith('All text') && allAct.names.includes('Theme') && acts().find(a => a.id === 'format.font').enabled(), allAct?.name);
+  FormatBar.apply('Size', 9); await tick(600);
+  check('… its size too, each text printing at what was typed', rootOf(stE.id, 'Size') === 9 && Math.abs(sc().marks.find(m => m.role === 'title').texts[0].look.Size * sc().page.scale - 9) < 0.01 && $('[data-fb="size"]').value === '9', $('[data-fb="size"]').value);
+  Shell.parts.peek().undo.undo(); await tick(400);
+  // A narrower note keeps its own, said, with a way to make it all that font.
+  App.change(tx => tx.note('Font', { args: [{ edge: 'Name', loc: {} }] }, 'Garamond', { view: stE.id }), { dated: false }); await tick(300);
+  FormatBar.apply('Font', 'Verdana'); await tick(500);
+  check('… what a narrower note gives keeps it, and it’s said, with a way to make it all that font', sc().byId.get('fund').texts[0].look.Font === 'Garamond' && /Names keep their own font/.test(txt($('.toasts'))) && $$('.toast button').some(b => /^Make it all Verdana/.test(txt(b))), txt($('.toasts')));
+  $$('.toast button').find(b => /^Make it all/.test(txt(b)))?.click(); await tick(400);
+  check('… which, taken, leaves it all that font', sc().byId.get('fund').texts[0].look.Font === 'Verdana');
+  for (let i = 0; i < 3; i++) { Shell.parts.peek().undo.undo(); await tick(300); }
+  // The footer, real: selected, formatted by the ribbon, in its own panel.
+  App.change(tx => tx.note('Footer', { kind: 'View' }, { text: 'Privileged', number: true }), { dated: false }); await tick(400);
+  Shell.select([Scene.FOOTER]); await tick(300);
+  check('the footer selected, the ribbon works on it, and its panel has its words and numbers', txt($('[data-fb="own"]')) === 'The footer' && !$('[data-fb="font"]').disabled && $('[data-fb="bold"]').disabled !== true && !!$('.insp [aria-label="Footer"], .insp .ih-title') && txt($('.insp .ih-title')) === 'Footer', txt($('[data-fb="own"]')));
+  FormatBar.apply('Font', 'Garamond'); await tick(400);
+  const footNow = () => App.notes.peek().value('Footer', { kind: 'View' });
+  check('… a font given it is in its note, on every page, its words and numbers as they were', footNow().format?.Font === 'Garamond' && footNow().text === 'Privileged' && footNow().number === true && sc().marks.find(m => m.role === 'footer').texts[0].look.Font === 'Garamond' && sc().marks.find(m => m.role === 'number').texts[0].look.Font === 'Garamond', JSON.stringify(footNow()));
+  check('… said as what it did', /font of the footer to Garamond/.test(Time.describe(App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  // Its words typed in place keep its look; a click on the number's the same note; Delete takes it off, the words going first.
+  Shell.select([Scene.NUMBER]); await tick(200);
+  check('… its number selected says so', txt($('[data-fb="own"]')) === 'The page number', txt($('[data-fb="own"]')));
+  cv().remove(true); await tick(300);
+  check('… Delete takes the numbers off, its words and look staying', footNow().text === 'Privileged' && !footNow().number && footNow().format?.Font === 'Garamond', JSON.stringify(footNow()));
+  Shell.select([]); await tick(200);
+  App.change(tx => tx.note('Footer', { kind: 'View' }, undefined), { dated: false }); await tick(300);
+  // The Key's corner, by name, holding there; its caption the Key's own.
+  const keyE = () => sc().marks.find(m => m.geometry === 'legend');
+  App.change(tx => Canvas.keyCorner(tx, keyE().id, ['bottom', 'right']), { dated: false }); await tick(500);
+  const inCorner = () => { const k = keyE(), s = sc().page.scale, W = sc().page.sheet.w, H = sc().page.sheet.h; return [W - (k.x + k.w) * s, H - (k.y + k.h) * s]; };
+  check('the Key in a corner by name stands at the margins, whatever its size', inCorner().every(d => Math.abs(d - 48) < 1), JSON.stringify(inCorner()));
+  Shell.select([keyE().id]); await tick(250);
+  const cornerRow = $$('.insp .row').find(r => txt(r.querySelector('.k')) === 'Corner');
+  check('… its panel says which', !!cornerRow && /Bottom right/.test(txt(cornerRow)), cornerRow && txt(cornerRow));
+  Shell.select([]); await tick(150);
+  Shell.parts.peek().undo.undo(); await tick(300);
+  await show(actE);
+  const frameCap = () => sc().marks.find(m => m.type === 'frame' && /Directors/.test(m.caption.text));
+  const headWas = frameCap()?.caption.text, keyRowE = keyE().rows.find(r => r.caption.text === headWas);
+  check('(a frame headed as a row of the Key)', !!keyRowE, keyE().rows.map(r => r.caption.text).join());
+  App.change(tx => Canvas.keyCaption(tx, { ...keyE() }, keyRowE, 'Individual'), { dated: false }); await tick(400);
+  check('a Key caption typed is the Key’s: its row says it, and the frame’s heading stays', keyE().rows.some(r => r.caption.text === 'Individual') && frameCap()?.caption.text === headWas, frameCap()?.caption.text);
+  Shell.parts.peek().undo.undo(); await tick(300);
+  // A look brings the Key's corner, its captions and All text; a new chart in it has its Key there.
+  await show(stE);
+  const lpKey = () => keyE().rows.find(r => /Limited liability/.test(r.caption.text));
+  App.change(tx => { Canvas.keyCorner(tx, keyE().id, ['bottom', 'right']); Canvas.keyCaption(tx, { ...keyE() }, lpKey(), 'LLC'); tx.note('Font', selfE(stE.id), 'Georgia'); }, { dated: false }); await tick(500);
+  await show(actE);
+  FormatBar.lookMenu(actE.id).find(i => i.label === 'Match look').items.find(i => i.label === 'Structure').run(); await tick(600);
+  const rowAct = rows().find(r => 'shape' in r && r.view === actE.id && r.geometry === 'legend');
+  check('Match look brings All text, the Key’s corner and its captions', rootOf(actE.id, 'Font') === 'Georgia' && rowAct.corner?.h === 'right' && rowAct.corner?.v === 'bottom' && keyE().rows.some(r => r.caption.text === 'LLC'), JSON.stringify(rowAct.corner));
+  check('… what it leaves, its toast says', /It keeps/.test(txt($('.toasts'))) && /which the look doesn’t style/.test(txt($('.toasts'))), txt($('.toasts')));
+  check('… and a frame’s heading stays the view’s', !!frameCap(), sc().marks.filter(m => m.type === 'frame').map(m => m.caption.text).join());
+  Shell.parts.peek().undo.undo(); await tick(400);
+  await show(stE);
+  const cornered = Notes.houseLook(rows(), stE.id);
+  App.newChart(cornered); await tick(600);
+  $('.chartmenu.naming input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(80);
+  const v9 = charts()[0], keyRow9 = rows().find(r => 'shape' in r && r.view === v9.id && r.geometry === 'legend');
+  check('a new chart in a style has its Key where the style’s is, its font and captions', keyRow9.corner?.v === 'bottom' && rootOf(v9.id, 'Font') === 'Georgia' && Object.values(keyRow9.captions ?? {}).includes('LLC'), JSON.stringify(keyRow9.corner));
+  // A box of no form doesn't pass as a Corporation.
+  await tick(300);
+  const blank = cv().create ? null : null;
+  App.change(tx => { const id = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: 'Pinecrest Capital' }); const c = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: c, edge: 'Name', field: 'text', value: 'Fielding, Inc.' }); tx.add('record', { at: c, edge: 'Entity Type', choice: 'Corporation' }); }); await tick(600);
+  const boxNamed = name => sc().marks.find(m => m.type === 'box' && m.texts[0]?.text.replace(/\s+/g, ' ') === name), noForm = boxNamed('Pinecrest Capital'), corp = boxNamed('Fielding, Inc.');
+  check('an entity with no Entity Type isn’t drawn in the Corporation’s exact look', !!noForm && !!corp && (noForm.settings.Dash.value !== corp.settings.Dash.value || noForm.settings.Outline.value !== corp.settings.Outline.value), `${noForm?.settings.Dash.value} ${corp?.settings.Dash.value}`);
+  check('… and it’s said at Export, by name', Scene.says(sc(), b => b.texts[0]?.text).some(t => /Pinecrest Capital has no Entity Type/.test(t)), Scene.says(sc(), b => b.texts[0]?.text).join('; '));
+  check('… a chart with no Vehicle Type on any box isn’t asked for one', !App.needs.peek().some(a => a.kind === 'blank' && a.edge === 'Vehicle Type'), JSON.stringify(App.needs.peek().slice(0, 5)));
+  Shell.select([]); await tick(150);
+  check('… and Styles folds what reaches nothing here', !$$('.row.out .cap').some(c => txt(c) === 'Funds') && $$('.styles-off .lk').some(b => /^Not on this page/.test(txt(b))), $$('.row.out .cap').map(txt).join());
+  Shell.parts.peek().workbook.menu().find(x => x.label === 'Delete chart').run(); await tick(300);
+  await show(stE);
+  for (let i = 0; i < 1; i++) { Shell.parts.peek().undo.undo(); await tick(300); }
+  // What differs from its style: a line's own arrow, a box's own weight; the ribbon says so rather than tick one.
+  await show(stE);
+  const boxE = () => sc().byId.get('fund');
+  Shell.select(['blocker']); await tick(200);
+  FormatBar.apply('Weight', 3); await tick(400);
+  Shell.select([]); await tick(150);
+  const corpG = Scene.groupsOf(App.notes.peek(), stE.id).find(g => g.caption === 'Corporation');
+  check('a Styles row with a member of its own says so', FormatBar.reachOf(corpG).own === 1 && $$('.row.out .onote .lk').some(b => /keeps its own/.test(txt(b))), JSON.stringify(FormatBar.reachOf(corpG)));
+  FormatBar.selectDiffers(); await tick(250);
+  check('Select what differs selects and lists the one-offs on the view', Shell.selection.peek().includes('blocker') && $$('.float .menu-item').some(e => /Weight 3 pt/.test(txt(e))), $$('.float .menu-item').map(txt).join(' | '));
+  await closeMenus();
+  check('… Find has it', !!acts().find(a => a.id === 'look.differs')?.names.includes('One-offs'));
+  Shell.select(['blocker']); await tick(200);
+  check('… and the box’s panel says it under This box, with Reset', $$('.insp .row.src .k').some(k => txt(k) === 'This box') && !!$('.insp .reset'), $$('.insp .row.src .k').map(txt).join());
+  Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([]); await tick(150);
+  const ownG = Scene.groupsOf(App.notes.peek(), stE.id).find(g => g.caption === 'Ownership');
+  FormatBar.aim(ownG); await tick(200);
+  $('[data-fb="outline"]').click(); await tick(150);
+  const arrowsRow = $$('.float .menu-item.sub').find(e => txt(e).startsWith('Arrows'));
+  arrowsRow?.click(); await tick(150);
+  const arrowItems = $$('.float .menu-item').map(txt), heads = $$('.float .menu-head').map(txt);
+  check('a Styles row of lines whose arrows differ says so, ticking only Auto', heads.some(t => /^These differ:/.test(t)) && !$$('.float .menu-item[aria-checked="true"]').some(e => /^None/.test(txt(e))) && arrowItems.some(t => /^Auto/.test(t)), `${heads.join()} / ${arrowItems.join(' | ')}`);
+  await closeMenus();
+  FormatBar.aim(null); await tick(120);
+  // A line's arrow its style leaves Auto is said so, on the line.
+  const sideways = sc().marks.find(m => m.type === 'line' && m.settings.Arrow.value === 'end' && m.settings.Arrow.note?.value === 'auto');
+  Shell.select([sideways.id]); await tick(200);
+  check('a line’s arrow its style leaves Auto is said so in its panel', $$('.insp .row').some(r => /Arrow/.test(txt(r.querySelector('.k'))) && /Auto/.test(txt(r.querySelector('.v')))), $$('.insp .row').map(r => txt(r)).join(' | ').slice(0, 300));
+  // A line's own look is its own, as a box's is: no row of its own in Styles, and its row says it keeps it.
+  const rowsWere = Scene.groupsOf(App.notes.peek(), stE.id).length;
+  FormatBar.apply('Arrow', 'none'); await tick(300);
+  const rowsNow = Scene.groupsOf(App.notes.peek(), stE.id);
+  check('a line’s own arrow makes no row of its own in Styles', rowsNow.length === rowsWere, rowsNow.map(g => g.caption).join());
+  Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([sideways.id]); await tick(200);
+  // A Key row selected reads what its marks print at.
+  Shell.select([`${keyE().id}#${keyE().rows.find(r => r.caption.text === 'Individual').key}`]); await tick(250);
+  check('a Key row selected reads what its marks print at, not its swatch', txt($('[data-fb="font"]')) === 'Georgia', txt($('[data-fb="font"]')));
+  Shell.select([]); await tick(150);
+  // A line's swatch shows its arrow.
+  const gpG = Scene.groupsOf(App.notes.peek(), stE.id).find(g => g.caption === 'General partner');
+  FormatBar.aim(gpG); await tick(150);
+  FormatBar.apply('Arrow', 'end'); await tick(400);
+  FormatBar.aim(null); await tick(150);
+  check('a line’s sample in the Key shows its arrow', keyE().rows.find(r => r.caption.text === 'General partner').swatch.Arrow === 'end' && !!$('.dc [data-row] g path[stroke="none"], .dc [data-row] path[stroke="none"]'), JSON.stringify(keyE().rows.find(r => r.caption.text === 'General partner').swatch.Arrow));
+  const pdfSvg = Export.svg(sc(), { pdf: true });
+  Shell.parts.peek().undo.undo(); await tick(300);
+  // A field in every box that has it, kept true as more get it, with its name.
+  await show(stE);
+  Shell.select(['northpine']); await tick(200);
+  cv().fields.setEverywhere('Entity Type', true); await tick(500);
+  const typeText = id => sc().byId.get(id)?.texts.find(it => /Entity Type/.test(it.text))?.text;
+  check('a field shown in every box that has it says what it is', /^Entity Type: Limited Liability Company/.test(typeText('northpine') ?? '') && /^Entity Type: Corporation/.test(typeText('halvard') ?? ''), `${typeText('northpine')}`);
+  const fresh = (() => { let id; App.change(tx => { id = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: 'Later Holdings, LLC' }); tx.add('record', { at: id, edge: 'Entity Type', choice: 'Corporation' }); }); return id; })(); await tick(500);
+  check('… kept true as more get it', /^Entity Type: Corporation/.test(typeText(fresh) ?? ''), `${typeText(fresh)}`);
+  Shell.parts.peek().undo.undo(); await tick(300);
+  check('… said as what it did', /Showed Entity Type in every box that has it/.test(Time.describe(App.wb.changes().filter(c => /Entity Type in every box/.test(Time.describe(c) ?? '')).at(-1) ?? App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([]); await tick(150);
+  // A Key in a corner over a box: Tidy sets the chart clear of it, and the toast of a look that puts it there says so.
+  await show(actE);
+  App.change(tx => Canvas.keyCorner(tx, keyE().id, ['bottom', 'right']), { dated: false }); await tick(600);
+  const clearOfKey = () => { const k = keyE(); return !sc().marks.some(b => b.type === 'box' && b.x < k.x + k.w && k.x < b.x + b.w && b.y < k.y + k.h && k.y < b.y + b.h); };
+  check('(a Key put in a corner stands there over what’s there, and it’s said)', !clearOfKey() && Scene.says(sc()).some(t => t.startsWith('The Key overlaps')) && cv().tidyable(), Scene.says(sc()).join('; '));
+  cv().tidy(); await tick(900);
+  const keyStill = keyE(), keyR = sc().page.sheet.w - (keyStill.x + keyStill.w) * sc().page.scale;
+  check('… Tidy sets the chart clear of it, its Key where it was put', clearOfKey() && Math.abs(keyR - 48) < 1, `${clearOfKey()} ${keyR}`);
+  Shell.parts.peek().undo.undo(); await tick(400); Shell.parts.peek().undo.undo(); await tick(400);
+  await show(stE);
+  // What a house style holds, shown; loading over the same name asks.
+  await Store.keepHouseStyle({ id: 'hs3', name: 'Firm Standard', look: cornered }); await Shell.parts.peek().formatbar.relist?.(); await tick(100);
+  const firm3 = FormatBar.lookMenu(stE.id).find(i => i.label === 'House style').items.find(i => i.label === 'Firm Standard');
+  firm3.items.find(i => i.label === 'What it holds').run(); await tick(200);
+  const holds = $('.holds');
+  check('a house style shows what it holds: paper, font, Key and rows', !!holds && /Georgia/.test(txt(holds)) && /Slide 16:9/.test(txt(holds)) && /bottom right/.test(txt(holds)) && /Limited partnership/.test(txt(holds)), txt(holds)?.slice(0, 200));
+  $('dialog.dlg .btn.primary')?.click(); await tick(100);
+  await Store.forgetHouseStyle('hs3'); await Shell.parts.peek().formatbar.relist?.();
+  Shell.parts.peek().undo.undo(); await tick(300);
 
   // ---- In Viewing, what would write is grey and says why, pointed at or clicked; no picker opens on it and nothing's written ----
   await show(named('Structure'));
@@ -2177,7 +2346,7 @@ async function format() {
   Shell.select([]); await tick(150);
   const row = capt => $$('.row.out').find(r => txt(r.querySelector('.cap')) === capt), cap = capt => row(capt).querySelector('.cap');
   const barOn = () => !$('[data-fb="font"]').disabled, likeSays = () => txt($('[data-fb="like"]')), dull = () => $$('.dc .x6-cell.dc-dull').length;
-  check('with nothing selected, the ribbon is off, its scope in its place', !barOn() && !!$('[data-fb="scope"].off'));
+  check('with nothing selected, the ribbon’s font and size aim at All text, the rest off', barOn() && !$('[data-fb="size"]').disabled && !!$('[data-fb="all"]') && txt($('[data-fb="all"]')) === 'All text' && $('[data-fb="bold"]').disabled && $('[data-fb="fill"]').disabled);
   const scopeAt0 = $('[data-fb="scope"]').getBoundingClientRect(), fontAt0 = $('[data-fb="font"]').getBoundingClientRect();
   cap('Funds').click(); await tick(150);
   check('a Styles row clicked aims the ribbon at it, what it reaches lit, the rest dulled', barOn() && /^All 6 funds/.test(likeSays()) && dull() > 0 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
@@ -2204,7 +2373,7 @@ async function format() {
   row('Funds').querySelector('.k').click(); await tick(120);
   const bySwatch = /^All 6 funds/.test(likeSays());
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(120);
-  check('a row’s swatch clicked does too, and Esc ends it', bySwatch && !barOn() && dull() === 0);
+  check('a row’s swatch clicked does too, and Esc ends it', bySwatch && !!$('[data-fb="all"]') && dull() === 0);
   cap('Names').click(); await tick(120);
   // ---- The ribbon reports what's on the page ----
   const sizeBox = () => $('[data-fb="size"]');
@@ -2264,10 +2433,43 @@ async function format() {
   check('… and Esc puts it down', !cv().root.classList.contains('dropping'));
   Shell.select([]); await tick(150);
 
+  // ---- A plan's pages: All text and a look go to them all, one change, said once ----
+  {
+    const wasOn = Shell.view.peek(), views = () => App.views.peek(), called = n => views().find(v => v.name === n), p1 = called('Structure'), p2 = called('Fund III'), other = called('Management and control');
+    const root = (id, l) => App.notes.peek().value(l, { id, kind: 'View' }), undoP = async () => { Shell.parts.peek().undo.undo(); await tick(400); };
+    App.change(tx => { tx.note('Plan', { id: p1.id, kind: 'View' }, 'plan-e'); tx.note('Plan', { id: p2.id, kind: 'View' }, 'plan-e'); }, { dated: false }); await tick(300);
+    await show(p1); Shell.select([]); await tick(200);
+    const fontWas = [root(p1.id, 'Font'), root(p2.id, 'Font')], before = App.wb.changes().length;
+    FormatBar.apply('Font', 'Courier New'); await tick(500);
+    check('All text set on a plan’s page is on its every page, by one change', root(p1.id, 'Font') === 'Courier New' && root(p2.id, 'Font') === 'Courier New' && App.wb.changes().length === before + 1, `${root(p1.id, 'Font')} ${root(p2.id, 'Font')} ${App.wb.changes().length - before}`);
+    await undoP();
+    check('… and one Undo takes it off them all', root(p1.id, 'Font') === fontWas[0] && root(p2.id, 'Font') === fontWas[1], `${root(p1.id, 'Font')} ${root(p2.id, 'Font')}`);
+    App.change(tx => { tx.note('Font', { id: other.id, kind: 'View' }, 'Courier New'); tx.note('Page', { id: other.id, kind: 'View' }, 'legal'); }, { dated: false }); await tick(300);
+    const n3 = App.wb.changes().length, pageWas = [root(p1.id, 'Page'), root(p2.id, 'Page')];
+    FormatBar.lookMenu(p2.id).find(i => i.label === 'Match look').items.find(i => i.label === other.name).run(); await tick(600);
+    const said = Time.describe(App.wb.changes().at(-1));
+    check('a look given to a plan’s page is given to its every page, by one change, said once', root(p1.id, 'Font') === 'Courier New' && root(p2.id, 'Font') === 'Courier New' && root(p1.id, 'Page') === 'legal' && root(p2.id, 'Page') === 'legal' && App.wb.changes().length === n3 + 1 && said === `Gave ${p2.name} and the rest of its plan the look of ${other.name}`, `${root(p1.id, 'Font')} ${root(p2.id, 'Font')} ${root(p1.id, 'Page')} ${root(p2.id, 'Page')} ${App.wb.changes().length - n3} ${said}`);
+    const placeOf = (v, id) => App.notes.peek().value('Position', { id }, v);
+    check('… their places one set still', ['fund', 'blocker', 'northpine'].every(id => JSON.stringify(placeOf(p1.id, id)) === JSON.stringify(placeOf(p2.id, id))), ['fund', 'blocker', 'northpine'].map(id => `${JSON.stringify(placeOf(p1.id, id))} ${JSON.stringify(placeOf(p2.id, id))}`).join('; '));
+    await undoP();
+    check('… and one Undo takes it off them all', JSON.stringify([root(p1.id, 'Page'), root(p2.id, 'Page')]) === JSON.stringify(pageWas) && root(p2.id, 'Font') === fontWas[1], `${root(p1.id, 'Page')} ${root(p2.id, 'Page')} ${root(p2.id, 'Font')}`);
+    await undoP(); await undoP();
+    check('(the plan undone)', !views().find(v => v.id === p1.id).plan && !views().find(v => v.id === p2.id).plan);
+    await show({ id: wasOn }); Shell.select([]); await tick(150);
+  }
+
   // ---- Corners: a yellow handle on a rounded shape selected; the Shape menu stays open, Rounding typed, in the panel's unit ----
   Shell.select(['northpine']); await tick(200);
   const handle = () => $('.dc-over > .dc-adjust');
   check('a rounded shape selected shows its corner handle', !!handle() && sc().byId.get('northpine').shape === 'rounded');
+  // A redline that moves the box takes the handle with it, and back.
+  const handleAt = () => [parseFloat(handle().style.left), parseFloat(handle().style.top)], handleWas = handleAt(), nowState = App.state.peek();
+  const without = Object.fromEntries(Object.entries(nowState).filter(([, r]) => !r.args?.some(a => a.at === 'northpine')));
+  cv().redline({ appear: [], go: [], changed: {}, records: without }); await tick(300);
+  const inRed = cv().scene().byId.get('northpine'), handleRed = handleAt(), redAt = cv().graph.localToGraph(inRed.x + Math.min(50, inRed.settings.Corner.value) / 100 * Math.min(inRed.w, inRed.h), inRed.y);
+  check('a redline moving a selected rounded box takes its handle along', (handleRed[0] !== handleWas[0] || handleRed[1] !== handleWas[1]) && Math.abs(handleRed[0] - redAt.x) < 1 && Math.abs(handleRed[1] - redAt.y) < 1, `${handleWas} ${handleRed} ${redAt.x},${redAt.y}`);
+  cv().redline(null); await tick(300);
+  check('… and it comes back with the box', handleAt().join() === handleWas.join(), `${handleAt()} ${handleWas}`);
   const hr = handle().getBoundingClientRect(), hx = hr.left + hr.width / 2, hy = hr.top + hr.height / 2, opts = o => ({ bubbles: true, cancelable: true, pointerId: 1, button: 0, ...o });
   handle().setPointerCapture = () => {};
   const ownCorner = () => sc().byId.get('northpine').settings.Corner;
