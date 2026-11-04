@@ -2970,8 +2970,10 @@ function gfn(n, c) {
   return { v: ev(n, c), g: xs.flatMap(x => x.g) };
 }
 
-// Why a record at one of a definition's candidates is there, or would be: see core/README.md.
-function ground(R, id) {
+// Why a record at one of a definition's candidates is there, or would be: see core/README.md. `all`: every row
+// that holds in the finished state, for saying each ground a record has, though one may lean on a record of its
+// own round; without it, those that hold by what came first, which is what unfolding a ground follows.
+function ground(R, id, { all = false } = {}) {
   const S = R.state, r = S.recs[id];
   const d = r && defOf(S, id);
   if (!d || d.error) return null;
@@ -2980,7 +2982,7 @@ function ground(R, id) {
   const g = S.P.groups[d.step];
   const groundDefs = new Set(g.defs.map(e => e.id));
   // An attestation on a loop is grounded in what came before it, so unfolding grounds always ends.
-  S.cut = computed && g.loops && isTag(r) && r.tag === true && stage ? { defs: groundDefs, limit: stage } : null;
+  S.cut = !all && computed && g.loops && isTag(r) && r.tag === true && stage ? { defs: groundDefs, limit: stage } : null;
   S.memo.clear();
   try {
     const cand = candidateFrom(d, argsOf(r));
@@ -3563,7 +3565,7 @@ function attention(R, N, day, within = 30) {
     }
     const t = (checks || required.length) && Tree.treeOf(recs, id);
     if (!t) continue;
-    if (r.tag === false && checks && N.value('Check', t) === true) items.push({ kind: 'error', id });
+    if (r.tag === false && checks && N.check(t)) items.push({ kind: 'error', id });
     const has = edges.get(id), blank = new Set();
     for (const a of required) {
       const e = normal(a.edge);

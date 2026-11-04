@@ -4,7 +4,7 @@
 // box it's in (dendra.md, Fields). For a record and a label, the narrowest note it fits decides:
 // one in the view before one in none, then the pattern that keeps more labels.
 const Notes = (() => {
-const { narrower, shapeOf, weight, key, bare, paramKey, treeOf, isObject, isChoice, isTag, objectOf, pathOf, entryAt, same } = Tree;
+const { narrower, shapeOf, weight, key, bare, paramKey, treeOf, isObject, isChoice, isTag, objectOf, pathOf, entryAt, same, isOpen } = Tree;
 
 // The format properties, how a view draws what a note reaches: every label but the model's others (dendra.md,
 // Notes), so a new property is only a word in the scene's defaults and its drawing. A Text note, a box's free text,
@@ -20,13 +20,16 @@ const push = (map, k, v) => { if (!map.has(k)) map.set(k, []); map.get(k).push(v
 const bySchema = new WeakMap(), labelled = new WeakMap();
 
 function index(rows) {
-  // A record fits only patterns of its shape, so notes are found by label, edge and shape, narrowest first.
-  const byKey = new Map(), byShape = new Map(), byLabel = new Map(), params = new Map();
+  // A record fits only patterns of its shape, so notes are found by label, edge and shape, narrowest first; those at a
+  // pattern that leaves a location open, by label and edge, as any shape may fit them.
+  const byKey = new Map(), byShape = new Map(), byLabel = new Map(), params = new Map(), openly = new Map(), rank = new Map();
   const ranked = rows.map(n => [n, weight(n.pattern)])
     .sort(([a, w], [b, v]) => !!b.view - !!a.view || v - w || (a.note < b.note ? -1 : a.note > b.note ? 1 : 0));
   for (const [n] of ranked) {
     const shape = shapeOf(n.pattern);
-    push(byKey, `${n.label}|${n.param ?? ''}|${shape}`, n);
+    rank.set(n, rank.size);
+    if (isOpen(n.pattern)) push(openly, `${n.label}|${n.param ?? ''}`, n);
+    else push(byKey, `${n.label}|${n.param ?? ''}|${shape}`, n);
     push(byLabel, n.label, n);
     if (!byShape.has(shape)) byShape.set(shape, new Set());
     byShape.get(shape).add(n.label);
@@ -41,9 +44,9 @@ function index(rows) {
     const k = `${label}|${view ?? ''}|${param ?? ''}`;
     let kept = decided.get(t);
     if (kept?.has(k)) return kept.get(k);
-    let out = null;
-    for (const n of byKey.get(`${label}|${param ?? ''}|${shapeOf(t)}`) ?? [])
-      if ((!n.view || n.view === view) && narrower(t, n.pattern)) { out = { value: n.value, note: n }; break; }
+    const first = list => list?.find(n => (!n.view || n.view === view) && narrower(t, n.pattern));
+    const a = first(byKey.get(`${label}|${param ?? ''}|${shapeOf(t)}`)), b = first(openly.get(`${label}|${param ?? ''}`)), n = a && b ? (rank.get(a) < rank.get(b) ? a : b) : a ?? b;
+    const out = n ? { value: n.value, note: n } : null;
     if (!kept) decided.set(t, kept = new Map());
     kept.set(k, out);
     return out;
@@ -98,8 +101,16 @@ function index(rows) {
 
   // The specifications of a schema that fit a pattern.
   function fitting(S, p) {
+    if (isOpen(p)) return Object.values(S).filter(t => narrower(t, p));
     if (!bySchema.has(S)) { const m = new Map(); for (const t of Object.values(S)) push(m, shapeOf(t), t); bySchema.set(S, m); }
     return (bySchema.get(S).get(shapeOf(p)) ?? []).filter(t => narrower(t, p));
+  }
+  // The pattern of the relation a tree is of: its Name note's, where that leaves a side open, as one relation of a side of
+  // several kinds has one pattern (Evidence); else the tree, every label removed.
+  const stripped = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: stripped(a.loc) })) } : {};
+  function relationPattern(t) {
+    const p = stripped(t), n = resolve('Name', p)?.note;
+    return n && isOpen(n.pattern) ? n.pattern : p;
   }
 
   // The Formula notes as formulas.js takes definitions. A definition covers the parameterizations of the
@@ -144,7 +155,8 @@ function index(rows) {
     const t = args ? { args: args.map(a => ({ edge: a.edge, loc: treeOf(recs, a.at) ?? {} })) } : treeAt(recs, id), of = args ?? recs[id].args;
     const xs = edges(t).map(e => of.find(a => same(a.edge, e))).filter(Boolean);
     return xs.map((a, i) => {
-      const o = objectOf(recs, a.at) ?? a.at, text = shortOf(recs, o), kind = recs[o]?.kind, prep = i === 1 && xs.length > 2 && PREP.exec(listName(t, a.edge))?.[1];
+      // (A side that's itself a relation, what a document evidences, by its own place.)
+      const o = objectOf(recs, a.at) ?? a.at, text = recs[o]?.args ? segmentOf(recs, o) : shortOf(recs, o), kind = recs[o]?.kind, prep = i === 1 && xs.length > 2 && PREP.exec(listName(t, a.edge))?.[1];
       const join = !i ? '' : /^\d+$/.test(text) && kind ? `, ${kind.toLowerCase()} ` : xs.length === 2 ? ' → ' : prep ? ` ${prep.toLowerCase()} ` : `, ${lower(a.edge)} `;
       return { edge: a.edge, id: o, text, join };
     }).filter((s, i, all) => i < 2 || !all.slice(0, i).some(b => b.id === s.id));
@@ -173,7 +185,7 @@ function index(rows) {
   }
 
   return {
-    resolve, value, name, listName, edges, formats, fields, styles, definitions, relations, fitting,
+    resolve, value, name, listName, edges, formats, fields, styles, definitions, relations, fitting, relationPattern,
     nameOf, shortOf, sides, placed, segmentOf, placeOf, whereOf,
     notes: label => byLabel.get(label) ?? [],
     description: t => value('Description', t),
@@ -184,7 +196,9 @@ function index(rows) {
     // none, and the list goes on by name.
     optionOrder: p => (byLabel.get('Order') ?? []).find(n => !n.view && n.pattern.out && narrower(n.pattern, p))?.value,
     required: t => value('Required', t) === true,
-    check: t => value('Check', t) === true,
+    // A Check note on a definition: one ruled out is a check failed. On an entry typed by hand: its "no" needs attention.
+    check: t => value('Check', t) === true && !!resolve('Formula', t),
+    heeds: t => value('Check', t) === true && !resolve('Formula', t),
     isStart: t => value('Start', t) === true,
     isEnd: t => value('End', t) === true,
     shown: (t, view) => value('Shown', t, view),

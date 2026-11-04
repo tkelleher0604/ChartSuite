@@ -296,7 +296,6 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .hist-row > .what > button.lk { color: var(--accent-ink); text-decoration: underline; text-decoration-color: var(--rule-2); text-underline-offset: 2px; }
 .hist-row.undone > .what > button.lk { color: inherit; }
 .hist-row.asked { box-shadow: inset 2px 0 var(--no); background: var(--hover); }
-.hist-row > .note { margin-top: 2px; color: var(--ink-2); overflow-wrap: anywhere; }
 .hist-row > .effect { margin-top: 2px; font: 500 var(--t12); color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .hist-row > .meta > button.lk { color: inherit; text-decoration: underline; text-decoration-color: var(--rule-2); text-underline-offset: 2px; }
 .hist-more { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--rule); cursor: text; user-select: text; }
@@ -323,6 +322,7 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .hist-row > .what { overflow-wrap: anywhere; }
 .hist-row.undone > .what { color: var(--ink-3); text-decoration: line-through; }
 .hist-row > .meta { font: var(--t12); color: var(--ink-3); }
+.hist-row > .note { font: var(--t12); color: var(--ink-2); margin: 1px 0 2px; overflow-wrap: anywhere; }
 .hist-row > .btn { margin-top: 8px; }
 .hist-row.gone { padding-right: 104px; }
 .hist-row.gone > .btn { position: absolute; right: 12px; top: 50%; margin: 0; transform: translateY(-50%); }

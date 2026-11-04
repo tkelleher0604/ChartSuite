@@ -560,9 +560,9 @@ function run() {
     check('a size picked in the slide’s points is drawn at it, though the chart is then drawn smaller', picked.every(p => Math.abs(p.got - p.v) < 1e-9), j(picked));
     check('… or, where no scale the chart can keep allows it, as near as the page allows, the chart drawn no smaller than holding its scale draws it, and 24 pt or more on a triangle is set',
       nearest.every(p => p.scale >= p.held - 1e-9 && Math.abs(p.got - p.v) <= Math.abs(p.heldPrints - p.v) + 0.25), j(nearest.map(p => [p.v, p.got, p.scale, p.held])));
-    // 10 on 40 Act's fund prints 10 at 0.85; 24 on Structure's prints 20.5 at 0.6, not 0.55, which prints it so too; 14 on Fund
+    // 10 on 40 Act's fund prints 10 at 0.8; 24 on Structure's prints 20.5 at 0.6, not 0.55, which prints it so too; 14 on Fund
     // III's prints 14, at 0.75 (regress8). Each nearer than the Key at 8 pt let it, the Key set no larger than the names.
-    check('… at the largest scale of those that print as near', Math.abs(nearest[1].got - 10) < 1e-9 && nearest[1].scale === 0.85 && Math.abs(nearest[2].got - 20.5) < 1e-9 && nearest[2].scale === 0.6
+    check('… at the largest scale of those that print as near', Math.abs(nearest[1].got - 10) < 1e-9 && nearest[1].scale === 0.8 && Math.abs(nearest[2].got - 20.5) < 1e-9 && nearest[2].scale === 0.6
       && Math.abs(nearest[4].got - 14) < 1e-9 && nearest[4].scale === 0.75, j(nearest.map(p => [p.v, p.got, p.scale])));
     const placed = sc.map(s => { const f = furniture(s), t = sheetOf(s, f.title), d = sheetOf(s, f.date), chart = s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m));
       return { t, d, k: sheetOf(s, f.key), top: Math.min(...chart.map(r => r.y)), right: Math.max(...chart.map(r => r.x + r.w)), chart }; });

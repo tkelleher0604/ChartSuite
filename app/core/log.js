@@ -243,7 +243,7 @@ function open(data) {
   // An edit, building one change. With a day shown, an added record starts on it, setting a record's
   // value splits its validity there, and removing ends it there. With none, each corrects. `ids`, a list, names the
   // items it adds, in order, each past its end added to it: so an edit made as another was is that one, ids and all.
-  function edit({ chart: c, who, day = null, when, ids = null } = {}) {
+  function edit({ chart: c, who, day = null, when, ids = null, note = null } = {}) {
     const d = chart(c), items = new Map([...d.items].map(([k, v]) => [k, [...v]])), adds = new Map(), removes = new Set();
     let named = 0;
     const name = () => !ids ? newId() : named < ids.length ? ids[named++] : (ids[named++] = newId());
@@ -378,7 +378,7 @@ function open(data) {
         return noted.get(JSON.stringify([label, view ?? null, param ?? null, Tree.key(pattern)]))?.[0] ?? null;
       },
       commit: () => adds.size || removes.size
-        ? apply({ id: newId(), who, when: when ?? now(), chart: c, removes: [...removes], adds: [...adds.values()] }) : null,
+        ? apply({ id: newId(), who, when: when ?? now(), chart: c, ...(note && { note }), removes: [...removes], adds: [...adds.values()] }) : null,
     };
     return tx;
   }

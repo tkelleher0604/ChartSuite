@@ -110,12 +110,13 @@ const Table = (() => {
     for (const s of Object.values(S)) if (s.args?.length === 2 && s.out && !('field' in s.out)) for (const mine of s.args) {
       const other = s.args.find(a => a !== mine), minePath = pathTo(mine.loc), kind = root(other.loc);
       if (!minePath || kind === undefined || docs.has(norm(kind))) continue;
-      const pattern = shape(s), title = N.listName(pattern, other.edge), k = Tree.key(pattern) + '|' + norm(other.edge);
+      const pattern = N.relationPattern(s), title = N.listName(pattern, other.edge), k = Tree.key(pattern) + '|' + norm(other.edge);
       if (!lists.has(k)) lists.set(k, { key: '~' + norm(title), title, type: 'list', pattern, param: other.edge, mine: mine.edge, other: other.edge, minePath, up,
         otherLoc: shape(other.loc), kinds: new Set(), kindNames: [], base: [Infinity, Infinity, Infinity], fx: !!N.resolve('Formula', pattern), choice: false });
       const c = lists.get(k);
       if (!c.kinds.has(norm(kind))) { c.kinds.add(norm(kind)); c.kindNames.push(kind); }
-      if ('choice' in s.out) c.choice = true;
+      // A side that's a relation (Evidence's Evidenced) is read in the cell by its place, and can't be named there.
+      if ('choice' in s.out || other.loc.args?.length > 1) c.choice = true;
     }
     // Two lists of one name are told apart by the side they're seen from.
     const out = [...lists.values()], taken = new Map();
@@ -129,7 +130,7 @@ const Table = (() => {
     if (r.args?.length !== 2 || r.tag === false) return [];
     const mine = r.args.find(a => a.at === at && same(a.edge, c.mine)), other = mine && r.args.find(a => a !== mine && same(a.edge, c.other));
     const obj = other && Tree.objectOf(st, other.at);
-    return obj && Tree.fits(st, rid, c.pattern) ? [{ rid, obj, name: N.nameOf(st, obj) }] : [];
+    return obj && Tree.fits(st, rid, c.pattern) ? [{ rid, obj, name: st[obj]?.args ? N.segmentOf(st, obj) : N.nameOf(st, obj) }] : [];
   }).sort((a, b) => a.name.localeCompare(b.name));
   // The record a record is of: the object it's in; for one in a relation (a tax year's), the object its sentence begins with.
   function ownerOf(st, id, N) {
@@ -236,7 +237,7 @@ const Table = (() => {
         c.said = said !== undefined;
         // Viewing, a column shown or hidden is the session's, in no log.
         if (c.pattern && App.viewing.peek()) { const seen = viewed.peek().get(view)?.get(c.key); if (seen !== undefined) { c.shown = seen; c.said = true; } }
-        c.check = c.type === 'tag' && !!c.specs?.some(s => N.value('Check', s) === true);
+        c.check = c.type === 'tag' && !!c.specs?.some(s => N.check(s));
       }
       cols.sort((a, b) => a.place - b.place || ownOrder(a, b));
       // Beside a row's Name, its link says where the document is filed rather than its name again.
@@ -247,8 +248,8 @@ const Table = (() => {
     // Each cell: the record there, if any, and where one would go.
     const cellOf = (row, c) => {
       if (c.type === 'edge') {
-        const a = st[row].args.find(x => same(x.edge, c.edge));
-        return { at: a?.at, v: a ? N.nameOf(st, Tree.objectOf(st, a.at)) : undefined };
+        const a = st[row].args.find(x => same(x.edge, c.edge)), o = a && Tree.objectOf(st, a.at);
+        return { at: a?.at, v: a ? (st[o]?.args ? N.segmentOf(st, o) : N.nameOf(st, o)) : undefined };
       }
       if (c.key === '$out') return { id: row, at: null, v: valueOf(st[row]) };
       if (c.key === '$value') return { id: row, at: st[row].at, v: st[row].value };
@@ -381,7 +382,7 @@ const Table = (() => {
 
   function formatter(c) {
     // A tag's box, blank, attested or ruled out.
-    const box = (v, m) => v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : 'no'}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
+    const box = (v, m) => v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : `no ${m?.id ? App.noTone(m.id) : ''}`}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
     const shown = (v, m, type = m?.type ?? c.type) => type === 'tag' ? box(v, m)
       : type === 'document' && v ? `<a href="${esc(SharePoint.href(v))}" target="_blank" rel="noopener" tabindex="-1">${esc(c.filed ? filed(v) : Tree.format('document', v))}</a>`
       : esc(text(type, v));

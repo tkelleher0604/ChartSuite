@@ -831,7 +831,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const placeOf = new Map(boxes.map(b => {
     const res = N.resolve('Position', tree(b.record), view), held = opts.holds?.get(b.record), v = res?.value, place = Number.isFinite(v?.x) ? v : null;
     if (!place && Number.isFinite(v?.order)) tidiedAs.set(b.id, v);
-    return [b.id, held && (!place || place.loose) ? { pos: held, at: '' } : place ? { pos: place, at: res.note.note } : null];
+    return [b.id, held && (held.over || !place || place.loose) ? { pos: held, at: '' } : place ? { pos: place, at: res.note.note } : null];
   }));
   const givesWay = b => [...ranking.get(b.id) ?? []].some(id => { const p = placeOf.get(id); return !p?.pos.loose || p.at < placeOf.get(b.id).at; });
   // (One that gives way goes beside its relatives on the side it was made on: its place is the layout's `hint`.)
