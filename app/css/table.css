@@ -106,6 +106,11 @@
 .grid .tabulator-row.red-go .tabulator-cell { color: var(--no); }
 .grid .tabulator-row.red-go .tabulator-cell:not(.rn, .c-tag) { text-decoration: line-through; }
 .grid .tabulator-row .tabulator-cell .del + .add { margin-left: 2px; }
+/* Redlined, a cell stays as wide and as tall as it was: what's new whole, what it said giving way, cut short where there's no room for both. */
+.grid .tabulator-row .tabulator-cell.pend { display: inline-flex; gap: 2px; align-items: baseline; white-space: nowrap; overflow: hidden; }
+.grid .tabulator-row .tabulator-cell.pend:is(.c-number, .c-percent, .c-money) { justify-content: flex-end; }
+.grid .tabulator-row .tabulator-cell.pend > .del { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.grid .tabulator-row .tabulator-cell.pend > .add { flex: none; }
 /* What a change just made lights for a moment: its cells; and a column come into the grid or moved in it, heading and
    all, held a moment longer, as the eye goes to it. */
 .grid .tabulator-row .tabulator-cell.lit { animation: lit 1.6s var(--ease); }
@@ -126,13 +131,22 @@
 :is(.pendbar .what .named > .or, .tbar > .tout) > .lk:hover { text-decoration-color: currentColor; }
 
 /* Headings a paste brought that nothing matched: each beside the column it is. */
-.match { display: grid; gap: 8px; }
-.match-row { display: grid; grid-template-columns: minmax(0, 1fr) 200px; align-items: center; gap: 12px; }
-.match-row > .h { display: grid; min-width: 0; }
-.match-row > .h > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.match-row > .h > b { font-weight: 500; }
-.match-row > .h > .muted { font: var(--t12); }
-.match-row > select, select.import-to { width: 100%; }
+.imp { display: grid; gap: 12px; }
+.imp-rows { width: 100%; min-height: 120px; resize: vertical; font: inherit; padding: 8px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--paper); color: var(--ink); white-space: pre; overflow: auto; }
+.imp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.imp-bar > label { display: inline-flex; align-items: center; gap: 8px; }
+.imp-file { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); text-align: right; }
+.imp-grid { overflow: auto; max-height: 320px; border: 1px solid var(--rule-2); border-radius: var(--r); }
+.imp-grid table { border-collapse: collapse; width: 100%; }
+.imp-grid th, .imp-grid td { padding: 4px 8px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--rule-1, var(--rule-2)); font-weight: 400; }
+.imp-grid tr.heads th { font-weight: 600; }
+.imp-grid tr.to th { background: var(--paper-2, var(--hover)); }
+.imp-grid select { max-width: 180px; }
+.imp-grid td.out { color: var(--ink-3); }
+.imp-more { color: var(--ink-3); }
+.imp-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.imp-miss { margin-right: auto; color: var(--no); }
+dialog.dlg .dlg-foot:empty { display: none; }
 /* A choice reads as a dropdown where it can be changed. */
 .grid .tabulator-row .tabulator-cell.c-choice.tabulator-editable:hover { padding-right: 22px; background: var(--chev) no-repeat right 8px center; }
 

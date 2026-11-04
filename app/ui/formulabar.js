@@ -1898,7 +1898,7 @@ const FormulaBar = (() => {
     const side = first && rel.args.find(a => Tree.same(a.edge, first)), who = side ? n.shortOf(recs, Tree.objectOf(recs, side.at)) : undefined;
     if (kind === 'overdue' || kind === 'soon') return { what: n.nameOf(recs, id), where, figure: Tree.formatDate(r.value, 'short'), who };
     const failed = notsOf(Rv, id)?.failed.find(f => f.then || f.not);
-    return { what: n.nameOf(recs, id), where, figure: failed?.then ?? (failed?.not ? `not ${failed.not.text}` : ''), who };
+    return { what: n.nameOf(recs, id), where, figure: failed?.then ?? (failed?.not ? `not ${failed.not.text}` : r.tag === false ? 'No' : ''), who };
   }
   Shell.register('needs', needOf);
 

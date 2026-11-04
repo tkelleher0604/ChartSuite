@@ -645,7 +645,7 @@ function cxn(id, name, ps, s, ends, { X, Y, k, alt }) {
 
 // ---- Writing a file ----
 
-const fileName = (...parts) => parts.filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]+/g, '').trim() || 'Chart';
+const fileName = (...parts) => Tree.nameOfFile(...parts) || 'Chart';
 // A page's number, its place in the file (the scene's is its view's place among the chart's).
 const numbered = scenes => scenes.map((s, i) => !s.marks.some(m => m.role === 'number') ? s : { ...s, marks: s.marks.map(m => m.role !== 'number' ? m
   : { ...m, texts: m.texts.map(it => ({ ...it, text: String(i + 1), lines: it.lines.map(l => ({ ...l, text: String(i + 1), w: Scene.measure(String(i + 1), it.look) })) })) }) });

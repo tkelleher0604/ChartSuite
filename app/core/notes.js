@@ -199,9 +199,9 @@ function index(rows) {
     // The options of these specifications of one entry, as its dropdown, its filter and its table list them: by the Order
     // noted at each, then in the order they were made, as the specifications are.
     optionsOf(specs) {
-      const args = specs[0]?.args, all = [...new Set(specs.filter(s => 'choice' in s.out).map(s => s.out.choice))];
-      const rank = new Map(all.map(o => [o, optionOrder({ out: { choice: o }, args: bare(specs[0]).args }) ?? Infinity]));
-      return !args ? [] : all.map((o, i) => [o, i]).sort(([a, i], [b, j]) => rank.get(a) === rank.get(b) ? i - j : rank.get(a) - rank.get(b)).map(([o]) => o);
+      const rank = new Map();
+      for (const s of specs) if ('choice' in s.out) rank.set(s.out.choice, Math.min(rank.get(s.out.choice) ?? Infinity, optionOrder(s) ?? Infinity));
+      return [...rank.keys()].map((o, i) => [o, i]).sort(([a, i], [b, j]) => rank.get(a) === rank.get(b) ? i - j : rank.get(a) - rank.get(b)).map(([o]) => o);
     },
     required: t => value('Required', t) === true,
     // That what's entered there doesn't change over time, as a number given once doesn't: typed over, it's corrected.

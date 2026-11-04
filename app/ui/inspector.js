@@ -723,11 +723,22 @@ function Entry({ it, at, depth }) {
   </div>`;
 }
 
+// Options as they're typed where several can be: each after a comma, once.
+const optionsTyped = s => [...new Set(String(s).split(',').map(T.clean).filter(Boolean))];
 // An entry being added: its name, then its value, option or tick. Esc, or leaving it empty, drops it.
 function Draft({ d, depth }) {
   const [edge, setEdge] = useState(d.edge ?? ''), [k, setK] = useState(d), box = useRef();
   const named = () => { const e = T.clean(edge); if (e && !d.edge) setK({ ...d, ...kindAt(tree(d.at), e), type: d.type, datatype: kindAt(tree(d.at), e).datatype }); return e; };
   const finish = out => { const e = named(); if (!e || !out) return; draft.value = null; addEntry(d.at, e, out); };
+  // Options set up front, as Excel's list takes them, by commas: each made, in the order typed, as one change; the record's
+  // own is then picked from them, here, or never.
+  const several = os => {
+    const e = named();
+    if (!e) return;
+    App.change(tx => os.forEach(o => tx.add('spec', { tree: { out: { choice: o }, args: [{ edge: e, loc: T.specOf(tree(d.at)) }] } })));
+    draft.value = { at: d.at, type: 'choice', edge: e, ...kindAt(tree(d.at), e) };
+  };
+  useLayoutEffect(() => { if (d.edge && d.type === 'choice') box.current?.querySelector('.v button')?.focus(); }, []);
   // Leaving keeps a named tag, and drops anything else not finished; a dropdown's menu isn't leaving.
   const leave = e => {
     if (!box.current || box.current.contains(e.relatedTarget) || e.relatedTarget?.closest?.('.float')) return;
@@ -739,7 +750,7 @@ function Draft({ d, depth }) {
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onInput=${e => setEdge(e.target.value)} onKeyDown=${nameKey} onBlur=${named} />`}</div>`;
   const value = html`<div class="v ctl">${tag ? html`<span class="cellbox"><button class="tag yes" role="checkbox" aria-checked="true" aria-label=${T.clean(edge) || 'Tag'} onClick=${() => finish({ tag: true })} /></span>`
       : k.type === 'choice' && k.options?.length ? html`<${Choice} options=${k.options} label=${T.clean(edge) || 'Choice'} put=${finish} />`
-      : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New option" aria-label="New option" onKeyDown=${e => { const o = T.clean(e.target.value); if (e.key === 'Enter' && o) finish({ choice: o }); }} /></span>`
+      : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New options" aria-label="New options" onKeyDown=${e => { const os = optionsTyped(e.target.value); if (e.key !== 'Enter' || !os.length) return; if (os.length > 1) several(os); else finish({ choice: os[0] }); }} /></span>`
       : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} label=${T.clean(edge) || 'Value'} put=${finish} />`}</div>`;
   return html`<div class=${'row draft' + (tag ? ' chk' : '')} ref=${box} style=${`--depth:${depth}`} onFocusOut=${leave} onKeyDown=${key}>${tag ? [value, name] : [name, value]}</div>`;
 }
@@ -1616,7 +1627,7 @@ function GeneralView({ p, style }) {
     ${type === 'choice' ? html`<${Section} title="Options" n=${options.length}>
       ${options.map(o => html`<div class="ent" data-drag="opt" key=${o}><div class="row" style="--depth:0">${still ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, reorderOpts)}>${GRIP}</button>`}
         <div class="k wide"><${Field} r=${{ field: 'text', value: o }} datatype="text" label="Option" put=${out => out && out.value !== o && App.change(tx => tx.rename(loose(p), o, out.value))} /></div></div></div>`)}
-      ${still ? null : html`<div class="row"><div class="k wide"><${Field} datatype="text" ph="New option" put=${out => out && App.change(tx => tx.add('spec', { tree: { ...T.specOf(s0), out: { choice: out.value } } }))} /></div></div>`}</${Section}>` : null}
+      ${still ? null : html`<div class="row"><div class="k wide"><${Field} datatype="text" ph="New options" put=${out => out && App.change(tx => optionsTyped(out.value).forEach(o => tx.add('spec', { tree: { ...T.specOf(s0), out: { choice: o } } })))} /></div></div>`}</${Section}>` : null}
     ${below.length ? html`<${Section} title="Entries" n=${below.length}>
       ${below.sort((x, y) => (n.order(x) ?? Infinity) - (n.order(y) ?? Infinity) || x.args[0].edge.localeCompare(y.args[0].edge)).map(s => html`<div class="row" key=${T.key(s)}>
         <div class="k"><${Go} to=${general(T.bare(s))}>${s.args[0].edge}</${Go}></div><div class="v muted">${typeName(s)}</div></div>`)}</${Section}>` : null}
@@ -1733,6 +1744,15 @@ Shell.register('find', { items: () => {
   const whose = x => recs()[recs()[x].at]?.args ? ` · ${segment(recs()[x].at)}` : '';
   return dates.map(x => [x, settling(x)]).filter(([, s]) => s).map(([x, s]) => ({ label: `${s.label} ${recs()[x].edge}, ${short(recs()[x].value)}${whose(x)}`, detail: 'Action',
     names: ['Mark paid', 'Paid', 'Pay', 'Mark filed', 'Filed', 'File', 'Renewed', 'Renew', 'Affirmed', 'Settle'], run: s.run }));
+} });
+// A field of the record selected, by its name ("file number"), where the panel has it, on a chart: one it has, at its value;
+// one it hasn't, begun as Add begins it. (In a table, its column says it: Table.)
+Shell.register('find', { items: q => {
+  const id = theOne();
+  if (!q || !id || viewShown()?.layout !== 'chart') return [];
+  const o = objectOf(id), name = shortOf(o), inside = within(o), r = recs(), label = edge => ({ of: '§fields', label: `${name} › ${edge}`, names: [edge], detail: 'Field' });
+  return [...inside.filter(x => x !== o && r[x].edge && !T.same(r[x].edge, 'Name')).map(x => ({ ...label(r[x].edge), run: () => { aim.value = x; select([o]); } })),
+    ...(App.readOnly.peek() ? [] : inside.flatMap(at => unentered(at).filter(s => !('tag' in s.out)).map(s => ({ ...label(s.args[0].edge), run: () => { select([o]); draft.value = { at, type: 'field' in s.out ? 'field' : 'choice', edge: s.args[0].edge, ...kindAt(tree(at), s.args[0].edge) }; } }))))];
 } });
 // Add to each of the selected record's lists, by the word for one of it ("Add owner"), as its + does: Find opens its search.
 const one = w => w.replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
