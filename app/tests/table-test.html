@@ -299,13 +299,14 @@ async function run() {
   Table.grid.moveColumn(column('Jurisdiction').getField(), column('Name').getField(), true); await tick(150);
   const order = Table.model(ent).cols.filter(x => x.shown).map(x => x.title);
   check('Moving a column places it, as Order notes in the view, one change', N() === n0 + 1 && order[1] === 'Jurisdiction' && App.notes.peek().resolve('Order', jur.pattern, ent)?.note.view === ent, order.slice(0, 3).join());
-  // Moved again, History says which column moved against the rest, or which two swapped, as its toast and Undo do.
+  // A move reads one way, in its toast, Undo and History: which column moved, and after which, the view's first move too,
+  // whose order before is the table's own.
+  const entName = App.views.peek().find(v => v.id === ent).name, firstMove = Time.describe(last()), firstToast = $('.toast span')?.textContent;
   Table.grid.moveColumn(column('Jurisdiction').getField(), column('Entity Type').getField(), true); await tick(150);
   const movedSaid = Time.describe(last());
   Table.grid.moveColumn(column('Jurisdiction').getField(), column('Entity Type').getField(), false); await tick(150);
-  const entName = App.views.peek().find(v => v.id === ent).name;
-  check('A column moved is said by its name, and two side by side as swapped', movedSaid === `Moved Jurisdiction in ${entName}` && [`Swapped Jurisdiction and Entity Type in ${entName}`, `Swapped Entity Type and Jurisdiction in ${entName}`].includes(Time.describe(last())),
-    `${movedSaid}; ${Time.describe(last())}`);
+  check('A column moved says which, and after which: the view’s first move, and each after', firstMove === `Moved Jurisdiction after Name in ${entName}` && firstToast === firstMove && movedSaid === `Moved Jurisdiction after Entity Type in ${entName}`
+    && Time.describe(last()) === `Moved Entity Type after Jurisdiction in ${entName}`, `${firstMove}; ${firstToast}; ${movedSaid}; ${Time.describe(last())}`);
   undo(); await tick(150); undo(); await tick(150);
   undo(); await tick(150);
 
@@ -604,8 +605,8 @@ async function run() {
     await across(3);
     const left0 = holder().scrollLeft, mover = titlesOf().find((t, i) => i > 5 && seen(t) && t !== 'Name');
     await drag(mover, edge() + 2);
-    check('… and scrolled across, dropped beside them it shows beside them, the grid still scrolled where it was', seen(mover) && Math.abs(holder().scrollLeft - left0) <= 1
-      && Math.abs(leftOf(mover) - edge()) <= 1, `${mover} at ${Math.round(leftOf(mover))} of ${Math.round(edge())}, scrolled ${holder().scrollLeft} of ${left0}`);
+    check('… and scrolled across, dropped beside them it lands beside them, never past a column hidden under them, the grid scrolled back to show it, the toast saying where', seen(mover) && titlesOf()[1] === mover && holder().scrollLeft < left0
+      && Math.abs(leftOf(mover) - edge()) <= 1 && $('.toast span')?.textContent === `Moved ${mover} after Name in ${App.views.peek().find(v => v.id === ent).name}`, `${titlesOf().slice(0, 3).join()}: ${mover} at ${Math.round(leftOf(mover))} of ${Math.round(edge())}, scrolled ${holder().scrollLeft} of ${left0}; ${$('.toast span')?.textContent}`);
     undo(); await tick(250);
     // Where it can drop, scrolled across: never before a column the grid has scrolled under those kept in view.
     await across(3);
@@ -832,7 +833,7 @@ async function run() {
   const rows0 = Table.grid.getRows().length;
   paste('Owner\tOwned\tPercentage\r\nU.S. Investors\tFund III\t67.3%\r\nOffshore Feeder\tFund III\t26.7%\r\nHalcyon University Endowment\tFund III\t6%\r\n'); await previewed();
   const bar = $('.pendbar')?.textContent ?? '';
-  check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /^2 values·1 new ownership/.test(bar) && $$('.pendbar .what .add').length === 3 && /new Entity\s*Halcyon University Endowment/.test(bar)
+  check('Pasting into a relation says what it creates, and from what day: the day shown, asked, as a row it adds asks one', /^2 values·1 new ownership/.test(bar) && $$('.pendbar .what .add').length === 3 && /new Investor Group\s*Halcyon University Endowment/.test(bar)
     && /From$/.test($('.pendbar .from')?.textContent.trim()) && $('.pendbar .from input')?.value === 'Nov 2, 2026' && N() === n0, bar);
   check('A value it would change shows the old struck and the new in blue', $$('.grid .tabulator-cell .del').some(x => x.textContent === '71.6%') && $$('.grid .tabulator-cell .add').some(x => x.textContent === '67.3%'));
   check('… and its bar names no check it fails, Fund III’s owners still adding up', !$('.pendbar .fails'), $('.pendbar .fails')?.textContent);
@@ -912,7 +913,7 @@ async function run() {
     Table.paste('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners III L.P.\t4.5%\nMeridian Family Office LLC\tcalder ridge capital partners iii lp\t2%\n', { file: 'closing-investors.csv' }); await previewed();
     const said = $('.pendbar .what')?.textContent ?? '';
     check('Imported, "…III L.P." and "…iii lp" are "…III, L.P.": no second fund, its two new owners, each a choice in the bar', !/new Entity Calder Ridge/i.test(said)
-      && newRows().length === 2 && newRows().every(n => n === fundName) && $$('.pendbar .what .named > .add.dd').map(b => b.textContent).join() === 'new Entity Harborview Pension Fund,new Entity Meridian Family Office LLC'
+      && newRows().length === 2 && newRows().every(n => n === fundName) && $$('.pendbar .what .named > .add.dd').map(b => b.textContent).join() === 'new Investor Group Harborview Pension Fund,new Investor Group Meridian Family Office LLC'
       && N() === n0, `${said} / ${newRows().join(' | ')}`);
     // A row clicked that only the import has selects nothing: never the rows above it.
     Table.grid.addRange(Table.grid.getRows('active')[0].getCells()[1]); await tick(80);
@@ -927,10 +928,26 @@ async function run() {
     const f = $('.float .menu-find'); f.textContent = 'Northstar'; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60);
     press('Enter', $('.float .menu')); await previewed(); await tick(100);
     const owners = () => $$('.grid .tabulator-row.red-add').map(r => r.querySelector('[tabulator-field="f:@owner"]')?.textContent.trim());
-    check('… a new name in the bar is a choice of the records it could be, the new one last; one chosen, the import is pending as it then is', offered.at(-1) === 'New Entity Harborview Pension Fund'
+    check('… a new name in the bar is a choice of the kinds it could be, then the records it could be; a record chosen, the import is pending as it then is', offered.slice(0, 3).join() === 'New Investor Group Harborview Pension Fund,New Entity Harborview Pension Fund,New Individual Harborview Pension Fund' && offered.includes('U.S. Investors')
       && owners().includes('Northstar Teachers’ Retirement System') && !owners().includes('Harborview Pension Fund') && $$('.pendbar .what .named').length === 1 && App.pending.peek()?.verb === 'Import' && N() === n0,
       `${offered.slice(0, 3).join(' | ')} … ${offered.at(-1)} / ${owners().join(' | ')}`);
     press('Escape'); await tick(150);
+    // A new name's kind: it starts on the kind those like it are of, an investor group among a fund's owners that have no
+    // owners of their own; another kind, chosen, the import is pending as it then is, and so it's made.
+    {
+      Table.paste('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners III L.P.\t4.5%\n', { file: 'closing-investors.csv' }); await previewed();
+      const started = $('.pendbar .what .named > .add.dd')?.textContent;
+      $('.pendbar .what .named > .add.dd').click(); await tick(80);
+      const checked = $$('.float .menu-item').filter(x => x.getAttribute('aria-checked') === 'true').map(x => x.textContent.trim());
+      item('New Entity Harborview Pension Fund').click(); await previewed(); await tick(100);
+      check('A new name starts on the kind those like it are of: among investor groups, one; another kind chosen in its menu, the import is pending as it then is', started === 'new Investor Group Harborview Pension Fund'
+        && checked.join() === 'New Investor Group Harborview Pension Fund' && $('.pendbar .what .named > .add.dd')?.textContent === 'new Entity Harborview Pension Fund' && App.pending.peek()?.verb === 'Import', `${started} / ${checked.join()} / ${$('.pendbar .what')?.textContent}`);
+      const n2 = N();
+      press('Enter', Table.grid.rowManager.element); await tick(200);
+      check('… and made, it’s that kind', N() === n2 + 1 && st()[named('Harborview Pension Fund')]?.kind === 'Entity', st()[named('Harborview Pension Fund')]?.kind);
+      undo(); await tick(150);
+      n0 = N();
+    }
     // Close to a name the chart has, a new one asks if it's that: one click takes it, from the day said in the bar.
     Table.paste('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners 3 L.P.\t4.5%\n', { file: 'closing-investors.csv' }); await previewed();
     const q = $$('.pendbar .what .named').find(x => /Partners 3/.test(x.textContent));
@@ -945,6 +962,32 @@ async function run() {
       `${N() - n0} ${pct('Harborview Pension Fund', fundName, '2023-12-31')}`);
     undo(); await tick(150);
     Shell.select([]); await tick();
+  }
+
+  // ---- Import from anywhere: from a chart, the file goes to the table its headings fit, staged as if imported there ----
+  {
+    const act = () => Shell.parts.peek().action.find(a => a.id === 'table.import'), was = Shell.view.peek(), shown = () => views().find(v => v.id === Shell.view.peek());
+    const pendingIn = async () => { await until(() => App.pending.peek()?.verb === 'Import'); await previewed(); };
+    Shell.show(views()[0].id); await tick(200);
+    check('Import… can be run from a chart', shown().layout === 'chart' && act().enabled() && !act().why().includes('Not now'), act().why());
+    Table.importing('Owner\tOwned\tPercentage\nHarborview Pension Fund\tCalder Ridge Capital Partners III L.P.\t4.5%\n', 'closing-investors.csv'); await pendingIn();
+    check('From a chart, a file headed Owner and Owned goes to Ownership, which opens with it staged', !!shown().rows?.args && App.notes.peek().name(shown().rows) === 'Ownership' && $$('.grid .tabulator-row.red-add').length === 1
+      && $('.pendbar .btn.primary')?.textContent === 'Import', `${shown().name} ${$('.pendbar')?.textContent}`);
+    press('Escape'); await tick(150);
+    Shell.show(views()[0].id); await tick(200);
+    Table.importing('Name\tEIN\nHarbor Point Fund I, L.P.\t93-5550101\n', 'entities.csv'); await pendingIn();
+    check('… and one headed Name to Entities', shown().rows?.kind === 'Entity' && $$('.grid .tabulator-row.red-add').length === 1, `${shown().name} ${$('.pendbar')?.textContent}`);
+    press('Escape'); await tick(150);
+    Shell.show(was); await tick(200);
+    Table.importing('Name\tEIN\nHarbor Point Fund I, L.P.\t93-5550101\n', 'entities.csv'); await pendingIn();
+    check('From a table its headings don’t fit, it goes to the one they do', shown().rows?.kind === 'Entity' && shown().id !== was, shown().name);
+    press('Escape'); await tick(150);
+    Shell.show(views()[0].id); await tick(200);
+    Table.importing('Color\tSize\nRed\t3\n', 'odd.csv'); await tick(150);
+    const asked = $('dialog.dlg');
+    check('… and from a chart, fitting no table, it asks which', !!asked?.querySelector('select.import-to') && /Import odd\.csv into/.test(asked.textContent), asked?.textContent);
+    $$('dialog.dlg .btn').find(b => b.textContent === 'Cancel').click(); await tick(120);
+    Shell.show(was); await tick(200);
   }
 
   // ---- A check: a tag a Check note covers says only where it fails, and a failure needs attention ----
@@ -1014,9 +1057,10 @@ async function run() {
   pressedOn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 2 })); await tick(60);
   check('A right-click on a cell before anything’s selected selects it, and throws nothing', !errors.length && Shell.selection.peek().join() === doomed, `${errors.join(' / ')} ${Shell.selection.peek().join()}`);
   rowOf(doomed).getElement().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 })); await tick();
-  hover(item('Delete row')); await previewed();
-  check('Pointed at, a row’s Delete strikes the row through, and deletes nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && N() === n0);
-  item('Delete row').click(); await previewed();
+  const delWord = $$('.float .menu-item').map(x => x.textContent.trim()).find(t => /…$/.test(t) && /^End|^Delete|^Dissolve/.test(t)); hover(item(delWord)); await previewed();
+  check('A row’s menu names its deletion for what it records, as the panel’s does', delWord === 'End…' && delWord === `${App.deleteVerb([doomed])}…`, delWord);
+  check('Pointed at, a row’s End… strikes the row through, and ends nothing yet', rowOf(doomed).getElement().classList.contains('red-go') && N() === n0);
+  item(delWord).click(); await previewed();
   const untilIn = () => $('.pendbar .from input');
   check('… and chosen, redlines it with the bar, asking until when: the day shown, to type over', N() === n0 && rowOf(doomed).getElement().classList.contains('red-go')
     && $('.pendbar .from .sel')?.textContent === 'Ends on' && untilIn()?.value === Tree.formatDate(Log.today(), 'short'), $('.pendbar')?.textContent);
@@ -1120,6 +1164,45 @@ async function run() {
     check('Dates are grouped by month till grouped by whose, or what falls due', ways[0] === 'Month' && ways.includes('Whose') && ways.includes('What') && !!tool('Grouped by Whose') && heads.length > 1 && !heads.includes('Overdue'), `${ways.join()} / ${heads.slice(0, 4).join()}`);
     tool('Grouped by Whose').click(); await tick(); item('Month').click(); await tick(300);
     check('… and Month groups them by month again', !Table.look(dv).group && Table.model(dv).groups[0] === 'overdue' && !!tool('Grouped by month'), Table.model(dv).groups.slice(0, 3).join());
+  }
+  // Another day shown with a row selected, however it's scrolled, the rows are drawn where the grid stands.
+  {
+    const drawnNow = () => { const h = Table.grid.rowManager.element.getBoundingClientRect(); return $$('.grid .tabulator-row').filter(r => { const b = r.getBoundingClientRect(); return b.bottom > h.top + 2 && b.top < h.bottom - 2; }).length; };
+    const blanks = [];
+    for (const top of [0, 1500, 4000]) for (const d of ['2027-06-01', '2020-01-01', '2024-06-01', null, '2026-01-15']) {
+      Table.grid.rowManager.element.scrollTop = top; await tick(60);
+      const r = Table.grid.getRows('active').find(x => x.getElement()?.isConnected && x.getElement().getBoundingClientRect().top > Table.grid.rowManager.element.getBoundingClientRect().top + 4);
+      if (r) { Table.grid.addRange(r.getCells()[1]); await tick(60); }
+      Shell.at(d ? { asOf: d } : null); await tick(250);
+      if (!drawnNow()) blanks.push(`${top} ${d}`);
+    }
+    Shell.at(null); await tick(200); Table.grid.rowManager.element.scrollTop = 0; await tick(80);
+    check('Another day shown with a row selected, the grid draws its rows, however it’s scrolled', !blanks.length, blanks.join(' / '));
+  }
+  // What starts later is said: a table of records names it, a link to the chart then; Dates lists what's scheduled, by its day.
+  {
+    const dv = Shell.view.peek(), tabs = views(), entities = tabs.find(v => v.rows?.kind === 'Entity').id, ownership = tabs.find(v => v.rows?.args && App.notes.peek().name(v.rows) === 'Ownership').id;
+    const fundId = named('Calder Ridge Capital Partners III, L.P.'), blockerRel = Object.keys(st()).find(id => st()[id].args?.some(a => a.edge === 'Owner' && a.at === named('Calder Ridge III Blocker, Inc.'))), pctId = (Tree.index(st()).entries.get(blockerRel) ?? []).find(e => st()[e].edge === 'Percentage');
+    let later = null, rel = null;
+    App.change(tx => { later = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: later, edge: 'Name', field: 'text', value: 'Northwind Holdings LLC' }); tx.add('record', { at: later, edge: 'Formation Date', field: 'date', value: '2027-01-15' }); });
+    App.change(tx => { rel = tx.add('record', { args: [{ edge: 'Owner', at: fundId }, { edge: 'Owned', at: named('Halvard Logistics Holdings, Inc.') }], tag: true }); }, { dated: '2027-03-01' });
+    App.change(tx => tx.update(pctId, { value: 0.41 }), { dated: '2027-03-01' });
+    await tick(300);
+    const rowsOf = () => Table.model(dv).data.filter(r => r._rec).map(r => [r['f:$value'], r['f:$entry'], r['f:$of']]);
+    const has = (d, w, of) => rowsOf().some(([a, b, c]) => a === d && b === w && (!of || c.includes(of)));
+    check('Dates lists what’s scheduled among its deadlines, by its day: a start by its entry, a relation’s, a value’s change from a later day', has('2027-01-15', 'Formation Date', 'Northwind') && has('2027-03-01', 'Ownership starts') && has('2027-03-01', 'Percentage changes to 41%'), JSON.stringify(rowsOf()));
+    const sched = Table.grid.getRows().find(r => r.getData()._rec === later);
+    check('… a row of its month, read only', !!sched && sched.getData()._g === '2027-01' && !sched.getCells()[1].getColumn().getDefinition().editable(sched.getCells()[1]), sched?.getData()._g);
+    Shell.show(entities); await until(() => !!$('.tbar .tout.later')); await tick(100);
+    check('A table of records says what it leaves out for starting later, a link to the chart then', $('.tbar .tout.later')?.textContent.replace(/\s+/g, ' ').trim() === '1 starts later: Northwind Holdings LLC, Jan 15, 2027', $('.tbar .tout.later')?.textContent);
+    Shell.show(ownership); await until(() => !!$('.tbar .tout.later')); await tick(100);
+    check('… a table of relations too, by its sides', /^1 starts later: Fund III → Halvard Logistics Holdings, Inc\., Mar 1, 2027$/.test($('.tbar .tout.later')?.textContent.replace(/\s+/g, ' ').trim()), $('.tbar .tout.later')?.textContent);
+    Shell.show(entities); await until(() => !!$('.tbar .tout.later')); await tick(100);
+    $('.tbar .tout.later .lk').click(); await tick(300);
+    check('… and the link shows the chart then, the record in it, nothing more left out', App.day.peek() === '2027-01-15' && !!Table.model(entities).data.find(r => r.id === later) && !$('.tbar .tout.later'), App.day.peek());
+    Shell.at(null); await tick(150);
+    undo(); await tick(120); undo(); await tick(120); undo(); await tick(150);
+    Shell.show(dv); await tick(250);
   }
   await addTable(null, 'Documents');
   const docs = Table.model(Shell.view.peek());
@@ -1298,6 +1381,28 @@ async function run() {
     const out = $$('.findpal .menu-head, .findpal .menu-item').map(e => e.classList.contains('menu-head') ? `#${e.textContent}` : e.querySelector('.label').textContent + (e.querySelector('.detail') ? ` |${e.querySelector('.detail').textContent}` : ''));
     return out;
   };
+  // The table's commands, each by the words for it, with why not where they can't run.
+  {
+    const was = Shell.view.peek(), tab = views().find(v => v.rows?.kind === 'Entity');
+    const words = { sort: 'Sort by…', filter: 'Filter…', group: 'Group by…', freeze: 'Freeze…', 'fit columns': 'Fit columns', autofit: 'Fit columns', unfreeze: 'Freeze…', subtotal: 'Group by…' };
+    Shell.show(views()[0].id); await tick(200);
+    const whyNot = await found('freeze'); Shell.closeAll(); await tick();
+    check('On a chart, a table’s command is still found, saying why not', whyNot.includes('Freeze… |Show a table first'), whyNot.join(' / '));
+    Shell.show(tab.id); await until(() => !!$('.tbar') && !!Table.grid); await tick(300);
+    const hits = {};
+    for (const q of Object.keys(words)) { hits[q] = (await found(q)).filter(x => !x.startsWith('#')); Shell.closeAll(); await tick(); }
+    check('On a table, Find has Sort by…, Filter…, Group by…, Freeze… and Fit columns, each by the words for it', Object.entries(words).every(([q, w]) => hits[q].includes(w)), JSON.stringify(hits).slice(0, 300));
+    Shell.find('freeze'); await tick(120); press('Enter', $('.findpal .menu') ?? $('.findpal')); await tick(200);
+    const freezes = $$('.float .menu-item').map(x => x.textContent.trim());
+    item('Freeze up to Short Name').click(); await tick(300);
+    check('… Freeze… choosing how many stay in view', freezes[0] === 'Freeze up to Name' && freezes.at(-1) === 'Unfreeze columns' && Table.look(tab.id).frozen === 2, freezes.slice(0, 3).join());
+    Shell.parts.peek().action.find(a => a.id === 'table.freeze').run(); await tick(100);
+    item('Freeze up to Name').click(); await tick(300);
+    const named0 = column('Name').getWidth();
+    Shell.store.set(`table.${C()}.${tab.id}`, JSON.stringify({ ...Table.look(tab.id), widths: { name: 700 } })); Shell.parts.peek().action.find(a => a.id === 'table.fit').run(); await tick(400);
+    check('… and Fit columns lets the widths given them go, each as wide as what it holds', !Table.look(tab.id).widths && column('Name').getWidth() < 700, `${column('Name').getWidth()} of ${named0}`);
+    Shell.show(was); await tick(200);
+  }
   let got = await found('fund iii');
   check('Find puts each kind under its head, the best first, and no answer says its kind', got[0] === '#Entities' && got[1] === 'Calder Ridge Capital Partners III, L.P.' && got.includes('#Views') && !got.some(x => x.includes(' |')), got.slice(0, 8).join(' / '));
   check('… a record before a view of the same name, so Enter goes to the record', got.indexOf('Calder Ridge Capital Partners III, L.P.') < got.indexOf('Fund III'), got.slice(0, 8).join(' / '));

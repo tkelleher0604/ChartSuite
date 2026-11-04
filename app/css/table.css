@@ -71,7 +71,7 @@
    only where the grid scrolls, clear of them, as far as it's scrolled across (table.js). */
 .grid .tabulator-row .tabulator-cell:is(.pin, .tabulator-frozen) { z-index: 12; }
 .grid .tabulator .tabulator-tableholder .tabulator-range-overlay { clip-path: inset(-100000px -100000px -100000px calc(var(--across, 0px) + var(--pinned, 48px))); }
-.grid .tabulator .tabulator-header .tabulator-col.pin-last, .grid .tabulator-row .tabulator-cell.pin-last { border-right: 1px solid var(--ink-3); box-shadow: 1px 0 0 var(--ink-3); }
+.grid .tabulator .tabulator-header .tabulator-col.pin-last, .grid .tabulator-row .tabulator-cell.pin-last { border-right: 1px solid var(--ink-3); }
 .grid .tabulator .tabulator-header .tabulator-frozen.tabulator-frozen-left, .grid .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-left { border-right-color: var(--rule); }
 .grid .tabulator-row .tabulator-cell.pin { background: var(--surface); }
 .grid .tabulator-row.picked, .grid .tabulator-row.picked:hover, .grid .tabulator-row.picked .tabulator-cell:is(.tabulator-frozen, .pin) { background: var(--selected); }
@@ -131,7 +131,7 @@
 .match-row > .h > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .match-row > .h > b { font-weight: 500; }
 .match-row > .h > .muted { font: var(--t12); }
-.match-row > select { width: 100%; }
+.match-row > select, select.import-to { width: 100%; }
 /* A choice reads as a dropdown where it can be changed. */
 .grid .tabulator-row .tabulator-cell.c-choice.tabulator-editable:hover { padding-right: 22px; background: var(--chev) no-repeat right 8px center; }
 
@@ -173,6 +173,11 @@
 .tbar > .tout > b { min-width: 0; margin-right: .3em; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--ink); }
 .tbar > .tout > .sep { margin: 0 8px; color: var(--ink-3); }
 .tbar > .tout + .tcount { margin-left: 16px; }
+/* What a table as of a day leaves out for starting later: said, a link to the chart then. */
+.tbar > .tout.later { gap: 4px; min-width: 0; overflow: hidden; }
+.tbar > .tout + .tout { margin-left: 16px; }
+.tbar > .tout.later > .lk { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbar > .tout.later > .lk > b { margin: 0; font-weight: 500; color: inherit; }
 
 /* ---- The new row, under the last (or at the grid's foot, where the rows run on past it) ---- */
 .grid.adds > .cells { padding-bottom: var(--row); }

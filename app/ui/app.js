@@ -161,10 +161,25 @@ const App = (() => {
     if (!c) { empty?.(); return null; }
     made(c);
     const out = outBy(c, was), said = (typeof say === 'function' ? say(c) : say) || (out && typeof Time !== 'undefined' && Time.describe(c));
-    // One that takes what it's at out of the chart till a later day offers that day, and stays till it's taken or dismissed.
-    if (said) Shell.toast(said, { undo, ...(out?.holds === 'from' && { go: [`Show ${Tree.formatDate(out.day, 'short')}`, () => Shell.at(out.day === Log.today() ? null : { asOf: out.day })] }) });
+    // One that takes what it's at out of the chart till a later day offers that day, and stays till it's taken or dismissed;
+    // where that leaves the chart nothing to draw, the chart goes to that day (see firstDrawn), and offers today.
+    const when = out?.holds === 'from' ? Tree.formatDate(out.day, 'short') : null, bare = when && nothingDrawn();
+    if (bare) { keptToday.add(chart.peek()); Shell.at({ asOf: out.day }); }
+    if (said) Shell.toast(bare ? `${said}; showing the chart as of then` : said, { undo, ...(bare ? { go: ['Today', () => Shell.at(null)] } : when && { go: [`Show ${when}`, () => Shell.at(out.day === Log.today() ? null : { asOf: out.day })] }) });
     return c;
   }
+  // A chart with nothing to draw on the day shown, every box of it not yet formed, opens on the first day it has one: a fund
+  // about to be formed is a chart worth drawing. Only for this window, as a day picked is, and only till the user asks for today.
+  const nothingDrawn = () => { const s = typeof Scene !== 'undefined' && scene.peek(); return !!s && !s.marks.some(m => m.type === 'box'); };
+  const keptToday = new Set();
+  const firstDrawn = () => shown.peek().rows(chart.peek()).filter(r => r.kind && r.kind !== 'View').map(r => heldFrom(r.record)).filter(Boolean).sort()[0] ?? null;
+  Shell.ready.then(() => effect(() => {
+    if (typeof Scene === 'undefined' || !scene.value || Shell.time.value || keptToday.has(chart.value) || !nothingDrawn()) return;
+    const c = chart.peek(), d = firstDrawn();
+    keptToday.add(c);
+    // (A moment on, as drawing it is; it may be another workbook being opened by then.)
+    if (d) queueMicrotask(() => { if (chart.peek() === c && !Shell.time.peek() && nothingDrawn()) Shell.at({ asOf: d }); });
+  }));
   // The start or end entry a change records that takes what it's at out of the chart as of the day shown, where it
   // was: { holds: 'from' or 'until', day }; or null.
   function outBy(c, was) {

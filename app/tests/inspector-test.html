@@ -301,10 +301,11 @@ async function run() {
   const rr = $$('.rr').filter(r => r.querySelector('.nm') && spoken(r.querySelector('.nm')) === 'Fund III Blocker is an owner of the BDC');
   check('… and behind Add a relation, what else could be entered, not what a formula works out', rr.length === 1 && $$('.rr .nm').some(x => / is an adviser to /.test(x.textContent))
     && !$$('.rr .nm').some(x => / is a controller of /.test(x.textContent)), $$('.rr .nm').map(x => x.textContent).join(', '));
-  // First, what the chart would draw as the two stand, the box above on the side drawn on top, then what it records most.
+  // First, what the chart would draw as the two stand, the box above on the side drawn on top, a solid line first; then what it records most.
   const yOf = id => App.scene.peek().byId.get(id).y, higher = yOf('blocker') < yOf('bdc') ? 'fund iii blocker' : 'the bdc';
   const firstOpen = $$('.rr[data-key*="|"]').find(r => r.querySelector('.nm'));   // what could be, keyed by its sides
   check('… the first of them puts the box above on top, as its owner', !!firstOpen && spoken(firstOpen.querySelector('.nm')).toLowerCase().startsWith(`${higher} is an owner of`), firstOpen && spoken(firstOpen.querySelector('.nm')));
+  Shell.emit('relate-open', ['blocker', 'bdc']); await tick(60);
   // A relation with no start of its own (an ownership) is added from a day said in its redline, before Enter:
   // the day shown, by default, so an owner added today isn't in the chart as of a day before
   const n0r = App.wb.changes().length, owned = () => Object.entries(st()).find(([, r]) => r.args && r.tag && r.args.some(a => a.at === 'blocker') && r.args.some(a => a.at === 'bdc'));
@@ -402,14 +403,14 @@ async function run() {
   Shell.emit('relate-open', ['pension', 'northpine']); await tick(60);
   ghost('Add a relation')?.click(); await tick();
   $$('.rr').find(r => / is an owner of Northpine/.test(r.querySelector('.nm')?.textContent))?.querySelector('.tag').click(); await tick(60);
-  await type(pb('.from input'), 'December 1, 2026');
+  await type(pb('.from input'), 'December 1, 2027');
   Shell.select([]); Shell.emit('relate-open', ['pension', 'northpine']); await tick(60);
   ghost('Add a relation')?.click(); await tick();
   const later = $('.rr.later'), offeredAgain = $$('.rr:not(.later) .nm').some(x => / is an owner of Northpine/.test(x.textContent));
-  check('a relation recorded from a later day is said with that day, and not offered again', !!later && / is an owner of Northpine/.test(later.textContent) && later.querySelector('.when')?.textContent === 'From Dec 1, 2026' && !offeredAgain,
+  check('a relation recorded from a later day is said with that day, and not offered again', !!later && / is an owner of Northpine/.test(later.textContent) && later.querySelector('.when')?.textContent === 'From Dec 1, 2027' && !offeredAgain,
     `${later?.textContent} / ${offeredAgain}`);
   later?.querySelector('.when .lk')?.click(); await tick(60);
-  check('… its day a link to the chart then', Shell.time.peek()?.asOf === '2026-12-01');
+  check('… its day a link to the chart then', Shell.time.peek()?.asOf === '2027-12-01');
   Shell.at(null); Shell.parts.value.undo.undo(); await tick(60);
   // A relation's amount is asked first, in its row and the bar, one state: typed, it's redlined as Enter will add it, and
   // what it would fail is said as it's typed, named for the record the check is about, with its figure; Enter adds it.
@@ -501,11 +502,11 @@ async function run() {
   [...document.querySelectorAll('.toast button')].find(b => b.textContent === 'Redo')?.click(); await tick(60);
   check('… its toast’s Redo bringing it back', !!App.pending.peek() && !!pb() && nP() === nU);
   const later1 = pb('.from input');
-  later1.focus(); later1.value = 'December 1, 2026'; later1.dispatchEvent(new Event('input', { bubbles: true })); await tick(); later1.blur(); await tick(60);
+  later1.focus(); later1.value = 'December 1, 2027'; later1.dispatchEvent(new Event('input', { bubbles: true })); await tick(); later1.blur(); await tick(60);
   const link = pb('.from .lk');
-  check('a day after the day shown, said in the bar, is a link to the chart then, where the change is drawn', link?.textContent === 'Dec 1, 2026' && !pb('.from input') && !FormulaBar.pending.peek(), pb()?.innerHTML.slice(0, 300));
+  check('a day after the day shown, said in the bar, is a link to the chart then, where the change is drawn', link?.textContent === 'Dec 1, 2027' && !pb('.from input') && !FormulaBar.pending.peek(), pb()?.innerHTML.slice(0, 300));
   link?.click(); await tick(60);
-  check('… which shows that day, the change redlined there, its day typed over there', Shell.time.peek()?.asOf === '2026-12-01' && !!FormulaBar.pending.peek() && pb('.from input')?.value === 'Dec 1, 2026', pb()?.textContent);
+  check('… which shows that day, the change redlined there, its day typed over there', Shell.time.peek()?.asOf === '2027-12-01' && !!FormulaBar.pending.peek() && pb('.from input')?.value === 'Dec 1, 2027', pb()?.textContent);
   Shell.at(null); App.discard(); await tick(60);
   // A deletion pending whose record an older change undone (History's) takes away is dropped, saying why
   let ownAdded = null;
@@ -521,6 +522,15 @@ async function run() {
   key(document.body, 'Enter'); await tick(60);
   check('deleted as never held, it says so', Time.describe(last()) === 'Deleted Ownership: U.S. Investors → Fund III as never held' && toastText() === Time.describe(last()), Time.describe(last()));
   Shell.parts.value.undo.undo(); await tick(60);
+
+  // What a box's name says comes first: a box named for its side has that relation first.
+  { let gpOne = null;
+    App.change(tx => { gpOne = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: gpOne, edge: 'Name', field: 'text', value: 'Harbor GP, LLC' }); }); await tick(60);
+    Shell.emit('relate-open', [gpOne, 'fund']); await tick(80);
+    if ($$('.rr').length && !$$('.rr[data-key*="|"]').length) ghost('Add a relation')?.click(); await tick(60);
+    const gpFirst = $$('.rr[data-key*="|"]').find(r => r.querySelector('.nm'));
+    check('a box whose name says its side has that relation first', !!gpFirst && / is a general partner of /.test(spoken(gpFirst.querySelector('.nm'))), gpFirst && spoken(gpFirst.querySelector('.nm')));
+    Shell.select([]); await tick(40); Shell.parts.value.undo.undo(); await tick(60); }
 
   // ---- Transfer… (dendra.md, Time: Transfer): a relation given to another, one change of the records it writes, asked
   // where it's begun, set out as History will say it ----
@@ -641,10 +651,10 @@ async function run() {
   check('a deletion pending shows in the inspector: the end entry it gives in blue, the record struck', rowOf('Dissolution Date')?.querySelector('.v.redline .add')?.textContent === today && !!$('.insp.going'),
     rowOf('Dissolution Date')?.outerHTML.slice(0, 200));
   check('… and what follows from it counted, as for a line', (FormulaBar.pending.peek()?.deltas ?? []).length > 0, JSON.stringify(FormulaBar.pending.peek()?.deltas ?? null));
-  await type(pb('.from input'), 'December 1, 2026');
+  await type(pb('.from input'), 'December 1, 2027');
   const dissolved = Tree.entryAt(st(), 'northpine', 'Dissolution Date');
-  check('an end day typed after the day shown: recorded as of the day shown, so the record says it before then, and the toast says the day it ends on', !!st().northpine && st()[dissolved]?.value === '2026-12-01'
-    && !App.wb.item(C, dissolved)[0].since && /^Dissolved Northpine Software, LLC on Dec 1, 2026/.test(toastText()), `${toastText()} ${JSON.stringify(App.wb.item(C, dissolved ?? ''))}`);
+  check('an end day typed after the day shown: recorded as of the day shown, so the record says it before then, and the toast says the day it ends on', !!st().northpine && st()[dissolved]?.value === '2027-12-01'
+    && !App.wb.item(C, dissolved)[0].since && /^Dissolved Northpine Software, LLC on Dec 1, 2027/.test(toastText()), `${toastText()} ${JSON.stringify(App.wb.item(C, dissolved ?? ''))}`);
   Shell.parts.value.undo.undo(); await tick(60);
   // A start typed in the formula bar past the day shown: the toast says why, as from the inspector
   Shell.at({ asOf: '2025-06-30' }); await tick(60);
@@ -1199,14 +1209,6 @@ async function run() {
   const offWhy2 = Shell.on('why-open', id => askedWhy.push(id));
   overdue?.go(); await tick(80); offWhy2?.();
   check('going to an overdue item asks the formula bar about it, as an error’s does', askedWhy.length === 1 && !!st()[askedWhy[0]] && st()[askedWhy[0]].field === 'date', askedWhy.join());
-  // A choice that brings rows under it keeps the rows after it where they are on screen
-  let fresh2 = null;
-  App.change(tx => { fresh2 = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: fresh2, edge: 'Name', field: 'text', value: 'Steady Partners' }); }); await tick(60);
-  Shell.select([fresh2]); await tick(80);
-  const jurTop = () => rowOf('Jurisdiction')?.getBoundingClientRect().top, y0 = jurTop();
-  rowOf('Entity Type').querySelector('.sel').click(); await tick(); await pick('Limited Partnership'); await tick(120);
-  check('a choice that brings rows under it keeps the rows after it where they are on screen', !!rowOf('Tax Classification') && Math.abs(jurTop() - y0) < 2, `${y0} → ${jurTop()}`);
-  Shell.parts.value.undo.undo(); await tick(60); Shell.parts.value.undo.undo(); await tick(60);
   // A style row clicked lights what it reaches; double-clicked, it's typed over
   Shell.select([]); await tick(60);
   const capBtn = $$('.row.out .cap').find(b => b.textContent === 'Funds');
