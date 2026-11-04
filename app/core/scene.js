@@ -482,14 +482,14 @@ function size(b, squeeze, at = null, grow = 1) {
       // How far it's to widen yet: none, or to a cap.
       const lines = ((b.texts[0]?.lines.length ?? 0) > 3 || b.texts.some(it => it.lines.some(l => l.split))) && w < wide.lines;
       // (A word that would fit a line of its own is never broken: the box is as wide as that needs, up to three times its size.)
-      const word = !b.texts.some(it => it.lines.some(l => l.cut)) ? 0 : Math.min(3 * base, Math.max(...b.texts.flatMap(it => String(it.text).split(/\s+/).map(x => measure(x, it.look)))) + 2 * INSET + 1) / (TEXT_AREA[shape] ?? 1);
+      const word = !b.texts.some(it => it.lines.some(l => l.cut)) ? 0 : Math.min(3 * base, Math.max(...b.texts.flatMap(it => String(it.text).split(/\s+/).map(x => measure(x, it.look)))) + 2 * INSET + 1) / textArea(shape);
       return Math.max(lines ? wide.lines : 0, h > w && w < wide.tall ? wide.tall : 0, word > w ? word : 0, wide.opens && w < wide.opens && opensAlone(b.texts[0]) ? wide.opens : 0);
     };
     for (let cap; (cap = lay());) w = Math.min(cap, w + 12);
     // And a little wider, nobody having sized it, where that takes a line off its name: a fifth at most, the least that does.
     const name = b.texts[0]?.name && b.texts[0];
     if (name && !own && at === null && name.lines.length > 1) {
-      const n = name.lines.length, width = v => Math.max(32, v * (TEXT_AREA[shape] ?? 1) - 2 * INSET);
+      const n = name.lines.length, width = v => Math.max(32, v * textArea(shape) - 2 * INSET);
       for (let v = w + 4; v <= base * 1.2; v += 4) if (linesOf(name, width(v)).length < n) { w = v; lay(); break; }
     }
   }
