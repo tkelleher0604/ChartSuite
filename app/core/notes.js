@@ -257,8 +257,8 @@ function lookFrom(data) {
     const clean = p => { if (!p || typeof p !== 'object' || Tree.idsIn(p).size) throw new Error('not a pattern'); key(p); return p; };
     const notes = data.notes.filter(n => typeof n.label === 'string' && (looksLike(n) || n.label === 'Shown') && n.value !== undefined && n.value !== null)
       .map(({ label, pattern, param, value }) => ({ label, pattern: clean(pattern), ...(typeof param === 'string' && { param }), value }));
-    const furniture = {};
-    for (const [f, keys] of Object.entries(FURNITURE)) if (data.furniture?.[f]) furniture[f] = Object.fromEntries(keys.filter(k => data.furniture[f][k] !== undefined).map(k => [k, data.furniture[f][k]]));
+    const furniture = {}, fits = { format: v => !!v && typeof v === 'object' && !Array.isArray(v), title: v => typeof v === 'string', columns: v => Number.isInteger(v) && v > 0 && v < 10, order: v => Array.isArray(v) && v.every(k => typeof k === 'string'), hide: v => Array.isArray(v) && v.every(k => typeof k === 'string'), captions: v => !!v && typeof v === 'object' && Object.values(v).every(c => typeof c === 'string') };
+    for (const [f, keys] of Object.entries(FURNITURE)) if (data.furniture?.[f]) furniture[f] = Object.fromEntries(keys.filter(k => fits[k](data.furniture[f][k])).map(k => [k, data.furniture[f][k]]));
     return { notes, order: (data.order ?? []).map(clean), furniture };
   } catch { return null; }
 }
