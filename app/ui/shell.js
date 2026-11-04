@@ -178,8 +178,8 @@ const Shell = (() => {
   const theme = signal(document.documentElement.dataset.theme || 'light'), THEMES = [['Light', 'light'], ['Dark', 'dark']];
   function setTheme(t, keep = true) { theme.value = t; document.documentElement.dataset.theme = t; if (keep) store.set('theme', t); }
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => { if (!store.get('theme')) setTheme(e.matches ? 'dark' : 'light', false); });
-  // The inspector: as the user left it, or 30% of the window between 300 and 384 px, so a small screen keeps its chart.
-  const insp = signal(Math.min(Math.max(280, +store.get('inspector') || Math.round(Math.min(384, Math.max(300, innerWidth * .3)))), Math.max(280, innerWidth - 320)));
+  // The inspector: as the user left it, or a quarter of the window between 280 and 360 px, so a small screen keeps its chart.
+  const insp = signal(Math.min(Math.max(280, +store.get('inspector') || Math.round(Math.min(360, Math.max(280, innerWidth * .25)))), Math.max(280, innerWidth - 320)));
   const wide = signal(false), gliding = signal(false);
   let glided = 0;
   const glide = () => { gliding.value = true; clearTimeout(glided); glided = setTimeout(() => { gliding.value = false; }, 240); };
@@ -287,7 +287,7 @@ const Shell = (() => {
     fill: 'PaintBucket', outline: 'Pen', color: 'Baseline', bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough',
     'align-left': 'AlignLeft', 'align-center': 'AlignCenter', 'align-right': 'AlignRight', layers: 'Layers', group: 'Group', ungroup: 'Ungroup',
     painter: 'Paintbrush', eraser: 'Eraser', grow: 'AArrowUp', shrink: 'AArrowDown', copy: 'Copy', paste: 'ClipboardPaste', trash: 'Trash2',
-    front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine', panel: 'PanelRight', more: 'Ellipsis', alert: 'TriangleAlert',
+    front: 'BringToFront', back: 'SendToBack', forward: 'ArrowUpFromLine', backward: 'ArrowDownFromLine', panel: 'PanelRight', more: 'Ellipsis', alert: 'TriangleAlert', play: 'Play', square: 'Square',
   };
   const lucideOf = name => typeof lucide === 'undefined' ? null : lucide[ICONS[name] ?? name];
   const icon = name => html`<svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${lucideOf(name)?.[2].map(([tag, a]) => h(tag, a)) ?? null}</svg>`;
@@ -351,7 +351,8 @@ const Shell = (() => {
   }
   document.addEventListener('pointerdown', e => {
     const open = floats.peek();
-    if (!open.length || e.target.closest?.('.float')) return;
+    // (What a popover is the way into, the date's ruler, is part of it, so a hand on it doesn't close what shows it.)
+    if (!open.length || e.target.closest?.('.float, [data-floats-on]')) return;
     const top = open.find(x => !x.parent);
     if (top?.anchor instanceof Element && top.anchor.contains(e.target)) return; // its click toggles it
     closeAll();
@@ -501,16 +502,26 @@ const Shell = (() => {
   // ---- The tooltip: names an icon-only control, and its key ----
   const tip = signal(null);
   let tipEl = null, tipTimer = 0;
+  // A yes-or-no's box says in words, pointed at, which of its states it's in, so they need no legend (dendra.md, Part 3, States).
+  const tagSaid = t => { const c = t.classList; return c.contains('pend') ? null : c.contains('yes') ? (c.contains('fx') ? 'Yes, worked out' : 'Yes, typed') : c.contains('no') ? (c.contains('fx') ? 'No, worked out' : 'No, typed') : 'Nobody has said'; };
   document.addEventListener('pointerover', e => {
+    if (e.target.classList?.contains('tag') && !e.target.dataset.tip && !e.target.closest('[data-tip]')) { const s = tagSaid(e.target); if (s) e.target.dataset.tip = s; }
     const el = e.target.closest?.('[data-tip]');
     if (el === tipEl) return;
     clearTimeout(tipTimer); tip.value = null; tipEl = el;
     if (el) tipTimer = setTimeout(() => { if (el.isConnected) tip.value = el; }, 600);
   });
   document.addEventListener('pointerdown', () => { clearTimeout(tipTimer); tip.value = null; }, true);
+  // The hand last used: a ring is for the keys, whatever gave what's focused its focus (dendra.md, Part 3, States; the stylesheet).
+  const hands = document.documentElement;
+  hands.dataset.hand = 'mouse';
+  addEventListener('pointerdown', () => { hands.dataset.hand = 'mouse'; }, true);
+  // (By what goes from one thing to another: not Enter or Esc, which end what's being done, nor an arrow that nudges what's on the chart.)
+  addEventListener('keydown', e => { if (/^(Tab|Home$|End$|Page|F6$|F8$)/.test(e.key) || (e.key.startsWith('Arrow') && !e.target.closest?.('.dc'))) hands.dataset.hand = 'keys'; }, true);
   function Tip() {
     const el = tip.value, ref = useRef();
-    useLayoutEffect(() => { if (!el) return; ref.current.showPopover?.(); return place(el, ref.current, 'bottom', 6); }, [el]);
+    // (In the panel, over the view beside it: under a row it would cover the next, which is what's read next.)
+    useLayoutEffect(() => { if (!el) return; ref.current.showPopover?.(); return place(el, ref.current, el.closest('.inspector') ? 'left' : 'bottom', 6); }, [el]);
     return el ? html`<div class="float tip" popover="manual" role="tooltip" ref=${ref}>${el.dataset.tip}${el.dataset.keys ? html`<kbd>${el.dataset.keys}</kbd>` : null}</div>` : null;
   }
 
@@ -532,7 +543,39 @@ const Shell = (() => {
 
   // ---- Dialogs, on <dialog>: modal, named by their title ----
   let did = 0;
-  function dialog({ title, body, actions = [{ label: 'OK', value: true, primary: true }], width }) {
+  // One dropdown, in a dialog as anywhere: a button that says what's chosen, its list the window's menu, in the top layer inside the
+  // dialog (nothing outside a modal dialog takes a click). The arrows and Enter go through it, Esc closes it alone. options: [[value, label]].
+  function Pick({ label, value, options, onPick, wide }) {
+    const [open, setOpen] = useState(false), [at, setAt] = useState(0), btn = useRef(), list = useRef();
+    const said = options.find(([v]) => v === value)?.[1] ?? options[0]?.[1] ?? '';
+    const show = () => { setAt(Math.max(0, options.findIndex(([v]) => v === value))); setOpen(true); };
+    const take = v => { setOpen(false); btn.current?.focus({ preventScroll: true }); if (v !== value) onPick(v); };
+    useLayoutEffect(() => {
+      const el = list.current;
+      if (!open || !el) return;
+      el.showPopover?.();
+      const b = btn.current.getBoundingClientRect(), h = el.offsetHeight, below = innerHeight - b.bottom - 8;
+      Object.assign(el.style, { left: `${b.left}px`, top: `${below >= h || b.top < h ? b.bottom + 2 : b.top - h - 2}px`, minWidth: `${b.width}px` });
+      el.focus({ preventScroll: true });
+      const away = e => { if (!el.contains(e.target) && !btn.current?.contains(e.target)) setOpen(false); };
+      document.addEventListener('pointerdown', away, true);
+      return () => document.removeEventListener('pointerdown', away, true);
+    }, [open]);
+    const keys = e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setAt((at + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length); }
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); take(options[at][0]); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); btn.current?.focus({ preventScroll: true }); }
+      else if (e.key === 'Tab') setOpen(false);
+    };
+    return html`<span class=${'pick' + (wide ? ' wide' : '')}>
+      <button type="button" class="btn dd" ref=${btn} aria-label=${label} data-value=${value} aria-haspopup="listbox" aria-expanded=${open} onClick=${() => open ? setOpen(false) : show()}
+        onKeyDown=${e => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); show(); } }}><span>${said}</span></button>
+      ${open ? html`<div class="menu pick-list" popover="manual" role="listbox" tabindex="-1" aria-label=${label} ref=${list} onKeyDown=${keys}>
+        ${options.map(([v, name], i) => html`<div class=${'menu-item' + (i === at ? ' on' : '')} role="option" data-value=${v} aria-selected=${v === value} onPointerMove=${() => setAt(i)} onClick=${() => take(v)}><span class="check">${v === value ? icon('check') : null}</span><span class="label">${name}</span></div>`)}
+      </div>` : null}
+    </span>`;
+  }
+  function dialog({ title, body, actions = [{ label: 'Done', value: true, primary: true }], width }) {
     return new Promise(resolve => {
       const el = document.createElement('dialog'), head = 'dlg' + ++did;
       el.className = 'dlg';
@@ -598,7 +641,8 @@ const Shell = (() => {
     if (!fresh && el.matches(':hover')) return;
     const was = el.style.translate;
     el.style.translate = '';
-    const r = el.getBoundingClientRect(), hit = busy(), gap = 16;
+    // (And clear of what's drawn on a chart, at the page's foot or what was just made, where it can be.)
+    const r = el.getBoundingClientRect(), hit = [...busy(), ...[...document.querySelectorAll('#view .x6-node')].filter(n => n.getAttribute('data-cell-id') !== '·page').map(n => n.getBoundingClientRect())], gap = 16;
     const at = [[0, 0], [view.left + gap - r.left, 0], [view.right - gap - r.right, 0], [0, view.top + gap - r.top]];
     const cost = ([dx, dy]) => hit.reduce((s, b) => s + overlap(new DOMRect(r.left + dx, r.top + dy, r.width, r.height), b), 0);
     const [dx, dy] = at.find(p => !cost(p)) ?? at.reduce((x, p) => cost(p) < cost(x) ? p : x);
@@ -782,6 +826,7 @@ const Shell = (() => {
     };
     return html`<div class=${'main' + (wide.value ? ' wide' : '') + (away.value ? ' shut' : '') + (gliding.value ? ' anim' : '')} style=${`--insp:${insp.value}px`}>
       <div class="view" id="view" role="tabpanel" aria-labelledby=${v ? 'tab-' + v.id : null} data-region="view" tabindex="-1" aria-hidden=${wide.value ? 'true' : null}>
+        <${Bar} kind="formulabar" />
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
         ${bare ? html`<div class="empty void"><button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button></div>` : null}
@@ -981,7 +1026,6 @@ const Shell = (() => {
     <div class="shell">
       <${TitleBar} />
       <${Bar} kind="formatbar" hidden=${current.value?.layout === 'table' || wide.value} />
-      <${Bar} kind="formulabar" />
       <${Main} />
       <footer class="foot" data-region="tabs"><${Sheets} /><${Status} /></footer>
     </div>
@@ -1054,7 +1098,7 @@ const Shell = (() => {
 
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
-    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, confirm, toast, find, icon, iconMarkup, store, nameChart,
+    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart,
     widen, narrow, wide, gliding, showPanel, theme, setTheme, html, h, signal, computed, effect, parts: reg,
     problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n) })), listProblems: kind => listOf(kind),
     aside: c => { aside.value = c; },

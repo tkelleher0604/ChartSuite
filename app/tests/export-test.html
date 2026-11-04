@@ -829,18 +829,22 @@ async function run() {
     const doc = await exported('pdf', everyView);
     Store.who = was;
     const raw = new TextDecoder('latin1').decode(await doc.blob.arrayBuffer());
-    check('a PDF of every view the dialog writes is titled for the chart, by whoever exported it, its name saying what’s in it', doc.name === `${chart} - ${charts[0].name} to ${charts.at(-1).name}.pdf` && raw.includes(`/Title (${chart})`) && raw.includes(`/Author (${WHO})`)
+    check('a PDF of every view the dialog writes is titled for the chart, by whoever exported it, and named for the chart alone, nothing left out to say', doc.name === `${chart}.pdf` && raw.includes(`/Title (${chart})`) && raw.includes(`/Author (${WHO})`)
       && (raw.match(/\/Type \/Page\b(?!s)/g) ?? []).length === A.views.peek().filter(v => v.layout === 'chart').length, `${doc.name}: ${/\/Author \([^)]*\)/.exec(raw)?.[0]}`);
     // The dialog remembers, for the chart, what it last exported: opened again, it's on that format and those views, on
     // the page's paper; and it offers every paper there is.
     const dlg = () => W.document.querySelector('dialog.dlg'), cancel = async done => { dlg().querySelector('.dlg-foot .btn:not(.primary)').click(); await done; };
     let opening = X.open();
     await until(() => dlg()?.querySelector('.btn.primary'));
-    const sel = l => dlg().querySelector(`select[aria-label="${l}"]`), ticked = () => [...dlg().querySelectorAll('.ex-views input')].map(b => b.checked);
-    const pickIn = async (s, v) => { s.value = v; s.dispatchEvent(new W.Event('change', { bubbles: true })); await tick(60); }, saying = () => [...dlg().querySelectorAll('.ex-says')].map(p => p.textContent).join(' | ');
+    // (The window's own dropdown, Shell.Pick: its button says what's chosen, and a click opens its list.)
+    const pickOf = (root, l) => { const b = root.querySelector(`.pick > button[aria-label="${l}"]`); return { button: b, value: b.dataset.value, text: b.textContent.trim() }; };
+    const sel = l => pickOf(dlg(), l), ticked = () => [...dlg().querySelectorAll('.ex-views input')].map(b => b.checked);
+    const pickIn = async (s, v) => { s.button.click(); await tick(40); s.button.closest('.pick').querySelector(`.pick-list [data-value="${v}"]`).click(); await tick(60); }, saying = () => [...dlg().querySelectorAll('.ex-says')].map(p => p.textContent).join(' | ');
+    const optionsOf = async s => { s.button.click(); await tick(40); const names = [...s.button.closest('.pick').querySelectorAll('.pick-list .label')].map(o => o.textContent); s.button.click(); await tick(40); return names; };
     check('Export opened again is on what it last exported, PDF and every view, on the page’s paper', sel('Format').value === 'pdf' && ticked().length === charts.length && ticked().every(Boolean) && sel('Page size').value === 'slide',
       `${sel('Format').value} ${ticked()} ${sel('Page size').value}`);
-    check('… and offers every paper there is', [...sel('Page size').options].map(o => o.textContent).join() === 'Slide 16:9,Letter,Legal,Tabloid 11×17,A4,A3', [...sel('Page size').options].map(o => o.textContent).join());
+    const papersOffered = (await optionsOf(sel('Page size'))).join();
+    check('… and offers every paper there is', papersOffered === 'Slide 16:9,Letter,Legal,Tabloid 11×17,A4,A3', papersOffered);
     check('… saying nothing of the paper while it’s the page’s', !saying().includes('for this file only'), saying());
     await pickIn(sel('Page size'), 'legal');
     check('another paper is said to be for this file alone', saying().includes('Legal for this file only. The page stays Slide 16:9.'), saying());
@@ -849,7 +853,7 @@ async function run() {
     // The views a checklist: Structure and Fund III alone, on Tabloid, for this file.
     const pickTwo = async d => {
       for (const [i, box] of [...d.querySelectorAll('.ex-views input')].entries()) if (box.checked !== [0, 2].includes(i)) { box.click(); await tick(60); }
-      const s = d.querySelector('select[aria-label="Page size"]'); s.value = 'tabloid'; s.dispatchEvent(new W.Event('change', { bubbles: true })); await tick(60);
+      await pickIn(pickOf(d, 'Page size'), 'tabloid');
     };
     await cancel(opening);
     const two = await exported(undefined, pickTwo), twoRaw = new TextDecoder('latin1').decode(await two.blob.arrayBuffer());
@@ -911,7 +915,7 @@ async function run() {
     await until(() => dlg()?.querySelector('.btn.primary'));
     const says = () => dlg().querySelector('.ex-says')?.textContent ?? '', asShown = says();
     [...dlg().querySelectorAll('.ex-rows button')].find(b => b.textContent === 'Every row')?.click(); await tick(60);
-    check('A table’s file says what it writes, as shown or every row', sel('Format').selectedOptions[0]?.textContent === 'Excel' && /^All \d+ entities; \d+ columns, in their order$/.test(asShown)
+    check('A table’s file says what it writes, as shown or every row', sel('Format').text === 'Excel' && /^All \d+ entities; \d+ columns, in their order$/.test(asShown)
       && /^All \d+ entities; \d+ columns, in their order$/.test(says()), `${asShown} | ${says()}`);
     await cancel(opening);
     S.show(back); await tick(200);
@@ -919,7 +923,7 @@ async function run() {
     // Page setup: the view's paper and which way it's turned, one change, the canvas drawing that page; the footer the chart's.
     const setUp = async pick => { const done = X.setup(); await until(() => dlg()?.querySelector('.btn.primary')); await pick(dlg()); await tick(120); dlg().querySelector('.btn.primary').click(); await done; await tick(300); };
     const changes0 = A.wb.changes().length, wasPage = A.scene.peek().page, boxes0 = j(A.scene.peek().marks.filter(m => m.type === 'box').map(b => [b.id, b.x, b.y]));
-    await setUp(async d => { await pickIn(d.querySelector('select[aria-label="Paper"]'), 'legal'); });
+    await setUp(async d => { await pickIn(pickOf(d, 'Paper'), 'legal'); });
     const legal = A.scene.peek();
     check('Page setup puts the view on its paper as one change, and the canvas draws that page', legal.page.size === 'legal' && legal.page.sheet.w === 1344 && legal.page.sheet.h === 816 && A.wb.changes().length === changes0 + 1, j([legal.page.size, legal.page.sheet, A.wb.changes().length - changes0]));
     opening = X.open();
