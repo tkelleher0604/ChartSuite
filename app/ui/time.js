@@ -325,7 +325,8 @@ const Time = (() => {
   // from Fund III Blocker to Northwind Holdings LLC on Nov 1, 2026"; one without an amount, by its option or its name.
   const FIGURES = new Set(['number', 'percent', 'money']);
   function transferIn(all, rec, recs, N) {
-    const pair = r => r?.args?.length === 2 && recs[r.args[0].at] && recs[r.args[1].at];
+    // A relation of two sides, neither itself a relation: what evidences a stake ends with it, and isn't what's transferred.
+    const pair = r => r?.args?.length === 2 && r.args.every(a => recs[a.at] && !recs[a.at].args);
     // Its amount's item, of those at it: the first figure, in its entries' order.
     const order = i => N.order(Tree.treeOf(recs, i.id) ?? {}) ?? Infinity;
     const amountAt = rel => all.filter(i => i.type === 'record' && rec(i).at === rel && FIGURES.has(rec(i).field)).sort((a, b) => order(a) - order(b) || rec(a).edge.localeCompare(rec(b).edge))[0];

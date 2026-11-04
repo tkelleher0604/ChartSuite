@@ -644,6 +644,22 @@ function renaming() {
   check('TEXT sets a date and a number as Excel does, and @AsOf is the day given', at('="As of " & TEXT(@AsOf, "mmmm d, yyyy")') === 'As of October 26, 2026'
     && at('=TEXT(0.716, "0.0%")') === '71.6%' && at('=TEXT(1234.5, "$#,##0")') === '$1,235' && at('=TEXT(@AsOf, "mmm d")') === 'Oct 26', at('=TEXT(1234.5, "$#,##0")'));
   check('What each definition uses', before.uses.def_look_through?.includes('def_look_through') === false && before.uses.def_close?.includes('def_affiliated'), JSON.stringify(before.uses.def_close));
+
+  // One Evidence relation, its Evidenced side open: Evidenced By reads the same on an ownership, a position and a signing
+  // authority, and the rule that reads it goes on working.
+  {
+    const count = (R2, at, list) => Formulas.evaluateAt(R2, `= COUNT([${list}])`, at, {}), names = (at, list) => count(before, at, list);
+    const each = [names('own_fund_blkr', 'Evidenced By'), names('pos_chen_caygp', 'Evidenced By'), names('sign_chen_fund', 'Evidenced By'), names('own_chen_gp', 'Evidenced By')];
+    check('A stock certificate evidences an ownership, by the one Evidenced By a position and a signing authority have', each.join() === '1,1,1,0', each.join());
+    const docs = [names('doc_gp_llca', 'Evidences'), names('doc_cert_blk', 'Evidences'), names('doc_caygp_ma', 'Evidences')];
+    check('… and Evidences lists all of them from the document', docs.join() === '5,1,3', docs.join());
+    const capacity = Object.keys(before.records).find(x => before.records[x].at === 'sign_okfr_fund' && before.records[x].edge === 'Capacity');
+    const authorize = tx => tx.set(capacity, { at: 'sign_okfr_fund', edge: 'Capacity', choice: 'Authorized Signatory' });
+    const authorized = renamed(authorize, '§none').R, evidenced = renamed(tx => { authorize(tx); tx.add('record', { args: [{ edge: 'Document', at: 'doc_gp_llca' }, { edge: 'Evidenced', at: 'sign_okfr_fund' }], tag: true }); }, '§none').R;
+    const held = R2 => { const id = Object.keys(R2.records).find(x => R2.records[x].at === 'sign_okfr_fund' && R2.records[x].edge === 'Capacity Held'); return id ? R2.records[id].tag : null; };
+    check('Capacity Held’s Authorized Signatory row reads Evidenced By: held only with a document', held(authorized) === false && held(evidenced) === true, `${held(authorized)} ${held(evidenced)}`);
+    check('… and the document it adds is counted there', count(evidenced, 'sign_okfr_fund', 'Evidenced By') === 1 && count(evidenced, 'doc_gp_llca', 'Evidences') === 6);
+  }
 }
 
 function runAll() {

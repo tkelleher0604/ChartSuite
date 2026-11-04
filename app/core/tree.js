@@ -94,8 +94,13 @@ const entryAt = (recs, id, edge) => (index(recs).entries.get(id) ?? []).find(e =
 // ---- Patterns ----
 
 const specs = new WeakMap(), keys = new WeakMap(), shapes = new WeakMap();
+// A location a pattern leaves open: any record fits there, of whatever shape, so one relation has a side of several
+// kinds of record (dendra.md, Notes). Evidence's Evidenced is open: an ownership, a position or a signing authority.
+const OPEN = Object.freeze({ open: true });
+const opens = new WeakMap();
+const isOpen = t => remember(opens, t, () => !!t.open || !!t.args?.some(a => isOpen(a.loc)));
 // A tree's specification: its objects become their kinds, and a value its datatype.
-const specOf = t => remember(specs, t, () => !t.args ? (t.kind === undefined ? {} : { kind: t.kind })
+const specOf = t => remember(specs, t, () => t.open ? t : !t.args ? (t.kind === undefined ? {} : { kind: t.kind })
   : { ...(t.out && { out: 'value' in t.out ? { field: t.out.field } : t.out }), args: t.args.map(a => ({ edge: a.edge, loc: specOf(a.loc) })) });
 // A tree with its root's label removed: from a specification, its parameterization.
 const bare = t => t.args ? { args: t.args } : {};
@@ -105,11 +110,11 @@ const outKey = o => !o ? '*' : 'tag' in o ? `tag:${o.tag}` : 'choice' in o ? `ch
 const argKeys = (t, f) => t.args.map(a => JSON.stringify([norm(a.edge), f(a.loc)])).sort();
 // A pattern's key; a specification's is the specification key formulas.js uses.
 const key = t => remember(keys, t, () => t.args ? JSON.stringify([outKey(t.out), ...argKeys(t, key)])
-  : t.id !== undefined ? `id:${t.id}` : t.kind !== undefined ? `kind:${norm(t.kind)}` : '*');
+  : t.open ? '?' : t.id !== undefined ? `id:${t.id}` : t.kind !== undefined ? `kind:${norm(t.kind)}` : '*');
 // The key of its parameterization, as formulas.js keys what a definition covers.
 const paramKey = t => t.args ? JSON.stringify(argKeys(specOf(t), key)) : '[]';
-// Its edges with every label removed. A tree fits only patterns of its shape.
-const shapeOf = t => remember(shapes, t, () => t.args ? JSON.stringify(argKeys(t, shapeOf)) : '*');
+// Its edges with every label removed. A tree fits only patterns of its shape, or one leaving a location open.
+const shapeOf = t => remember(shapes, t, () => t.args ? JSON.stringify(argKeys(t, shapeOf)) : t.open ? '?' : '*');
 // How many labels it keeps, an object or value counting double: strictly narrower patterns weigh more.
 const weight = t => t.args ? (t.out ? ('value' in t.out ? 2 : 1) : 0) + t.args.reduce((n, a) => n + weight(a.loc), 0)
   : t.id !== undefined ? 2 : t.kind !== undefined ? 1 : 0;
@@ -119,6 +124,8 @@ const outFits = (o, q) => 'tag' in q ? o.tag === q.tag : 'choice' in q ? 'choice
 // Whether q is obtained from p by replacing objects with kinds, values with datatypes, and removing labels.
 // A record fits a pattern when its tree is narrower.
 function narrower(p, q) {
+  if (q.open) return true;
+  if (p.open) return false;
   if (!p.args || !q.args) return !p.args && !q.args
     && (q.id !== undefined ? p.id === q.id : q.kind === undefined || (p.kind !== undefined && same(p.kind, q.kind)));
   if ((q.out && !(p.out && outFits(p.out, q.out))) || p.args.length !== q.args.length) return false;
@@ -253,7 +260,8 @@ function format(datatype, v) {
 }
 // How a record's output reads: a value as its datatype reads, an option as itself, a tag Yes or No.
 const outputText = r => isField(r) ? format(r.field, r.value) : isChoice(r) ? r.choice : isTag(r) ? (r.tag ? 'Yes' : 'No') : '';
-const plural = w => /[^aeiou]y$/i.test(w) ? w.slice(0, -1) + 'ies' : /(s|x|z|ch|sh)$/i.test(w) ? w + 'es' : w + 's';
+// A word's plural: Entities, Taxes, Statuses, Addresses, Analyses; one already plural (ERISA Plan Assets, Cayman Islands) is itself.
+const plural = w => /[^aeiou]y$/i.test(w) ? w.slice(0, -1) + 'ies' : /sis$/i.test(w) ? w.slice(0, -2) + 'es' : /[^su]s$/i.test(w) ? w : /(s|x|z|ch|sh)$/i.test(w) ? w + 'es' : w + 's';
 
 // ---- Links: what a document's address points at, from the address alone ----
 
@@ -354,7 +362,7 @@ return {
   clean, norm, same,
   isObject, isField, isTag, isChoice, isRelation, isView, typeOf, argsOf, rootLabel,
   treeOf, index, dependents, pathOf, objectOf, entryAt,
-  specOf, bare, key, paramKey, shapeOf, weight, narrower, fits, idsIn, renamed, rename, lift,
+  specOf, bare, key, paramKey, shapeOf, weight, narrower, fits, idsIn, renamed, rename, lift, OPEN, isOpen,
   // A record's parameterization key, as formulas.js keys what a definition covers.
   parameterization: (recs, id) => { const t = treeOf(recs, id); return t && paramKey(t); },
   schema, schemaError,

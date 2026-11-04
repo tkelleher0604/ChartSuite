@@ -42,7 +42,9 @@ The log as it stood at a moment keeps only the changes made by then. So a chart 
 
 ### Notes
 
-A **pattern** is a tree obtained from a record by replacing some of its objects with their kinds, its value (if it has one) with its datatype, and removing the labels of some of its nodes. A record **fits** each pattern obtained from it this way, and a pattern p is **narrower** than q if q can be obtained from p this way. A specification and a parameterization are patterns, and so is every record.
+A **pattern** is a tree obtained from a record by replacing some of its objects with their kinds, its value (if it has one) with its datatype, and removing the labels of some of its nodes. A record **fits** each pattern obtained from it this way, and a pattern p is **narrower** than q if q can be obtained from p this way. A specification and a parameterization are patterns, and so is every record. A pattern may also leave a location **open**, all of what's below it taken away: any record fits there, whatever its shape, and a pattern with one is wider than any it could be filled in as.
+
+So one relation can have a side of several kinds of record, its name a note at one pattern. **Evidence** is one: a document, and what it evidences, Evidenced, open. Its specifications say what can be evidenced, an ownership (of any owner), a position (of any option) or a signing authority; its name, its two lists (Evidences from the document, Evidenced By from what it evidences), its one table and its one column are the pattern's. Evidence read by a definition is one list wherever it's read (the Authorized Signatory row of Capacity Held), and a record it evidences reads it among its documents. It ends with what it evidences, and isn't what a transfer moves: the new holder's is a new certificate. Where such a side is shown, it's said by the place rule ("Margaret A. Chen for Fund III, via GP III"), and can't be typed there by name.
 
 **View** is a kind every chart has, the app's own, never listed among the chart's kinds.
 

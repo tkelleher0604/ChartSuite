@@ -9,7 +9,8 @@ Classic scripts, each exposing one global and touching no page: `Tree` (tree.js)
 
 **Trees.** Specifications, patterns and a record's own tree are nested:
 - an object node: `{ id, kind }` an object, `{ kind }` a kind, `{}` unlabeled;
-- any other node: `{ out, args: [{ edge, loc }] }`, where `out` is `{ field, value }` a value, `{ field }` a datatype, `{ choice }` or `{ tag }`, and is absent where the label is removed.
+- any other node: `{ out, args: [{ edge, loc }] }`, where `out` is `{ field, value }` a value, `{ field }` a datatype, `{ choice }` or `{ tag }`, and is absent where the label is removed;
+- in a pattern only, `{ open: true }` (`Tree.OPEN`), a location left open: any record fits it, whatever its shape, so one relation has a side of several kinds of record. A relation's one pattern, for a tree of it, is `N.relationPattern(t)`: its Name note's, where that leaves a side open (Evidence), else the tree with its labels removed. A record is at it by its id as usual: Evidence is `{ args: [{ edge: 'Document', at: docId }, { edge: 'Evidenced', at: ownershipOrPositionOrSigningId }], tag: true }`.
 
 Edges keep their labels; argument order doesn't matter.
 

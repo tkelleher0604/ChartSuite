@@ -109,16 +109,17 @@ const Table = (() => {
     for (const s of Object.values(S)) if (s.args?.length === 2 && s.out && !('field' in s.out)) for (const mine of s.args) {
       const other = s.args.find(a => a !== mine), minePath = pathTo(mine.loc), kind = root(other.loc);
       if (!minePath || kind === undefined || docs.has(norm(kind))) continue;
-      const pattern = shape(s), title = N.listName(pattern, other.edge), k = Tree.key(pattern) + '|' + norm(other.edge);
+      const pattern = N.relationPattern(s), title = N.listName(pattern, other.edge), k = Tree.key(pattern) + '|' + norm(other.edge);
       if (!lists.has(k)) lists.set(k, { key: '~' + norm(title), title, type: 'list', pattern, param: other.edge, mine: mine.edge, other: other.edge, minePath, up,
         otherLoc: shape(other.loc), kinds: new Set(), kindNames: [], base: [Infinity, Infinity, Infinity], fx: !!N.resolve('Formula', pattern), choice: false,
-        reach: N.name(other.loc), onRelation: other.loc.args?.length > 1 });
+        reach: N.name(other.loc) });
       const c = lists.get(k);
       if (!c.kinds.has(norm(kind))) { c.kinds.add(norm(kind)); c.kindNames.push(kind); }
-      if ('choice' in s.out) c.choice = true;
+      // A side that's a relation (Evidence's Evidenced) is read in the cell by its place, and can't be named there.
+      if ('choice' in s.out || other.loc.args?.length > 1) c.choice = true;
     }
     // Two lists of one name are told apart by the side they're seen from; of one side, by what they reach, as their
-    // headings and the Columns list say (Position › Evidences, Signing Authority › Evidences).
+    // headings and the Columns list say (Entity › Agents, Investor Group › Agents).
     const out = [...lists.values()], alike = () => { const n = new Map(); for (const c of out) n.set(c.key, (n.get(c.key) ?? 0) + 1); return k => n.get(k) > 1; };
     const sided = alike();
     for (const c of out) if (sided(c.key)) c.key += '|' + norm(c.mine);
@@ -633,7 +634,7 @@ const Table = (() => {
         hozAlign: right, headerHozAlign: right, cssClass: 'c-' + (c.key === '$why' ? 'why' : c.type === 'edge' ? 'edge' : c.type) + (look.filters?.[c.key] ? ' filtered' : '') + (look.sort?.key === c.key ? ' sorted' : ''),
         sorter: sorter(c),
         formatter: formatter(c),
-        editable: cell => !App.readOnly.peek() && !current?.red && (c.type === 'list' ? !c.fx && !c.choice && !c.onRelation && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
+        editable: cell => !App.readOnly.peek() && !current?.red && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
         editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? chooser(c) : editor(c, put),
         accessorClipboard: (v, d) => plain(typeOf(c, d), v), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), v)),
       };
@@ -1093,7 +1094,7 @@ const Table = (() => {
     if (!c || !m) return null;
     if (c.type === 'edge') return clean(raw) ? { side: [cell.getRow().getData().id, c.edge, raw] } : null;
     if (c.key === '$why') return null;
-    if (c.type === 'list') return m.at && !c.fx && !c.choice && !c.onRelation && namesIn(raw).join('\n') !== (m.names ?? []).join('\n') ? { list: [cell.getRow().getData().id, c, raw] } : null;
+    if (c.type === 'list') return m.at && !c.fx && !c.choice && namesIn(raw).join('\n') !== (m.names ?? []).join('\n') ? { list: [cell.getRow().getData().id, c, raw] } : null;
     const s = clean(raw);
     if (!s) return entered ? { gone: m.id } : null;
     const out = value(typeFor(c, r, s), s);
@@ -1380,7 +1381,7 @@ const Table = (() => {
       for (const [c, raw] of lists) {
         let at = c.up ? (records[row] ?? st[row])?.at : row;
         for (const e of c.minePath) at = at && childAt(at, e);
-        if (!at || c.fx || c.choice || c.onRelation) { if (clean(raw)) x.skipped++; continue; }
+        if (!at || c.fx || c.choice) { if (clean(raw)) x.skipped++; continue; }
         const had = st[at] ? relativesIn(st, at, c) : [], want = [];
         for (const name of namesIn(raw)) {
           const o = asId(name) ?? find(st, name, c.kinds) ?? made.get(loose(name)) ?? (refused(wrongKind(c.kinds, c.kindNames, name)) ? null : make(name, as.get(loose(name))?.kind ?? listKind(m, c), c.kinds, false, c.kindNames));
