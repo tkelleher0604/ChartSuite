@@ -685,6 +685,14 @@ async function run() {
     check('A column filtered as Excel filters it, Select all off and Cayman Islands on, shows just its rows; its heading shows a funnel, and the bar says so, with Clear filters, and how many of how many',
       JSON.stringify(Table.look(ent).filters) === '{"jurisdiction":["Cayman Islands"]}' && cayman > 0 && active() === cayman && column('Jurisdiction').getElement().classList.contains('filtered')
       && !!tool('Filtered by Jurisdiction') && !!tool('Clear filters') && $('.tbar .tcount').textContent.startsWith(`${cayman} of `), `${JSON.stringify(Table.look(ent).filters)} ${active()} ${$('.tbar').textContent}`);
+    // A file said to be filtered holds what the filter leaves as things now stand, though a row kept under the cursor stays on the screen.
+    {
+      const data = Table.grid.getRows('active')[0].getData(), juris = data['f:jurisdiction'];
+      data['f:jurisdiction'] = 'Maryland';
+      const wbK = await Table.workbook(), rowsK = XLSX.utils.sheet_to_json(wbK.Sheets[wbK.SheetNames[0]], { header: 1, blankrows: false });
+      check('A row that no longer passes its filter stays on the screen and isn’t in the file, its first line counting it out', active() === cayman && rowsK.length === cayman + 1 && !rowsK.some(r => r.includes('Maryland')) && new RegExp(`\\b${cayman - 1} of `).test(String(rowsK[0][0])), `${cayman} ${rowsK.length} ${rowsK[0][0]}`);
+      data['f:jurisdiction'] = juris;
+    }
     await again();
     check('… kept, and so after the grid is built again', active() === cayman && column('Jurisdiction').getElement().classList.contains('filtered'), active());
     tool('Clear filters').click(); await tick(100);

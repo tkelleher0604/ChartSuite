@@ -2818,8 +2818,10 @@ const Table = (() => {
   });
 
   // What a file of the table writes, as its Export and its first line say it: its rows, filtered by what, sorted how, and what's ended that it leaves out.
+  // What a filter leaves by what's there now: a row kept under the cursor that no longer passes it stays on the screen, and isn't in a file said to be filtered.
+  const stands = () => { const p = filterOf(current), ds = table.getRows('active').map(r => r.getData()); return p ? ds.filter(p) : ds; };
   function rowsWords(all = false) {
-    const m = current, l = lookOf(m.view), by = k => m.cols.find(c => c.key === k), n = table.getRows().length, shown = table.getRows('active').length;
+    const m = current, l = lookOf(m.view), by = k => m.cols.find(c => c.key === k), n = table.getRows().length, shown = stands().length;
     const said = k => { const c = by(k), on = l.filters[k]; if (!c) return null; if (!Array.isArray(on)) return `${headed(c)} (${rangeWords(on)})`; const vs = on.map(v => v === null ? 'Blank' : c.type === 'list' ? v : text(c.type, v)); return `${headed(c)} (${vs.length > 3 ? `${vs.length} values` : vs.join(', ')})`; };
     const fs = Object.keys(l.filters ?? {}).map(said).filter(Boolean), s = !all && l.sort && by(l.sort.key), sorted = s && drawn(s) ? s : null;
     const left = !l.ended && m.ended?.length ? `; leaves out ${m.ended.length} ended (${m.ended.length > 2 ? count(m.ended.length, m.noun) : m.ended.map(e => `${e.name}, ${Tree.formatDate(e.day, 'short')}`).join('; ')})` : '';
@@ -2858,7 +2860,7 @@ const Table = (() => {
   }
   function sheet(X, all = false) {
     const m = current, cols = table.getColumns().filter(c => c.getField()).map(col => [col, m.byField.get(col.getField())]).filter(([, c]) => c), look = lookOf(m.view);
-    const rows = (all ? table.getRows() : table.getRows('active')).map(r => r.getData()).filter(d => d._red !== 'add');
+    const rows = (all ? table.getRows().map(r => r.getData()) : stands()).filter(d => d._red !== 'add');
     const value = (d, c) => { const mm = d._m[field(c)]; return mm && 'was' in mm ? mm.was : d[field(c)]; };
     const needs = App.needs.peek(), st = App.state.peek(), kinds = new Map(), requires = needs.filter(a => a.kind === 'blank' && !a.error);
     for (const a of needs) { if (!kinds.has(a.id)) kinds.set(a.id, new Set()); kinds.get(a.id).add(a.kind); if (a.kind === 'error' && !a.error && st[a.id]?.at) { const k = `at:${st[a.id].at}`; if (!kinds.has(k)) kinds.set(k, new Set()); kinds.get(k).add(st[a.id].edge); } }
@@ -2870,7 +2872,7 @@ const Table = (() => {
       ws[at(1, j)] = { t: 's', v: headed(c) };
       rows.forEach((d, i) => {
         const v = value(d, c), type = typeOf(c, d), ref = at(i + 2, j), mm = d._m[field(c)], f = c.path?.at(-1) ?? c.title;
-        const mark = mm?.id && kinds.get(mm.id)?.has('overdue') ? 'overdue' : mm?.id && kinds.get(mm.id)?.has('soon') ? 'soon' : mm?.id && failing.has(mm.id) ? 'fail' : mm?.over ? 'over' : c.key === '$why' ? 'wrap' : null;
+        const mark = mm?.id && kinds.get(mm.id)?.has('overdue') ? 'overdue' : mm?.id && kinds.get(mm.id)?.has('soon') ? 'soon' : mm?.id && failing.has(mm.id) ? 'fail' : mm?.over ? 'over' : mm?.cant ? 'soon' : c.key === '$why' ? 'wrap' : null;
         if (mark) marks.set(ref, mark);
         // (What the rule says, why, who and until when, as its note.)
         if (mm?.over && mm.id) { const o = App.overOf(mm.id); ws[ref] = { c: Object.assign([{ a: o?.who ?? 'Dendra', t: `Typed over: the rule ${App.ruleSaid(mm.id)}.${o?.why ? ` ${o.why}.` : ''}${o?.until ? ` Until ${Tree.formatDate(o.until, 'short')}.` : ''}${o ? ` ${o.who}, ${Tree.formatDate(Tree.isoOf(new Date(o.when)), 'short')}.` : ''}` }], { hidden: true }) }; }
@@ -3092,7 +3094,7 @@ const Table = (() => {
       const writes = all => { const m = current, cols = table.getColumns().filter(c => c.getField() && m.byField.get(c.getField())).length;
         return `${rowsWords(all)}; ${count(cols, 'column')}, in their order`; };
       const offs = [Shell.register('export', { name: 'Excel', says: writes, run: ({ all } = {}) => table && excel(all).catch(e => Shell.toast(e?.message || 'Couldn’t export')) }),
-        Shell.register('export', { name: 'CSV', says: writes, run: ({ all } = {}) => { table?.download('csv', fileName('csv'), { bom: true }, all ? 'all' : 'active'); Shell.toast(`Downloaded ${fileName('csv')}`); } })];
+        Shell.register('export', { name: 'CSV', says: writes, run: ({ all } = {}) => { table?.download('csv', fileName('csv'), { bom: true }, all ? 'all' : () => stands().map(d => d.id)); Shell.toast(`Downloaded ${fileName('csv')}`); } })];
       unexport = () => offs.forEach(f => f());
     }
     if (!on && unexport) { unexport(); unexport = null; }
