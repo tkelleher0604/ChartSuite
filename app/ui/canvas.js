@@ -2508,7 +2508,8 @@ function mount(el) {
       tx.note('Shown', p, on ? true : undefined, { view });
       if (on && N.resolve('Format', p, view) === null && Object.values(App.schema.peek()).some(s => s.args?.length === 1 && Tree.same(s.args[0].edge, edge) && 'choice' in s.out)) tx.note('Format', p, 'label', { view });
       if (!on && N.value('Format', p, view) === 'label') tx.note('Format', p, undefined, { view });
-    }, { dated: false, say: `${on ? 'Showed' : 'Stopped showing'} ${edge} in every box that has it` }),
+      tx.says(`${on ? 'Showed' : 'Stopped showing'} ${edge} in every box that has it in ${viewName(view)}`);
+    }, { dated: false }),
     captioned: edge => App.notes.peek().value('Format', entryAnywhere(edge), viewOf()) === 'label',
     setCaptioned: (edge, on) => App.change(tx => tx.note('Format', entryAnywhere(edge), on ? 'label' : undefined, { view: viewOf() }), { dated: false, say: `${on ? 'Named' : 'Stopped naming'} ${edge} where it’s shown` }),
     light: key => { if (litKey !== key) { litKey = key; paintFields(); } },

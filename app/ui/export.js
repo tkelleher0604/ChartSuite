@@ -12,7 +12,8 @@
 //   swatch and caption for each row, named for it; a group in the chart a group; the title the slide's title; free shapes
 //   shapes like any other. A line's alt text is its name with the
 //   values its label says, as the formula bar says a fact (with a percentage of 50%). A deck's slides share one
-//   size, the smallest that holds every sheet, each in the middle of its slide.
+//   size, the smallest that holds every sheet, each in the middle of its slide. Its theme's font is the page's own
+//   (All text), its footer and number the master's, each slide's placeholders taking their place and look from there.
 // - PDF: the scene as SVG, through svg2pdf.js, compressed, in US English. Each page is its sheet, bookmarked by its
 //   title. Its text is in the faces the canvas draws it in, this computer's, embedded with only the letters used;
 //   or, where a face has a standard font's widths (Helvetica Arial's, Times Times New Roman's) or can't be read

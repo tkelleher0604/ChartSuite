@@ -3551,6 +3551,15 @@ function requiredAt(N, t, edge) {
   const byTree = asked.get(N) ?? asked.set(N, new WeakMap()).get(N), m = byTree.get(t) ?? byTree.set(t, new Map()).get(t);
   return m.get(edge) ?? m.set(edge, N.required({ args: [{ edge, loc: t }] })).get(edge);
 }
+// The entries a formula asks ISBLANK of, by which it says what's the chart's own to track (dendra.md, Ours to track). Kept while the notes stand.
+const tracked = new WeakMap();
+function tracking(N) {
+  if (tracked.has(N)) return tracked.get(N);
+  const out = new Set();
+  for (const n of N.notes('Formula')) for (const row of n.value ?? []) for (const m of String(row.formula ?? '').matchAll(/ISBLANK\(\s*\[([^\]]+)\]\s*\)/g)) out.add(normal(m[1]));
+  tracked.set(N, out);
+  return out;
+}
 function attention(R, N, day, within = 30) {
   const recs = R.records, items = [], soon = new Date(day + 'T12:00:00');
   soon.setDate(soon.getDate() + within);
@@ -3569,8 +3578,8 @@ function attention(R, N, day, within = 30) {
     const has = edges.get(id), blank = new Set();
     for (const a of required) {
       const e = normal(a.edge);
-      // (What no record of the chart has is no blank of this one: a chart with no funds isn't asked what vehicle each box is.)
-      if (!anyone.has(e) || has?.has(e) || blank.has(e) || !Tree.narrower(t, a.loc) || !requiredAt(N, t, a.edge)) continue;
+      // (What says what's the chart's own to track, which no record of it has yet, is no blank of this one: a chart with no funds isn't asked what vehicle each box is.)
+      if (has?.has(e) || blank.has(e) || (tracking(N).has(e) && !anyone.has(e)) || !Tree.narrower(t, a.loc) || !requiredAt(N, t, a.edge)) continue;
       blank.add(e);
       items.push({ kind: 'blank', id, edge: a.edge });
     }

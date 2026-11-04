@@ -2097,8 +2097,12 @@ async function format() {
   const footNow = () => App.notes.peek().value('Footer', { kind: 'View' });
   check('… a font given it is in its note, on every page, its words and numbers as they were', footNow().format?.Font === 'Garamond' && footNow().text === 'Privileged' && footNow().number === true && sc().marks.find(m => m.role === 'footer').texts[0].look.Font === 'Garamond' && sc().marks.find(m => m.role === 'number').texts[0].look.Font === 'Garamond', JSON.stringify(footNow()));
   check('… said as what it did', /font of the footer to Garamond/.test(Time.describe(App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  // Its words typed in place keep its look; a click on the number's the same note; Delete takes it off, the words going first.
+  Shell.select([Scene.NUMBER]); await tick(200);
+  check('… its number selected says so', txt($('[data-fb="own"]')) === 'The page number', txt($('[data-fb="own"]')));
+  cv().remove(true); await tick(300);
+  check('… Delete takes the numbers off, its words and look staying', footNow().text === 'Privileged' && !footNow().number && footNow().format?.Font === 'Garamond', JSON.stringify(footNow()));
   Shell.select([]); await tick(200);
-  Export.setup; // Page setup keeps its look: see export-test
   App.change(tx => tx.note('Footer', { kind: 'View' }, undefined), { dated: false }); await tick(300);
   // The Key's corner, by name, holding there; its caption the Key's own.
   const keyE = () => sc().marks.find(m => m.geometry === 'legend');
@@ -2188,6 +2192,28 @@ async function format() {
   check('a line’s sample in the Key shows its arrow', keyE().rows.find(r => r.caption.text === 'General partner').swatch.Arrow === 'end' && !!$('.dc [data-row] g path[stroke="none"], .dc [data-row] path[stroke="none"]'), JSON.stringify(keyE().rows.find(r => r.caption.text === 'General partner').swatch.Arrow));
   const pdfSvg = Export.svg(sc(), { pdf: true });
   Shell.parts.peek().undo.undo(); await tick(300);
+  // A field in every box that has it, kept true as more get it, with its name.
+  await show(stE);
+  Shell.select(['northpine']); await tick(200);
+  cv().fields.setEverywhere('Entity Type', true); await tick(500);
+  const typeText = id => sc().byId.get(id)?.texts.find(it => /Entity Type/.test(it.text))?.text;
+  check('a field shown in every box that has it says what it is', /^Entity Type: Limited Liability Company/.test(typeText('northpine') ?? '') && /^Entity Type: Corporation/.test(typeText('halvard') ?? ''), `${typeText('northpine')}`);
+  const fresh = (() => { let id; App.change(tx => { id = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: 'Later Holdings, LLC' }); tx.add('record', { at: id, edge: 'Entity Type', choice: 'Corporation' }); }); return id; })(); await tick(500);
+  check('… kept true as more get it', /^Entity Type: Corporation/.test(typeText(fresh) ?? ''), `${typeText(fresh)}`);
+  Shell.parts.peek().undo.undo(); await tick(300);
+  check('… said as what it did', /Showed Entity Type in every box that has it/.test(Time.describe(App.wb.changes().filter(c => /Entity Type in every box/.test(Time.describe(c) ?? '')).at(-1) ?? App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  Shell.parts.peek().undo.undo(); await tick(300);
+  Shell.select([]); await tick(150);
+  // A Key in a corner over a box: Tidy sets the chart clear of it, and the toast of a look that puts it there says so.
+  await show(actE);
+  App.change(tx => Canvas.keyCorner(tx, keyE().id, ['bottom', 'right']), { dated: false }); await tick(600);
+  const clearOfKey = () => { const k = keyE(); return !sc().marks.some(b => b.type === 'box' && b.x < k.x + k.w && k.x < b.x + b.w && b.y < k.y + k.h && k.y < b.y + b.h); };
+  check('(a Key put in a corner stands there over what’s there, and it’s said)', !clearOfKey() && Scene.says(sc()).some(t => t.startsWith('The Key overlaps')) && cv().tidyable(), Scene.says(sc()).join('; '));
+  cv().tidy(); await tick(900);
+  const keyStill = keyE(), keyR = sc().page.sheet.w - (keyStill.x + keyStill.w) * sc().page.scale;
+  check('… Tidy sets the chart clear of it, its Key where it was put', clearOfKey() && Math.abs(keyR - 48) < 1, `${clearOfKey()} ${keyR}`);
+  Shell.parts.peek().undo.undo(); await tick(400); Shell.parts.peek().undo.undo(); await tick(400);
+  await show(stE);
   // What a house style holds, shown; loading over the same name asks.
   await Store.keepHouseStyle({ id: 'hs3', name: 'Firm Standard', look: cornered }); await Shell.parts.peek().formatbar.relist?.(); await tick(100);
   const firm3 = FormatBar.lookMenu(stE.id).find(i => i.label === 'House style').items.find(i => i.label === 'Firm Standard');

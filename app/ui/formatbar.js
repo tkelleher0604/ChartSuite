@@ -14,7 +14,8 @@
 // spacing; the shape, its rounding and shadow; fill and transparency; outline, its weight, dashes, arrows and route;
 // each palette's eyedropper; arrange; the format painter; and Clear formatting. Its commands are the window's
 // actions, so Find reaches each and ? lists its keys. Its controls keep their places whatever's selected. With nothing
-// selected, a row of the Styles panel clicked is the scope (see aim); and house styles are here too (see below).
+// selected, the font and size go to All text, the page's own note, and a row of the Styles panel clicked is the scope (see
+// aim); and house styles are here too (see below), and what differs from its style.
 const FormatBar = (() => {
 const { h, render } = preact;
 const html = htm.bind(h);
