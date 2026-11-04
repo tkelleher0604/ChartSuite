@@ -62,7 +62,11 @@
 // App.discard(), which says so, with Redo; App.Pending, its bar, the window's one, which the shell shows under
 // whichever view is shown, and App.Asking, its controls where it was asked; App.workOn(day), another day's working-out,
 // as showing it would work it out; App.addView; App.who(); App.blank(); App.showMade(tx, ids, view), boxes a change makes
-// on a chart shown there by it, where the view would hide them.
+// on a chart shown there by it, where the view would hide them; App.put(id, slot, out, { auto }), a value typed, made at
+// once or asking from when (App.asksFrom), App.held(id), what's pending of it, and App.overriding(id), a computed tag's
+// Rule out… or Attest…; App.interposing(id) (where App.interposable(id)) and App.merging(id); App.spanOf(id), when a record
+// holds, App.heldUntil(id), the day it ended before the day shown, App.enteredBy(id), who typed it and when; App.noTone(id),
+// what a "no" is ('fails', 'heeds' or plain).
 //
 // THE PIECES: Shell.menu(anchor, items, opts) and Shell.popover(anchor, draw, opts) on Floating UI; dialog()
 // and confirm() on <dialog>; toast(text, { undo } or { redo }); keys(map, opts) on tinykeys, and keyLabel(key)

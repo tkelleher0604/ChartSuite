@@ -251,7 +251,7 @@ const Table = (() => {
       for (const c of cols) {
         const o = c.pattern && N.resolve('Order', c.pattern, view, c.param);
         c.place = o?.note.view === view ? o.value : Infinity;
-        c.check = c.type === 'tag' && !!c.specs?.some(s => N.value('Check', s) === true);
+        c.check = c.type === 'tag' && !!c.specs?.some(s => N.check(s));
         const said = c.pattern ? N.value('Shown', c.pattern, view, c.param) : undefined;
         c.shown = !c.pattern || (seenAs(view, c) ?? said ?? (c.type !== 'list' && !c.check && (!!c.param || c.path.length === 1)));
       }
@@ -418,7 +418,7 @@ const Table = (() => {
   const read = (c, d, v = d[field(c)]) => v === null && d._m?.[field(c)]?.quiet === 'no' ? false : v;
   function formatter(c) {
     // A tag's box, blank, attested or ruled out; or that it isn't tested.
-    const box = (v, m) => v === NA ? `<span class="na">${NA}</span>` : v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : 'no'}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
+    const box = (v, m) => v === NA ? `<span class="na">${NA}</span>` : v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : `no ${m?.id ? App.noTone(m.id) : ''}`}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
     const shown = (v, m, type = m?.type ?? c.type) => type === 'tag' ? box(v, m)
       : type === 'document' && v ? `<a href="${esc(SharePoint.href(v))}" target="_blank" rel="noopener" tabindex="-1">${esc(c.filed ? filed(v) : Tree.format('document', v))}</a>`
       : esc(text(type, v));

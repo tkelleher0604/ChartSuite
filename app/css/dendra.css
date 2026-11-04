@@ -128,13 +128,16 @@ input.bare { border-color: transparent; background: transparent; }
 /* A tag's output: green attested, red ruled out; outlined when a formula worked it out. */
 .tag { appearance: none; margin: 0; width: 14px; height: 14px; padding: 0; border: 1.5px solid var(--edge); border-radius: 3px; background: var(--surface); display: inline-grid; place-items: center; vertical-align: -2px; flex: none; position: relative; }
 .tag.yes { background: var(--yes); border-color: var(--yes); }
-.tag.no { background: var(--no); border-color: var(--no); }
+/* A "no" says what it is: plain where it's only typed so, red where a check failed, amber where it needs attention. */
+.tag.no { --x: var(--ink-3); background: var(--x); border-color: var(--x); }
+.tag.no.fails { --x: var(--no); }
+.tag.no.heeds { --x: var(--due); }
 .tag.yes::after { content: ""; width: 4px; height: 7px; border: solid #fff; border-width: 0 1.6px 1.6px 0; transform: translateY(-1px) rotate(45deg); }
 .tag.no::before, .tag.no::after { content: ""; position: absolute; width: 8px; height: 1.6px; background: #fff; border-radius: 1px; transform: rotate(45deg); }
 .tag.no::after { transform: rotate(-45deg); }
 .tag.fx { background: transparent; }
 .tag.fx.yes::after { border-color: var(--yes); }
-.tag.fx.no::before, .tag.fx.no::after { background: var(--no); }
+.tag.fx.no::before, .tag.fx.no::after { background: var(--x); }
 .ruled { color: var(--ink-3); }                               /* the label of a ruled-out tag */
 
 /* ---- Floating layers: menus, popovers, the tooltip ---- */
@@ -180,9 +183,9 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 .dlg-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px 20px; }
 
 /* ---- Toasts: a verb, an object and Undo ---- */
-.toasts { position: fixed; left: 50%; bottom: calc(var(--foot) + 16px); transform: translateX(-50%); display: grid; gap: 8px; justify-items: center; z-index: 50; pointer-events: none; }
-.toast { height: 36px; padding: 0 4px 0 16px; display: flex; align-items: center; gap: 12px; border-radius: var(--r-pop); background: var(--toast); color: var(--toast-ink); box-shadow: var(--shadow-pop); pointer-events: auto; animation: rise var(--calm) var(--ease); }
-.toast > button { height: var(--row); padding: 0 8px; border: 0; border-radius: var(--r); background: transparent; color: var(--toast-act); font-weight: 500; }
+.toasts { position: fixed; left: 50%; bottom: calc(var(--foot) + 16px); transform: translateX(-50%); display: grid; gap: 8px; justify-items: center; z-index: 50; pointer-events: none; width: max-content; max-width: 90vw; }
+.toast { min-height: 36px; padding: 4px 4px 4px 16px; display: flex; align-items: center; gap: 12px; border-radius: var(--r-pop); background: var(--toast); color: var(--toast-ink); box-shadow: var(--shadow-pop); pointer-events: auto; animation: rise var(--calm) var(--ease); }
+.toast > button { flex: none; height: var(--row); padding: 0 8px; border: 0; border-radius: var(--r); background: transparent; color: var(--toast-act); font-weight: 500; white-space: nowrap; }
 .toast > button:hover { background: rgb(255 255 255 / .08); }
 .toast > button.x { display: grid; place-items: center; width: var(--row); padding: 0; color: var(--toast-ink); opacity: .7; }
 .toast > button.x:hover { opacity: 1; }
