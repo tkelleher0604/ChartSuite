@@ -2360,9 +2360,11 @@ function mount(el) {
   }
   let triedTidy = 0;
   function tidied(only) {
-    const { writes, gone, key, freed } = tidying(only), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
+    const { writes, gone, key, freed, n } = tidying(only), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
+    // (Boxes laid out around what stands go around the Key too, where it's drawn.)
+    const standing = n ? App.scene.peek().marks.find(m => m.geometry === 'legend') : null;
     // (Each note tried is new, as a look tried is, so nothing worked out from another is kept for it.)
-    const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))).map(r => key && r.shape === key ? { ...r, kept: null, ...(freed && { x: null, y: null }) } : r),
+    const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))).map(r => key && r.shape === key ? { ...r, kept: null, ...(freed && { x: null, y: null }) } : standing && r.shape === standing.id && r.x == null ? { ...r, x: standing.x - 16, y: standing.y - 16, w: standing.w + 32, h: standing.h + 32 } : r),
       ...(!only && firstTidy() ? [] : writes.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; }))];
     const notes = Notes.index(rows.filter(r => 'note' in r));
     return { ...wb, rows: () => rows, notes: () => notes, tidy: tidyName() };

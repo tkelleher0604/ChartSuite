@@ -1331,8 +1331,10 @@ async function wherePut() {
   await drag(mark(), 0, 30); Shell.select([a]); await tick(250);
   was = at();
   const resetBtn = $$('.insp .sect').find(s => /Position/.test(txt(s)))?.querySelector('.reset');
+  const keyAt = () => { const k = sc().marks.find(m => m.geometry === 'legend'); return [k.x, k.y].map(Math.round).join(); }, keyWas = keyAt();
   resetBtn?.click(); await tick(450);
   check('Reset position moves that box alone', !!resetBtn && !others(was, [a]).length && /^Reset the position/.test(txt($$('.toast').at(-1))), JSON.stringify({ moved: others(was, [a]), toast: txt($$('.toast').at(-1)) }));
+  check('… and it goes around the Key, which stays where it is, over nothing', keyAt() === keyWas && !Scene.says(sc()).some(w => /^The Key overlaps /.test(w)), `${keyWas} → ${keyAt()}`);
   await undo(); await undo();
 
   // A group moves as one: its members keep their distances exactly.
