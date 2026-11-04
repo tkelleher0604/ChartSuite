@@ -1998,8 +1998,8 @@ function mount(el) {
       for (const m of scene.marks) if (m.settings && Object.values(m.settings).some(s => s.note && outs.has(Tree.key(s.note.pattern)))) outline(m, 'dc-row', 3);
     }
     for (const g of groups()) if (g.members.some(id => sel.isSelected(graph.getCellById(id) ?? {}))) outline(g, 'dc-group', 4);
-    // A triangle or an oval selected is outlined by its own shape, not by a frame round it; X6's is hidden (see the stylesheet).
-    root.querySelectorAll('.x6-widget-selection-box').forEach(b => { const m = scene.byId.get(b.dataset.cellId); const round = m?.type === 'box' && (m.shape === 'triangle' || m.shape === 'oval'); b.classList.toggle('by-shape', !!round); if (round) outline(m, 'dc-group dc-shaped', 2); });
+    // A box selected is outlined by its own shape, not by a frame round it; X6's is hidden (see the stylesheet).
+    root.querySelectorAll('.x6-widget-selection-box').forEach(b => { const m = scene.byId.get(b.dataset.cellId); const own = m?.type === 'box'; b.classList.toggle('by-shape', own); if (own) outline(m, 'dc-group dc-shaped', 2); });
     // The format bar's scope, while a group is chosen or pointed at: each mark it reaches lit, as a group is.
     const cuedHere = cued && new Set([...cued].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
     for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 3);
@@ -2692,8 +2692,9 @@ function mount(el) {
     const W = screen.w, H = screen.h, z = graph.zoom(), all = extent(ms);
     const r = all.w * z <= W - 2 * pad && all.h * z <= H - 2 * pad ? all : extent(ms.slice(0, 1));
     const a = graph.localToGraph(r.x, r.y), b = graph.localToGraph(r.x + r.w, r.y + r.h);
-    const into = (lo, hi, room) => lo < pad ? pad - lo : hi > room - pad ? Math.max(pad - lo, room - pad - hi) : 0;
-    const dx = into(a.x, b.x, W), dy = into(a.y, b.y, H), t = graph.translate();
+    const into = (lo, hi, room, top = pad) => lo < top ? top - lo : hi > room - pad ? Math.max(top - lo, room - pad - hi) : 0;
+    // (Clear of the formula bar, over the chart's top as what's brought is selected.)
+    const dx = into(a.x, b.x, W), dy = into(a.y, b.y, H, Math.max(pad, 44)), t = graph.translate();
     if (dx || dy) graph.translate(t.tx + dx, t.ty + dy);
   }
 

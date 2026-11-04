@@ -285,7 +285,6 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .date-reads { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -12px; padding: 8px 12px; border-top: 1px solid var(--rule); color: var(--ink-2); }
 .step-form { display: grid; gap: 8px; }
 .step-form > .field { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 8px; }
-.step-form input { height: var(--row); padding: 0 8px; border: 1px solid var(--rule-2); border-radius: 3px; background: var(--surface); color: var(--ink); font: inherit; }
 
 /* ---- The ruler, at the view's foot: the years a calm scale along the bottom, the chart's days rising from a hairline over
    it, by what each does (something comes to be or ends, tall and dark; a relation moves; a date noted, short and faint); the

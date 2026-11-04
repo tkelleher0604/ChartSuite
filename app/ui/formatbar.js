@@ -227,7 +227,7 @@ function allOf(s, n) {
   // What's changed is said as a state: "All 3 new or changed", "The only one gone".
   if (ps.length && ps.every(Scene.isChange)) return `${all} ${caption[0].toLowerCase()}${caption.slice(1)}`;
   // An option named as it is (Delaware) or a tag goes by its entry: "with Jurisdiction Delaware".
-  const option = ps.length && ps.every(p => p.out?.choice !== undefined && Tree.same(p.out.choice, caption) && p.args?.length === 1);
+  const option = ps.length && ps.every(p => p.out?.choice !== undefined && p.out.choice === caption && p.args?.length === 1);
   if (option) return `${all} with ${ps[0].args[0].edge} ${caption}`;
   if (caption.includes(':') || (ps.length && ps.every(p => p.out?.tag === true))) return `${all} with ${caption.replace(/:\s*/, ' ')}`;
   // Said in sentence case ("Limited partnership", "Funds", "Not in good standing") or a kind: a common noun, lowered.
@@ -1327,7 +1327,8 @@ function Bar() {
     <button class="btn icon" data-fb="clear" aria-label="Clear formatting" data-keys="Ctrl+Space" ...${writes('Clear formatting', none)} onClick=${clearLook}>${Shell.icon('eraser')}</button>
     <span class="sep" />
     <div class=${'scope' + (scope?.own ? ' own' : '') + (none && !root ? ' off' : '')} role="group" aria-label="Format" data-fb="scope" onPointerEnter=${wake}>
-      ${root ? html`<button aria-pressed="true" tabindex="-1" data-fb="all" data-tip="Every text on this page that nothing narrower sets"><span>All text</span></button>` : none ? html`<button disabled><span>Nothing selected</span></button>` : null}
+      ${root ? html`<button class="dd root" data-fb="all" aria-haspopup="menu" data-tip="Every text on this page that nothing narrower sets; or what its list aims at"
+        onClick=${e => Shell.menu(e.currentTarget, [{ label: 'All text', checked: true, run: () => {} }, ...Scene.groupsOf(App.notes.peek(), c.scene().view).filter(g => !g.off).flatMap((g, i, all) => [...g.name && g.name !== all[i - 1]?.name ? [{ head: g.name }] : [], { label: g.caption, run: () => aim(g) }])], { placement: 'bottom-start' })}><span>All text</span></button>` : none ? html`<button disabled><span>Nothing selected</span></button>` : null}
       ${ownPart ? html`<button aria-pressed=${!!scope?.own} data-fb="own" data-tip=${like ? 'Just the selection' : null} data-keys=${like ? 'Ctrl+Shift+A' : null}
         onClick=${() => choose(ownPart)}><span>${ownPart.label}</span></button>` : null}
       ${like ? html`<button aria-pressed=${!scope?.own} data-fb="like" data-tour="like" data-keys=${ownPart ? 'Ctrl+Shift+A' : null} onPointerOver=${whole}
@@ -1359,7 +1360,8 @@ function Bar() {
       ${Shell.icon('layers')}<span>Arrange</span></button>
     <button class="btn" data-fb="tidy" ...${writes(tidy.label === 'Tidy' ? null : tidy.label, tidy.disabled)} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label.replace(/ \D+$/, '')}<span class="wide">${tidy.label.match(/ \D+$/)?.[0]}</span></button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
-      ...[0.5, 0.75, 1, 1.5, 2].map(z => ({ label: `${z * 100}%`, checked: Math.abs(z * 100 - zoom) < 0.5, run: () => c.zoom(z) }))], { placement: 'bottom-end' })}>${zoom}%</button>
+      // (The zoom it's at among them, ticked, wherever it is.)
+      ...[...new Set([50, 75, 100, 150, 200, zoom])].sort((a, b) => a - b).map(z => ({ label: `${z}%`, checked: z === zoom, run: () => c.zoom(z / 100) }))], { placement: 'bottom-end' })}>${zoom}%</button>
   </div>`;
 }
 

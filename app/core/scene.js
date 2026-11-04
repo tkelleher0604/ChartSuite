@@ -977,6 +977,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // The key is of what the view draws: what's revealed for a while doesn't change it. While nothing is keyed, as on a
   // new chart's page, a Key isn't drawn, and the page is as it would be without it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
+  // (Its rows of every day, so a row keeps its column as the day shown changes: see layoutLegend.)
+  legendRows.every = keyedEver(N, view, rows);
   // The footer, the chart's, at no view (dendra.md, The page), and its number, a view's place among the chart's views: the
   // sheet's own, as its title is.
   const footing = N.resolve('Footer', { id: view, kind: 'View' })?.value, footLook = footing?.format && { format: footing.format };
@@ -1907,6 +1909,24 @@ function legend(N, view, marks) {
   }
   return groupsOf(N, view, used).map(({ off, ...g }) => g);
 }
+// The Key's rows as of any day: of the view's groups, those with an output some record in the chart's rows has, on any day: a
+// kind, an option or a tag said, a relation. (What only a formula gives isn't among those, and takes its place where it's drawn.)
+const everSaid = new WeakMap();
+function keyedEver(N, view, rows) {
+  let said = everSaid.get(rows);
+  if (!said) {
+    everSaid.set(rows, said = new Set());
+    for (const r of rows) if ('record' in r) {
+      if (r.kind) said.add(`k:${r.kind}`);
+      if (r.edge != null && 'choice' in r) said.add(`c:${Tree.norm(r.edge)}|${Tree.norm(r.choice)}`);
+      if (r.edge != null && 'tag' in r) said.add(`t:${Tree.norm(r.edge)}|${r.tag}`);
+      if (r.args) said.add(`r:${r.args.map(a => Tree.norm(a.edge)).sort().join('|')}`);
+    }
+  }
+  const has = p => !p.args ? said.has(`k:${p.kind}`) : p.args.length > 1 ? said.has(`r:${p.args.map(a => Tree.norm(a.edge)).sort().join('|')}`)
+    : p.out && 'choice' in p.out ? said.has(`c:${Tree.norm(p.args[0].edge)}|${Tree.norm(p.out.choice)}`) : p.out && 'tag' in p.out ? said.has(`t:${Tree.norm(p.args[0].edge)}|${p.out.tag}`) : false;
+  return groupsOf(N, view).filter(g => !g.off && g.swatch.kind !== 'text' && g.outputs.some(has));
+}
 
 // ---- Free shapes ----
 
@@ -1968,20 +1988,28 @@ const SWATCH = { h: 11 };
 function layoutLegend(m, rows, sheet = 1, k = 1) {
   const t = m.look, u = sheet * k, pad = 12 * u, sw = 30 * u, gap = 8 * u, lh = lineHeight(t);
   // In the Key's own order, where it has one; a row new to it after those it lists.
-  const at = new Map((m.order ?? []).map((k, i) => [k, i]));
+  const at = new Map((m.order ?? []).map((k, i) => [k, i])), ever = rows.every ?? [];
   rows = rows.map(r => ({ ...r, caption: m.captions[r.key] ?? r.caption, swatch: { ...r.swatch, Weight: r.swatch.Weight * sheet } })).sort((a, b) => (at.get(a.key) ?? Infinity) - (at.get(b.key) ?? Infinity));
   m.all = rows.map(r => ({ key: r.key, style: r.style, outputs: r.outputs, swatch: r.swatch, caption: r.caption, shown: !m.hide.includes(r.key) }));
   const shown = rows.filter(r => !m.hide.includes(r.key));
-  if (m.auto) m.w = Math.ceil(m.columns * (sw + gap + Math.min(160 * u, Math.max(40 * u, ...shown.map(r => measure(r.caption, t)))) + 16 * u) + 2 * pad);
+  // The Key doesn't reshuffle as the day changes: its rows keep their columns, and it its width, by the rows of every day, a row
+  // that isn't drawn today leaving its place to close up in its own column, so nothing crosses from one column to the next.
+  const places = [...ever.filter(g => !m.hide.includes(g.key)).sort((a, b) => (at.get(a.key) ?? Infinity) - (at.get(b.key) ?? Infinity))], placeOf = new Map(places.flatMap((g, i) => g.outputs.map(p => [key(p), i])));
+  const late = shown.filter(r => !r.outputs.some(p => placeOf.has(key(p))));
+  late.forEach(r => { placeOf.set(key(r.outputs[0]), places.length); places.push(r); });
+  const place = r => placeOf.get(key(r.outputs.find(p => placeOf.has(key(p))) ?? r.outputs[0])) ?? 0;
+  shown.sort((a, b) => place(a) - place(b));
+  if (m.auto) m.w = Math.ceil(m.columns * (sw + gap + Math.min(160 * u, Math.max(40 * u, ...[...shown, ...places].map(r => measure(m.captions[r.key] ?? r.caption, t)))) + 16 * u) + 2 * pad);
   const colW = (m.w - 2 * pad) / m.columns;
   const title = m.title ? { id: `${m.id}:title`, type: 'text', look: { ...t, Bold: true, Align: 'left' }, text: m.title } : null;
   let y = pad;
   if (title) { title.lines = breakLines(title.text, title.look, m.w - 2 * pad); y = stack(title, pad, m.w - 2 * pad, y) + 4 * u; }
-  const perCol = Math.ceil(shown.length / m.columns);
+  const perCol = Math.max(1, Math.ceil(places.length / m.columns));
   const colTops = [y];
-  m.rows = shown.map((r, i) => {
-    const col = Math.floor(i / perCol);
-    if (i % perCol === 0) y = colTops[0];
+  let colNow = -1;
+  m.rows = shown.map(r => {
+    const col = Math.min(m.columns - 1, Math.floor(place(r) / perCol));
+    if (col !== colNow) { y = colTops[0]; colNow = col; }
     // A caption stops 12 pt short of the next column.
     const x = pad + col * colW, caption = { id: `${m.id}:${r.key}`, type: 'text', look: { ...t, Align: 'left' }, text: r.caption, column: { x: x + sw + gap, width: colW - sw - gap - 16 * u } };
     caption.lines = breakLines(r.caption, caption.look, caption.column.width);

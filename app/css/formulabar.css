@@ -25,6 +25,9 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-delta b { font-weight: 500; }
 .fx-delta .add { color: var(--accent-ink); }
 .fx-delta .take { color: var(--no); }
+/* An error taken away is good news, and one added isn't: the red of a failed check says the second, never the first. */
+.fx-delta .take.good { color: var(--yes); }
+.fx-delta .add.bad { color: var(--no); }
 .fx-delta .change { color: var(--due); font-weight: 500; }
 /* What balances, in black, beside what's really lost, in red. */
 .fx-delta .fx-net { color: var(--ink); }
@@ -193,6 +196,5 @@ button.fx-name:not(.btn):hover { text-decoration: underline; text-underline-offs
 .fx-band > span { min-width: 0; }
 .fx-band > span > b { font-weight: 600; }
 .fx-band > .btn { flex: none; height: 24px; border-color: transparent; background: var(--surface); color: var(--ink); }
-.view:has(> .fx-band) > .host:not(:has(> .dc)) { margin-top: 40px; }
 .view:has(> .pastband) > .fx-band { top: 40px; }
 .ex-says.ex-broken { color: var(--no); font-weight: 500; }

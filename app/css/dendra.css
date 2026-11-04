@@ -105,6 +105,7 @@ kbd { font: var(--t12); color: var(--ink-3); }
 .btn:disabled, .btn[aria-disabled="true"] { color: var(--ink-3); opacity: .55; }
 .btn.primary { background-color: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 500; }
 .btn.primary:hover:not(:disabled) { background-image: linear-gradient(rgb(255 255 255 / .08), rgb(255 255 255 / .08)); }
+.btn.primary:active:not(:disabled) { background-image: linear-gradient(rgb(0 0 0 / .18), rgb(0 0 0 / .18)); }
 .btn.primary:disabled { color: var(--on-accent); }
 .btn.primary.dd::after { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23fff' stroke-opacity='.8' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
 .btn.danger { background-color: var(--no); border-color: var(--no); color: #fff; font-weight: 500; }
@@ -112,7 +113,9 @@ kbd { font: var(--t12); color: var(--ink-3); }
 .btn.icon { width: var(--row); padding: 0; border-color: transparent; background: transparent; color: var(--ink-2); }
 .btn.icon:hover:not(:disabled, [aria-disabled="true"]) { color: var(--ink); }
 .btn.dd::after, .dd::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; flex: none; }
-.btn[aria-pressed="true"], .btn[aria-expanded="true"] { background-image: linear-gradient(var(--press), var(--press)); }
+/* One state language (dendra.md, Part 3, States): on is the selection's tint and the accent's ink, everywhere; open, the press's wash. */
+.btn[aria-pressed="true"] { background-color: var(--selected); background-image: none; color: var(--accent-ink); }
+.btn[aria-expanded="true"] { background-image: linear-gradient(var(--press), var(--press)); }
 
 /* ---- Inputs and selects ---- */
 :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]), select, textarea, .input) {
@@ -134,7 +137,7 @@ input.bare { border-color: transparent; background: transparent; }
 /* A "no" says what it is: plain where it's only typed so, red where a check failed, amber where it needs attention. */
 .tag.no { --x: var(--ink-3); background: var(--x); border-color: var(--x); }
 .tag.no.fails { --x: var(--no); }
-.tag.no.heeds { --x: var(--due); }
+.tag.no.heeds { --x: var(--no); }
 .tag.yes::after { content: ""; width: 4px; height: 7px; border: solid #fff; border-width: 0 1.6px 1.6px 0; transform: translateY(-1px) rotate(45deg); }
 .tag.no::before, .tag.no::after { content: ""; position: absolute; width: 8px; height: 1.6px; background: #fff; border-radius: 1px; transform: rotate(45deg); }
 .tag.no::after { transform: rotate(-45deg); }
@@ -161,6 +164,8 @@ input.bare { border-color: transparent; background: transparent; }
 .menu-item > .label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .menu-item > .check { width: 16px; flex: none; color: var(--ink); }
 .menu-item > .glyph { width: 16px; flex: none; display: inline-grid; place-items: center; color: var(--ink-2); }
+/* (In a menu where some rows have a glyph, every row's words start at one edge.) */
+.menu:has(> .menu-item > .glyph) > .menu-item:not(:has(> .glyph, > .check)) > .label { padding-left: 24px; }
 .menu-item > .detail, .menu-item > kbd { color: var(--ink-3); font: var(--t12); margin-left: 16px; }
 .menu-item.on { background: var(--hover); }
 .menu-item[aria-disabled="true"] { color: var(--ink-3); }
@@ -170,24 +175,36 @@ input.bare { border-color: transparent; background: transparent; }
 .menu-sep { height: 1px; margin: 4px -4px; background: var(--rule); }
 .menu-head { padding: 8px 8px 4px; font: 500 var(--t12); color: var(--ink-3); }
 .menu-none { padding: 4px 8px; color: var(--ink-3); }
-.menu-seg { display: flex; gap: 2px; padding: 2px; margin: 4px; border-radius: var(--r); background: var(--hover); }
-.menu-seg > button { flex: 1; height: 24px; border: 0; border-radius: 3px; background: transparent; color: var(--ink-2); }
-.menu-seg > button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: 0 0 0 1px var(--edge); }
+/* One segmented control, everywhere: the scope's. Its parts share an edge, the one that's on in the selection's tint. */
+.menu-seg { display: flex; margin: 4px; border: 1px solid var(--edge); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.menu-seg > button { flex: 1; height: 26px; border: 0; border-radius: 0; background: transparent; color: var(--ink-2); }
+.menu-seg > button + button { border-left: 1px solid var(--edge); }
+.menu-seg > button:hover { background-image: linear-gradient(var(--hover), var(--hover)); color: var(--ink); }
+.menu-seg > button[aria-pressed="true"] { background: var(--selected); color: var(--accent-ink); font-weight: 500; }
 .pop { padding: 12px; }
 .tip { padding: 4px 8px; border-radius: var(--r); background: var(--toast); color: var(--toast-ink); font: var(--t12); width: max-content; max-width: 320px; text-wrap: pretty; pointer-events: none; }
 .tip kbd { color: inherit; opacity: .65; margin-left: 8px; }
 
 /* ---- Dialogs ---- */
-dialog.dlg { width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 64px); padding: 0; border: 1px solid var(--rule-2); border-radius: var(--r-pop); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-pop); overflow: auto; }
-dialog.dlg[open] { animation: rise var(--quick) var(--ease); }
+/* Its head and its foot stay, whatever the window: only what's between them scrolls, so what ends it is always in reach. */
+dialog.dlg { width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 0; border: 1px solid var(--rule-2); border-radius: var(--r-pop); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-pop); overflow: hidden; }
+dialog.dlg[open] { display: flex; flex-direction: column; animation: rise var(--quick) var(--ease); }
+dialog.dlg > form { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
 dialog.dlg::backdrop { background: var(--backdrop); }
-.dlg-head { padding: 20px 20px 8px; font: var(--t15); }
-.dlg-body { padding: 0 20px 4px; }
+.dlg-head { flex: none; padding: 20px 20px 8px; font: var(--t15); }
+.dlg-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 20px 4px; }
 .dlg-body p + p { margin-top: 8px; }
-.dlg-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px 20px; }
+.dlg-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 16px 20px 20px; }
+.dlg-foot:empty { display: none; }
+/* The one dropdown (Shell.Pick). */
+.pick { position: relative; display: inline-flex; min-width: 0; }
+.pick > .btn { justify-content: space-between; gap: 12px; padding: 0 8px; border-color: var(--edge); min-width: 0; }
+.pick > .btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pick.wide, .pick.wide > .btn { width: 100%; }
+.menu.pick-list { position: fixed; inset: auto; margin: 0; overflow: auto; max-height: min(320px, calc(100vh - 32px)); color: var(--ink); }
 
 /* ---- Toasts: a verb, an object and Undo ---- */
-.toasts { position: fixed; left: 50%; bottom: calc(var(--foot) + 16px); transform: translateX(-50%); display: grid; gap: 8px; justify-items: center; z-index: 50; pointer-events: none; width: max-content; max-width: 90vw; }
+.toasts { position: fixed; left: 50%; bottom: calc(var(--foot) + 6px); transform: translateX(-50%); display: grid; gap: 8px; justify-items: center; z-index: 50; pointer-events: none; width: max-content; max-width: 90vw; }
 .toast { min-height: 36px; padding: 4px 4px 4px 16px; display: flex; align-items: center; gap: 12px; border-radius: var(--r-pop); background: var(--toast); color: var(--toast-ink); box-shadow: var(--shadow-pop); pointer-events: auto; animation: rise var(--calm) var(--ease); }
 .toast > button { flex: none; height: var(--row); padding: 0 8px; border: 0; border-radius: var(--r); background: transparent; color: var(--toast-act); font-weight: 500; white-space: nowrap; }
 .toast > button:hover { background: rgb(255 255 255 / .08); }
@@ -211,7 +228,6 @@ dialog.dlg::backdrop { background: var(--backdrop); }
    the sheet, so nothing moves; a table gives it its room. */
 .pastband { position: absolute; z-index: 4; inset: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: 12px; height: 40px; padding: 0 12px; background: color-mix(in srgb, var(--accent) 88%, black); color: var(--on-accent, #fff); font-weight: 500; }
 .pastband > .btn { height: 24px; border-color: transparent; background: var(--surface); color: var(--ink); }
-.view:has(> .pastband) > .host:not(:has(> .dc)) { margin-top: 40px; }
 
 /* Editing or Viewing, the title bar's switch; Viewing filled, as a day other than today is. */
 .mode { display: flex; align-items: center; border-radius: var(--r); }
@@ -308,7 +324,8 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 
 /* 7 px, then a ghost button's border and padding: the mark, like every bar's first glyph, sits at 16. The right keeps room
    for all it holds, so a long day shown never runs into Find; the chart's name gives way first. */
-.titlebar { height: var(--bar); display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 400px) minmax(max-content, 1fr); align-items: center; gap: 12px; padding: 0 8px 0 7px; border-bottom: 1px solid var(--rule); user-select: none; }
+.titlebar { height: var(--bar); display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 1fr) minmax(max-content, 1fr); align-items: center; gap: 12px; padding: 0 8px 0 7px; border-bottom: 1px solid var(--rule); user-select: none; }
+.titlebar > .find { max-width: 400px; justify-self: center; }
 .titlebar > .left, .titlebar > .right { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .titlebar > .right { justify-content: flex-end; }
 .chartmenu { max-width: 100%; padding: 0 8px; gap: 8px; font-weight: 600; }
@@ -324,8 +341,8 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 /* Renamed in place, the name is a field just where it was, as a sheet tab's is. */
 .chartmenu.naming { display: flex; align-items: center; min-width: 0; height: var(--row); border: 1px solid transparent; }
 .chartmenu.naming > input.name { min-width: 8ch; max-width: 100%; height: 24px; margin: 0 -5px; padding: 0 4px; font-weight: 600; }
-.find { height: var(--row); width: 100%; padding: 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--rule); border-radius: var(--r); background: var(--surface); color: var(--ink-3); cursor: text; }
-.find:hover { border-color: var(--rule-2); }
+.find { height: var(--row); width: 100%; padding: 0 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); color: var(--ink-3); cursor: text; }
+.find:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
 /* The day shown; another day, or the log as it stood, is a chip filled in the accent, its × back to today. */
 /* It keeps the room of its longest day, so nothing beside it moves; only what it says is the control, at its right, the room empty. */
 .asof { display: flex; flex: none; align-items: center; justify-content: flex-end; min-width: 228px; }
@@ -342,12 +359,21 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .formatbar { background: var(--paper); }
 .formulabar { background: var(--surface); }
 
-.shell > .main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 1px var(--insp, 384px); min-height: 0; }
+.shell > .main { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 1px var(--insp, 360px); min-height: 0; }
 .main.wide { grid-template-columns: 0 1px minmax(0, 1fr); }
 /* Put away, the inspector leaves its divider at the window's edge, to drag it out again. */
 .main.shut { grid-template-columns: minmax(0, 1fr) 1px 0; }
 .main.shut > .inspector { visibility: hidden; }
-.view { position: relative; display: grid; grid-template: minmax(0, 1fr) auto / minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--side); }
+.view { position: relative; display: grid; grid-template: auto minmax(0, 1fr) auto / minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; background: var(--side); }
+/* The formula bar is the view's: over a table, in its own row, so what it opens to pushes the rows down and lies over none; over a
+   chart, on the chart's top edge, so nothing moves as it comes and goes, and with nothing selected it gives its room back. */
+.view > .slot.formulabar { grid-area: 1 / 1; z-index: 5; min-width: 0; }
+.view:has(> .host:not([hidden]) > .dc) > .slot.formulabar { position: absolute; top: 0; left: 0; right: 0; }
+.view:has(> .host:not([hidden]) > .dc) > .slot.formulabar:has(.fx-view):not(:has(.fx-delta)) { display: none; }
+.view:has(> .pastband, > .fx-band):has(> .host:not([hidden]) > .dc) > .slot.formulabar { top: 40px; }
+.view:has(> .pastband, > .fx-band):not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar { margin-top: 40px; }
+.view:not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar .fx-panel { position: static; width: 100%; border-width: 1px 0 0; box-shadow: none; }
+.view:not(:has(> .host:not([hidden]) > .dc)) > .slot.formulabar .host { display: flow-root; }
 .divider { position: relative; background: var(--rule); cursor: col-resize; z-index: 2; }
 .divider::before { content: ""; position: absolute; inset: 0 -4px; }
 .divider:hover, .divider.drag { background: var(--rule-2); }
@@ -359,9 +385,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 
 /* The view shown fills it; under it, the window's one bar while a change is pending (App.Pending), over the foot of a
    chart, so the chart doesn't move as it comes and goes, and under a table's last row, which it never hides. */
-.view > .host { position: relative; grid-area: 1 / 1; min-height: 0; }
-.view > .host:has(> .dc) { grid-area: 1 / 1 / 3; }
-.view > .pendbar { grid-area: 2 / 1; z-index: 4; }
+.view > .host { position: relative; grid-area: 2 / 1; min-height: 0; }
+.view > .host:has(> .dc) { grid-area: 1 / 1 / 4; }
+.view > .pendbar { grid-area: 3 / 1; z-index: 4; }
 /* A chart with no box: its one action, over the middle of the page, which takes clicks around it. */
 .view > .void { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .view > .void > .btn { pointer-events: auto; }
@@ -373,7 +399,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .inspector > .host.aside { position: absolute; inset: 0; min-height: 0; max-width: none; margin: 0; padding: 0; background: var(--surface); }
 
 /* Find: a menu over the title bar's field, its answers ranked as you type. */
-.menu.findpal { width: min(600px, calc(100vw - 32px)); max-width: none; max-height: min(480px, calc(100vh - 80px)); }
+.menu.findpal { width: min(600px, calc(100vw - 32px)); max-width: none; max-height: min(468px, calc(100vh - 80px)); }
 .menu.findpal > .menu-find { height: 40px; line-height: 40px; }
 /* A count's list: each item in its words and where, its figure at its end. */
 .menu.needs { width: min(560px, calc(100vw - 32px)); max-width: none; }
@@ -407,7 +433,7 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .sheets[data-more="both"] { mask-image: linear-gradient(to right, transparent, #000 32px calc(100% - 32px), transparent); }
 .sheet { position: relative; display: flex; align-items: center; height: 100%; padding: 0 12px; border: 0; background: none; color: var(--ink-2); white-space: nowrap; cursor: default; }
 .sheet:hover { color: var(--ink); background-image: linear-gradient(var(--hover), var(--hover)); }
-.sheet[aria-selected="true"] { color: var(--ink); font-weight: 500; background: var(--surface); box-shadow: inset 1px 0 var(--rule), inset -1px 0 var(--rule); }
+.sheet[aria-selected="true"] { color: var(--ink); background: var(--surface); box-shadow: inset 1px 0 var(--rule), inset -1px 0 var(--rule); }
 .sheet[aria-selected="true"]::before { content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 2px; background: var(--accent); }
 .sheet > input { min-width: 8ch; height: 24px; margin: 0 -5px; padding: 0 4px; font-weight: 500; }
 .sheet > .keeps { margin-left: 6px; color: var(--ink-3); font-weight: 400; font-size: 11px; }
@@ -432,8 +458,10 @@ html[data-splash][data-theme="dark"]::after { background: #111315; }
 .tour-card > .step { font: var(--t12); color: var(--ink-3); }
 .tour-card > p { margin: 4px 0 12px; }
 .tour-card > .acts { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
-.tour-card > .acts > .skip { margin-right: auto; padding: 0; height: auto; border: 0; background: none; color: var(--ink-3); }
-.tour-card > .acts > .skip:hover { color: var(--ink); }
+.tour-card > .acts > .skip { margin: 0 auto -4px -8px; padding: 0 8px; height: 24px; color: var(--accent-ink); font-weight: 500; }
+/* The last card is the one that asks: nothing behind it takes a click till it's answered. Who you are, and then, apart, what you begin with. */
+.tour-scrim { position: fixed; inset: 0; z-index: 40; }
+form.tour-card > label { padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
 .tour-card label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--ink-2); }
 
 /* ---- Tabulator, restyled ---- */
@@ -443,7 +471,7 @@ html[data-splash][data-theme="dark"]::after { background: #111315; }
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content { padding: 4px 8px; line-height: 20px; }
 .tabulator .tabulator-header .tabulator-col.tabulator-sortable .tabulator-col-title { padding-right: 16px; }
 .tabulator .tabulator-header .tabulator-col.tabulator-moving { background: var(--surface); border: 1px solid var(--accent); }
-.tabulator .tabulator-header .tabulator-col.tabulator-range-highlight { background: var(--hover); color: var(--ink); }
+.tabulator .tabulator-header .tabulator-col.tabulator-range-highlight { background: var(--selected); color: var(--ink); }
 .tabulator .tabulator-header .tabulator-col.tabulator-range-selected { background: var(--selected); color: var(--ink); }
 @media (hover: hover) and (pointer: fine) { .tabulator .tabulator-header .tabulator-col.tabulator-sortable.tabulator-col-sorter-element:hover { background: var(--surface) linear-gradient(var(--hover), var(--hover)); } }
 .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter { right: 8px; }
