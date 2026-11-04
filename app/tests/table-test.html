@@ -598,20 +598,6 @@ async function run() {
   undo(); await tick(150); undo(); await tick(150);
   undo(); await tick(150);
 
-  // What's ended isn't silently left out: a table says how many, with a way to include them, read as of their last day.
-  {
-    const h = named('Halvard Logistics Holdings, Inc.');
-    App.change(tx => tx.add('record', { at: h, edge: 'Dissolution Date', field: 'date', value: '2037-06-01' }), { dated: false }); await tick(120);
-    Shell.at({ asOf: '2038-01-01' }); await tick(250);
-    check('A table as of a day says what it leaves out as ended', /\d+ ended left out/.test($('.tbar .tout.ended')?.textContent ?? '') && !Table.grid.getRows().some(r => r.getData().id === h), $('.tbar')?.textContent);
-    $('.tbar .tout.ended .lk').click(); await tick(300);
-    const kept = Table.grid.getRows().map(r => r.getData()).find(d => d.id === h);
-    check('… and Include reads it, as of its last day, not to be typed in', kept?._ended === '2037-06-01' && /With \d+ ended/.test($('.tbar .tout.ended')?.textContent ?? '') && !!Table.grid.getRow(h)?.getElement().classList.contains('ended'), $('.tbar')?.textContent);
-    $('.tbar .tout.ended .lk').click(); await tick(250);
-    Shell.at(null); await tick(200);
-    undo(); await tick(150);
-    Shell.show(views()[0].id); await tick(100); Shell.show(ent); await until(() => !!Table.grid && $$('.grid .tabulator-row').length > 0); await tick(300);
-  }
   // ---- Excel-grade: a heading dragged, its menu, the bar above the grid, a column inserted, fills, the new row ----
   // How one person looks at a table (sort, filters, grouping, frozen columns, widths) is kept per view in this browser,
   // and is no change.
@@ -827,6 +813,20 @@ async function run() {
     check('Undone, the columns and the rows are as they were', titlesOf().slice(0, 6).join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction,Formation Date' && !titlesOf().includes('Process Agent') && !named('Harbor Point Holdings, LLC'), titlesOf().join());
   }
 
+  // What's ended isn't silently left out: a table says how many, with a way to include them, read as of their last day.
+  {
+    const h = named('Halvard Logistics Holdings, Inc.');
+    App.change(tx => tx.add('record', { at: h, edge: 'Dissolution Date', field: 'date', value: '2037-06-01' }), { dated: false }); await tick(120);
+    Shell.at({ asOf: '2038-01-01' }); await tick(250);
+    check('A table as of a day says what it leaves out as ended', /\d+ ended left out/.test($('.tbar .tout.ended')?.textContent ?? '') && !Table.grid.getRows().some(r => r.getData().id === h), $('.tbar')?.textContent);
+    $('.tbar .tout.ended .lk').click(); await tick(300);
+    const kept = Table.grid.getRows().map(r => r.getData()).find(d => d.id === h);
+    check('… and Include reads it, as of its last day, not to be typed in', kept?._ended === '2037-06-01' && /With \d+ ended/.test($('.tbar .tout.ended')?.textContent ?? '') && !!Table.grid.getRow(h)?.getElement().classList.contains('ended'), $('.tbar')?.textContent);
+    $('.tbar .tout.ended .lk').click(); await tick(250);
+    Shell.at(null); await tick(200);
+    undo(); await tick(150);
+    Shell.show(views()[0].id); await tick(100); Shell.show(ent); await until(() => !!Table.grid && $$('.grid .tabulator-row').length > 0); await tick(300);
+  }
   // ---- A list of relatives as a column: Registered Agents, each cell the other side's names; typed into, it relates, as a
   // paste does; cleared, it ends what it held, as Delete… asks ----
   {

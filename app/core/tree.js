@@ -227,7 +227,7 @@ function knownMonth(s) {
 // as it should be: a day falls on or after 2022-03 from March 1, by the letters of the two.
 const parseKnown = s => parseDate(s) ?? knownMonth(s) ?? (/^(1[5-9]|2\d)\d\d$/.test(clean(s)) ? clean(s) : null);
 // The first day of what's known, which is the day a date is worked out from.
-const firstDay = iso => { const s = String(iso ?? ''); return /^\d{4}$/.test(s) ? `${s}-01-01` : /^\d{4}-\d\d$/.test(s) ? `${s}-01` : iso; };
+const firstDay = iso => (typeof iso !== 'string' || iso[0] === '-' || iso.length > 7 ? iso : iso.length === 4 ? `${iso}-01-01` : iso.length === 7 ? `${iso}-01` : iso);
 // A day as it reads: 'long' February 14, 2023 (a value); 'short' Feb 14, 2023 (the window's own); 'month'
 // February 2023. A day of the year reads without a year: February 14; a date known to its month or year reads as known:
 // March 2022 (Mar 2022), 2022.

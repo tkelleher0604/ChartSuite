@@ -1091,7 +1091,7 @@ function Relatives({ id }) {
     ${docs.length || typing || docList(id) ? html`<${Section} title="Documents" id="docs" n=${docs.length} act=${docAdd(id)}>
       ${docs.map(docRow)}
       ${typing ? html`<div class="row"><div class="k wide"><input class="cell" placeholder="Link" aria-label="Link" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
-        onKeyDown=${e => { if (e.key === 'Enter') { const u = T.clean(e.target.value); if (T.isAddress(u)) { linking.value = null; link(id, u); } else e.target.setAttribute('aria-invalid', 'true'); } else if (e.key === 'Escape') { e.stopPropagation(); linking.value = null; } }}
+        onKeyDown=${e => { if (e.key === 'Enter') { const u = T.clean(e.target.value); if (T.isAddress(u)) { linking.value = null; link(id, u); } else e.target.dataset.why = T.notA('document'), e.target.setAttribute('aria-invalid', 'true'); } else if (e.key === 'Escape') { e.stopPropagation(); linking.value = null; } }}
         onBlur=${() => { linking.value = null; }} /></div></div>` : null}</${Section}>` : null}
     ${nots.length || isnts.length ? html`<div class="nots">${nots.map(it => html`<div class="row" key=${it.rid}><div class="k wide"><${Go} to=${it.rid} tip=${because(it.rid)?.words}>${notText(it, held)}</${Go}></div></div>`)}
       ${isnts.map(x => html`<div class="row" key=${x.key}><div class="k wide"><button class="lk" onClick=${x.run}>${x.label}</button></div></div>`)}</div>` : null}`;

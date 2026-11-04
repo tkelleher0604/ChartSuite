@@ -510,7 +510,8 @@ const App = (() => {
   const blanksApart = computed(() => {
     const st = state.value, N = notes.value, I = Tree.index(st), kinds = new Map(), out = [];
     const objects = Object.keys(st).filter(id => st[id].kind && !Tree.isView(st[id]));
-    const skipped = (id, edge) => Tree.same(edge, 'Name') || Tree.same(edge, 'Short Name') || N.isEnd({ out: { field: 'date' }, args: [{ edge, loc: Tree.treeOf(st, id) }] });
+    // (Whether it's an end is asked of each kind once, not of each record.)
+    const askedEnd = new Map(), skipped = (id, edge) => { if (Tree.same(edge, 'Name') || Tree.same(edge, 'Short Name')) return true; const k = `${st[id].kind}|${edge}`; if (!askedEnd.has(k)) askedEnd.set(k, N.isEnd({ out: { field: 'date' }, args: [{ edge, loc: Tree.treeOf(st, id) }] })); return askedEnd.get(k); };
     const required = new Set(needs.value.filter(a => a.kind === 'blank').map(a => `${a.id}|${Tree.norm(a.edge)}`));
     for (const id of objects) {
       const m = kinds.get(st[id].kind) ?? kinds.set(st[id].kind, { n: 0, has: new Map(), who: 0 }).get(st[id].kind);
@@ -1193,7 +1194,7 @@ const App = (() => {
     const papers = p.between || part === null ? papersOf(rid, recs) : [], stay = papers.length ? html`<span class="sep">·</span><span class="stays">${papers.join(', ')} ${papers.length > 1 ? 'stay' : 'stays'} with the stake that ends</span>` : null;
     if (p.between) return html`<span class="transfer between"><span>${name(tr.first.at)} → ${picker} → ${name(tr.rest[0].at)}</span>${stay}</span>`;
     return html`<span class="transfer"><span>From ${name(tr.first.at)} to${' '}${picker}</span><span class="sep">·</span><span>${amt
-        ? html`<span class="hug"><input ref=${much} class="cell amount" aria-label="How much" spellcheck=${false} autocomplete="off" aria-invalid=${part === undefined ? 'true' : null}
+        ? html`<span class="hug"><input ref=${much} class="cell amount" aria-label="How much" spellcheck=${false} autocomplete="off" aria-invalid=${part === undefined ? 'true' : null} data-why="Not a figure"
             value=${text ?? Tree.format(amt.field, part ?? amt.value)} onFocus=${e => e.target.select()} onBlur=${() => { if (part !== undefined) setText(null); }} onInput=${typed} onKeyDown=${key} /></span>`
         : html`<span>${'choice' in recs[rid] ? recs[rid].choice : N.nameOf(recs, rid)}</span>`} of ${name(tr.rest[0].at)}</span>${stay}</span>`;
   }
@@ -1266,7 +1267,7 @@ const App = (() => {
     const typed = e => { if (text === null) was.current = v.v; setText(e.target.value); const t = Tree.clean(e.target.value), x = t ? Tree.parse(v.field, t) : null; set(x === undefined ? undefined : x); };
     const key = e => { if (e.key !== 'Escape' || text === null) return; e.preventDefault(); e.stopPropagation(); setText(null); set(was.current); setTimeout(() => input.current?.select()); };
     return html`<span class="amount"><span class="word">${v.edge}</span><span class="hug"><input ref=${input} class="cell" spellcheck=${false} autocomplete="off" aria-label=${v.edge}
-      aria-invalid=${v.v === undefined ? 'true' : null} value=${text ?? (v.v === null || v.v === undefined ? '' : Tree.format(v.field, v.v))} onInput=${typed} onKeyDown=${key} onBlur=${() => { if (v.v !== undefined) setText(null); }} /></span></span>`;
+      aria-invalid=${v.v === undefined ? 'true' : null} data-why=${Tree.notA(v.field)} value=${text ?? (v.v === null || v.v === undefined ? '' : Tree.format(v.field, v.v))} onInput=${typed} onKeyDown=${key} onBlur=${() => { if (v.v !== undefined) setText(null); }} /></span></span>`;
   }
   // Why it's made, a line that goes on the change (dendra.md, Change): open where it overrides what a rule gives, which needs
   // saying; a word away on anything else. Kept apart from the change pending, so what's typed here redlines nothing.
