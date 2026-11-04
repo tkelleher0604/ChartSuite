@@ -739,6 +739,12 @@ const Time = (() => {
     if (ON[label]) return `Made ${of} ${ON[label][v ? 0 : 1]}`;
     if (label === 'Dash') return `Made the outline of ${of} ${String(v).replace(/-/g, ' ')}`;
     if (label === 'Arrowhead') return `Changed the arrowheads of ${of}`;
+    if (label === 'Gradient') return v ? `Gave ${of} a gradient` : `Took the gradient off ${of}`;
+    if (label === 'Tail') return `Moved what ${of} points at`;
+    if (label === 'Inset') return `Set the inner margins of ${of}`;
+    if (label === 'Indent') return v ? `Indented ${of} ${v} pt` : `Took the indent off ${of}`;
+    if (label === 'Bullet') return v === 'none' ? `Took the bullets off ${of}` : v === 'number' ? `Numbered ${of}` : `Bulleted ${of}`;
+    if (label === 'Shrink') return v ? `Made ${of} shrink its text to fit` : `Stopped ${of} shrinking its text`;
     const noun = NOUNS[label];
     if (!noun) return `Changed ${label} of ${of}`;
     if (v === 'none') return `Took the ${noun} off ${of}`;

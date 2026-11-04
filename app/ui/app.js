@@ -563,7 +563,7 @@ const App = (() => {
   const ready = p => !(p.asks && p.day === undefined) && !(p.value && p.value.v === undefined) && (p.fits?.(p) ?? true) && (p.ready?.(p) ?? true);
   // What its button says: its verb, or what it's called (Dissolve); a deletion as never held is Delete.
   const actOn = p => p.asks === 'until' && p.day === null ? p.verb : p.act ?? p.verb;
-  const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring', Change: 'changing', 'Rule out': 'ruling out', Insert: 'inserting', Undo: 'undoing', Redo: 'redoing' };
+  const doing = { Add: 'adding', Delete: 'deleting', Paste: 'pasting', Import: 'importing', Transfer: 'transferring', 'Re-point': 're-pointing', Change: 'changing', 'Rule out': 'ruling out', Insert: 'inserting', Undo: 'undoing', Redo: 'redoing' };
   const discarded = p => {
     // (One value typed is said as a sentence, which is what's discarded; a tag's, or several, by what doing it was.)
     if (p.typed?.length === 1 && !('tag' in p.typed[0].out)) return `Discarded “${p.what}”`;
@@ -839,7 +839,7 @@ const App = (() => {
   // that day: `to`, the record it goes to ({ at }) or a new one ({ kind, name }); `part`, the amount, or null for all.
   // `o`, made again (dendra.md, Change): `at`, the chart it reads, `made`, the id the relation it makes keeps, and `keep(edge)`,
   // each entry's. → the relation it goes to.
-  function transfer(tx, rid, { to, part }, d, o = {}) {
+  function transfer(tx, rid, { to, part, other = false }, d, o = {}) {
     const at = o.at ?? book.peek().asOf(chart.peek(), d), r = at[rid], tr = r && transferable(rid, at), N = notes.peek();
     if (!tr || !to) return null;
     const amt = tr.amount && at[tr.amount], v = amt ? amt.value : null, q = v === null ? null : part == null ? v : Math.min(part, v), all = v === null || q >= v - 1e-9;
@@ -855,7 +855,8 @@ const App = (() => {
     const b = to.at ?? (x => { tx.add('record', { at: x, edge: 'Name', field: 'text', value: to.name }, to.nameId); return x; })(tx.add('record', { kind: to.kind }, to.id));
     // A new one is shown on the chart shown as of the day, where that would hide it (App.showMade), once it's related.
     const shownToo = () => { if (!to.at) showMade(tx, [b], Shell.view.peek(), d > day.peek() ? d : day.peek()); };
-    const like = { args: [{ edge: tr.first.edge, at: b }, ...tr.rest.map(a => ({ edge: a.edge, at: a.at }))], ...('choice' in r ? { choice: r.choice } : { tag: true }) };
+    // (`other`: its other side is what's given another, a line's end dragged there: see repoint.)
+    const like = { args: other ? [{ edge: tr.first.edge, at: tr.first.at }, { edge: tr.rest[0].edge, at: b }] : [{ edge: tr.first.edge, at: b }, ...tr.rest.map(a => ({ edge: a.edge, at: a.at }))], ...('choice' in r ? { choice: r.choice } : { tag: true }) };
     const held = to.at && Object.keys(at).find(x => x !== rid && at[x].args?.length === 2 && ('choice' in r ? at[x].choice === r.choice : at[x].tag === true)
       && like.args.every(a => at[x].args.some(c => Tree.same(c.edge, a.edge) && c.at === a.at)) && Tree.same(N.nameOf(at, x), N.nameOf(at, rid)));
     if (held) {
@@ -898,6 +899,24 @@ const App = (() => {
       done: () => { if (to && state.peek()[to]) Shell.select([to]); }, ...o });
     Shell.showPanel?.();
     if (Shell.selection.peek().join() !== rid) Shell.select([rid]);
+  }
+  // A relation's line end dragged to another box asks whether it's to go there, as what it would be. The holder's end is a transfer to that box, its bar asking how much and when. The other
+  // end is the same relation of another thing: it ends on the day and the same holder has that from the day, one change pending, redlined, what's entered at it going with it. A box it can't
+  // be says so by name, and nothing's begun.
+  function repoint(rid, b, was) {
+    const recs = state.peek(), N = notes.peek(), tr = transferable(rid), name = x => N.shortOf(recs, x);
+    if (!tr) return;
+    const what = N.nameOf(recs, rid), cant = side => Shell.toast(`${name(b)} can’t be ${side} of ${what} here: nothing changed`, { ms: 4000 });
+    if (Tree.objectOf(recs, tr.first.at) === was) {
+      const t = takers(rid, N.nameOf(recs, b)).found.find(f => Tree.objectOf(recs, f.at) === b);
+      return t ? transferring(rid, { transfer: { rid, to: { at: t.at, name: t.name, short: t.short }, part: null } }) : cant(Tree.same(tr.first.edge, what) ? 'a side' : `the ${tr.first.edge}`);
+    }
+    if (!waysOf(rid, recs, tr).some(w => Tree.narrower(Tree.treeOf(recs, b), w.theirs.loc))) return cant(`the ${tr.rest[0].edge}`);
+    let made = null;
+    stage({ verb: 'Re-point', what: `${what}: ${N.segmentOf(recs, rid)}, to ${name(b)}`, source: 'repoint ' + rid, needs: [rid, b], asks: 'on', day: day.peek(), auto: true,
+      make: (tx, d) => { made = transfer(tx, rid, { to: { at: b }, part: null, other: true }, d); }, say: () => `Re-pointed ${what}: ${N.segmentOf(recs, rid)}, to ${name(b)}`,
+      done: () => { if (made && state.peek()[made]) Shell.select([made]); } });
+    Shell.showPanel?.();
   }
   // The ways a relation of two sides can run, of the sides `tr` reads it by, whatever's at them.
   function waysOf(rid, recs, tr) {
@@ -1639,7 +1658,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, computed: result, workOn, workAt, state, needs,
-    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
+    readOnly, viewing, setViewing, seeing, seenIn, see, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, interposable, interposing, Pending, Asking, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, noTone, annotate, broken,
   };
 })();

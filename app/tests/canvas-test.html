@@ -60,7 +60,9 @@ const Store = { open: async ({ sample }) => Log.open(sample), who: () => 'Dana J
 <script src="../ui/shell.js"></script>
 <script src="../ui/app.js"></script>
 <script src="../core/layout.js"></script>
+<script src="../core/shapes.js"></script>
 <script src="../core/scene.js"></script>
+<script src="../ui/drawing.js"></script>
 <script src="../ui/canvas.js"></script>
 <script src="../ui/formatbar.js"></script>
 <script src="../ui/inspector.js"></script>
@@ -75,7 +77,7 @@ window.EyeDropper = undefined;  // (the way a browser without its own goes, whic
 // slide points, the keys, how a highlight draws, and that what's drawn is the scene however it came to be. The
 // window is set to each size it's checked at.
 const out = [];
-const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
+const check = (name, ok, detail = '') => { document.body.dataset.last = `${out.length} ${name}`; out.push({ name, ok: !!ok, detail: String(detail ?? '') }); };
 const tick = (ms = 40) => new Promise(r => setTimeout(r, ms));
 const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
@@ -409,7 +411,7 @@ async function run() {
   check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, then More colors, the Eyedropper, Transparency and No fill', swatches.length === 70
     && getComputedStyle($('.float .palette')).gridTemplateColumns.split(' ').length === 10
     && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple'
-    && fillRows.length === 4 && fillRows[0] === 'More colors#' && fillRows[1] === 'Eyedropper' && /^Transparency ?\d*%$/.test(fillRows[2]) && fillRows[3] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
+    && fillRows.length === 6 && fillRows[0] === 'More colors#' && fillRows[1] === 'Eyedropper' && /^Set this chart.s colors/.test(fillRows[2]) && fillRows[3] === 'Gradient' && /^Transparency ?\d*%$/.test(fillRows[4]) && fillRows[5] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
   // Every swatch has one hairline, drawn on the menu, not on its own colour, so in either theme the swatches
   // nearest the menu's colour keep their edges: White on the light menu, the near-blacks on the dark.
   const rgb = s => s.match(/[\d.]+/g).slice(0, 3).map(Number), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
@@ -461,9 +463,10 @@ async function run() {
   check('Tab selects the first box in reading order, then the next; Shift+Tab goes back', first === reading[0] && second === reading[1] && Shell.selection.peek()[0] === reading[0], `${first} ${second} ${Shell.selection.peek()[0]}`);
   const x0 = sc().byId.get(first).x, nx = App.wb.changes().length, cellX = () => cv().graph.getCellById(first)?.getPosition().x;
   key('ArrowRight'); await tick(60);
-  const movedAtOnce = cellX() - x0;
-  key('ArrowRight'); await tick(60); key('ArrowRight', { shiftKey: true }); await tick(700);
-  check('an arrow key nudges the box selected at once, and nudges one after another are one change, as History lists it', Math.abs(movedAtOnce - 1) <= 0.5 && Math.abs(sc().byId.get(first).x - x0 - 12) <= 0.5
+  // (PowerPoint's: an arrow a step of 6 pt on the sheet, Ctrl+arrow 1.25 pt.)
+  const movedAtOnce = cellX() - x0, arrowStep = 8 / sc().page.scale, arrowFine = 5 / 3 / sc().page.scale;
+  key('ArrowRight'); await tick(60); key('ArrowRight', { ctrlKey: true }); await tick(700);
+  check('an arrow key nudges the box selected at once, and nudges one after another are one change, as History lists it', Math.abs(movedAtOnce - arrowStep) <= 0.5 && Math.abs(sc().byId.get(first).x - x0 - 2 * arrowStep - arrowFine) <= 0.5
     && App.wb.changes().length === nx + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), `${movedAtOnce} ${x0} → ${sc().byId.get(first).x}, ${App.wb.changes().length - nx} changes`);
   Shell.parts.peek().undo.undo(); await tick(150);
   check('… which one Undo takes back', Math.abs(sc().byId.get(first).x - x0) <= 0.5 && App.wb.changes().length === nx + 2, `${sc().byId.get(first).x}`);
@@ -1367,7 +1370,7 @@ async function reloaded() {
   // Every mark, as it's drawn: where, how large, its route, its label, its words; `chartOnly`, its boxes and lines.
   const drawn = (s, chartOnly = false) => JSON.stringify([...s.marks.filter(m => !chartOnly || m.type === 'box' || m.type === 'line').map(m => [m.id, ...xs(m.x, m.y, m.w, m.h), m.points?.flat().map(round2), m.labelAt && xs(m.labelAt.x, m.labelAt.y), (m.texts ?? []).map(it => (it.lines ?? []).map(l => l.text))]), chartOnly ? 0 : s.page.scale]);
   const frame = document.body.appendChild(Object.assign(document.createElement('iframe'), { style: 'position:fixed;left:-2000px;width:800px;height:600px' }));
-  frame.srcdoc = `<!doctype html><script src="../../vendor/elkjs/elk.bundled.js"><\/script>${['tree', 'notes', 'log', 'formulas', 'layout', 'scene'].map(f => `<script src="../core/${f}.js"><\/script>`).join('')}<script>
+  frame.srcdoc = `<!doctype html><script src="../../vendor/elkjs/elk.bundled.js"><\/script>${['tree', 'notes', 'log', 'formulas', 'layout', 'shapes', 'scene'].map(f => `<script src="../core/${f}.js"><\/script>`).join('')}<script>
     window.fresh = (json, c, view, day) => { const wb = Log.open(json), N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, day), N.definitions(S), { relations: N.relations(S), schema: S }); return Scene.of(wb, c, view, day, { state: R.records, computed: R }); };<\/script>`;
   await until(() => frame.contentWindow?.fresh, 8000);
   const fresh = d => frame.contentWindow.fresh(JSON.stringify(App.wb.toJSON()), App.chart.peek(), App.scene.peek().view, d);
@@ -2321,7 +2324,7 @@ async function format() {
   await closeMenus();
   $('[data-fb="arrange"]').click(); await tick(100);
   const arranged = $$('.float .menu-item'), arrangeSays = t => arranged.find(e => txt(e).startsWith(t));
-  check('Viewing, Arrange opens, its writes grey and the aids live', arrangeSays('Align')?.getAttribute('aria-disabled') === 'true' && arrangeSays('Bring to front')?.getAttribute('aria-disabled') === 'true' && arrangeSays('Page setup')?.getAttribute('aria-disabled') === 'true' && !arrangeSays('Gridlines')?.getAttribute('aria-disabled'), arranged.map(txt).join());
+  check('Viewing, Arrange opens, its writes grey and the aids live', arrangeSays('Align')?.getAttribute('aria-disabled') === 'true' && arrangeSays('Order')?.getAttribute('aria-disabled') === 'true' && arrangeSays('Page setup')?.getAttribute('aria-disabled') === 'true' && !arrangeSays('Gridlines')?.getAttribute('aria-disabled'), arranged.map(txt).join());
   await closeMenus();
   const lookV = FormatBar.lookMenu(st.id), matchV = lookV.find(i => i.label === 'Match look'), houseV = lookV.find(i => i.label === 'House style').items;
   check('Viewing, Match look is grey, saying why; saving a look and loading one, which change no chart, go on', matchV.disabled && matchV.tip === whyV && houseV.find(i => /^Save this look/.test(i.label)) && !houseV.find(i => /^Save this look/.test(i.label)).disabled && !houseV.find(i => /^Load/.test(i.label)).disabled);

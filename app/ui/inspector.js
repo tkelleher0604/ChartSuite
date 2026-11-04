@@ -1105,6 +1105,8 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
   : label === 'Format' ? (named ? (v === 'none' ? 'Hidden' : 'Shown') : TEXTS[v] ?? upper(String(v)))
   : label === 'Corner' || label === 'Transparency' ? `${Math.round(v)}%`
   : label === 'Shadow' ? shadowSaid(v) : label === 'Arrowhead' ? headSaid(v) : label === 'Dash' ? DASHES[v] ?? upper(String(v))
+  : label === 'Gradient' ? (v?.stops?.length ? html`<i class="chip" style=${`background:linear-gradient(${(v.angle ?? 0) + 90}deg,${v.stops.map(([at, c]) => `${c} ${at}%`).join(',')})`} />Gradient, ${v.angle ?? 0}°` : 'None')
+  : label === 'Inset' ? `${v.l ?? 7.2}, ${v.t ?? 3.6}, ${v.r ?? 7.2}, ${v.b ?? 3.6} pt` : label === 'Indent' ? `${v} pt` : label === 'Layer' ? String(v) : label === 'Tail' ? 'Moved' : label === 'Connector' ? upper(String(v))
   : label === 'Shape' ? (typeof FormatBar !== 'undefined' && FormatBar.shapeName?.(v)) || SHAPES[v] || upper(String(v)) : upper(String(v));
 function LookSection({ look, reset, named }) {
   if (!look.length) return null;
@@ -1439,18 +1441,25 @@ function Styles({ v, only }) {
   const output = (g, alone, part, s) => {
     const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]), on = reached.get(g) ?? { own: 0, masked: [] };
     // What doesn't read as this row: those of its marks with a look of their own, and what another style decides of them all.
-    const notes = [...on.own ? [`${on.own} ${on.own === 1 ? 'keeps its' : 'keep their'} own`] : [], ...on.masked.map(([l, by]) => `${l} decided by ${by}`)];
+    const notes = [...on.own ? [`${on.own} ${on.own === 1 ? 'keeps its' : 'keep their'} own`] : [], ...on.masked.map(([l, by]) => `${l} decided by ${by}`)], whose = on.ownNames?.length ? on.ownNames.join(', ') : null;
     return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onClick=${e => { if (!e.target.closest('.grip, .cellbox, input, .lk')) aimAt(g); }}>${alone ? grip(alone) : null}<div class="k" onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
       <div class="v" title=${said && names.length === 1 ? names[0] : null}><span class="capline"><${Caption} g=${keyWord(g) ? { ...g, caption: keyWord(g) } : g} label=${names.join(', ')} put=${out => cap(g, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
-        ${notes.length ? html`<span class="onote" title=${notes.join(', ')}>${on.own && fb ? html`<button type="button" class="lk" onClick=${() => fb.selectDiffers()}>${notes[0]}</button>` : notes[0]}${notes.length > 1 ? `, ${notes.slice(1).join(', ')}` : ''}</span>` : null}</span>
+        ${notes.length ? html`<span class="onote" title=${whose ?? notes.join(', ')}>${on.own && fb ? html`<button type="button" class="lk" data-tip=${whose} onClick=${() => fb.selectDiffers()}>${notes[0]}</button>` : notes[0]}${notes.length > 1 ? `, ${notes.slice(1).join(', ')}` : ''}</span>` : null}</span>
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
   // A style that is its one group is that row alone: Names, not Name over Names.
   return html`${parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
     ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname">${Scene.isChange(s.pattern) ? rows[0].name : html`<${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}>`}</div></div>${rows.map(g => output(g, null, part, s))}`}
   </div>`))}
+  ${only ? null : html`<${EverythingElse} v=${v} sc=${sc} n=${n} />`}
   ${off.length ? html`<div class="row styles-off"><button type="button" class="lk" aria-expanded=${offOpen} onClick=${() => setOffOpen(x => !x)}>Not on this page (${off.length})</button></div>
     ${offOpen ? off.map(g => { const s = styleAt.get(g.style); return html`<div class="ent style lone" key=${g.key}>${output(g, null, [], s)}</div>`; }) : null}` : null}`;
+}
+// Everything else: every box no style or note of its own gives a look, the page's catch-all, a note at the view itself. A row as any is: clicked, it's what the bar's next look goes to, and what it reaches is lit.
+function EverythingElse({ v, sc, n }) {
+  const self = { id: v, kind: 'View' }, g = { style: '·rest', key: '·rest', outputs: [self], caption: 'Everything else', name: null, rest: true, swatch: { kind: 'box', ...Scene.DEFAULTS.box, ...Object.fromEntries(['Fill', 'Gradient', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'].map(l => [l, n.resolve(l, self, v)?.note.view === v ? n.resolve(l, self, v).value : undefined]).filter(([, x]) => x !== undefined)) } };
+  const on = typeof FormatBar !== 'undefined' && FormatBar.aimedAt?.(g);
+  return html`<div class="ent style lone" key="·rest"><div class=${'row out lone' + (on ? ' on' : '')} onClick=${() => aimAt(g)}><div class="k"><${Swatch} sw=${g.swatch} /></div><div class="v"><span class="capline"><button type="button" class=${'cap' + (on ? ' on' : '')}>Everything else</button></span></div></div></div>`;
 }
 
 // A Styles row aimed at: the ribbon's scope, what it reaches lit on the chart (the format bar's aim), till it's clicked again.
@@ -1512,13 +1521,17 @@ function ViewPanel() {
 }
 
 // ---- A free shape: its text, its look and its place; the Key: its title, its columns and its rows ----
-const SHAPES = { text: 'Text box', legend: 'Key', rect: 'Rectangle', rounded: 'Rounded rectangle' };
+const SHAPES = { text: 'Text box', legend: 'Key', line: 'Line', picture: 'Picture', group: 'Group', frame: 'Frame' };
 function ShapeView({ id, part }) {
-  const row = App.shown.value.item(App.chart.value, id).at(-1), m = App.scene.value?.byId.get(id), n = N(), v = App.scene.value?.view, still = App.readOnly.value;
+  const row = App.shown.value.item(App.chart.value, id).at(-1), m = App.scene.value?.byId.get(id), n = N(), v = App.scene.value?.view, still = App.readOnly.value, cv = Shell.parts.peek().canvas?.active?.(), page = App.scene.value?.page;
   if (!row) return null;
   const set =(changes, say) => App.change(tx => tx.update(id, changes), { dated: false, say });
-  const g = row.geometry ?? 'rect', name = SHAPES[g] ?? g[0].toUpperCase() + g.slice(1), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
-  const look = Object.entries(row.format ?? {}).map(([label, value]) => ({ label, value, from: null }));
+  // A line is a connector where it's glued, and only there. What it's glued to says so, with a way to let go.
+  const glued = g => g === 'line' && row.ends?.some(Boolean), gone = id => App.scene.value?.byId.get(id);
+  const g = row.geometry ?? 'rect', name = row.name ?? (glued(g) ? 'Connector' : SHAPES[g] ?? Shapes.name(g) ?? upper(g)), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
+  // (A free shape's weight is as printed, in its row; and a line's Connector is its route, whatever it's glued to.)
+  const look = Object.entries(row.format ?? {}).filter(([, value]) => value !== null && value !== undefined).map(([label, value]) => ({ label: label === 'Connector' ? 'Route' : label, value: label === 'Weight' ? Scene.fromSlide(page, value) : value, from: null }));
+  const lineAt = g === 'line' && m ? { ...m, r: cv?.angleOf?.(m) } : null;
   const reset = still || !look.length ? null : html`<button class="btn ghost reset" onClick=${() => set({ format: {} }, 'Reset the look')}>Reset</button>`;
   // The Key's rows in its order, each with a box to show or hide it, which leaves it where it is, so nothing moves under
   // the pointer; hidden ones it has no row for now (nothing drawn is keyed by them) after them.
@@ -1538,8 +1551,10 @@ function ShapeView({ id, part }) {
         put=${out => { if (out.choice === 'Where it was put') return; const [v, h] = out.choice.toLowerCase().split(' '); App.change(tx => Canvas.keyCorner(tx, id, out.choice === 'Where the page places it' ? null : [v, h]), { dated: false, say: out.choice === 'Where the page places it' ? 'Let the page place the Key' : `Put the Key in the ${out.choice.toLowerCase()} corner` }); }} /></div></div>` : null}
     </div>
     ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
-    ${m && g !== 'line' ? html`<${Place} at=${m} keys=${key ? 'xyw' : 'xywh'} put=${(k, x) => Shell.parts.peek().canvas?.active?.()?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' ? null : { on: row.lock, set: on => set({ lock: on || undefined }) }} turn=${key || g === 'group' || row.role ? null : { at: row.rotate, set: a => Shell.parts.peek().canvas?.active?.()?.turn(m.id, a) }} />` : null}
-    ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} />` : null}
+    ${glued(g) ? html`<div class="rows"><div class="row"><div class="k">Glued to</div><div class="v">${row.ends.map(e => e ? (gone(e)?.record ? n.nameOf(recs(), gone(e).record) : gone(e)?.texts?.[0]?.text ?? Shapes.name(gone(e)?.geometry) ?? 'A shape') : null).filter(Boolean).join(' and ')}</div></div></div>` : null}
+    ${m && g !== 'group' && !key && !row.role ? html`<div class="rows"><div class="row" data-row="alt"><div class="k">Alt text</div><div class="v ctl"><${Prose} text=${row.alt ?? ''} label="Alt text" put=${alt => set({ alt: alt || undefined }, alt ? 'Set the alt text' : 'Took the alt text off')} /></div></div></div>` : null}
+    ${m ? html`<${Place} at=${m} keys=${key ? 'xyw' : 'xywh'} put=${(k, x) => cv?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' || g === 'line' ? null : { on: row.lock ?? g === 'picture', set: on => set({ lock: on }) }} turn=${key || row.role ? null : { at: g === 'line' ? Math.round((lineAt?.r ?? 0) * 10) / 10 : row.rotate, set: a => cv?.turn(m.id, a) }} />` : null}
+    ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} cv=${cv} />` : null}
     <${LookSection} look=${look} reset=${reset} />
   </div>`;
 }
@@ -1576,12 +1591,13 @@ function KeyRow({ r, id, row, m, on, shown, show, order, still }) {
 }
 // A picture's Crop: how much of each side of it is cut off, in percent of the whole picture, typed. The picture stays the
 // size and where it was on the page: what's cut goes, and its frame shrinks round the rest.
-function Crop({ m, row, set }) {
+function Crop({ m, row, set, cv }) {
   const c = { left: 0, top: 0, right: 0, bottom: 0, ...row.crop }, fullW = m.w / (1 - (c.left + c.right) / 100), fullH = m.h / (1 - (c.top + c.bottom) / 100), page = App.scene.value?.page;
   const put = (side, x) => { const was = c[side], v = Math.max(0, Math.min(95 - (side === 'left' || side === 'right' ? c.left + c.right - was : c.top + c.bottom - was), x)), d = (v - was) / 100, crop = { ...c, [side]: v };
     set({ crop, ...(side === 'left' && { x: m.x + fullW * d, w: m.w - fullW * d }), ...(side === 'right' && { w: m.w - fullW * d }), ...(side === 'top' && { y: m.y + fullH * d, h: m.h - fullH * d }), ...(side === 'bottom' && { h: m.h - fullH * d }) }, 'Cropped the picture'); };
   const any = Object.values(c).some(Boolean);
   return html`<${Section} title="Crop" act=${any && !App.readOnly.value ? html`<button class="btn ghost reset" onClick=${() => set({ crop: null, x: m.x - fullW * c.left / 100, y: m.y - fullH * c.top / 100, w: fullW, h: fullH }, 'Took the crop off the picture')}>Reset</button>` : null}>
+    ${App.readOnly.value ? null : html`<div class="row"><button class="btn ghost" onClick=${() => cv?.crop(m.id)}>Crop handles</button><button class="btn ghost" onClick=${() => cv?.changePicture(m.id)}>Change picture…</button></div>`}
     ${[['Left', 'left'], ['Top', 'top'], ['Right', 'right'], ['Bottom', 'bottom']].map(([label, side]) => html`<div class="row" key=${side}><div class="k">${label}</div><div class="v ctl">
       <${Field} r=${{ field: 'number', value: c[side] }} datatype="number" label=${`Crop ${label}`} put=${out => out && put(side, out.value)}><span class="unit">%</span></${Field}></div></div>`)}</${Section}>`;
 }
@@ -1758,6 +1774,7 @@ function RelateView({ a, b }) {
   return html`<div class="insp" data-tour="pair">
     <header class="ih"><h2 class="ih-title">${name(a)} <span class="and">and</span> ${name(b)}</h2></header>
     ${holds.length || after.length ? html`<div class="relate">${holds.map(heldRow)}${after.map(laterRow)}</div>` : null}
+    ${still || !ma || !mb ? null : html`<div class="relate">${ghost('Just a line, no relation', () => Shell.parts.peek().canvas?.active?.()?.connect(a, b))}</div>`}
     ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
       ${form ? html`<div class=${'rr new' + (ours ? ' adding' : '')} onKeyDown=${formKeys}><span class="ctl"><span class=${'tag' + (ours ? ' yes' : '')} /></span><span class="form">
