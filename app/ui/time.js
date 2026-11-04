@@ -339,10 +339,14 @@ const Time = (() => {
     for (const c of ever.value.changes) {
       const e = c.reverses && by.get(c.reverses), at = e ? out.indexOf(e) : -1;
       if (e && out.slice(at + 1).every(undone)) { e.chain.push(c); by.set(c.id, e); }
-      else { const n = { change: c, chain: [c] }; if (e) e.by = n; out.push(n); by.set(c.id, n); }
+      else { const n = { change: c, chain: [c] }; if (e) e.by = n; out.push(n); by.set(c.id, n);
+        // An amendment is one entry with what it amends, while it stands (dendra.md, Change).
+        const was = c.amends && by.get(c.amends); if (was) { n.was = was; was.amended = n; } }
     }
     return out;
   });
+  // What History lists: what's been amended stands in the amendment's entry, and comes back where that's undone.
+  const standing = e => !e.amended || struck(e.amended);
   const undone = e => e.chain.length % 2 === 0;
   // Struck: undone, as one entry or by one of its own that stands; and what's in the log for it now, which reversing puts
   // the other way.
@@ -363,14 +367,19 @@ const Time = (() => {
   // each { text, sub (what's said under it: a line's entries, what a count stands for), was, now, rows (what a value was and
   // is; a definition's rows before and after) }. What a reversal or a restore brings back is restored. `near`, the records of
   // a record's own History: of a change that holds more, the part about them.
+  function itemsIn(c) {
+    const { rows } = ever.peek(), items = new Map();
+    const put = (r, side) => { const type = Log.typeOf(r), k = type + ':' + r[type]; if (!items.has(k)) items.set(k, { type, id: r[type], was: [], now: [] }); items.get(k)[side].push(r); };
+    // (An amendment reads as the act it is, in place of the one it amends: dendra.md, Change.)
+    (c.amends ? App.wb.took(c) : c.removes).map(id => rows.get(id)).filter(Boolean).forEach(r => put(r, 'was'));
+    c.adds.forEach(r => put(r, 'now'));
+    return items;
+  }
+  const recsFor = c => { const { recs: logged } = ever.peek(), own = recordsOf(c.adds); return Object.keys(own).every(id => id in logged) ? logged : { ...logged, ...own }; };
   function read(c, near = null) {
     // A reason given afterwards is a change that says so, with no rows: it's said by what it's about.
     if (c.about) { const of = ever.peek().byId.get(c.about); return near ? [] : [{ text: `Gave a reason for: ${of ? headOf(read(of)) : 'a change'}`, sub: [] }]; }
-    const { rows, recs: logged } = ever.peek(), own = recordsOf(c.adds), N = notesNow(), items = new Map(), back = !!(c.reverses || c.restores);
-    const recs = Object.keys(own).every(id => id in logged) ? logged : { ...logged, ...own };
-    const put = (r, side) => { const type = Log.typeOf(r), k = type + ':' + r[type]; if (!items.has(k)) items.set(k, { type, id: r[type], was: [], now: [] }); items.get(k)[side].push(r); };
-    c.removes.map(id => rows.get(id)).filter(Boolean).forEach(r => put(r, 'was'));
-    c.adds.forEach(r => put(r, 'now'));
+    const N = notesNow(), items = itemsIn(c), back = !!(c.reverses || c.restores), recs = recsFor(c);
     // What a change keeps where it's drawn (a box the layout placed) is no part of what it says.
     const keeps = i => { const r = i.type === 'note' && i.now.length && Log.latest(i.now); return !!r && r.label === 'Position' && !!r.value?.kept; };
     // (And the Key where the page placed it, all that's changed of its row; and the scale the page keeps.)
@@ -422,7 +431,7 @@ const Time = (() => {
     if (begun) return whole(!begun.now.length ? `Deleted the chart ${begun.was[0].name}` : back ? `Restored the chart ${begun.now[0].name}` : `Began the chart ${begun.now[0].name}`);
     // (A merger, an insertion and a transfer are each one act, read from all it writes, whichever part of it's asked about.)
     const act = !back && (mergedIn(held, rec, recs, N) ?? interposedIn(held, rec, recs, N) ?? transferIn(held, rec, recs, N));
-    if (act) return whole(act);
+    if (act) return whole(act.text);
     const objects = all.filter(i => i.type === 'record' && Tree.isObject(rec(i)));
     const made = objects.filter(i => !i.was.length), gone = objects.filter(i => !i.now.length);
     const moved = new Set([...made, ...gone].map(i => i.id));
@@ -508,7 +517,7 @@ const Time = (() => {
     const v = App.version.peek(), k = readings.get(c);
     if (k?.v === v) return k.lines;
     // (A change that says what it did, as a look given does, says so, what's under it its records read.)
-    const raw = read(c), lines = c.says ? [{ text: c.says, sub: raw.length > 1 ? raw : [] }] : raw;
+    const raw = read(c), lines = c.says ? [{ text: c.says, sub: raw.length > 1 || c.amends ? raw : [] }] : raw;
     readings.set(c, { v, lines });
     return lines;
   }
@@ -531,7 +540,7 @@ const Time = (() => {
     const r = rec(end), noun = r.edge.replace(/\s+(date|day)$/i, ''), rel = all.find(i => i.type === 'record' && rec(i).args?.length === 2 && rec(i).args.some(a => a.at === r.at) && !i.was.length && Tree.same(N.nameOf(recs, i.id), noun));
     if (!rel) return null;
     const other = rec(rel).args.find(a => a.at !== r.at)?.at, name = x => { const o = Tree.objectOf(recs, x), s = N.shortOf(recs, o); return s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s; };
-    return `${App.actOf(r.edge)?.[1] ?? 'Ended'} ${name(r.at)} into ${name(other)} on ${short(r.value)}`;
+    return { type: 'merger', id: r.at, into: other, day: r.value, end: end.id, edge: r.edge, rel: rel.id, since: Log.latest(end.now).since ?? null, text: `${App.actOf(r.edge)?.[1] ?? 'Ended'} ${name(r.at)} into ${name(other)} on ${short(r.value)}` };
   }
   // One inserted between (dendra.md, Time), read back as a transfer is: a relation of two sides ended on a day, and two of
   // its name added from that day, its holder over another and that other over what it held. "Inserted Holdco between Fund
@@ -548,8 +557,57 @@ const Time = (() => {
     const up = side(a, true) === side(F, true) ? a : b, down = up === a ? b : a;
     if (side(up, true) !== side(F, true) || side(down, false) !== side(F, false) || side(up, false) !== side(down, true)) return null;
     const name = x => { const o = Tree.objectOf(recs, x), s = N.shortOf(recs, o); return s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s; };
-    return `Inserted ${name(side(down, true))} between ${name(side(F, true))} and ${name(side(F, false))} on ${short(day)}`;
+    const mid = side(down, true), midMade = all.find(i => i.type === 'record' && i.id === mid && !i.was.length);
+    return { type: 'insert', rid: gone[0].id, mid, fresh: !!midMade && madeAs(midMade, rec, recs, N), up: fresh[up === a ? 0 : 1].id, made: fresh[up === a ? 1 : 0].id, day, text: `Inserted ${name(mid)} between ${name(side(F, true))} and ${name(side(F, false))} on ${short(day)}` };
   }
+  // A record an act made, as it asks for one again: its kind, its name, and their ids.
+  const madeAs = (i, rec, recs, N) => ({ kind: rec(i).kind, id: i.id, name: N.nameOf(recs, i.id), nameId: Tree.entryAt(recs, i.id, 'Name') });
+  // A value typed from a day, read back as those are: one record, or several from the one day, its row split on the day.
+  function valueIn(all, rec) {
+    const vals = all.filter(i => i.type === 'record');
+    if (!vals.length || vals.some(i => !i.was.length || !i.now.length)) return null;
+    const parts = vals.map(i => { const now = Log.latest(i.now), was = now.since && i.now.find(y => y.before === now.since); return was && !Tree.isObject(now) && !(now.args && !('choice' in now)) ? { id: i.id, day: now.since, was, now } : null; });
+    return parts.some(p => !p) || new Set(parts.map(p => p.day)).size > 1 ? null : { type: 'value', day: parts[0].day, parts };
+  }
+  // A relation added from a day it asked, and what's at it from then; or a record ended on a day, by its rows (dendra.md, Time): the
+  // day's all there is to read.
+  function addedIn(all, rec, recs, N) {
+    const it = all.filter(i => i.type === 'record'), top = it.filter(i => !it.some(j => j !== i && Tree.argsOf(rec(i)).some(a => a.at === j.id)));
+    if (top.length !== 1 || it.some(i => i.was.length || !i.now.length)) return null;
+    const r = rec(top[0]);
+    return r.args && r.since && App.asksDay(r, recs, N) && it.every(i => rec(i).since === r.since) ? { type: 'added', id: top[0].id, day: r.since } : null;
+  }
+  function endedIn(all, rec) {
+    const it = all.filter(i => i.type === 'record'), top = it.filter(i => !it.some(j => j !== i && Tree.argsOf(rec(i)).some(a => a.at === j.id)));
+    if (top.length !== 1 || it.some(i => !i.was.length || !i.now.length)) return null;
+    const on = Log.latest(top[0].now).before;
+    return on && !Log.latest(top[0].was).before && (rec(top[0]).args || Tree.isObject(rec(top[0]))) && it.every(i => Log.latest(i.now).before === on) ? { type: 'ended', id: top[0].id, day: on } : null;
+  }
+  // The act a change is, read back from its records alone, as History says it, as Change… asks it again: or null, for a
+  // change that has none, or one that takes another back.
+  const acts = new WeakMap();
+  function actOf(c) {
+    const k = acts.get(c), v = App.version.peek();
+    if (k?.v === v) return k.act;
+    let act = null;
+    if (!c.reverses && !c.restores) {
+      const items = itemsIn(c), held = [...items.values()], rec = i => Log.latest(i.now.length ? i.now : i.was), recs = recsFor(c), N = notesNow();
+      act = mergedIn(held, rec, recs, N) ?? interposedIn(held, rec, recs, N) ?? transferIn(held, rec, recs, N) ?? valueIn(held, rec) ?? addedIn(held, rec, recs, N) ?? endedIn(held, rec);
+    }
+    acts.set(c, { v, act });
+    return act;
+  }
+  // Why a change can't be changed now: the later change that took a row it added, which has to be undone first. Only what's
+  // read back and made again rests on its rows (dendra.md, Change). → that change, or null.
+  const barred = c => {
+    const a = actOf(c);
+    if (!a || !['transfer', 'insert', 'merger'].includes(a.type) || App.wb.canAmend(c.id)) return null;
+    // (By what it now is, where that's been changed since.)
+    const b = blocker(c) ?? c;
+    let e = entries.peek().find(x => x.change === b);
+    while (e?.amended && !struck(e.amended)) e = e.amended;
+    return e?.change ?? b;
+  };
   function transferIn(all, rec, recs, N) {
     // A relation of two sides, neither itself a relation: what evidences a stake ends with it, and isn't what's transferred.
     const pair = r => r?.args?.length === 2 && r.args.every(a => recs[a.at] && !recs[a.at].args);
@@ -566,11 +624,11 @@ const Time = (() => {
       const r = rec(i), at = recs[r.at];
       if (pair(r) && i.now.length) {
         const a = amountOf(i.id), now = Log.latest(i.now);
-        if (i.was.length && i.now.every(x => x.before) && !Log.latest(i.was).before) froms.push({ rel: i.id, day: now.before, q: a?.was.length ? Log.latest(a.was).value : null, a });
-        else if (!i.was.length && now.since) tos.push({ rel: i.id, day: now.since, q: a && !a.was.length && a.now.length ? Log.latest(a.now).value : null, a });
+        if (i.was.length && i.now.every(x => x.before) && !Log.latest(i.was).before) froms.push({ rel: i.id, whole: true, day: now.before, q: a?.was.length ? Log.latest(a.was).value : null, a });
+        else if (!i.was.length && now.since) tos.push({ rel: i.id, fresh: true, day: now.since, q: a && !a.was.length && a.now.length ? Log.latest(a.now).value : null, a });
       } else if (pair(at) && r.field === 'date' && !i.was.length && i.now.length && (t => !!t && N.isEnd(t))(Tree.treeOf(recs, i.id))) {
         const a = amountOf(r.at), vs = a && (a.was.length ? a.was : a.now);
-        froms.push({ rel: r.at, day: r.value, q: vs?.length ? Log.latest(vs).value : null, a });
+        froms.push({ rel: r.at, whole: true, day: r.value, q: vs?.length ? Log.latest(vs).value : null, a });
       } else if (pair(at) && FIGURES.has(r.field) && amountAt(r.at) === i && !here(r.at) && i.now.length) {
         const s = step(i), now = Log.latest(i.now);
         if (s && s[1] < 0) froms.push({ rel: r.at, day: s[0], q: -s[1], a: i });
@@ -587,9 +645,11 @@ const Time = (() => {
       if (!first || t.day !== f.day || !Tree.same(N.nameOf(recs, f.rel), N.nameOf(recs, t.rel)) || F.choice !== R.choice || side(F, false) !== side(R, false) || side(F, true) === side(R, true)) continue;
       if (!!f.a !== !!t.a || (f.a && !(f.q != null && t.q != null && Math.abs(f.q - t.q) < 1e-9))) continue;
       // Each by its short name, a defined term reading "the Manager" mid-sentence.
-      const q = f.a ? f.q : null, name = x => { const o = Tree.objectOf(recs, x), s = N.shortOf(recs, o); return s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s; };
-      const what = q != null ? Tree.format(rec(f.a).field, Math.round(q * 1e9) / 1e9) : F.choice ?? N.nameOf(recs, f.rel);
-      return `Transferred ${what} of ${name(side(F, false))} from ${name(side(F, true))} to ${name(side(R, true))} on ${short(f.day)}`;
+      const q = f.a ? Math.round(f.q * 1e9) / 1e9 : null, name = x => { const o = Tree.objectOf(recs, x), s = N.shortOf(recs, o); return s !== N.nameOf(recs, o) ? s.replace(/^The /, 'the ') : s; };
+      const what = q != null ? Tree.format(rec(f.a).field, q) : F.choice ?? N.nameOf(recs, f.rel);
+      const to = side(R, true), toMade = all.find(i => i.type === 'record' && i.id === to && !i.was.length);
+      return { type: 'transfer', rid: f.rel, to, fresh: !!toMade && madeAs(toMade, rec, recs, N), made: t.fresh ? t.rel : null, whole: !!f.whole, q, field: f.a ? rec(f.a).field : null, day: f.day,
+        text: `Transferred ${what} of ${name(side(F, false))} from ${name(side(F, true))} to ${name(to)} on ${short(f.day)}` };
     }
     return null;
   }
@@ -627,7 +687,7 @@ const Time = (() => {
     if (was.before && !Log.latest(i.now).before && (Tree.isObject(r) || r.args)) return `Restored ${it}`;
     // A value typed with a day shown changes from that day; with none, it's corrected, for all time (dendra.md, Time).
     const from = r.since && r.since !== was.since && r.since !== r.value ? r.since : null;
-    if (Tree.isObject(r)) return `Changed ${it}`;
+    if (Tree.isObject(r)) return was.kind !== r.kind ? `Made ${it} ${/^[aeiou]/i.test(r.kind) ? 'an' : 'a'} ${r.kind}, not ${/^[aeiou]/i.test(was.kind) ? 'an' : 'a'} ${was.kind}` : `Changed ${it}`;
     if (Tree.same(r.edge ?? '', 'Name') && 'value' in r) return `Renamed ${was.value} to ${r.value}${day(from)}`;
     if ('tag' in r) return `${verdict} ${it}${day(from)}`;
     if (valueText(was) === valueText(r)) return `Changed ${it}`;
@@ -912,9 +972,10 @@ const Time = (() => {
   };
   // Every later change a change's reverse takes with it, by name: what's recorded at what it leaves with no row, which holds
   // no longer once that's gone. Of each, the part about that; with who made it and when.
-  function takenBy(c) {
+  function takenBy(c, left = null) {
     const { recs, rows, at } = ever.peek(), wb = App.wb, chart = App.chart.peek(), backs = new Set(c.removes.map(id => rows.get(id)?.record));
-    const gone = [...new Set(c.adds.filter(r => 'record' in r).map(r => r.record))].filter(id => !backs.has(id) && wb.item(chart, id).length <= c.adds.filter(r => r.record === id).length);
+    // (`left`, for an amendment: what it would leave with no row, the act made again keeping the rest.)
+    const gone = left ?? [...new Set(c.adds.filter(r => 'record' in r).map(r => r.record))].filter(id => !backs.has(id) && wb.item(chart, id).length <= c.adds.filter(r => r.record === id).length);
     if (!gone.length) return [];
     const near = Tree.dependents(recs, gone), from = at.get(c.id);
     return entries.peek().filter(e => at.get(e.change.id) > from && !struck(e) && !e.change.reverses && e.change.adds.some(r => near.has(r.record)))
@@ -937,8 +998,8 @@ const Time = (() => {
     const nameOf = id => { const [what, whose] = said(recs, id, N); return recs[id].args ? `${what}: ${whose}` : Tree.isObject(recs[id]) || !whose ? whose || what : `${what} of ${whose}`; };
     const touches = c => [...c.adds, ...c.removes.map(id => E.rows.get(id)).filter(Boolean)]
       .some(r => rule ? 'note' in r && !r.view && rule.rule.has(Tree.key(r.pattern)) && r.label !== 'Order' : near.has(r.record) || ('note' in r && [...Tree.idsIn(r.pattern)].some(id => near.has(id))));
-    const linesOf = c => near ? read(c, near) : reading(c);
-    const changes = m === 'all' ? entries.value.filter(e => (k === 'all' || kindsOf(e.change).has(k)) && (!near || (touches(e.change) && linesOf(e.change).length))).reverse() : [];
+    const linesOf = c => near && !c.amends ? read(c, near) : reading(c);
+    const changes = m === 'all' ? entries.value.filter(e => standing(e) && (k === 'all' || kindsOf(e.change).has(k)) && (!near || (touches(e.change) && linesOf(e.change).length))).reverse() : [];
     const gone = m === 'deleted' ? deleted().filter(d => !near || near.has(d.item)) : [];
     useLayoutEffect(() => { ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' }); }, [t?.stood]);
     // What the status did, worked out after the panel is drawn: what's opened or picked first, then rules, then the rest.
@@ -953,7 +1014,11 @@ const Time = (() => {
     let lastDay = null;
     const row = e => {
       // An entry struck offers to redo it; what's in the log for it now is its last.
-      const c = e.change, last = lastOf(e), off = struck(e), on = t?.stood === c.id, lines = linesOf(c), u = reversalOf(c), fx = known(c), has = lines.length > 1 || lines.some(l => l.sub.length || l.rows || l.was != null) || !!fx?.moved.length || !!fx?.which?.length, shows = opened.has(c.id);
+      const c = e.change, last = lastOf(e), off = struck(e), on = t?.stood === c.id, lines = linesOf(c), u = reversalOf(c), fx = known(c), has = lines.length > 1 || lines.some(l => l.sub.length || l.rows || l.was != null) || !!fx?.moved.length || !!fx?.which?.length || !!e.was, shows = opened.has(c.id);
+      // What it was before it was changed, each step, each a click from the chart as it stood then.
+      const before = []; for (let w = e.was; w; w = w.was) before.push(w);
+      // A change that can be changed says so where it's read; one a later change rests on says that, as its Undo does.
+      const act = !off && !viewing && !u ? actOf(c) : null, bar = act && barred(c);
       const day = dayLabel(c.when), head = !near && day !== lastDay ? html`<div class="hist-day">${day}</div>` : null;
       lastDay = day;
       const open_ = ev => { ev.stopPropagation(); if (!shows) ask([c, ...asked.filter(x => x !== c)]); toggle(opens, c.id); };
@@ -965,12 +1030,13 @@ const Time = (() => {
         <div class="what">${u ? html`${u.word}: <button class="lk" onClick=${ev => { ev.stopPropagation(); stand(u.root); }}>${describe(u.root)}</button>`
           : lines.length > 1 ? html`${lines[0].text}, <button class="lk more" onClick=${open_}>and ${lines.length - 1} more</button>` : lines[0]?.text ?? 'Changed the chart'}</div>
         ${App.wb.reasons(c.id).map(r => html`<div class="note">${r.text}${r.own ? null : html`<span class="by"> · ${r.who}, ${short(Tree.isoOf(new Date(r.when)))}</span>`}</div>`)}
-        <div class="meta">${near ? `typed ${short(Tree.isoOf(new Date(c.when)))}, ${c.who}` : `${c.who} · ${clock(c.when)}`}${off ? ' · undone' : dark ? ' · gone with what it’s at' : ''}${undoneBy ? html` by ${e.by ? html`<button class="lk" onClick=${ev => { ev.stopPropagation(); stand(e.by.change); }}>${undoneBy}</button>` : undoneBy}` : null}${!viewing && !off && !c.about && !u ? html` · <button class="lk why-add" onClick=${ev => { ev.stopPropagation(); giving.value = c.id; }}>Why…</button>` : null}</div>
+        <div class="meta">${near ? `typed ${short(Tree.isoOf(new Date(c.when)))}, ${c.who}` : `${c.who} · ${clock(c.when)}`}${off ? ' · undone' : dark ? ' · gone with what it’s at' : ''}${undoneBy ? html` by ${e.by ? html`<button class="lk" onClick=${ev => { ev.stopPropagation(); stand(e.by.change); }}>${undoneBy}</button>` : undoneBy}` : null}${act ? html` · <button class="lk change" aria-disabled=${bar ? 'true' : null} data-tip=${bar ? `A later change rests on it: ${describe(bar)}` : null} onClick=${ev => { ev.stopPropagation(); if (bar) stand(bar); else { now(); App.amending(c); } }}>Change…</button>` : null}${!viewing && !off && !c.about && !u ? html` · <button class="lk why-add" onClick=${ev => { ev.stopPropagation(); giving.value = c.id; }}>Why…</button>` : null}</div>
         ${giving.value === c.id ? html`<${Reason} id=${c.id} done=${() => { giving.value = null; }} />` : null}
         ${fx?.moved.length ? html`<div class="effect">${fx.moved.map(x => `${SAID[x.k]} ${x.was} → ${x.now}`).join(' · ')}</div>` : null}
         ${fx?.said ? html`<div class="effect said">${fx.said}</div>` : null}
         ${shows ? html`<div class="hist-more" onClick=${ev => ev.stopPropagation()}>
           ${lines.map(l => html`${lines.length > 1 ? html`<div class="ln">${l.text}</div>` : null}${lineMore(l)}${l.sub.map(s => html`<div class="ln sub">${s.text}</div>${lineMore(s)}`)}`)}
+          ${before.length ? html`<div class="st">Before</div>${before.map(w => html`<div class="ln sub"><button class="lk" onClick=${() => stand(w.change)}>${describe(w.change)}</button> <span class="fig">${w.change.who}, ${short(Tree.isoOf(new Date(w.change.when)))}</span>${App.wb.reasons(w.change.id).map(r => html`<div class="note">${r.text}</div>`)}</div>`)}` : null}
           ${(fx?.which ?? []).map(w => html`<div class="st">${w.said}</div>${w.names.map(n => html`<div class="ln sub">${n}</div>`)}`)}
           ${fx?.cleared.length ? html`<div class="st">Cleared</div>${fx.cleared.map(w => html`<div class="ln sub">${[w.what, w.where].filter(Boolean).join(' · ')}${w.figure ? html` <span class="fig">${w.figure}</span>` : null}</div>`)}` : null}
           ${fx?.appeared.length ? html`<div class="st">Appeared</div>${fx.appeared.map(w => html`<div class="ln sub">${[w.what, w.where].filter(Boolean).join(' · ')}${w.figure ? html` <span class="fig">${w.figure}</span>` : null}</div>`)}` : null}
@@ -1098,5 +1164,5 @@ const Time = (() => {
     return it => !had.has(`${it.id}|${it.edge ?? ''}`);
   }
 
-  return { events, whose, describe, looked, keep, pageDay, nextStep, showChanges, dayBefore, ruleSince, newSinceToday, open: openHistory, of: ofRecords, ofRule, ruleLog, ask: c => ask([c, ...asked.filter(x => x !== c)]), close };
+  return { events, whose, describe, looked, keep, pageDay, nextStep, showChanges, dayBefore, ruleSince, newSinceToday, open: openHistory, of: ofRecords, ofRule, ruleLog, ask: c => ask([c, ...asked.filter(x => x !== c)]), close, act: actOf, barred, takenBy, go: c => { openHistory('all'); stand(c); } };
 })();

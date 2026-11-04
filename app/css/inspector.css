@@ -13,6 +13,11 @@
 .insp :is(.row, .rr, .ih):focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .ih { position: relative; padding: 16px 20px 12px; border-bottom: 1px solid var(--rule); }
 .ih > .path { margin-bottom: 4px; }
+/* The way back to the panel this one was gone to from. */
+.insp > .crumb { display: flex; align-items: center; gap: 2px; max-width: 100%; padding: 8px 16px 0 16px; border: 0; background: none; font: var(--t12); color: var(--ink-3); text-align: left; cursor: pointer; }
+.insp > .crumb:hover { color: var(--ink); }
+.insp > .crumb > svg { width: 12px; height: 12px; flex: none; }
+.insp > .crumb > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* When a record holds, under its title: each day a link to the chart then. */
 .ih > .span { display: flex; flex-wrap: wrap; column-gap: 12px; margin: 2px 0 0; font: var(--t12); color: var(--ink-2); }
 .ih > .span .day { color: var(--accent-ink); cursor: pointer; }
@@ -164,11 +169,15 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .btn.ver { position: absolute; right: -7px; top: 4px; height: 20px; padding: 0 6px; font: var(--t12); color: var(--ink-2); background: var(--surface); opacity: 0; transition: opacity var(--quick) var(--ease); }
 .row:hover .btn.ver { background: linear-gradient(var(--hover), var(--hover)) var(--surface); }
 .row:hover .btn.ver, .btn.ver:focus { opacity: 1; }
-.cellbox:has(.cell:focus) > .btn.ver { opacity: 0; pointer-events: none; }
+.cellbox:has(.cell:focus) > .btn.ver:not(.coming) { opacity: 0; pointer-events: none; }
 /* A due date's filing (Paid…, Renewed…) is always shown, beside the date, after it, never over it; where the row is
    too narrow for both, on the line under it. */
 .btn.ver.filed { position: static; flex: none; margin: 0 0 0 8px; border-color: var(--edge); opacity: 1; }
 .cellbox:has(> .btn.ver.filed) { flex-wrap: wrap; }
+/* What's coming stands beside the value it'll replace, always shown, faint: "55% from Feb 1, 2027". */
+.btn.ver.coming { position: static; flex: none; margin: 0 0 0 8px; opacity: 1; background: none; color: var(--ink-3); }
+.row:hover .btn.ver.coming { background: var(--hover); }
+.cellbox:has(> .btn.ver.coming) { flex-wrap: wrap; }
 .row.rel > .v > .due-at { align-self: center; display: flex; }
 .row.rel > .v > .due-at > .btn.ver.filed { margin: 0 -6px 0 4px; }
 .btn.ver:hover { color: var(--ink); }
@@ -202,6 +211,12 @@ section.open > :last-child { margin-bottom: 8px; }
 .row.rel > .k { color: var(--ink); }
 /* Each says it's a link: a pointer and an underline; a tooltip says where. */
 .row.rel .lk, .doc .lk { cursor: pointer; }
+/* A relative that holds only from a later day: in its list, faint, with the day, a control. */
+.row.rel.coming > .k, .row.rel.coming > .v > .lk, .row.rel.coming > .k .lk { color: var(--ink-3); }
+.row.rel.coming > .facts { color: var(--ink-3); }
+.row.rel.coming > .facts > .day { color: var(--accent-ink); }
+/* A role a check fails at doesn't hold: drawn so where it's stated, not only beneath. */
+.row.rel > .v > .lk.fails { color: var(--no); text-decoration: line-through; text-decoration-color: currentColor; }
 .row.rel .lk:hover, .doc .lk:hover { text-decoration-color: currentColor; }
 /* A box to tick each, for ending several at once: in the row's gutter, shown as it's pointed at or once one's ticked. */
 .row.rel > .tick { position: absolute; left: 3px; top: 7px; width: 13px; height: 13px; opacity: 0; }

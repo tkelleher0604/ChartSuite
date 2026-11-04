@@ -153,20 +153,6 @@ const Table = (() => {
     const t = Tree.treeOf(st, top), e = t && N.edges(t)[0], a = r.args.find(x => same(x.edge, e ?? '')) ?? r.args[0];
     return Tree.objectOf(st, a.at);
   }
-  // Who's Responsible for a record: said at it, or else up what it's at to the object it's of: an entry of that name, in its
-  // words, or a relation of that name, by the other side's short name. Null where nothing says.
-  function responsible(st, id, N) {
-    const said = x => {
-      const e = entryAt(st, x, 'Responsible');
-      if (e && !blank(valueOf(st[e])) && typeof valueOf(st[e]) !== 'boolean') return String(valueOf(st[e]));
-      const rel = (Tree.index(st).relations.get(x) ?? []).find(r => st[r].args?.length === 2 && st[r].tag !== false && same(N.nameOf(st, r), 'Responsible')), other = rel && st[rel].args.find(a => a.at !== x);
-      return other ? N.shortOf(st, Tree.objectOf(st, other.at)) : null;
-    };
-    const seen = new Set();
-    for (let x = id; x && st[x] && !seen.has(x); x = st[x].at) { seen.add(x); const s = said(x); if (s) return s; }
-    const up = [...seen].at(-1), o = st[up] && (st[up].args ? ownerOf(st, up, N) : null);
-    return o ? said(o) : null;
-  }
   // Names as a list's cell holds them, each on its own or after a semicolon.
   const namesIn = raw => String(raw ?? '').split(/[;\n]/).map(clean).filter(Boolean);
 
@@ -244,7 +230,7 @@ const Table = (() => {
       if (labels.size !== 1) lead.push({ key: '$entry', title: 'What', type: 'text', shown: true });
       if (kind) { base = { kind }; up = true; } else trail.push({ key: '$of', title: 'Whose', type: 'text', shown: true });
       // Who's on the hook for a date, where the chart says: its own record's Responsible, or else that of what it's of.
-      if (rows === 'date' && ids.some(id => responsible(st, id, N))) trail.push({ key: '$resp', title: 'Responsible', type: 'text', shown: true });
+      if (rows === 'date' && ids.some(id => App.responsible(id, st))) trail.push({ key: '$resp', title: 'Responsible', type: 'text', shown: true });
     } else {
       base = isKind ? { kind: rows.kind } : rows;
       ids = isKind ? Tree.index(st).kinds.get(norm(rows.kind)) ?? []
@@ -310,7 +296,7 @@ const Table = (() => {
       if (c.key === '$value') return { id: row, at: st[row].at, v: st[row].value };
       if (c.key === '$entry') return { v: N.nameOf(st, row) };
       if (c.key === '$of') { const o = ownerOf(st, st[row].args ? row : st[row].at, N); return { v: Time.whose(st, st[row].args ? row : st[row].at, N), group: N.shortOf(st, o), gid: o }; }
-      if (c.key === '$resp') return { v: responsible(st, row, N) ?? undefined };
+      if (c.key === '$resp') return { v: App.responsible(row, st)?.short };
       let at = c.up ? st[row].at : row;
       if (c.type === 'list') {
         for (const e of c.minePath) at = entryAt(st, at, e);
@@ -334,7 +320,9 @@ const Table = (() => {
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
         // A value of another datatype than its column's reads as its own.
         const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
+        // What's coming stands beside the value it'll replace (dendra.md, Time).
+        const next = c.type !== 'tag' && m.id && App.shown.value.item(App.chart.value, m.id).find(x => x.since > today);
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(next && { next: `${Tree.outputText(next)} from ${Tree.formatDate(next.since, 'short')}` }), ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
       }
       row._ruled = st[id].tag === false;
       row._fails = fails.get(id) ?? null;
@@ -481,6 +469,7 @@ const Table = (() => {
       el.classList.toggle('none', c.type !== 'edge' && !c.key.startsWith('$') && !m?.at);
       el.classList.toggle('pend', !!m && 'was' in m && c.type !== 'tag' && m.was !== null && v !== null);
       if (tip) el.dataset.tip = tip; else delete el.dataset.tip;
+      if (m?.next && !('was' in m)) { if (!tip) el.dataset.tip = m.next; return `${shown(v, m)} <span class="nx">${esc(m.next)}</span>`; }
       if (!m || !('was' in m) || c.type === 'tag') return shown(v, m);
       return [m.was !== null && `<span class="del">${shown(m.was, null, m.type ?? c.type)}</span>`, v !== null && `<span class="add">${shown(v, m)}</span>`].filter(Boolean).join(' ');
     };
@@ -938,7 +927,7 @@ const Table = (() => {
     owed = !el.offsetParent;
     if (owed) return;
     // What it shows is worked out from these: shown again with them as they were, the grid is as it was.
-    // (The log's version among them: a change from a later day leaves the chart as of today as it was, but Dates lists it.)
+    // (The log's version among them: a change from a later day leaves the chart as of today as it was, but Dates lists it, and a cell says it's coming.)
     const from = [view, p, typed, App.version.value, App.computed.value, App.schema.value, App.notes.value, App.views.value, App.day.value, App.viewing.value, viewed.value];
     if (table && ready && !flight && drewFrom?.every((x, i) => x === from[i])) return settle();
     holdRows(view);
@@ -975,6 +964,8 @@ const Table = (() => {
     // comes (back, by Undo, or pasted) goes where its records put it, after the row before it, not at the end.
     const had = new Map(t.getRows().map(row => [row.getData().id, row.getData()])), changed = m.data.filter(r => !sameRow(r, had.get(r.id)));
     const updated = changed.filter(r => had.has(r.id)), there = new Set(had.keys());
+    // (A cell whose value stands isn't drawn again by that; one saying something else is coming is.)
+    const ahead = updated.filter(r => Object.keys(r._m).some(f => r._m[f].next !== had.get(r.id)._m[f]?.next)).map(r => r.id);
     // Rows come: new to the grid, or made from the redline's (an import's, a paste's), which the sort then places.
     const came = m.data.some(r => !r._red && (!had.has(r.id) || had.get(r.id)._red === 'add'));
     const come = () => m.data.filter(r => !had.has(r.id)).reduce((p, r) => p.then(() => {
@@ -993,7 +984,7 @@ const Table = (() => {
       // A row come after one the filters leave out is placed only among all the rows: the filters are run again, so it's
       // shown as they say (and the row being typed, as it is).
       if (t.getFilters().length && m.data.some(r => !had.has(r.id))) t.refreshFilter();
-      for (const id of new Set([...reds, ...red])) rows.get(id)?.reformat();
+      for (const id of new Set([...reds, ...red, ...ahead])) rows.get(id)?.reformat();
       reds = red;
       t.restoreRedraw();
       ok = true;
@@ -1647,7 +1638,11 @@ const Table = (() => {
     // By the one rule (App.put): a value over one with history to keep asks from when, as one typed there does.
     const over = Object.keys(x.records).filter(id => App.asksFrom(id, x.records[id]));
     const asks = over.length > 0 || [...x.rows, ...x.rels].some(id => App.asksDay(x.records[id], recs));
-    const make = (tx, d, p) => { fill(tx, x.records); for (const id of x.ends) tx.remove(id, p?.asks === 'from' ? d : App.day.peek()); };
+    // What's new, related to nothing a page draws, isn't placed on it: the toast offers Show (App.keepOff).
+    const brand = Object.keys(x.records).filter(id => 'kind' in x.records[id]);
+    let off = [];
+    const make = (tx, d, p) => { fill(tx, x.records); for (const id of x.ends) tx.remove(id, p?.asks === 'from' ? d : App.day.peek()); off = brand.length ? App.keepOff(tx, brand) : []; };
+    const offered = () => (off.length ? ['Show', () => App.change(tx => brand.forEach(id => tx.note('Shown', { id, kind: x.records[id].kind }, true, { view: off[0].id })), { say: c => Time.describe(c) })] : null);
     if (single && !x.rows.length && !x.made.length && !x.rels.length && !x.ends.length) {
       if (over.length) { ran = true; const [id] = over; App.put(id, st[id], x.records[id]); return back(); }
       if (!asks) { App.change(tx => make(tx), { say }); return back(); }
@@ -1676,7 +1671,7 @@ const Table = (() => {
     // What it's at: the records it writes over, those it adds at, and those it ends.
     const needs = [...new Set([...Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]), ...x.ends])].filter(id => id in entered);
     App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
-      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : App.day.peek() }), make, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
+      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : App.day.peek() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
   // Rows deleted, as one change pending: the records entered there, and what's at them, each ended as App.deleting says.
@@ -2358,7 +2353,10 @@ const Table = (() => {
     let id = null;
     leave();
     // The row made is the row being typed, kept in view under the filters till it's left.
-    if (!App.change(tx => { id = keeping = tx.add('record', { kind: m.rows.kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: s }); })) { keeping = null; return; }
+    // And related to nothing a page draws, it isn't placed on it: the toast offers Show (App.keepOff).
+    let off = [];
+    if (!App.change(tx => { id = keeping = tx.add('record', { kind: m.rows.kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: s }); off = App.keepOff(tx, [id]); },
+      { say: () => (off.length ? `${s} isn’t on ${off[0].name}` : null), go: () => (off.length ? ['Show', () => App.change(tx => tx.note('Shown', { id, kind: m.rows.kind }, true, { view: off[0].id }), { say: c => Time.describe(c) })] : null) })) { keeping = null; return; }
     input.value = '';
     landed(id, () => {
       if (e.key !== 'Tab') return reveal(id);

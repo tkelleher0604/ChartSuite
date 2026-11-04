@@ -51,7 +51,7 @@ function run(json) {
   // governing agreement is among its 59 documents, and each Delaware tax paid, a corporation's franchise tax
   // among them, is at the tax year it settled.
   const docs = Object.values(now).filter(r => r.kind === 'Document').length;
-  check('the sample is as big as it should be', Object.keys(now).length === 1016 && docs === 59 && wb.changes().length === 136,
+  check('the sample is as big as it should be', Object.keys(now).length === 1029 && docs === 59 && wb.changes().length === 137,
     `${Object.keys(now).length} records, ${docs} documents, ${wb.changes().length} changes`);
   const hourIn = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' });
   const late = wb.changes().filter(c => { const h = +hourIn.formatToParts(new Date(c.when)).find(p => p.type === 'hour').value; return h < 9 || h >= 17; });
@@ -162,7 +162,7 @@ function run(json) {
   check('a relation’s definition has its name and edges in order', def('def_control').name === 'Control' && j(def('def_control').edges) === j(['Controller', 'Controlled'])
     && def('def_private_fund').name === 'Private Fund');
   const rels = N.relations(S), ownership = rels.find(r => r.name === 'Ownership');
-  check('relation names as formulas.js takes them', rels.length === 17 && ownership.lists.Owned.Owner === 'Owners' && ownership.lists.Owner.Owned === 'Holdings' && ownership.type === 'tag');
+  check('relation names as formulas.js takes them', rels.length === 18 && ownership.lists.Owned.Owner === 'Owners' && ownership.lists.Owner.Owned === 'Holdings' && ownership.type === 'tag');
   // The formula bar says a relation by its first side's list of the second where that reads as a predicate, and
   // a tag described as "A …" as a noun: an investor in, a member of, a BDC affiliate.
   const listOf = name => rels.find(r => r.name === name).lists;

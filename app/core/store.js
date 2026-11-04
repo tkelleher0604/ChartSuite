@@ -281,7 +281,8 @@ async function open({ id, sample } = {}) {
   await sp()?.ready();
   let book = null;
   try { book = id ? await db.books.get(id) : await db.books.orderBy('opened').last(); } catch {}
-  return use(book ?? { id: id ?? Log.newId(), type: 'browser' }, book ? null : sample);
+  // (The workbook a first launch opens says it's the sample, in the chart menu's list.)
+  return use(book ?? { id: id ?? Log.newId(), type: 'browser', ...(typeof SAMPLE !== 'undefined' && sample === SAMPLE && { sample: true }) }, book ? null : sample);
 }
 // A workbook file: kept open where the browser can (the file opened is saved from then on), and otherwise,
 // or for a file given (dropped, say), a copy opened in this browser.
@@ -307,7 +308,7 @@ const choose = () => new Promise(resolve => {
 });
 
 const books = async () => (await db.books.orderBy('opened').reverse().toArray().catch(() => []))
-  .map(b => ({ id: b.id, type: b.type, name: b.name, opened: b.opened }));
+  .map(b => ({ id: b.id, type: b.type, name: b.name, opened: b.opened, sample: !!b.sample }));
 // A workbook this browser keeps, gone from it: its changes and its place in the list, which can't be undone. One kept
 // in a file or a library stays there. Never the one open.
 async function forget(id) {

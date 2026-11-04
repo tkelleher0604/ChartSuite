@@ -10,11 +10,11 @@ The workbook a first launch opens is Calder Ridge, a fictional private fund mana
 - 3 service providers, the registered agents: Wilmington Harbor in Delaware, The Corporation Trust Company before it, and Seven Mile in the Cayman Islands.
 - 59 documents, among them the formation document and governing agreement of each Calder Ridge entity, two stock certificates and a VCOC opinion.
 
-**Relations:** ownership (economic and voting percentages), general partners, membership (managing member or member), positions, signing authority (with capacity), investment adviser, registered agents, what each document concerns, and what each evidences: one relation, Evidence, of a document and an ownership, a position or a signing authority. A merger is a relation too, of the entity merged and its one survivor; the sample records none.
+**Relations:** ownership (economic and voting percentages), general partners, membership (managing member or member), positions, signing authority (with capacity), investment adviser, registered agents, what each document concerns, and what each evidences: one relation, Evidence, of a document and an ownership, a position or a signing authority. A merger is a relation too, of the entity merged and its one survivor; the sample records none. Who's responsible is one more, of a person and an entity or a date's own record, which no page draws: Jonathan S. Ferraro, General Counsel and Secretary, for the family's entities; Rebecca A. Moretti, the CFO, for AIV-1, the blockers and the sponsor holding company, which is where its tax is paid, and for Fund III-A's late LEI renewal, which she took over.
 
 Jurisdiction offers every U.S. state and D.C., and the offshore and European jurisdictions a fund practice meets: the Cayman Islands, the British Virgin Islands, Bermuda, Jersey, Guernsey, Luxembourg, Ireland, the Netherlands, England and Wales, Singapore and Hong Kong. A registered agent is recorded one way, as a relation of a service provider and the jurisdiction it serves.
 
-Opened as of November 3, 2026, the chart has 1,016 entered records. The definitions work out 610 more, for 1,626 in all:
+Opened as of November 3, 2026, the chart has 1,029 entered records. The definitions work out 610 more, for 1,639 in all:
 - **Control** (51) and **Affiliated Person** (289) under §2(a)(9) and §2(a)(3), with the statute's words beside each clause.
 - The BDC's **Close Affiliates** (21) and its one **Remote Affiliate**, under §57.
 - **Look-Through Ownership** (51), and whether **Ownership Adds Up**.

@@ -420,6 +420,16 @@ async function run() {
   input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(100);
   const sn = (Tree.index(st()).entries.get(halvard) ?? []).find(e => st()[e].edge === 'Short Name');
   check('Typing in a cell enters the value, as one change', N() === n0 + 1 && st()[sn]?.value === 'Halvard');
+  // What's coming stands in its cell, beside the value it'll replace, though that value stands; and it goes as it came.
+  const fdCell = () => rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Formation Date').getElement().textContent;
+  const fd38 = (Tree.index(st()).entries.get(halvard) ?? []).find(e => st()[e].edge === 'Formation Date'), fd0 = fdCell();
+  const later38 = App.wb.edit({ chart: C(), who: last().who, day: '2038-03-01' });
+  later38.update(fd38, { value: '2039-05-05' });
+  later38.commit(); await tick(150);
+  check('What’s coming shows in its cell, beside the value it’ll replace', fdCell() === `${fd0} May 5, 2039 from Mar 1, 2038`, fdCell());
+  App.wb.reverse(last().id, last().who); await tick(150);
+  check('… and goes when what said it is undone', fdCell() === fd0, fdCell());
+  n0 += 2;
   check('The cell shows it', rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Short Name').getValue() === 'Halvard');
   const bad = rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Formation Date');
   bad.edit(true); await tick();
@@ -712,6 +722,8 @@ async function run() {
     nr.focus(); nr.value = 'Harbor Point Holdings, LLC'; keyIn('Enter', {}, nr); await tick(300);
     const hp = named('Harbor Point Holdings, LLC');
     check('… a name typed there adds the entity, as one change, its row in the grid, the new row ready for the next', N() === n1 + 1 && st()[hp]?.kind === 'Entity' && !!rowOf(hp) && nr.value === '' && document.activeElement === nr);
+    const firstChart = App.views.peek().find(v => v.layout === 'chart');
+    check('… and related to nothing a page draws, it isn’t placed on one, the toast offering Show', typeof Scene === 'undefined' || (App.notes.peek().resolve('Shown', Tree.treeOf(st(), hp), firstChart.id)?.value === false && $('.toast span')?.textContent === `Harbor Point Holdings, LLC isn’t on ${firstChart.name}` && $$('.toast button').some(b => b.textContent === 'Show')), $('.toast span')?.textContent);
     // Typed under a filter, the new row stays in view till it's left; then the filter applies, as the toast says.
     {
       const shownIds = () => Table.grid.rowManager.getDisplayRows().filter(r => r.type === 'row').map(r => r.getData().id);
@@ -1601,7 +1613,7 @@ async function run() {
   visits.length = 0;
   $$('.status .counts .btn').find(b => b.textContent === '1 overdue').click(); await tick(120);
   const due = $('.float .menu.needs .menu-item'), dueRec = R0[dueIds[1]];
-  check('… a date by what falls due and whose, its day at its end', txt(due?.querySelector('.label')) === `${App.notes.peek().nameOf(R0, dueIds[1])} · ${whoseOf(dueRec.at)}`
+  check('… a date by what falls due and whose, and who’s on the hook for it, its day at its end', txt(due?.querySelector('.label')) === [App.notes.peek().nameOf(R0, dueIds[1]), whoseOf(dueRec.at), App.responsible(dueIds[1])?.name].filter(Boolean).join(' · ')
     && txt(due?.querySelector('.detail')) === Tree.formatDate(dueRec.value, 'short'), `${txt(due?.querySelector('.label'))} | ${txt(due?.querySelector('.detail'))}`);
   Shell.closeAll(); await tick(60);
   $$('.status .counts .btn').find(b => b.textContent === '1 due soon').click(); await tick(60);
@@ -2487,7 +2499,8 @@ async function tablesAsk() {
   // Who's responsible, and Good Standing lost.
   check('Good Standing lost is counted among the errors', App.needs.peek().some(a => a.kind === 'error' && st()[a.id]?.edge === 'Good Standing' && st()[a.id].tag === false));
   await show('Dates');
-  check('With nothing saying who, Dates has no Responsible column', !column('Responsible'));
+  const owedBefore = Table.grid.getRows().find(r => /^Fund III Blocker/.test(r.getData()['f:$of']));
+  check('Dates says who’s responsible, as the sample records it', !!column('Responsible') && owedBefore?.getData()['f:$resp'] === 'Rebecca A. Moretti', `${!!column('Responsible')} ${owedBefore?.getData()['f:$resp']}`);
   App.change(tx => tx.add('record', { at: named('Calder Ridge III Blocker, Inc.'), edge: 'Responsible', field: 'text', value: 'Priya N. Raman' }), { dated: false }); await tick(300);
   const owed = Table.grid.getRows().find(r => /^Fund III Blocker/.test(r.getData()['f:$of']));
   check('… with an entity’s Responsible, its dates say who', !!column('Responsible') && owed?.getData()['f:$resp'] === 'Priya N. Raman', `${!!column('Responsible')} ${owed?.getData()['f:$resp']}`);
