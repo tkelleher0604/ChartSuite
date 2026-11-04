@@ -1334,7 +1334,7 @@ const FormulaBar = (() => {
     tally(B, NB, d.appear, 'plus'); tally(A, NA, d.go, 'minus');
     for (const { n, plus, minus } of held.values()) { const both = Math.min(plus.length, minus.length); if (both) { const e = by.get(n); e.plus -= both; e.minus -= both; const at = (ids, k) => { const out = new Set(ids.slice(0, both)); e.of[k] = e.of[k].filter(x => !out.has(x.id)); }; at(plus, 'plus'); at(minus, 'minus'); } }
     // A value that goes and comes at one place, as one typed over a rule does, has changed.
-    for (const e of by.values()) if (e.plus && e.minus && e.def.edges?.length < 2) for (const p of [...e.of.plus]) {
+    for (const e of by.values()) if (e.plus && e.minus && (e.def.edges?.length ?? 0) < 2) for (const p of [...e.of.plus]) {
       const m = e.of.minus.find(x => x.say === p.say);
       if (m) { e.of.plus.splice(e.of.plus.indexOf(p), 1); e.of.minus.splice(e.of.minus.indexOf(m), 1); e.of.changed.push(p); e.plus--; e.minus--; e.changed++; }
     }

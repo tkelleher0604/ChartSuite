@@ -232,10 +232,13 @@ async function run() {
   await type(cnt, '10%');
   check('clicking a computed value asks why', whys.includes(was[0]));
   check('typing over a computed value asks from when, and why', !!pb('.from input') && !!rowOf('Voting Percentage').querySelector('s.del') && !!pb('.why-in.needed'), pb()?.textContent);
+  check('… and says it changes that value, not that it adds one and takes one away', /^Changes 1 voting percentage/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
   await because(); await keep();
   check('typing over a computed value enters it, with an amber corner', count()[1].value === 0.1 && !App.computed.value.computed[count()[0]] && !!rowOf('Voting Percentage').querySelector('.hug.over'));
   await type(rowOf('Voting Percentage').querySelector('input'), '');
-  check('clearing an entered value lets the formula stand', count()[1].value === was[1].value && !!App.computed.value.computed[count()[0]], JSON.stringify(count()));
+  check('clearing what’s typed over a rule asks why too, as Back to the rule, clearing nothing yet', count()[1].value === 0.1 && pb('.btn.primary')?.textContent === 'Back to the rule' && !!pb('.why-in.needed'), pb()?.textContent);
+  await because(); await keep();
+  check('… and given, the formula stands', count()[1].value === was[1].value && !!App.computed.value.computed[count()[0]], JSON.stringify(count()));
   // An entry saying what the formula gives overrides nothing: it has no corner, as a paid tax year has none.
   const agree = Object.keys(App.computed.value.covered).find(id => App.computed.value.covered[id].agrees && st()[id]?.args);
   Shell.select([agree]); await tick(60);

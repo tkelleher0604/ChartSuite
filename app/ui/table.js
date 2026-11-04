@@ -2503,7 +2503,7 @@ const Table = (() => {
     const writes = canWrite(), d = ids.length && writes && deletion(ids), cs = cellsOf(), many = new Set(cs.map(x => x.getRow())).size > 1;
     const settles = typeof Inspector !== 'undefined' && Inspector.settling?.(row.getData().id);
     // A rule's box: typed over, or back to the rule, as its entry's menu in the panel has it.
-    const m = writes && c?.type === 'tag' && atCell(cell), R = App.computed.peek(), says = m?.id && 'tag' in (App.state.peek()[m.id] ?? {}) && R.computed?.[m.id];
+    const m = writes && c && atCell(cell), says = c?.type === 'tag' && m?.id && 'tag' in (App.state.peek()[m.id] ?? {}) && App.computed.peek().computed?.[m.id];
     const ruling = !m ? null : m.cant ? { label: 'Override…', run: () => App.overriding(null, { at: m.at, edge: c.path.at(-1) }) } : says ? { label: 'Override…', run: () => App.overriding(m.id) } : m.over ? { label: 'Back to the rule…', run: () => App.backToRule(m.id) } : null;
     Shell.menu({ x: e.clientX, y: e.clientY }, [
       // A deadline's row: what settles it (Paid…, Filed…), as its panel's button does.

@@ -663,9 +663,9 @@ const Time = (() => {
     const all = i.id in recs ? recs : { ...recs, [i.id]: r }, [what, of] = said(all, i.id, N);
     const itOf = (x, [w, o]) => Tree.isView(all[x]) ? `view ${name ? Log.latest(name.now.length ? name.now : name.was).value : o}` : Tree.isObject(all[x]) ? o : all[x].args ? `${w}: ${o}` : `${w} of ${o}`;
     const it = itOf(i.id, [what, of]);
-    // (A yes-or-no at an entry a rule gives, typed, is typed over the rule, a decision: said as one, with its Until.)
-    const ruled = !r.args && 'tag' in r && isDefined(N, what), verdict = r.tag ? 'Attested' : 'Ruled out', added = back ? 'Restored' : 'Added';
-    if (ruled && !back && !i.was.length) return `Typed over ${it}: ${r.tag ? 'Yes' : 'No'}${r.before ? `, until ${short(r.before)}` : ''}`;
+    // (What's typed at an entry a rule gives is typed over the rule, a decision: said as one, with its Until.)
+    const ruled = !r.args && isDefined(N, what), verdict = r.tag ? 'Attested' : 'Ruled out', added = back ? 'Restored' : 'Added';
+    if (ruled && !back && !i.was.length) return `Typed over ${it}: ${'tag' in r ? (r.tag ? 'Yes' : 'No') : valueText(r)}${r.before ? `, until ${short(r.before)}` : ''}`;
     const fact = r.args && r.tag === true && !isDefined(N, what);
     // A relation added that asked its day (App.asksDay) says it: from the day said, or all along.
     const when = r.args && !back && App.asksDay(r, recs, N) ? r.since ? ` from ${short(r.since)}` : ' all along' : '';
