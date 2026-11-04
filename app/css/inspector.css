@@ -379,3 +379,23 @@ button.st-n:hover { text-decoration: underline; text-underline-offset: 3px; }
 .hidden-acts { display: inline-flex; gap: 6px; }
 .hiddenrow { cursor: pointer; }
 .hiddenrow > input { margin: 0; align-self: center; }
+
+/* ---- A rule's page: who last changed it, when and why, and its History; what's wrong with it; what's typed over it ---- */
+.rule-log { padding: 4px 20px 8px; font: var(--t13); color: var(--ink-2); }
+.rule-log > p { margin: 0 0 2px; }
+.rule-log > .who > .what { color: var(--ink); }
+.rule-log > .why { color: var(--ink); }
+.rule-log > .why > .by { color: var(--ink-3); }
+.rule-log > .did { color: var(--ink-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.rule-log > .acts { display: flex; gap: 12px; }
+.rule-log .lk, .typedover > .lk, .rows .to-rule { border: 0; padding: 0; background: none; font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
+.rows .to-rule { margin-left: 8px; font: var(--t12); }
+.rule-err { padding: 6px 20px; border-left: 2px solid var(--no); margin: 0 0 4px; font: var(--t13); color: var(--no); font-weight: 500; }
+.rule-err > p { margin: 0 0 2px; }
+.rule-err > .warn { color: var(--due); }
+/* A value typed over a rule: said under it, in amber, so no reader takes it for what the rule says. */
+.typedover { display: flex; flex-wrap: wrap; gap: 2px 8px; margin: 0 0 4px; padding: 2px 20px 2px calc(20px + var(--depth, 0) * 16px); font: var(--t12); color: var(--due); font-weight: 500; }
+.row:has(+ .typedover) .hug.over::after { border-width: 4px; }
+/* A new relation's roles, each a field that looks one, under what it's said of. */
+.rr.new > .form > .cell.role { border-color: var(--rule-2); background: var(--surface); }
+.rr.new > .form > .role-shared { grid-column: 1 / -1; font: var(--t12); color: var(--due); }

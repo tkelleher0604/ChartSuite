@@ -662,8 +662,60 @@ function renaming() {
   }
 }
 
+// A rule in error (formulas.md, Errors): what's wrong as it's written is said, what reads it can't be relied on, and it never passes
+// as a clean smaller answer.
+function ruleInError() {
+  const C = 'calder-ridge', DAY = '2037-10-26';
+  const worked = wb => { const N = wb.notes(C), S = wb.schema(C); return Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S), schema: S }); };
+  const before = worked(Log.open(SAMPLE));
+  const ruled =(name, rows) => {
+    const wb = Log.open(SAMPLE), N = wb.notes(C), n = N.notes('Formula').find(x => N.name(x.pattern) === name), tx = wb.edit({ chart: C, who: 'Dana Jordan' });
+    tx.note('Formula', n.pattern, rows(n.value));
+    const c = tx.commit();
+    if (typeof c === 'string') throw new Error(c);
+    const R = worked(wb);
+    return { wb, N: wb.notes(C), def: Object.keys(R.flaws).find(d => R.state.P.byId.get(d)?.name === name) ?? R.state.P.defs.find(d => d.name === name)?.id, R, b: Formulas.broken(R) };
+  };
+  const one = formula => () => [{ label: '', formula }];
+  check('the sample’s rules stand: none in error, the monotone loops among them', !Formulas.broken(before).roots.length && !Object.values(before.flaws).flat().some(f => !f.warn), JSON.stringify(Formulas.broken(before).roots));
+
+  const name = ruled('Control', rows => rows.map(r => ({ ...r, formula: r.formula.replace('[Voting Percentage]', '[Voting Percentge]') })));
+  const flaw = name.R.flaws[name.def]?.[0];
+  check('a name nothing has is a flaw of the rule: said in words, with what’s close', flaw?.code === '#NAME?' && flaw.message === 'Nothing is called Voting Percentge.' && flaw.fix === '[Voting Percentage]' && flaw.row === 2, JSON.stringify(flaw));
+  const named = id => name.R.state.P.byId.get(id)?.name;
+  check('… it’s in error, and so is all that reads it, at any remove', name.b.roots.length === 1 && name.b.roots[0].name === 'Control' && ['Affiliated Person', 'Close Affiliate', 'Remote Affiliate', 'BDC Affiliate'].every(x => [...name.b.reach].some(d => named(d) === x)), [...name.b.reach].map(named).join());
+
+  const value = ruled('Private Fund', one('= Jurisdiction = "Deleware"'));
+  const vf = value.R.flaws[value.def]?.[0];
+  check('a quoted value that’s no option of what it’s compared with is a flaw, with what’s close, and what would make it one', vf?.code === '#OPTION?' && vf.message === '“Deleware” isn’t an option of Jurisdiction.' && vf.fix === '"Delaware"' && vf.value === 'Deleware' && vf.label === 'Jurisdiction', JSON.stringify(vf));
+  const errs = value.R.errors.filter(e => e.def === value.def);
+  check('… it’s an error wherever it’s read, not a comparison that’s false', errs.length > 0 && errs.every(e => e.error.code === '#OPTION?') && !Object.values(value.R.computed).some(c => c.def === value.def), errs.length);
+  check('… and a value spelled as an option in another case is none of that', !ruled('Private Fund', one('= Jurisdiction = "delaware"')).b.roots.length);
+  const drawn = Formulas.asDrawn(value.R), at = errs[0].at;
+  check('a yes-or-no in error is drawn as one that doesn’t hold, so a check that breaks keeps its flags; what’s worked out isn’t touched', Object.values(drawn).some(r => r.at === at && r.edge === 'Private Fund' && r.tag === false) && !Object.values(value.R.records).some(r => r.at === at && r.edge === 'Private Fund'));
+  check('… and with no rule in error, the state as it is', Formulas.asDrawn(before) === before.records);
+  check('a kind written wrong is one too', ruled('Private Fund', one('= KIND(@) = "Entty"')).R.flaws[value.def]?.[0]?.code === '#OPTION?');
+
+  const self = ruled('Private Fund', one('= NOT([Private Fund])'));
+  check('a rule that depends on itself says so', self.b.roots[0]?.code === '#CIRCULAR!' && /^This depends on itself: what Private Fund gives would change what it reads/.test(self.b.roots[0].problems[0]), JSON.stringify(self.b.roots));
+  const empty = ruled('Private Fund', one('← [Private Fund]'));
+  check('… and one that holds only where it already holds, where nothing’s typed to go on from, says it never does: not a clean no', empty.b.roots[0]?.problems[0] === 'This depends on itself: Private Fund holds only where it already holds, so it never does.', JSON.stringify(empty.b.roots));
+  check('… which attention lists as the rule’s, showing at no record', Formulas.attention(empty.R, empty.N, DAY).some(a => a.id === `rule:${empty.def}` && a.kind === 'error'), Formulas.attention(empty.R, empty.N, DAY).filter(a => a.kind === 'error').map(a => a.id).join());
+  check('a #VALUE! is no rule in error: a rule waiting on a fact', !ruled('Private Fund', one('= [Formation Date] > 2')).b.roots.length);
+  const chart = before.state.P.chart, role = [...chart.roles].find(([n, of]) => of.size > 1 && !chart.listed.has(n));
+  const reads = role && ruled('Private Fund', one(`= COUNT([${[...role[1]].length && role[0]}]) > 0`));
+  check('a role two relations share is said as such where it’s written, and isn’t an error, for it may be what’s meant', !!reads && reads.R.flaws[reads.def]?.some(f => f.warn && /so this reads both/.test(f.message)) && !reads.b.roots.length, role?.[0]);
+
+  const at0 = (text, id = 'fund') => Formulas.evaluateAt(before, text, id, {});
+  check('AND(a, b) and OR(a, b) are as Excel’s, of any number', at0('= AND(1 > 0, 2 > 1, 3 > 2)') === true && at0('= AND(1 > 0, 2 > 3)') === false && at0('= OR(1 > 2, 2 > 1)') === true && at0('= OR(1 > 2, 2 > 3)') === false && at0('= NOT(1 > 2)') === true);
+  check('… and teach what’s wrong, where they’re written wrong', /AND/.test(Formulas.check('= AND(1 > 0,').problems[0]?.message ?? '') || !!Formulas.check('= AND(1 > 0,').problems[0], Formulas.check('= AND(1 > 0,').problems[0]?.message);
+  check('a formula with no start says what it starts with', Formulas.check('COUNT(Owners)').problems[0]?.message === 'A formula starts with = (it gives this) or ← (it holds where this holds).', Formulas.check('COUNT(Owners)').problems[0]?.message);
+  check('a relation’s name, at a record of it, is the list of who’s at its other sides', at0('= COUNT([Ownership])') === at0('= COUNT(Owners) + COUNT(Holdings)'), `${at0('= COUNT([Ownership])')} ${at0('= COUNT(Owners) + COUNT(Holdings)')}`);
+  check('no suggestion follows a number', !Formulas.suggest('= 2', 3, { computed: before, def: 'def_control' }).list.length && Formulas.suggest('= [R', 4, { computed: before, def: 'def_control' }).list.length > 0);
+}
+
 function runAll() {
-  for (const f of [theSample, semantics, grounds, apis, testDefinitions, enteredAtComputed, orderDoesNotMatter, listedFirst, workedOutAgain, renaming]) {
+  for (const f of [theSample, semantics, grounds, apis, testDefinitions, enteredAtComputed, orderDoesNotMatter, listedFirst, workedOutAgain, renaming, ruleInError]) {
     try { f(); } catch (e) { check(`${f.name} stopped`, false, `${e.message} ${e.stack.split('\n')[1]}`); }
   }
   const failed = out.filter(x => !x.ok).length;

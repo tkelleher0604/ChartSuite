@@ -770,6 +770,7 @@ const Shell = (() => {
         <${Host} kind="table" hidden=${layout !== 'table'} />
         ${bare ? html`<div class="empty void"><button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button></div>` : null}
         ${part('time') ? h(part('time').Band) : null}
+        ${part('broken') ? h(part('broken')) : null}
         ${h(App.Pending)}
         ${part('time') ? h(part('time').Ruler) : null}
       </div>

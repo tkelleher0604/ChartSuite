@@ -377,6 +377,8 @@ const Time = (() => {
   }
   const recsFor = c => { const { recs: logged } = ever.peek(), own = recordsOf(c.adds); return Object.keys(own).every(id => id in logged) ? logged : { ...logged, ...own }; };
   function read(c, near = null) {
+    // A reason given afterwards is a change that says so, with no rows: it's said by what it's about.
+    if (c.about) { const of = ever.peek().byId.get(c.about); return near ? [] : [{ text: `Gave a reason for: ${of ? headOf(read(of)) : 'a change'}`, sub: [] }]; }
     const N = notesNow(), items = itemsIn(c), back = !!(c.reverses || c.restores), recs = recsFor(c);
     // What a change keeps where it's drawn (a box the layout placed) is no part of what it says.
     const keeps = i => { const r = i.type === 'note' && i.now.length && Log.latest(i.now); return !!r && r.label === 'Position' && !!r.value?.kept; };
@@ -387,7 +389,9 @@ const Time = (() => {
     // (A place put on every page of a plan is said once.)
     const once = i => { if (i.type !== 'note' || !(['Position', 'Bend'].includes(rec(i).label) || (rec(i).view && typeof Scene !== 'undefined' && Scene.isChange(rec(i).pattern)))) return true; const k = `${rec(i).label}|${Tree.key(rec(i).pattern)}`; return !told.has(k) && !!told.add(k); };
     const held = [...items.values()].filter(i => (back || !keeps(i)) && !keptKey(i) && !scaled(i) && once(i));
-    const about = i => i.type === 'record' ? near.has(i.id) : i.type === 'note' && [...Tree.idsIn(rec(i).pattern)].some(id => near.has(id));
+    // (A rule's own History, of what's said at its pattern; a record's, of it and what's at it.)
+    const about = i => near.rule ? i.type === 'note' && !rec(i).view && near.rule.has(Tree.key(rec(i).pattern)) && rec(i).label !== 'Order'
+      : i.type === 'record' ? near.has(i.id) : i.type === 'note' && [...Tree.idsIn(rec(i).pattern)].some(id => near.has(id));
     const all = near ? held.filter(about) : held, whole = (text, sub = []) => [{ text, sub }];
     if (near && !all.length) return [];
     // A view fit to its page; and a view put on another page, by its paper, what it's placed anew for.
@@ -770,7 +774,10 @@ const Time = (() => {
         : Tree.same(Log.latest(i.was).value, n.value) ? `Changed Name of ${of}` : `Renamed ${Log.latest(i.was).value} to ${n.value}`;
       case 'As Of': return gone ? `Stopped keeping a date in ${of}` : `Kept ${short(n.value)} in ${of}`;
       case 'Footer': return gone ? 'Took the footer off' : 'Set the footer';
-      case 'Required': case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
+      // Said as the rule's page says them.
+      case 'Check': return gone || n.value === false ? `Made ${of} count no failure as an error` : `Made a failure of ${of} count as an error`;
+      case 'Required': if (!gone) return n.value === false ? `Made a blank ${of} need no filling in` : `Made a blank ${of} need filling in`;   // falls through
+      case 'Start': case 'End': case 'Description': return `${gone ? 'Removed' : 'Changed'} ${n.label} of ${of}`;
       case 'Fixed': return gone ? `Made ${of} change over time` : `Made ${of} one for all time`;
       // A field's look in a group's boxes, given beside its output (dendra.md, Fields): "Made Jurisdiction not bold in the
       // Cayman Islands boxes in Structure". A look one record kept of its own, cleared, as the format bar says it.
@@ -833,8 +840,8 @@ const Time = (() => {
 
   const open = signal(false), mode = signal('all');
   // What History lists: `focus`, the records whose own it is, from a record's own History or a choice in it, never from
-  // what's selected; `kind`, of change, which a record's own begins on its records; and the entries opened, and the runs of
-  // what's undone opened, by a change's id.
+  // what's selected, or a rule's own, { rule: its patterns' keys, name }; `kind`, of change, which a record's own begins on its
+  // records; and the entries opened, and the runs of what's undone opened, by a change's id.
   const focus = signal(null), kind = signal('all'), opens = signal(new Set()), unfolded = signal(new Set());
   const KINDS = [['all', 'All kinds'], ['records', 'Records'], ['rules', 'Rules'], ['looks', 'Looks and layout']];
   // Which kinds of change a change holds: records, what they are (a definition, a requirement, a name at no view) or how a
@@ -842,8 +849,10 @@ const Time = (() => {
   const RULES = new Set(['Formula', 'Required', 'Fixed', 'Check', 'Start', 'End', 'Description', 'Name', 'Order']), kindsKept = new WeakMap();
   function kindsOf(c) {
     if (kindsKept.has(c)) return kindsKept.get(c);
-    const { rows } = ever.peek(), out = new Set();
+    const { rows, byId } = ever.peek(), out = new Set();
     kindsKept.set(c, out);
+    // (A reason given afterwards is of the kinds of what it's about.)
+    if (c.about && byId.has(c.about)) kindsOf(byId.get(c.about)).forEach(k => out.add(k));
     let spec = false;
     for (const r of [...c.adds, ...c.removes.map(id => rows.get(id)).filter(Boolean)]) {
       if ('spec' in r) spec = true;
@@ -882,7 +891,8 @@ const Time = (() => {
     const count = (m, k) => [...m.values()].filter(a => a.kind === k).length;
     const moved = Object.keys(SAID).map(k => ({ k, was: count(was, k), now: count(now, k) })).filter(x => x.was !== x.now);
     const cleared = [...was].filter(([k]) => !now.has(k)).map(([, a]) => say(a, before)), appeared = [...now].filter(([k]) => !was.has(k)).map(([, a]) => say(a, after));
-    const out = { i, day: Log.today(), moved, cleared, appeared };
+    // And of a rule's change, what it did to what the rules conclude, in the words its preview had, and which.
+    const out = { i, day: Log.today(), moved, cleared, appeared, ...(isRule(c) && FormulaBar.saying?.(before.R, after.R, before.N, after.N)) };
     effects.set(c.id, out);
     return out;
   }
@@ -983,18 +993,18 @@ const Time = (() => {
   function History() {
     const t = Shell.time.value, E = ever.value, m = mode.value, ref = useRef(), k = kind.value, sel = Shell.selection.value, unfold = unfolded.value, opened = opens.value, viewing = App.viewing.value, asking = App.pending.value?.reverse;
     worked.value;
-    const { recs } = E, N = notesNow(), of = (focus.value ?? []).filter(id => recs[id]);
-    const near = of.length ? Tree.dependents(recs, of) : null;
+    const { recs } = E, N = notesNow(), rule = focus.value?.rule ? focus.value : null, of = rule ? [] : (focus.value ?? []).filter(id => recs[id]);
+    const near = rule ?? (of.length ? Tree.dependents(recs, of) : null);
     const nameOf = id => { const [what, whose] = said(recs, id, N); return recs[id].args ? `${what}: ${whose}` : Tree.isObject(recs[id]) || !whose ? whose || what : `${what} of ${whose}`; };
     const touches = c => [...c.adds, ...c.removes.map(id => E.rows.get(id)).filter(Boolean)]
-      .some(r => near.has(r.record) || ('note' in r && [...Tree.idsIn(r.pattern)].some(id => near.has(id))));
+      .some(r => rule ? 'note' in r && !r.view && rule.rule.has(Tree.key(r.pattern)) && r.label !== 'Order' : near.has(r.record) || ('note' in r && [...Tree.idsIn(r.pattern)].some(id => near.has(id))));
     const linesOf = c => near && !c.amends ? read(c, near) : reading(c);
     const changes = m === 'all' ? entries.value.filter(e => standing(e) && (k === 'all' || kindsOf(e.change).has(k)) && (!near || (touches(e.change) && linesOf(e.change).length))).reverse() : [];
     const gone = m === 'deleted' ? deleted().filter(d => !near || near.has(d.item)) : [];
     useLayoutEffect(() => { ref.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' }); }, [t?.stood]);
     // What the status did, worked out after the panel is drawn: what's opened or picked first, then rules, then the rest.
     useEffect(() => {
-      const shown = changes.filter(e => !undone(e) && movesStatus(e.change) && !known(e.change)).map(e => e.change), first = c => opened.has(c.id) || t?.stood === c.id ? 0 : isRule(c) ? 1 : 2;
+      const shown = changes.filter(e => !undone(e) && !e.change.about && movesStatus(e.change) && !known(e.change)).map(e => e.change), first = c => opened.has(c.id) || t?.stood === c.id ? 0 : isRule(c) ? 1 : 2;
       ask([...shown].sort((a, b) => first(a) - first(b)));
       return () => ask([]);
     }, [changes.length, E, t?.stood, opened]);
@@ -1004,7 +1014,7 @@ const Time = (() => {
     let lastDay = null;
     const row = e => {
       // An entry struck offers to redo it; what's in the log for it now is its last.
-      const c = e.change, last = lastOf(e), off = struck(e), on = t?.stood === c.id, lines = linesOf(c), u = reversalOf(c), fx = known(c), has = lines.length > 1 || lines.some(l => l.sub.length || l.rows || l.was != null) || !!fx?.moved.length || !!e.was, shows = opened.has(c.id);
+      const c = e.change, last = lastOf(e), off = struck(e), on = t?.stood === c.id, lines = linesOf(c), u = reversalOf(c), fx = known(c), has = lines.length > 1 || lines.some(l => l.sub.length || l.rows || l.was != null) || !!fx?.moved.length || !!fx?.which?.length || !!e.was, shows = opened.has(c.id);
       // What it was before it was changed, each step, each a click from the chart as it stood then.
       const before = []; for (let w = e.was; w; w = w.was) before.push(w);
       // A change that can be changed says so where it's read; one a later change rests on says that, as its Undo does.
@@ -1019,12 +1029,15 @@ const Time = (() => {
         ${has ? html`<button class="hist-chev" aria-expanded=${shows} aria-label=${shows ? 'Less' : 'What it holds'} data-tip=${shows ? 'Less' : 'What it holds'} onClick=${open_}>${Shell.icon(shows ? 'chevron-up' : 'chevron')}</button>` : null}
         <div class="what">${u ? html`${u.word}: <button class="lk" onClick=${ev => { ev.stopPropagation(); stand(u.root); }}>${describe(u.root)}</button>`
           : lines.length > 1 ? html`${lines[0].text}, <button class="lk more" onClick=${open_}>and ${lines.length - 1} more</button>` : lines[0]?.text ?? 'Changed the chart'}</div>
-        ${c.note ? html`<div class="note">${c.note}</div>` : null}
-        <div class="meta">${near ? `typed ${short(Tree.isoOf(new Date(c.when)))}, ${c.who}` : `${c.who} · ${clock(c.when)}`}${off ? ' · undone' : dark ? ' · gone with what it’s at' : ''}${undoneBy ? html` by ${e.by ? html`<button class="lk" onClick=${ev => { ev.stopPropagation(); stand(e.by.change); }}>${undoneBy}</button>` : undoneBy}` : null}${act ? html` · <button class="lk change" aria-disabled=${bar ? 'true' : null} data-tip=${bar ? `A later change rests on it: ${describe(bar)}` : null} onClick=${ev => { ev.stopPropagation(); if (bar) stand(bar); else { now(); App.amending(c); } }}>Change…</button>` : null}</div>
+        ${App.wb.reasons(c.id).map(r => html`<div class="note">${r.text}${r.own ? null : html`<span class="by"> · ${r.who}, ${short(Tree.isoOf(new Date(r.when)))}</span>`}</div>`)}
+        <div class="meta">${near ? `typed ${short(Tree.isoOf(new Date(c.when)))}, ${c.who}` : `${c.who} · ${clock(c.when)}`}${off ? ' · undone' : dark ? ' · gone with what it’s at' : ''}${undoneBy ? html` by ${e.by ? html`<button class="lk" onClick=${ev => { ev.stopPropagation(); stand(e.by.change); }}>${undoneBy}</button>` : undoneBy}` : null}${act ? html` · <button class="lk change" aria-disabled=${bar ? 'true' : null} data-tip=${bar ? `A later change rests on it: ${describe(bar)}` : null} onClick=${ev => { ev.stopPropagation(); if (bar) stand(bar); else { now(); App.amending(c); } }}>Change…</button>` : null}${!viewing && !off && !c.about && !u ? html` · <button class="lk why-add" onClick=${ev => { ev.stopPropagation(); giving.value = c.id; }}>Why…</button>` : null}</div>
+        ${giving.value === c.id ? html`<${Reason} id=${c.id} done=${() => { giving.value = null; }} />` : null}
         ${fx?.moved.length ? html`<div class="effect">${fx.moved.map(x => `${SAID[x.k]} ${x.was} → ${x.now}`).join(' · ')}</div>` : null}
+        ${fx?.said ? html`<div class="effect said">${fx.said}</div>` : null}
         ${shows ? html`<div class="hist-more" onClick=${ev => ev.stopPropagation()}>
           ${lines.map(l => html`${lines.length > 1 ? html`<div class="ln">${l.text}</div>` : null}${lineMore(l)}${l.sub.map(s => html`<div class="ln sub">${s.text}</div>${lineMore(s)}`)}`)}
-          ${before.length ? html`<div class="st">Before</div>${before.map(w => html`<div class="ln sub"><button class="lk" onClick=${() => stand(w.change)}>${describe(w.change)}</button> <span class="fig">${w.change.who}, ${short(Tree.isoOf(new Date(w.change.when)))}</span></div>`)}` : null}
+          ${before.length ? html`<div class="st">Before</div>${before.map(w => html`<div class="ln sub"><button class="lk" onClick=${() => stand(w.change)}>${describe(w.change)}</button> <span class="fig">${w.change.who}, ${short(Tree.isoOf(new Date(w.change.when)))}</span>${App.wb.reasons(w.change.id).map(r => html`<div class="note">${r.text}</div>`)}</div>`)}` : null}
+          ${(fx?.which ?? []).map(w => html`<div class="st">${w.said}</div>${w.names.map(n => html`<div class="ln sub">${n}</div>`)}`)}
           ${fx?.cleared.length ? html`<div class="st">Cleared</div>${fx.cleared.map(w => html`<div class="ln sub">${[w.what, w.where].filter(Boolean).join(' · ')}${w.figure ? html` <span class="fig">${w.figure}</span>` : null}</div>`)}` : null}
           ${fx?.appeared.length ? html`<div class="st">Appeared</div>${fx.appeared.map(w => html`<div class="ln sub">${[w.what, w.where].filter(Boolean).join(' · ')}${w.figure ? html` <span class="fig">${w.figure}</span>` : null}</div>`)}` : null}
         </div>` : null}
@@ -1042,11 +1055,11 @@ const Time = (() => {
         <div class="menu-seg">${[['all', 'Changes'], ['deleted', 'Deleted']].map(([x, label]) => html`<button aria-pressed=${m === x} onClick=${() => { mode.value = x; }}>${label}</button>`)}</div>
         <button class="btn icon" aria-label="Close" data-tip="Close" data-keys="Esc" onClick=${close}>${Shell.icon('x')}</button>
       </div>
-      ${m === 'all' || of.length ? html`<div class="hist-filter">
-        ${of.length ? html`<div class="of">Changes to ${of.map(nameOf).join(', ')}</div>` : null}
+      ${m === 'all' || of.length || rule ? html`<div class="hist-filter">
+        ${of.length || rule ? html`<div class="of">Changes to ${rule ? rule.name : of.map(nameOf).join(', ')}</div>` : null}
         <div class="by">${m === 'all' ? html`<button class="btn ghost dd" aria-haspopup="menu" onClick=${kinds}>${KINDS.find(([x]) => x === k)[1]}</button>` : null}
-          ${selected.length && !of.length ? html`<button class="btn ghost only" onClick=${() => { focus.value = selected; }}>Only ${selected.length === 1 ? nameOf(selected[0]) : `these ${selected.length}`}</button>` : null}
-          ${of.length || (k !== 'all' && m === 'all') ? html`<button class="btn every" onClick=${everything}>All changes</button>` : null}</div>
+          ${selected.length && !of.length && !rule ? html`<button class="btn ghost only" onClick=${() => { focus.value = selected; }}>Only ${selected.length === 1 ? nameOf(selected[0]) : `these ${selected.length}`}</button>` : null}
+          ${of.length || rule || (k !== 'all' && m === 'all') ? html`<button class="btn every" onClick=${everything}>All changes</button>` : null}</div>
       </div>` : null}
       <div class="hist-list" ref=${ref}>
         ${m === 'all' ? runs.map(({ undone: cancels, es }) => {
@@ -1063,6 +1076,27 @@ const Time = (() => {
       </div>
     </div>`;
   }
+  // A reason given an entry afterwards: typed in the entry, Enter making it a change that says so.
+  const giving = signal(null);
+  function Reason({ id, done }) {
+    const box = useRef();
+    useLayoutEffect(() => { box.current?.focus(); }, []);
+    const key = e => {
+      e.stopPropagation();
+      if (e.key === 'Escape') done();
+      else if (e.key === 'Enter') { e.preventDefault(); const text = e.target.value; done(); App.annotate(id, text); }
+    };
+    return html`<label class="why-in" onClick=${e => e.stopPropagation()}><span>Why</span><input class="cell" ref=${box} spellcheck=${false} autocomplete="off" aria-label="Why" onKeyDown=${key} onBlur=${done} /></label>`;
+  }
+  // A rule's changes, the last last, for its page: what's said at its pattern, or any wider it goes by (`keys`, Tree.key's), as its
+  // own History lists them. Each { change, who, when, reasons, fx }, fx what it did as worked out, asked for once it's shown.
+  function ruleLog(keys) {
+    // (As it stood, what had been said by then.)
+    const k = new Set(keys), E = ever.value, t = Shell.time.value, upto = t?.stood ? t.at ?? E.byId.get(t.stood)?.when : null, all = [...entries.value].filter(e => !struck(e) && !e.change.about && !e.change.reverses && (!upto || e.change.when <= upto)
+      && [...e.change.adds, ...e.change.removes.map(id => E.rows.get(id)).filter(Boolean)].some(r => 'note' in r && !r.view && k.has(Tree.key(r.pattern)) && r.label !== 'Order'));
+    worked.value;
+    return all.map(e => ({ change: e.change, who: e.change.who, when: e.change.when, reasons: App.wb.reasons(e.change.id), fx: known(e.change), head: e.change.says ?? headOf(read(e.change, { rule: k })) }));
+  }
   const everything = () => { focus.value = null; kind.value = 'all'; };
   // History takes the inspector's place while it's open: the chart's, everything, from the chart menu, or a record's own.
   // Esc takes back an undo being asked, comes back from a change picked to now, and then closes it.
@@ -1076,6 +1110,12 @@ const Time = (() => {
   function ofRecords(ids) {
     focus.value = ids;
     kind.value = 'records';
+    openHistory('all');
+  }
+  // A rule's own: every change to what's said at its pattern, each by that alone. `keys`, the patterns it goes by; `name`, what it's called.
+  function ofRule(keys, name) {
+    focus.value = { rule: new Set(keys), name };
+    kind.value = 'all';
     openHistory('all');
   }
   function close() {
@@ -1124,5 +1164,5 @@ const Time = (() => {
     return it => !had.has(`${it.id}|${it.edge ?? ''}`);
   }
 
-  return { events, whose, describe, looked, keep, pageDay, nextStep, showChanges, dayBefore, ruleSince, newSinceToday, open: openHistory, of: ofRecords, close, act: actOf, barred, takenBy, go: c => { openHistory('all'); stand(c); } };
+  return { events, whose, describe, looked, keep, pageDay, nextStep, showChanges, dayBefore, ruleSince, newSinceToday, open: openHistory, of: ofRecords, ofRule, ruleLog, ask: c => ask([c, ...asked.filter(x => x !== c)]), close, act: actOf, barred, takenBy, go: c => { openHistory('all'); stand(c); } };
 })();

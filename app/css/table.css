@@ -350,3 +350,7 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .hist-row.gone { padding-right: 104px; }
 .hist-row.gone > .btn { position: absolute; right: 12px; top: 50%; margin: 0; transform: translateY(-50%); }
 .hist .empty { height: auto; padding: 48px 20px; }
+
+/* A value typed over a rule, tinted as well as cornered: no reader takes it for what the rule says. */
+.grid .tabulator-row .tabulator-cell.over { background: color-mix(in srgb, var(--due) 14%, transparent); }
+.tbar > .tcount > .no { color: var(--no); font-weight: 500; }

@@ -132,7 +132,7 @@ async function run() {
   await type(rowOf('EIN').querySelector('.cell'), '92-4810338');
   check('… nor does an EIN, which doesn’t change over time: corrected at once, as History says', st().fund_ein?.value === '92-4810338' && !pb() && !App.wb.item(C, 'fund_ein').some(r => r.since || r.before) && /^Corrected EIN of /.test(Time.describe(last())), `${pb()?.textContent} ${Time.describe(last())}`);
   // … and a value where there was none has nothing to keep
-  $('.add-entry').click(); await tick(); await pick('Value'); await type($('.draft input'), 'Side Note'); await type($('.draft .v textarea, .draft .v input'), 'First');
+  $('.add-entry').click(); await tick(); await pick('New value'); await type($('.draft input'), 'Side Note'); await type($('.draft .v textarea, .draft .v input'), 'First');
   check('… nor one where there was none', Object.values(st()).some(r => r.at === 'fund' && r.edge === 'Side Note' && r.value === 'First') && !pb(), pb()?.textContent);
   Shell.parts.value.undo.undo(); await tick(60);
   await type(rowOf('Formation Date').querySelector('input'), '3/1/2023');
@@ -239,12 +239,12 @@ async function run() {
 
   // Adding an entry, with its specification
   $('.add-entry').click(); await tick();
-  await pick('Tag');
+  await pick('New yes-or-no');
   await type($('.draft input'), 'Side Letters');
-  const added = Object.entries(st()).find(([, r]) => r.at === 'fund' && r.edge === 'Side Letters');
-  check('adding a tag records it attested, with its specification', added && added[1].tag === true && last().adds.some(r => 'spec' in r));
+  const madeRow = () => $$('.row').find(r => r.querySelector(':scope > .k .lbl')?.textContent.trim() === 'Side Letters');
+  check('making a yes-or-no specifies it, and leaves this record’s answer to its rule or its box, offered unticked', !Object.values(st()).some(r => r.at === 'fund' && r.edge === 'Side Letters') && last().adds.some(r => 'spec' in r) && !!madeRow()?.querySelector('.to-rule') && !madeRow()?.querySelector('.tag.on, input:checked'), madeRow()?.outerHTML);
   $('.add-entry').click(); await tick();
-  await pick('Value');
+  await pick('New value');
   await type($('.draft input'), 'Closing Date');
   await type($('.draft .v input'), 'June 30, 2024');
   const field = Object.values(st()).find(r => r.at === 'fund' && r.edge === 'Closing Date');
@@ -403,8 +403,8 @@ async function run() {
   check('… and from the last, to its row, so a key typed next is the window’s', document.activeElement?.matches('.rr-at .row') && document.activeElement.textContent.includes('Voting Percentage'), document.activeElement?.outerHTML.slice(0, 120));
   ghost('New relation').click(); await tick();
   const [nm, ra, rb] = $$('.rr.new input'), nNew = App.wb.changes().length;
-  check('New relation is set out as the relation’s rows: its name, then each side with its role after it, no placeholder saying what a field is', document.activeElement === nm && nm.placeholder === 'New relation'
-    && ![ra, rb].some(x => x.placeholder) && ra.previousElementSibling?.matches('.side') && rb.previousElementSibling?.matches('.side') && ra.getAttribute('aria-label') !== rb.getAttribute('aria-label') && !$('.rr.new .when'),
+  check('New relation is set out as the relation’s rows: its name, then each side with its role after it, each a box that shows, New role', document.activeElement === nm && nm.placeholder === 'New relation'
+    && [ra, rb].every(x => x.placeholder === 'New role') && ra.previousElementSibling?.matches('.side') && rb.previousElementSibling?.matches('.side') && ra.getAttribute('aria-label') !== rb.getAttribute('aria-label') && !$('.rr.new .when'),
     $('.rr.new')?.innerHTML.slice(0, 300));
   for (const [el, v] of [[nm, 'Co-Investment Right'], [ra, 'Holder'], [rb, 'Issuer']]) { el.focus(); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(10); }
   check('… once named, it’s a change pending, as one ticked is: redlined, the bar asking its day, nothing made yet', !!$('.rr.new.adding') && /^Co-Investment Right: Fund III Blocker → The BDC/.test(spoken(pb('.what') ?? document.body))
@@ -820,8 +820,8 @@ async function run() {
   Shell.select(['fund']); await tick();
   rowOf('Jurisdiction').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
   check('Alt+click on a label shows the entry in general', Shell.selection.value[0]?.startsWith('~') && $('.ih .cell')?.value === 'Jurisdiction' && $$('.sect > .fold').some(s => s.textContent === 'Options'));
-  const req = rowOf('Required')?.querySelector('input');
-  check('…with Required', req?.checked === true);
+  const req = rowOf('A blank needs filling in')?.querySelector('input');
+  check('…with whether a blank needs filling in', req?.checked === true);
   Shell.select(['fund']); await tick();
   rowOf('EIN').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
   check('an entry in general hides a Description not yet written, and an empty Formula', $('.ih .cell')?.value === 'EIN' && !rowOf('Description') && !$$('.sect > .fold').some(s => s.textContent === 'Formula'));
@@ -1390,13 +1390,13 @@ async function saysWhen(C, keep) {
   Shell.select(['chen']); await tick(60);
   const pane = document.querySelector('.inspector'), positions = $$('section').find(s => s.dataset.title === 'Positions');
   positions.scrollIntoView(); await tick(30);
-  const topWas = pane.scrollTop, posRow = [...positions.querySelectorAll('.row.rel')].find(r => r.textContent.includes('Northpine'));
+  const posTop = () => $$('section').find(s => s.dataset.title === 'Positions').getBoundingClientRect().top, topWas = posTop(), posRow = [...positions.querySelectorAll('.row.rel')].find(r => r.textContent.includes('Northpine'));
   posRow.querySelector('.v .lk').click(); await tick(60);
   const posId = Shell.selection.peek()[0];
   $('.ih .more').click(); await tick(); await pick('End…'); await tick(60);
   key($('.asking .from input') ?? pb('.from input'), 'Enter'); await tick(120);
   await new Promise(requestAnimationFrame);   // (The panel sets its place again on the next frame, once its strip has its room.)
-  check('ending a row gone to from a person’s panel comes back to the person, scrolled where it was', Shell.selection.peek().join() === 'chen' && pane.scrollTop === topWas && !st()[posId], `${Shell.selection.peek()} ${pane.scrollTop} ${topWas}`);
+  check('ending a row gone to from a person’s panel comes back to the person, the list where it was', Shell.selection.peek().join() === 'chen' && Math.abs(posTop() - topWas) < 1 && !st()[posId], `${Shell.selection.peek()} ${posTop()} ${topWas} ${pane.scrollTop} ${document.activeElement?.outerHTML.slice(0, 100)}`);
   Shell.parts.value.undo.undo(); await tick(60);
   // Several rows of a list end together, the panel staying on the record; what they break is said in words, with End that too
   Shell.select(['chen']); await tick(60);
@@ -1640,6 +1640,75 @@ async function saysWhen(C, keep) {
   await pick([...document.querySelectorAll('.float .menu-item .label')][0]?.textContent); await tick(80);
   check('… and a document’s link offers the document’s date', pb('.from input')?.value === 'May 22, 2023', pb()?.textContent);
   key(pb('.from input'), 'Escape'); await tick(60);
+
+  // Making a yes-or-no leaves this record's answer to its rule; a first formula asks what becomes of what's typed (dendra.md, Add; The formula bar)
+  Shell.select(['fund']); await tick(60);
+  $$('.add-entry').find(b => b.textContent.trim() === 'Add')?.click(); await tick();
+  const offered = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
+  check('Add offers a check and a yes-or-no in those words', ['Check…', 'New yes-or-no', 'New value', 'New choice'].every(x => offered.includes(x)), offered.slice(0, 6).join(', '));
+  await typeIn('Keyperson Clause'); await tick();
+  const askedNames = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
+  check('… and a name it doesn’t know, as each of them', ['New yes-or-no', 'Check', 'New value', 'New choice'].every(w => askedNames.includes(`${w}: Keyperson Clause`)), askedNames.join(', '));
+  await pick('New yes-or-no: Keyperson Clause'); await tick(60);
+  const kp = () => $$('.row').find(r => r.querySelector(':scope > .k .lbl')?.textContent.trim() === 'Keyperson Clause'), kpRec = () => Object.values(st()).find(r => r.at === 'fund' && r.edge === 'Keyperson Clause');
+  check('… made, it’s the rule’s or the box’s to answer, nothing ticked, the way to its rule beside it', !kpRec() && !!kp()?.querySelector('.to-rule'), kp()?.outerHTML);
+  kp().querySelector('.tag').focus(); kp().querySelector('.tag').click(); await tick(60);
+  check('… a hand ticks it', kpRec()?.tag === true, JSON.stringify(kpRec()));
+  const kpSpec = N().fitting(App.schema.peek(), { args: [{ edge: 'Keyperson Clause', loc: {} }] })[0];
+  Shell.select([Shell.general(Tree.bare(kpSpec))]); await tick(80);
+  $$('.add-entry').find(b => b.textContent.trim() === 'Add')?.click(); await tick();
+  await pick('Formula'); await tick(120);
+  check('a first formula is nothing till its Done, and its rows open on it', !N().notes('Formula').some(x => N().name(x.pattern) === 'Keyperson Clause') && FormulaBar.draft.peek()?.fresh?.name === 'Keyperson Clause', JSON.stringify(FormulaBar.draft.peek()?.rows));
+  const first = document.querySelector('.fxbar .fx-row .CodeMirror').CodeMirror;
+  first.replaceRange('[Regulation D Offering]', first.posFromIndex(first.getValue().length), undefined, '+input'); await tick(420);
+  const under = [...document.querySelectorAll('.fx-typed label')].map(x => x.textContent.trim());
+  check('… and what’s typed there is asked after, by name, clearing by default', under.length === 1 && /Fund III: Yes/.test(under[0]) && document.querySelector('.fx-typed input').checked, under.join());
+  FormulaBar.commitEdit(); await tick(120);
+  const kpNote = N().notes('Formula').find(x => N().name(x.pattern) === 'Keyperson Clause');
+  check('… Done defines it, as one change, and what was typed goes to the rule', !!kpNote && !Object.values(App.entered.peek()).some(r => r.at === 'fund' && r.edge === 'Keyperson Clause') && App.computed.peek().computed[Object.keys(st()).find(k => st()[k].at === 'fund' && st()[k].edge === 'Keyperson Clause')]?.holds !== undefined, JSON.stringify(kpRec()));
+  for (let i = 0; i < 40 && !$('.rule-log .did'); i++) await tick(50);   // (What it did is worked out when idle: Time.ask.)
+  check('… and the rule’s page says who, when, and what it did', /Defined Keyperson Clause/.test($('.rule-log .who')?.textContent ?? '') && /Keyperson Clause at \d+ entit/.test($('.rule-log .did')?.textContent ?? ''), $('.rule-log')?.textContent);
+  check('… and how many hold', $$('.insp *').some(x => !x.childElementCount && /^\d+ holds?(, \d+ don’t)?$/.test(x.textContent.trim())), $$('.insp *').map(x => x.childElementCount ? '' : x.textContent.trim()).filter(x => /hold|don’t/.test(x)).join());
+  Shell.parts.value.undo.undo(); await tick(60);
+  Shell.parts.value.undo.undo(); await tick(60);
+  Shell.parts.value.undo.undo(); await tick(60);
+
+  // A role renamed from its relation's page: the page goes with it, and the formulas that cite it
+  const ctl = N().notes('Formula').find(x => N().name(x.pattern) === 'Control');
+  Shell.select([Shell.general(ctl.pattern)]); await tick(80);
+  await type($('[aria-label="Role Controller"]'), 'Controlling Person'); await tick(120);
+  check('a role renamed from its relation’s page: the page goes with it, and what cites it', !!$('[aria-label="Role Controlling Person"]') && $('.ih .cell')?.value === 'Control' && N().notes('Formula').find(x => N().name(x.pattern) === 'Control').value.some(r => r.formula.includes('Controlling Person')) && App.wb.changes().at(-1).says === 'Renamed the role Controller of Control to Controlling Person', App.wb.changes().at(-1).says);
+  Shell.parts.value.undo.undo(); await tick(80);
+
+  // The rules, listed, and a relation no rule gives, found
+  Shell.select([]); await tick(30);
+  Shell.parts.peek().action.find(a => a.id === 'rules').run(); await tick(60);
+  const listed = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
+  check('the rules are listed, the checks with them', listed.includes('Control') && listed.includes('Capacity Held'), listed.slice(0, 8).join(', '));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await tick(20);
+  document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); await tick(20);
+  const relFound = Shell.parts.peek().find.flatMap(s => s.items('Ownership')).filter(x => x.detail === 'Relation').map(x => x.label);
+  check('… and Find reopens a relation no rule gives, by its name', relFound.includes('Ownership'), relFound.join());
+
+  // A rule in error at no record: an item of its own, going to the rule
+  const pf = N().notes('Formula').find(x => N().name(x.pattern) === 'Private Fund');
+  App.change(tx => tx.note('Formula', pf.pattern, [{ label: '', formula: '← [Private Fund]' }]), { dated: false }); await tick(120);
+  const ruleItem = Shell.parts.value.attention.flatMap(a => a.items()).find(i => String(i.id).startsWith('rule:'));
+  check('a rule in error that shows at no record is listed as the rule’s', !!ruleItem && /holds only where it already holds/.test(ruleItem.error.error.msg), JSON.stringify(ruleItem?.error));
+  Shell.select(['fund']); await tick(60);
+  ruleItem?.go(); await tick(80);
+  check('… and goes to its page', $('.ih .cell')?.value === 'Private Fund' && Shell.selection.peek()[0]?.startsWith('~'), Shell.selection.peek()[0]);
+  Shell.parts.value.undo.undo(); await tick(80);
+
+  // A rule in error, on its page and in a list it gives
+  const brokenRule =v => v.map(r => ({ ...r, formula: r.formula.replace('[Voting Percentage]', '[Voting Percentge]') }));
+  App.change(tx => tx.note('Formula', ctl.pattern, brokenRule(N().notes('Formula').find(x => N().name(x.pattern) === 'Control').value)), { dated: false }); await tick(120);
+  Shell.select([Shell.general(ctl.pattern)]); await tick(80);
+  check('a rule in error says what’s wrong on its page', /Nothing is called Voting Percentge/.test($('.rule-err')?.textContent ?? ''), $('.rule-err')?.textContent);
+  Shell.select(['tessellate']); await tick(80);
+  check('… and a list it gives says it can’t be relied on', $$('section').some(s => /can’t be relied on/.test(s.querySelector('.sect')?.textContent ?? '')), $$('section').map(s => s.querySelector('.sect')?.textContent).join(' | '));
+  check('… a yes-or-no reading it says nothing silent: Can’t say', /Can’t say/.test(rowOf('BDC Affiliate')?.textContent ?? ''), rowOf('BDC Affiliate')?.textContent);
+  Shell.parts.value.undo.undo(); await tick(80);
 }
 // The Description of Affiliated Person as section 2(a)(3) of the Investment Company Act reads.
 function describeAffiliated() {
@@ -1672,7 +1741,7 @@ const ACTS = {
   peek: () => rowOf('Good Standing').querySelector('.tag').dispatchEvent(new PointerEvent('pointerenter')),
   type: () => { const i = rowOf('EIN').querySelector('.cell'); i.focus(); setTimeout(() => { i.value = '92-4810999'; i.dispatchEvent(new Event('input', { bubbles: true })); }, 30); },
   choose: () => rowOf('Jurisdiction').querySelector('.sel').click(),
-  draft: () => { $('.add-entry').click(); setTimeout(() => pick('Value'), 30); },
+  draft: () => { $('.add-entry').click(); setTimeout(() => pick('New value'), 30); },
 };
 if (ACTS[Q.get('act')]) Shell.ready.then(() => setTimeout(ACTS[Q.get('act')], 100));
 if (Q.has('run')) Shell.ready.then(() => setTimeout(() => run().catch(e => check(`threw: ${e.message}`, false, e.stack)).finally(report), 50));

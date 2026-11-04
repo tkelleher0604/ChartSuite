@@ -472,6 +472,24 @@ function run(json) {
     check('the sample file is the log as it saves itself', j(json) === text);
   }
 
+  // ---- A reason given a change afterwards ----
+  {
+    const w = fresh(), c0 = w.changes().find(c => !c.note && (c.adds.length || c.removes.length)), count = w.changes().length;
+    const a = w.annotate({ chart: C, who: 'Dana Jordan', about: c0.id, note: 'Agreed with Rebecca' });
+    const rs = w.reasons(c0.id);
+    check('a reason given afterwards is a change that says so, removing and adding nothing: the log stays append-only', typeof a === 'object' && !a.adds.length && !a.removes.length && a.about === c0.id && w.changes().length === count + 1 && !w.changes().find(c => c.id === c0.id).note);
+    check('… it’s read with who gave it and when', rs.length === 1 && rs[0].text === 'Agreed with Rebecca' && rs[0].who === 'Dana Jordan' && !rs[0].own && !!rs[0].when, JSON.stringify(rs));
+    const noted = w.changes().find(c => c.note);
+    check('… after a change’s own, where it has one', w.reasons(noted.id)[0]?.own === true && w.reasons(noted.id)[0].text === noted.note);
+    check('… as the log stood before then, it hadn’t been given', !w.at(c0.when).reasons(c0.id).length);
+    const back = w.reverse(a.id, 'Dana Jordan');
+    check('… and its reverse takes it back', typeof back === 'object' && !w.reasons(c0.id).length, JSON.stringify(w.reasons(c0.id)));
+    const rev = fresh(), c1 = rev.changes().findLast(c => rev.canReverse(c.id)), r1 = rev.reverse(c1.id, 'Dana Jordan', 'It was a slip');
+    check('a reverse can say why', r1.note === 'It was a slip', JSON.stringify(r1?.note));
+    const off = fresh();
+    check('it says what it’s about, and something: nothing’s said for nothing', !off.annotate({ chart: C, who: 'Dana Jordan', about: c0.id, note: '  ' }) || off.reasons(c0.id).length === 0);
+  }
+
   // ---- Values ----
   check('dates parse as typed and read in full, short, or by month', Tree.parseDate('3/4/19') === '2019-03-04' && Tree.parseDate('Sept. 1, 2023') === '2023-09-01'
     && Tree.parseDate('2023-02-30') === null && Tree.formatDate('2023-02-14') === 'February 14, 2023' && Tree.formatDate('2023-02-14', 'short') === 'Feb 14, 2023'

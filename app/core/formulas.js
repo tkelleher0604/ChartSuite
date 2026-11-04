@@ -96,8 +96,17 @@ function parseExpression(src, offset = 0) {
   const next = () => toks[p++];
   const isOp = v => peek().k === 'op' && peek().v === v;
   const isKw = v => peek().k === 'kw' && peek().v === v;
-  const expect = v => { if (!isOp(v)) throw new FormulaError(`Expected “${v}”.`, peek().pos); return next(); };
+  const expect = v => { if (!isOp(v)) throw new FormulaError(v === ')' ? 'A “(” here isn’t closed: it needs its “)”.' : v === '}' ? 'A “{” here isn’t closed: it needs its “}”.' : `Expected “${v}”.`, peek().pos); return next(); };
   const span = (node, from, to) => Object.assign(node, { from, to });
+  // What a token can't be doing where it stands, said so as to teach how it's written.
+  const CMPS = new Set(['=', '<>', '<', '>', '<=', '>=']);
+  const unexpected = (t, first) => t.k === 'kw' && (t.v === 'AND' || t.v === 'OR') ? `${t.v} goes between two conditions: a ${t.v} b, or ${t.v}(a, b).`
+    : t.k === 'kw' && t.v === 'IN' ? 'IN goes between a thing and a list: a IN b.'
+    : t.k === 'op' && t.v === '=' && first ? 'A formula starts with one = or ←, not both.'
+    : t.k === 'op' && CMPS.has(t.v) ? `${t.v} compares two things: a ${t.v} b.`
+    : t.k === 'op' && t.v === ')' ? 'There’s a “)” here with no “(” before it.'
+    : t.k === 'op' && t.v === ',' ? 'A comma goes between a function’s arguments: IF(a, b).'
+    : `Didn’t expect “${t.v}” here.`;
   const CMP = ['=', '<>', '<', '>', '<=', '>='];
   const binary = (k, a, b, op) => span(op ? { k, op, a, b } : { k, a, b }, a.from, b.to);
 
@@ -154,6 +163,13 @@ function parseExpression(src, offset = 0) {
     const t = next();
     if (t.k === 'num' || t.k === 'str') return span({ k: 'lit', v: t.v, pct: t.pct }, t.pos, t.end);
     if (t.k === 'kw' && (t.v === 'TRUE' || t.v === 'FALSE')) return span({ k: 'lit', v: t.v === 'TRUE' }, t.pos, t.end);
+    // AND(a, b) and OR(a, b), as Excel writes them, are a AND b and a OR b: one way down from here on.
+    if (t.k === 'kw' && (t.v === 'AND' || t.v === 'OR') && isOp('(')) {
+      next();
+      const xs = callArgs().map(a => a.x);
+      if (!xs.length) throw new FormulaError(`${t.v} needs a condition: ${t.v}(a, b).`, t.pos);
+      return xs.length === 1 ? xs[0] : span(xs.reduce((a, b) => binary(t.v.toLowerCase(), a, b)), t.pos, toks[p - 1].end);
+    }
     if (t.k === 'name') return span({ k: 'name', name: t.v, n: normal(t.v) }, t.pos, t.end);
     // @AsOf, written as one word, is a name a free shape's text is given; @ alone is the item at hand.
     if (t.k === 'op' && t.v === '@' && peek().k === 'name' && peek().pos === t.end) { const x = next(); return span({ k: 'name', name: `@${x.v}`, n: normal(`@${x.v}`) }, t.pos, x.end); }
@@ -165,11 +181,11 @@ function parseExpression(src, offset = 0) {
       return span({ k: 'arr', items }, t.pos, expect('}').end);
     }
     if (t.k === 'end') throw new FormulaError('The formula ends too soon.', t.pos);
-    throw new FormulaError(`Didn’t expect “${t.v}” here.`, t.pos);
+    throw new FormulaError(unexpected(t, p === 1), t.pos);
   };
 
   const ast = or();
-  if (peek().k !== 'end') throw new FormulaError(`Didn’t expect “${peek().v}” here.`, peek().pos);
+  if (peek().k !== 'end') throw new FormulaError(unexpected(peek(), false), peek().pos);
   return ast;
 }
 
@@ -332,7 +348,7 @@ function unindexByObjects(S, id) {
 function listNamesOf(S, sig) {
   if (!S.listNames.has(sig)) {
     const names = new Set();
-    for (const rel of S.P.reg.byName.values()) if (rel.sig === sig) for (const name of rel.lists.values()) names.add(normal(name));
+    for (const rel of S.P.reg.byName.values()) if (rel.sig === sig) { names.add(rel.n); for (const name of rel.lists.values()) names.add(normal(name)); }
     S.listNames.set(sig, names);
   }
   return S.listNames.get(sig);
@@ -444,8 +460,8 @@ function listHere(S, id, n) {
   for (const rid of onObject ? relationsFor(S, id, n) : S.relsAt.get(id) ?? []) {
     const r = S.recs[rid];
     if (!inSight(S, rid)) continue;
-    for (const { own, other, list, alias } of listsOf(S, r)) {
-      if ((list !== n && alias !== n) || (onObject ? objectOf(S, own.at) !== id : own.at !== id)) continue;
+    for (const { own, other, list, alias, name } of listsOf(S, r)) {
+      if ((list !== n && alias !== n && name !== n) || (onObject ? objectOf(S, own.at) !== id : own.at !== id)) continue;
       hit = true;
       if (isTag(r) && r.tag !== true) continue;
       items.push(recOf(objectOf(S, other.at) ?? other.at, rid));
@@ -455,13 +471,14 @@ function listHere(S, id, n) {
 }
 
 // The lists of relatives a relation record makes: for each argument, seen from each other argument, the
-// list's name, normalized, and the edge label it also answers to. Worked out once per record, once its
+// list's name, normalized, and what it also answers to: the edge label it lists, and the relation's own name,
+// so a relation's name is a list at a record of it (COUNT([Side Letter])). Worked out once per record, once its
 // parameterization is known.
 function listsOf(S, r) {
   if (S.recLists.has(r)) return S.recLists.get(r);
   const rel = relationOf(S, r);
   const out = [];
-  r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: normal(listNameOf(rel, own.edge, other.edge)), alias: normal(other.edge) }); }));
+  r.args.forEach((own, i) => r.args.forEach((other, j) => { if (i !== j) out.push({ own, other, list: normal(listNameOf(rel, own.edge, other.edge)), alias: normal(other.edge), name: rel?.n ?? null }); }));
   if (paramOfRecord(S, r) !== null) S.recLists.set(r, out);
   return out;
 }
@@ -702,7 +719,7 @@ function ev(node, c) {
 function evNode(node, c) {
   const S = c.S;
   switch (node.k) {
-    case 'lit': return node.v;
+    case 'lit': return S.P.badLits?.get(node) ?? node.v;
     case 'arr': {
       const out = [];
       for (const x of node.items) { const v = ev(x, c); if (isErr(v)) return v; out.push(...toList(v)); }
@@ -1177,6 +1194,7 @@ const fitsCall = (S, r, ids) => r.args.every(x => {
 
 // ---- Definitions, and the order they're worked out in ----
 
+const NO_START = 'A formula starts with = (it gives this) or ← (it holds where this holds).', ONLY_TAG = 'Only a yes-or-no can use ←: start with =.';
 // Parses a definition's rows and what it covers. Problems are kept on it as `error`, { message, row, pos }.
 function prepareDef(def, names) {
   const d = { ...def, error: null, covers: def.covers ?? [], params: [], edges: [def.name], rows: [], labels: new Set() };
@@ -1191,8 +1209,8 @@ function prepareDef(def, names) {
     d.type = def.type ?? (written.length && written.every(x => x.f.kind === 'implies') ? 'tag' : 'field');
     d.rows = written.map(({ row, f }, i) => {
       at = { row: i, pos: 0 };
-      if (!f.kind) throw new FormulaError('No = or ← at the start', 0);
-      if (f.kind === 'implies' && d.type !== 'tag') throw new FormulaError('Only a tag can use ←', 0);
+      if (!f.kind) throw new FormulaError(NO_START, 0);
+      if (f.kind === 'implies' && d.type !== 'tag') throw new FormulaError(ONLY_TAG, 0);
       return { i, label: clean(row.label), n: normal(clean(row.label)), implies: f.kind === 'implies', ast: parseCached(f.body, f.offset), text: String(row.formula) };
     });
     at = null;
@@ -1268,7 +1286,7 @@ function knownNames(entered, defs, reg, schema) {
   const addRelation = (type, edges, rel = reg.bySig.get(signature(type, edges))) => {
     edges.forEach((own, i) => edges.forEach((other, j) => { if (i !== j) { lists.add(normal(listNameOf(rel, own, other))); lists.add(normal(other)); } }));
     edges.forEach(e => values.add(normal(e)));
-    if (rel) values.add(normal(rel.name));
+    if (rel) { values.add(normal(rel.name)); lists.add(normal(rel.name)); }
   };
   const add = (type, args) => { if (args.length > 1) addRelation(type, args.map(a => a.edge)); else if (args[0]?.edge) values.add(normal(args[0].edge)); };
   for (const t of Object.values(schema ?? {})) if (t.args?.length) add(!t.out || 'tag' in t.out ? 'tag' : 'choice' in t.out ? 'choice' : 'field', t.args);
@@ -3118,12 +3136,200 @@ function editorContext(ctx) {
   return { S, d, c };
 }
 
+// ---- A rule in error (dendra.md, Definitions) ----
+// What can be told of a rule as written, before anything's worked out: a name the chart has nowhere; a quoted value
+// that isn't an option of what it's compared to; a kind no record is; a rule that depends on itself. Each is a flaw,
+// { row, from, to, message, code, fix?, warn? }, `fix` the text that would mend it, where one's close. And `warn`, what
+// isn't wrong as such but may not be what's meant: a role two relations share, which reads both.
+
+// How far apart two words are, in letters changed; what's close enough to one to be what was meant, of `among`.
+function editDistance(a, b) {
+  let row = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i];
+    for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    row = next;
+  }
+  return row[b.length];
+}
+function closeTo(word, among) {
+  const w = normal(word);
+  let best = null, least = Math.max(1, Math.floor(String(word).length / 3)) + 1;
+  for (const o of among) { const d = editDistance(w, normal(o)); if (d < least) { least = d; best = o; } }
+  // Or what it's the start of, as a name part typed is: the shortest.
+  return best ?? (w.length > 1 ? [...among].filter(o => normal(o).startsWith(w)).sort((a, b) => a.length - b.length)[0] ?? null : null);
+}
+// The options each choice goes by, by its name: an entry's by its label, a relation's by its name, one a rule gives with
+// what its rows give. What goes by the same name but isn't a choice somewhere says nothing, so isn't asked. And `spelled`,
+// the names the chart has, as they're written; and `kinds`.
+function namesOfChart(P, entered) {
+  const choices = new Map(), plain = new Set(), spelled = new Map(), kinds = new Set(entered);
+  const add = (label, o) => { const k = normal(label); let e = choices.get(k); if (!e) choices.set(k, e = { label, options: [] }); if (!e.options.some(x => same(x, o))) e.options.push(o); };
+  const spell = x => { if (x && !spelled.has(normal(x))) spelled.set(normal(x), x); };
+  for (const t of Object.values(P.schema ?? {})) {
+    if (t.kind) kinds.add(t.kind);
+    if (!t.args?.length || !t.out) continue;
+    t.args.forEach(a => spell(a.edge));
+    const rel = t.args.length > 1 && (P.reg.byParam.get(Tree.paramKey(t)) ?? P.reg.bySig.get(signature(typeOfSpec(t), t.args.map(a => a.edge)))), label = t.args.length > 1 ? rel?.name : t.args[0].edge;
+    if (!label) continue;
+    if ('choice' in t.out) add(label, t.out.choice); else plain.add(normal(label));
+  }
+  for (const d of P.defs) if (!d.error) {
+    spell(d.name);
+    d.rows.forEach(row => spell(row.label));
+    if (d.type === 'choice') { (d.options ?? []).forEach(o => add(d.name, o)); d.rows.forEach(row => givenTexts(row.ast).forEach(o => add(d.name, o))); }
+  }
+  for (const n of plain) choices.delete(n);
+  const roles = new Map(), listed = new Set();
+  for (const rel of P.reg.byName.values()) {
+    spell(rel.name);
+    for (const e of rel.edges ?? []) { const k = normal(e); (roles.get(k) ?? roles.set(k, new Set()).get(k)).add(rel.name); }
+    for (const l of rel.lists.values()) { listed.add(normal(l)); spell(l); }
+  }
+  return { choices, spelled, kinds, roles, listed };
+}
+const typeOfSpec = t => 'choice' in t.out ? 'choice' : 'tag' in t.out ? 'tag' : 'field';
+// What `@` stands for in a definition's rows where no list has been opened: the entry it's located at, by its label.
+function locatedAt(d) {
+  const s = d?.params?.[0]?.[0]?.spec;
+  if (!s || s === '*' || s.startsWith('kind:')) return null;
+  try { const [, first] = JSON.parse(s); return first ? JSON.parse(first)[0] : null; } catch { return null; }
+}
+// A row's flaws. `d`, its definition, where it has one; `edges`, the sides of a relation being given one.
+function rowFlaws(P, d, ast, edges = null) {
+  const out = [], { known, reg, chart: { choices, spelled, kinds, roles, listed } } = P, rel = d ? d.isRelation : !!edges;
+  const own = new Set((d?.isRelation ? d.edges : edges ?? []).map(normal)), lets = new Set();
+  const has = nm => known.values.has(nm) || known.lists.has(nm) || reg.byName.has(nm) || lets.has(nm);
+  const mend = (name, among) => { const c = closeTo(name, among); return c ? { fix: nameText(c) } : {}; };
+  const unknown = (name, from, to) => out.push({ from, to, code: '#NAME?', message: `Nothing is called ${name}.`, ...mend(name, spelled.values()) });
+  const shared = (n, from, to) => { const of = roles.get(n.n); if (of?.size > 1 && !listed.has(n.n) && !lets.has(n.n) && !own.has(n.n)) out.push({ from, to, warn: true, code: '#NAME?', message: `${n.name} is a side of ${[...of].join(' and ')}, so this reads both. ${[...of].map(x => `[${x}]`).join(' or ')} reads one.` }); };
+  // The list a side is compared with: a choice's options, or the kinds there are; where the schema is known, which says them all.
+  const listFor = (s, item) => !P.schema ? null : isCall(s, 'KIND') ? { label: 'KIND', options: [...kinds], kind: true } : s.k === 'at' ? (!item ? choices.get(locatedAt(d)) : null) : (s.k === 'dot' || (s.k === 'name' && !lets.has(s.n) && !own.has(s.n))) ? choices.get(s.n) : null;
+  const against = (lit, l) => {
+    if (!l || lit.k !== 'lit' || typeof lit.v !== 'string' || !lit.v || l.options.some(o => same(o, lit.v))) return;
+    const c = closeTo(lit.v, l.options);
+    out.push({ from: lit.from, to: lit.to, lit, code: '#OPTION?', message: l.kind ? `“${lit.v}” isn’t a kind of record here.` : `“${lit.v}” isn’t an option of ${l.label}.`, ...(c && { fix: `"${c}"` }), ...(!l.kind && { value: lit.v, label: l.label }) });
+  };
+  const walk = (n, item) => {
+    if (!n) return;
+    if (isCall(n, 'LET')) n.args.forEach((x, i) => { if (i % 2 === 0 && i < n.args.length - 1 && x.x.k === 'name') lets.add(x.x.n); });
+    if (n.k === 'name') {
+      if (!rel && !own.has(n.n) && !has(n.n)) unknown(n.name, n.from, n.to);
+      else if (rel && !own.has(n.n) && !lets.has(n.n)) out.push({ from: n.from, to: n.to, code: '#NAME?', message: `${n.name} isn’t one of this relation’s arguments.`, ...mend(n.name, (d?.edges ?? edges)) });
+      else if (!rel) shared(n, n.from, n.to);
+    }
+    if (n.k === 'dot') { if (!has(n.n)) unknown(n.name, n.at, n.to); else if (n.x.k !== 'at') shared(n, n.at, n.to); }
+    if (n.k === 'call' && !isFunction(n.name) && !reg.byName.has(normal(n.name))) out.push({ from: n.from, to: n.nameTo, code: '#NAME?', message: `There’s no function or relation called ${n.name}.`, ...mend(n.name, [...Object.keys(FUNCTIONS), ...[...reg.byName.values()].map(r => r.name)]) });
+    if (n.k === 'cmp' && (n.op === '=' || n.op === '<>')) { against(n.b, listFor(n.a, item)); against(n.a, listFor(n.b, item)); }
+    if (n.k === 'in') { const l = listFor(n.a, item); for (const x of n.b.k === 'arr' ? n.b.items : [n.b]) against(x, l); }
+    if (n.k === 'call' && ITEM_FUNCTIONS.has(n.name.toUpperCase())) n.args.forEach((x, i) => walk(x.x, item || i > 0));
+    else childrenOf(n).forEach(x => walk(x, item));
+  };
+  walk(ast, false);
+  return out;
+}
+// Whether an expression gives nothing, or no, wherever what it reads of a loop is nothing: its only way to hold is through the loop.
+function onlyThroughLoop(ast, group, reg, d) {
+  const names = new Set(group.flatMap(e => [...namesProvided(e, reg)])), labels = new Set(group.flatMap(e => [...e.labels])), own = new Set(d.isRelation ? d.edges.map(normal) : []);
+  const needs = n => {
+    if (!n) return false;
+    switch (n.k) {
+      case 'name': return !own.has(n.n) && names.has(n.n);
+      case 'dot': return needs(n.x) || names.has(n.n) || labels.has(n.n);
+      case 'and': return needs(n.a) || needs(n.b);
+      case 'or': return needs(n.a) && needs(n.b);
+      case 'cmp': return (n.op === '>' || n.op === '>=') && needs(n.a);
+      case 'in': return needs(n.b);
+      case 'bin': return n.op === '*' ? needs(n.a) || needs(n.b) : n.op === '+' && needs(n.a) && needs(n.b);
+      case 'call': {
+        if (!isFunction(n.name)) return names.has(normal(n.name));
+        const f = n.name.toUpperCase(), a = n.args.map(x => x.x);
+        if (f === 'IF') return a.length < 3 ? needs(a[0]) || needs(a[1]) : needs(a[1]) && needs(a[2]);
+        return ['ANY', 'COUNT', 'SUM', 'FILTER', 'EACH', 'UNIQUE', 'MIN', 'MAX'].includes(f) && a.some(needs);
+      }
+      default: return false;
+    }
+  };
+  return needs(ast);
+}
+// Every definition's flaws, by its id, and each that's a loop nothing can work out.
+// What's wrong as it's written reads the definitions, the schema and what names and kinds there are, so an edit to a value
+// doesn't read it all again. (Not kept where a quoted value's at fault, known by its place in what was parsed: see badLits.)
+const writtenKept = new WeakMap();
+function flawsOf(P, definitions, entered) {
+  const seen = new Set();
+  for (const r of Object.values(entered ?? {})) if (r.kind) seen.add(r.kind);
+  const stamp = `${[...seen].sort().join('|')}§${P.known.values.size}§${P.known.lists.size}`, kept = writtenKept.get(definitions), again = !!kept && kept.schema === P.schema && kept.stamp === stamp;
+  // (And what has records typed, which a rule that reads only itself can go on from: asked of few, so worked out only then.)
+  let typedSet = null;
+  const typed = () => typedSet ??= new Set(Object.values(entered ?? {}).flatMap(r => r.args?.length > 1 ? [r.args.map(a => normal(a.edge)).sort().join('|')] : r.edge ? [normal(r.edge)] : []));
+  P.chart = { ...(again ? kept.chart : namesOfChart(P, seen)), typed };
+  const rows = again ? kept.rows : {}, each = (id, f) => (rows[id] ??= []).push(f);
+  if (!again) {
+    for (const d of P.defs) {
+      if (d.error) each(d.id, { row: d.error.row, from: d.error.pos, to: d.error.pos + 1, code: '#SYNTAX', message: d.error.message });
+      else d.rows.forEach((row, i) => rowFlaws(P, d, row.ast).forEach(f => each(d.id, { ...f, row: i })));
+    }
+    if (!Object.values(rows).flat().some(f => f.lit)) writtenKept.set(definitions, { schema: P.schema, stamp, chart: P.chart, rows });
+  }
+  const out = { ...rows }, put = (id, f) => { out[id] = [...(out[id] ?? []), f]; };
+  for (const g of P.groups) if (g.loops && !g.monotone) for (const d of g.defs) {
+    const x = g.reads.find(r => r.def === d.id && !r.monotone) ?? g.reads.find(r => r.def === d.id);
+    const names = g.defs.map(e => e.name), said = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
+    put(d.id, { row: x?.row ?? 0, from: x?.from ?? 0, to: x?.to ?? 0, loop: true, code: '#CIRCULAR!', message: names.length > 1 ? `This depends on itself: ${said} read each other.` : `This depends on itself: what ${d.name} gives would change what it reads.` });
+  }
+  // A monotone loop settles, but where every row of it gives something only through the loop, and nothing's typed for it to go on from,
+  // it settles at nothing: a clean no everywhere, which is the rule's wrongness, not the chart's answer.
+  const seeded = d => P.chart.typed().has(d.isRelation ? d.edges.map(normal).sort().join('|') : normal(d.name));
+  for (const g of P.groups) if (g.loops && g.monotone && !g.defs.some(d => d.error || !d.rows.every(row => onlyThroughLoop(row.ast, g.defs, P.reg, d)) || seeded(d))) {
+    const names = g.defs.map(e => e.name), said = names.length > 2 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names.join(' and ');
+    for (const d of g.defs) { const x = g.reads.find(r => r.def === d.id); put(d.id, { row: x?.row ?? 0, from: x?.from ?? 0, to: x?.to ?? 0, loop: true, code: '#CIRCULAR!', message: names.length > 1 ? `This depends on itself: ${said} hold only through each other, so none of them ever does.` : `This depends on itself: ${d.name} holds only where it already holds, so it never does.` }); }
+  }
+  return out;
+}
+// The rules in error in a working-out: those flawed; those a name or a loop failed at as worked out; and what they reach,
+// every definition that reads one, as an error passes on to what reads it. A value a record lacks isn't one (a #VALUE!, a
+// #N/A: a rule that's fine, waiting on a fact). → { roots: [{ def, name, code, problems }], reach: Set(def) }
+const RULE_ERRORS = new Set(['#NAME?', '#CIRCULAR!', '#OPTION?']), brokens = new WeakMap();
+function broken(R) {
+  if (brokens.has(R)) return brokens.get(R);
+  const P = R.state.P, roots = new Map(), readers = new Map(), reach = new Set();
+  for (const [d, reads] of Object.entries(R.uses ?? {})) for (const e of reads) push(readers, e, d);
+  const spread = id => { if (reach.has(id)) return; reach.add(id); (readers.get(id) ?? []).forEach(spread); };
+  const root = (def, code, problems) => { if (!roots.has(def)) roots.set(def, { def, name: P.byId.get(def)?.name ?? '', code, problems }); spread(def); };
+  for (const [def, fs] of Object.entries(R.flaws ?? {})) { const hard = fs.filter(f => !f.warn); if (hard.length) root(def, hard[0].code, hard.map(f => f.message)); }
+  for (const e of R.errors) if (RULE_ERRORS.has(e.error.code) && !reach.has(e.def)) root(e.def, e.error.code, [e.error.msg]);
+  const out = { roots: [...roots.values()], reach };
+  brokens.set(R, out);
+  return out;
+}
+// The objects a relation a definition gives can have at a side, as its candidates do: for what's said of the few it can be of.
+function sideObjects(R, def, edge) {
+  const S = R.state, n = normal(edge), out = new Set();
+  for (const ps of S.P.byId.get(def)?.params ?? []) for (const p of ps) if (p.edge === n) for (const id of S.bySpec.get(p.spec) ?? []) { const o = objectOf(S, id); if (o) out.add(o); }
+  return [...out];
+}
+// The state as it's drawn: a yes-or-no in error hasn't passed, so it's drawn as not holding, in the look of one ruled out, where
+// a style has one: a check that breaks never clears its own flags. It's for drawing alone: a panel says the error.
+const drawnKept = new WeakMap();
+function asDrawn(R, state = R.records) {
+  const errs = R?.errors?.filter(e => e.at && e.args?.length === 1 && state[e.at] && !state[e.id] && R.state?.P.byId.get(e.def)?.type === 'tag');
+  if (!errs?.length) return state;
+  const kept = drawnKept.get(state);
+  if (kept?.R === R) return kept.out;
+  const out = { ...state };
+  for (const e of errs) out[e.id] = { at: e.at, edge: e.args[0].edge, tag: false, computed: e.def };
+  drawnKept.set(state, { R, out });
+  return out;
+}
+
 // Checks a formula as typed: its kind ('value', 'implies' or null), and its problems, each with a span: what
-// doesn't parse, and given a computed state, names the chart doesn't have.
+// doesn't parse, and given a computed state, its flaws. `edges`, the sides of a relation a definition is being
+// written for; `type`, what it gives, where it has no definition yet.
 function check(text, ctx = {}) {
   const f = splitFormula(text);
   const problems = [];
-  if (!f.kind) problems.push({ from: 0, to: Math.min(1, String(text ?? '').length), message: 'No = or ← at the start' });
+  if (!f.kind) problems.push({ from: 0, to: Math.min(1, String(text ?? '').length), message: NO_START });
   let ast;
   try { ast = parseExpression(f.body, f.offset); }
   catch (e) {
@@ -3133,22 +3339,9 @@ function check(text, ctx = {}) {
   }
   const E = editorContext(ctx);
   if (E) {
-    const { S, d } = E, known = S.P.known;
-    if (f.kind === 'implies' && d && d.type !== 'tag') problems.push({ from: 0, to: f.offset, message: 'Only a tag can use ←' });
-    const own = new Set(d?.isRelation ? d.edges.map(normal) : []);
-    const lets = new Set();
-    const walk = n => {
-      if (!n) return;
-      if (isCall(n, 'LET')) n.args.forEach((x, i) => { if (i % 2 === 0 && i < n.args.length - 1 && x.x.k === 'name') lets.add(x.x.n); });
-      const unknown = (name, from, to) => problems.push({ from, to, message: `Nothing is called ${name}.` });
-      const has = nm => known.values.has(nm) || known.lists.has(nm) || S.P.reg.byName.has(nm) || lets.has(nm);
-      if (n.k === 'name' && !own.has(n.n) && !has(n.n) && !(d?.isRelation)) unknown(n.name, n.from, n.to);
-      else if (n.k === 'name' && d?.isRelation && !own.has(n.n) && !lets.has(n.n)) problems.push({ from: n.from, to: n.to, message: `${n.name} isn’t one of this relation’s arguments.` });
-      if (n.k === 'dot' && !has(n.n)) unknown(n.name, n.at, n.to);
-      if (n.k === 'call' && !isFunction(n.name) && !S.P.reg.byName.has(normal(n.name))) problems.push({ from: n.from, to: n.nameTo, message: `There’s no function or relation called ${n.name}.` });
-      childrenOf(n).forEach(walk);
-    };
-    walk(ast);
+    const { S, d } = E, type = d?.type ?? ctx.type;
+    if (f.kind === 'implies' && type && type !== 'tag') problems.push({ from: 0, to: f.offset, message: ONLY_TAG });
+    problems.push(...rowFlaws(S.P, d, ast, ctx.edges));
   }
   return { kind: f.kind, problems };
 }
@@ -3165,6 +3358,8 @@ function suggest(text, cursor, ctx = {}) {
   const typed = m?.[1] ?? '';
   const after = /^(?:[^\]\[(),.]*\]|[A-Za-z0-9_]*)/.exec(s.slice(cursor))?.[0] ?? '';
   const from = cursor - typed.length, to = cursor + (typed.startsWith('[') || /^[A-Za-z0-9_]/.test(after) ? after.length : 0);
+  // After a number there's nothing to offer: no name follows one.
+  if (!typed && /(?:^|[^\w\]])\$?\d[\d,.]*%?\s*$/.test(before)) return { from, to, list: [] };
   const partial = normal(typed.replace(/^\[/, ''));
   const bracket = name => typed.startsWith('[') ? `[${name}]` : nameText(name);
   const functions = Object.keys(FUNCTIONS).map(f => ({ name: f, kind: 'function' }));
@@ -3451,7 +3646,7 @@ function computeState(entered, definitions, names, from) {
   const defs = definitions.map(d => prepareDef(d, names));
   const reg = registry(names, defs);
   // The specifications definitions are located at, where a group looks for candidates (see blocksOf).
-  const P = { defs, reg, byId: new Map(defs.map(d => [d.id, d])), coverOf: new Map(),
+  const P = { defs, reg, schema: names?.schema, byId: new Map(defs.map(d => [d.id, d])), coverOf: new Map(),
     located: new Set(defs.flatMap(d => d.params.flat().map(p => p.spec))) };
   for (const d of defs) if (!d.error) for (const p of d.covers) P.coverOf.set(p, d);
   // A definition whose rows some row cites by label, after a dot.
@@ -3461,7 +3656,11 @@ function computeState(entered, definitions, names, from) {
   for (const d of defs) d.cited = [...d.labels].some(l => dotted.has(l));
   P.known = knownNames(entered, defs, reg, names?.schema);
   P.groups = plan(defs, reg);
-  P.frame = frameOf(defs, names);
+  P.flaws = flawsOf(P, definitions, entered);
+  // A quoted value that's no option is an error wherever it's read (see evNode), not a comparison that's false.
+  const bad = Object.values(P.flaws).flat().filter(f => f.lit);
+  P.badLits = bad.length ? new Map(bad.map(f => [f.lit, err(f.code, f.message)])) : null;
+  P.frame = frameOf(defs, names) + bad.map(f => f.message).join();
   const base = from === null ? null : closest(P, entered, from);
   const again = base && reworking(base.R, base.changed, P, entered);
   const inPlace = again?.inPlace();
@@ -3500,7 +3699,7 @@ function computeState(entered, definitions, names, from) {
   for (const g of P.groups) for (const x of g.reads) push2(loops, x.def, { row: x.row, from: x.from, to: x.to, monotone: x.monotone });
   // What each definition reads: the definitions it depends on.
   const uses = Object.fromEntries(defs.map(d => [d.id, [...d.dependsOn ?? []].filter(e => e !== d).map(e => e.id)]));
-  const R = { records, computed, covered, errors, rows: Object.fromEntries(S.rows), defErrors, loops, keptAside, uses,
+  const R = { records, computed, covered, errors, rows: Object.fromEntries(S.rows), defErrors, flaws: P.flaws, loops, keptAside, uses,
     order: P.groups.map(g => g.defs.map(d => d.id)), steps: S.steps, ms: now() - started, state: S };
   return latest(R, from);
 }
@@ -3586,6 +3785,8 @@ function attention(R, N, day, within = 30) {
     }
   }
   for (const e of R.errors) items.push({ kind: 'error', id: e.id, error: e });
+  // A rule in error that nothing shows at a record (a quoted value nothing reached) is an error of its own: the rule's.
+  for (const b of broken(R).roots) if (!R.errors.some(e => e.def === b.def)) { const id = `rule:${b.def}`; items.push({ kind: 'error', id, error: { def: b.def, id, rule: true, error: err(b.code, b.problems[0]) } }); }
   return items;
 }
 
@@ -3662,7 +3863,7 @@ function silence(N, S, recs, at, edge) {
 
 return {
   computeState, ground, evaluateRow, diff, check, suggest, evaluateAt, text, attention, pay, renameName, computedId, splitFormula, tidyArrow,
-  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS), silence,
+  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS), silence, broken, asDrawn, sideObjects,
 };
 
 })();
