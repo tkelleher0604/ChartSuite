@@ -121,7 +121,7 @@ function slots(at, all) {
   const errors = App.computed.value.errors.map(e => [e, placeOf(e)]).filter(([, p]) => p?.edge && p.at === at && !entryNamed(at, p.edge)).map(([e, p]) => slot(p.edge, { error: e }));
   const blanks = blanksAt(at).filter(b => !errors.some(e => T.same(e.edge, b.edge))).map(b => slot(b.edge, { ...b, blank: true }));
   // A tag its rule hasn't tested here says so, apart from no (dendra.md, Definitions: Not tested).
-  const untested = App.definitions.value.filter(d => d.type === 'tag' && !d.edges && Formulas.notTested(N(), App.schema.value, r, at, d.name) && ![...errors, ...blanks].some(x => T.same(x.edge, d.name))).map(d => slot(d.name, { at, na: true }));
+  const untested = App.definitions.value.filter(d => d.type === 'tag' && !d.edges && Formulas.silence(N(), App.schema.value, r, at, d.name) === 'untested' && ![...errors, ...blanks].some(x => T.same(x.edge, d.name))).map(d => slot(d.name, { at, na: true }));
   const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...errors, ...blanks, ...untested].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
   const out = [...ents.filter(e => !(own && e.pinned)), ...errors, ...blanks, ...untested, ...open].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
     .sort((a, b) => a.o - b.o || a.p - b.p || a.edge.localeCompare(b.edge));

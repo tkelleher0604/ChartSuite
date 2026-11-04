@@ -187,6 +187,9 @@ const Table = (() => {
     scheduling = { wb, c, day, version, out };
     return out;
   }
+  // A reason, once per working-out: a table's Why asks every row's at every change.
+  const reasons = new WeakMap();
+  const reasonIn = (R, id, say) => { const m = reasons.get(R) ?? reasons.set(R, new Map()).get(R); if (!m.has(id)) m.set(id, say(id)); return m.get(id); };
   // A table's own order of its columns, where the view doesn't place them: as its entries are ordered, then by name.
   function ownOrder(a, b) {
     for (let i = 0; i < Math.max(a.base.length, b.base.length); i++) { const d = (a.base[i] ?? -2) - (b.base[i] ?? -2); if (d) return d; }
@@ -260,11 +263,11 @@ const Table = (() => {
     }
     if (why && base) { const at = cols.findIndex(c => c.place > why.place); cols.splice(at < 0 ? cols.length : at, 0, why); }
     cols = [...lead, ...cols, ...trail, ...(why && !base ? [why] : [])];
-    const said = R === App.computed.value ? id => FormulaBar.because?.(id) ?? FormulaBar.sentenceIn(R, id) : id => FormulaBar.sentenceIn(R, id);
+    const said = id => R === App.computed.value ? FormulaBar.because?.(id) ?? FormulaBar.sentenceIn(R, id) : FormulaBar.sentenceIn(R, id);
 
     // Each cell: the record there, if any, and where one would go.
     const cellOf = (row, c) => {
-      if (c.key === '$why') return { v: c.shown || App.pending.peek()?.cols?.has('$why') ? said(row) || undefined : undefined };
+      if (c.key === '$why') return { v: c.shown ? reasonIn(R, row, said) || undefined : undefined };
       if (c.type === 'edge') {
         const a = st[row].args.find(x => same(x.edge, c.edge));
         return { at: a?.at, v: a ? saidOf(st, Tree.objectOf(st, a.at), N) : undefined };
@@ -290,11 +293,13 @@ const Table = (() => {
       const row = { id, _m: {}, _red: null };   // _red: 'add' or 'go' while a change is pending (redlined)
       for (const c of cols) {
         const m = cellOf(id, c), r = m.id && st[m.id], f = field(c), type = typeIn(c, r);
-        row[f] = c.type === 'tag' && !r && m.at && Formulas.notTested(N, S, st, m.at, c.path.at(-1)) ? NA : m.v ?? null;
+        // A tag no row has said: what its definition's silence says (Formulas.silence).
+        const quiet = c.type === 'tag' && !r && m.at ? Formulas.silence(N, S, st, m.at, c.path.at(-1)) : null;
+        row[f] = quiet === 'untested' ? NA : m.v ?? null;
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
         // A value of another datatype than its column's reads as its own.
         const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
-        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }) };
+        row._m[f] = { id: m.id, at: m.at, fx, over, due: (fx || cov) && r?.field === 'date' && r.value < today, ...(type !== c.type && { type }), ...(m.rels && { names: m.names, rels: m.rels }), ...(m.group && { group: m.group, gid: m.gid }), ...(quiet && quiet !== 'untested' && { quiet }) };
       }
       row._ruled = st[id].tag === false;
       row._fails = fails.get(id) ?? null;
@@ -400,8 +405,11 @@ const Table = (() => {
   function markTip(c, m, v) {
     if (v === NA) return 'Not tested: its rule doesn’t apply here';
     if (m?.over) { const was = App.computed.peek().covered?.[m.id]?.value; return `Typed over what’s worked out, which is ${typeof was === 'boolean' ? (was ? 'Yes' : 'No') : was?.t === 'date' ? Tree.formatDate(was.iso, 'short') : typeof was === 'number' ? Tree.format(m.type ?? c.type, was) : was ?? 'nothing'}`; }
-    return m?.fx ? 'Worked out by a formula' : null;
+    return m?.quiet === 'no' ? 'No: worked out by a formula' : m?.quiet === 'fine' ? 'Nothing wrong: worked out by a formula' : m?.fx ? 'Worked out by a formula' : null;
   }
+  // A cell as its filter, its copy and its file read it: a box empty where a rule that can only say yes has said nothing is its
+  // No, as a person reads it.
+  const read = (c, d, v = d[field(c)]) => v === null && d._m?.[field(c)]?.quiet === 'no' ? false : v;
   function formatter(c) {
     // A tag's box, blank, attested or ruled out; or that it isn't tested.
     const box = (v, m) => v === NA ? `<span class="na">${NA}</span>` : v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : 'no'}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
@@ -636,7 +644,7 @@ const Table = (() => {
         formatter: formatter(c),
         editable: cell => !App.readOnly.peek() && !current?.red && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
         editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? chooser(c) : editor(c, put),
-        accessorClipboard: (v, d) => plain(typeOf(c, d), v), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), v)),
+        accessorClipboard: (v, d) => plain(typeOf(c, d), read(c, d, v)), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), read(c, d, v))),
       };
     });
     // The columns kept in view are kept so by table.css, not frozen: Tabulator's range selection takes only the row
@@ -1135,12 +1143,12 @@ const Table = (() => {
     const o = onRelation(current, edge) ? sideRecords(current, edge).find(x => same(x.name, name))?.id : find(st, name, sideKinds(current, edge)), to = o && follow(st, o, sideLoc(current, edge));
     if (to) tx.update(row, { args: st[row].args.map(a => same(a.edge, edge) ? { edge: a.edge, at: to } : a) });
   }
-  // A tag's box: blank, attested, ruled out, and blank again. A box a formula covers, worked out or typed over, is no click
-  // from a false fact: clicked, or by Space, it opens its reason, where overriding it is a command of its own. A check
-  // blank has found nothing to tick; one untested, nothing to say.
+  // A tag's box: blank, attested, ruled out, and blank again. A box a formula covers is no click from a false fact: worked
+  // out or typed over, clicked or by Space, it opens its reason, where overriding it is a command of its own; one it has said
+  // nothing of, or not tested, has no reason to open and writes nothing.
   function flip(cell) {
     const m = meta(cell), c = columnOf(cell), v = cell.getValue(), entered = m.id in App.entered.value;
-    if (!m.at || current.red || v === NA) return;
+    if (!m.at || current.red || v === NA || m.quiet) return;
     if (m.fx || App.computed.peek().covered?.[m.id]) return Shell.emit('why-open', m.id);
     if (App.readOnly.peek() || (c.check && v !== false)) return;
     if (v === false && entered) edit(tx => tx.remove(m.id));
@@ -1678,7 +1686,7 @@ const Table = (() => {
   }
   // A filter keeps the rows whose value in each filtered column is one of those chosen (null, Blank), a list's any of its
   // names; or, a date's, in a range of days from the day shown: before it (overdue), the next 30, 60 or 90, or between two.
-  const valuesIn = (c, d) => c.type === 'list' ? (d._m[field(c)]?.names?.length ? d._m[field(c)].names : [null]) : [blank(d[field(c)]) ? null : d[field(c)]];
+  const valuesIn = (c, d) => c.type === 'list' ? (d._m[field(c)]?.names?.length ? d._m[field(c)].names : [null]) : (v => [blank(v) ? null : v])(read(c, d));
   const later = (day, n) => { const [y, mo, d] = day.split('-').map(Number); return Tree.isoOf(new Date(y, mo - 1, d + n)); };
   function rangeOf(r, today = App.day.peek()) {
     return r.range === 'overdue' ? { to: later(today, -1) } : typeof r.range === 'number' ? { from: today, to: later(today, r.range) } : { from: r.from, to: r.to };
@@ -2445,7 +2453,7 @@ const Table = (() => {
   function sheet(X, all = false) {
     const m = current, cols = table.getColumns().filter(c => c.getField()).map(col => [col, m.byField.get(col.getField())]).filter(([, c]) => c);
     const rows = (all ? table.getRows() : table.getRows('active')).map(r => r.getData()).filter(d => d._red !== 'add');
-    const value = (d, c) => { const mm = d._m[field(c)]; return mm && 'was' in mm ? mm.was : d[field(c)]; };
+    const value = (d, c) => { const mm = d._m[field(c)]; return read(c, d, mm && 'was' in mm ? mm.was : d[field(c)]); };
     const ws = {}, at = (r, j) => X.utils.encode_cell({ r, c: j });
     cols.forEach(([, c], j) => {
       ws[at(0, j)] = { t: 's', v: headed(c) };

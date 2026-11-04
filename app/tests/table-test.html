@@ -1884,11 +1884,12 @@ async function tablesG3() {
   check('… and one it tested a box', !!cell(fund3, fm).getElement().querySelector('.tag.yes'), cell(fund3, fm).getElement().innerHTML);
   check('… on hover, it says what it means', fc().dataset.tip === 'Not tested: its rule doesn’t apply here', fc().dataset.tip);
   const N0 = App.notes.peek(), S0 = App.schema.peek(), s0 = st(), type = Tree.entryAt(s0, corvane, 'Entity Type');
-  check('A rule that can say both and says neither hasn’t tested a record', Formulas.notTested(N0, S0, s0, type, fm) && Formulas.notTested(N0, S0, s0, corvane, 'Ownership Adds Up'), '');
+  const quiet = (at, e) => Formulas.silence(N0, S0, s0, at, e);
+  check('A rule that can say both and says neither hasn’t tested a record', quiet(type, fm) === 'untested' && quiet(corvane, 'Ownership Adds Up') === 'untested', `${quiet(type, fm)} ${quiet(corvane, 'Ownership Adds Up')}`);
   const doc = named('Code of Ethics');
-  check('… one that can only say yes says no by its silence, and none is tested where its entry isn’t specified', !Formulas.notTested(N0, S0, s0, corvane, 'Private Fund') && !Formulas.notTested(N0, S0, s0, doc, 'Ownership Adds Up'), '');
+  check('… one that can only say yes says no by its silence, and none is said where its entry isn’t specified', quiet(corvane, 'Private Fund') === 'no' && quiet(doc, 'Ownership Adds Up') === null, `${quiet(corvane, 'Private Fund')} ${quiet(doc, 'Ownership Adds Up')}`);
   const own0 = Object.keys(s0).find(id => s0[id].args?.some(a => a.edge === 'Owner') && !Tree.entryAt(s0, id, 'Percentages In Range'));
-  check('… one that can only say no finds nothing wrong by it', !Formulas.notTested(N0, S0, s0, own0, 'Percentages In Range'), own0);
+  check('… and one that can only say no finds nothing wrong by it', quiet(own0, 'Percentages In Range') === 'fine', quiet(own0, 'Percentages In Range'));
   column(fm).getElement().querySelector('.col-menu').click(); await tick();
   item('Filter…').click(); await tick(80);
   check('The filter’s list has Yes, No and n/a apart', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join() === 'Yes,n/a', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join());
@@ -1917,6 +1918,18 @@ async function tablesG3() {
   const typedTag = cell(fund3, 'Good Standing');
   if (typedTag) { const was = typedTag.getValue(); typedTag.getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(100);
     check('… and a tag nobody’s rule covers still ticks', N() === n + 1 && typedTag.getValue() !== was); undo(); await tick(150); }
+  // A box a rule that can only say yes has said nothing of is its No: nothing to tick by a click, and said so.
+  await toggle('Private Fund');
+  { const quietBox = cell(corvane, 'Private Fund'); n = N();
+    quietBox.getElement().querySelector('.tag').dispatchEvent(new MouseEvent('click', { bubbles: true })); await tick(100);
+    check('A blank a rule says no by its silence ticks nothing, and says so on hover', N() === n && quietBox.getElement().dataset.tip === 'No: worked out by a formula', `${N() - n} ${quietBox.getElement().dataset.tip}`);
+    const wb = await Table.workbook(), ws = wb.Sheets[wb.SheetNames[0]], j = Table.grid.getColumns().filter(x => x.getField()).findIndex(x => x.getDefinition().title === 'Private Fund');
+    check('… and it exports as No', ws[XLSX.utils.encode_cell({ r: Table.grid.getRows('active').findIndex(r => r.getData().id === corvane) + 1, c: j })]?.v === 'No');
+    column('Private Fund').getElement().querySelector('.col-menu').click(); await tick();
+    item('Filter…').click(); await tick(80);
+    check('… and its filter says Yes and No', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join() === 'Yes,No', $$('.tfilter .tf-row:not(.all) .v').map(x => x.textContent).join());
+    Shell.closeAll(); await tick(); }
+  await toggle('Private Fund');
   // What the marks mean, on hover.
   const fxCell = cell(named('Calder Ridge III AIV-1 Blocker, Inc.'), 'Tax Classification').getElement();
   check('An italic says it’s computed, on hover', getComputedStyle(fxCell).fontStyle === 'italic' && fxCell.dataset.tip === 'Worked out by a formula', fxCell.dataset.tip);

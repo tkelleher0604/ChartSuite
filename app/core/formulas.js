@@ -3621,13 +3621,13 @@ function saying(n) {
   const said = n.args.slice(1).map(a => saying(a.x));
   return [said.some(s => s[0]), said.some(s => s[1])];
 }
-const twoSided = new WeakMap();
-function saysBoth(rows) {
-  if (!twoSided.has(rows)) {
+const sayingOf = new WeakMap();
+function rowsSay(rows) {
+  if (!sayingOf.has(rows)) {
     const said = rows.map(r => { try { const f = splitFormula(r.formula); return f.kind === 'implies' ? [true, false] : saying(parseCached(f.body, f.offset)); } catch { return [false, false]; } });
-    twoSided.set(rows, said.some(s => s[0]) && said.some(s => s[1]));
+    sayingOf.set(rows, [said.some(s => s[0]), said.some(s => s[1])]);
   }
-  return twoSided.get(rows);
+  return sayingOf.get(rows);
 }
 // The schema's specifications of an entry, by its label; and a location with its options taken away, so a record's reads
 // as those of its entry's specifications do, whatever option it has.
@@ -3637,19 +3637,19 @@ const specified = (S, edge) => {
   return entriesOf.get(S).get(normal(edge)) ?? [];
 };
 const optionless = t => t.args ? { args: t.args.map(a => ({ edge: a.edge, loc: optionless(a.loc) })) } : t.kind !== undefined ? { kind: t.kind } : {};
-// Whether the tag `edge` at the record `at` is untested: a definition covers it, at a record of a kind the entry is specified
-// at, that can say both yes and no, and has said neither. One that can only say yes says no by its silence; one that can
-// only say no finds nothing wrong by it.
-function notTested(N, S, recs, at, edge) {
-  const t = recs[at] && !Tree.entryAt(recs, at, edge) && Tree.treeOf(recs, at), n = t && N.resolve('Formula', { args: [{ edge, loc: t }] });
-  if (!n || !saysBoth(n.value)) return false;
-  const here = optionless(t);
-  return specified(S, edge).some(l => Tree.narrower(here, optionless(l)));
+// What a definition's silence says of the tag `edge` at the record `at`, which it covers, at a record of a kind the entry is
+// specified at, and has said nothing of: one that can say both yes and no hasn't tested it, 'untested'; one that can only
+// say yes says 'no'; one that can only say no finds nothing wrong, 'fine'. Null where no definition covers it, or it's said.
+function silence(N, S, recs, at, edge) {
+  const t = recs[at] && !Tree.entryAt(recs, at, edge) && Tree.treeOf(recs, at), n = t && N.resolve('Formula', { args: [{ edge, loc: t }] }), here = n && optionless(t);
+  if (!n || !specified(S, edge).some(l => Tree.narrower(here, optionless(l)))) return null;
+  const [yes, no] = rowsSay(n.value);
+  return yes && no ? 'untested' : yes ? 'no' : no ? 'fine' : null;
 }
 
 return {
   computeState, ground, evaluateRow, diff, check, suggest, evaluateAt, text, attention, pay, renameName, computedId, splitFormula, tidyArrow,
-  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS), notTested,
+  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS), silence,
 };
 
 })();
