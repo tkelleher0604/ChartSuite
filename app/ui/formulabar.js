@@ -135,6 +135,9 @@ const FormulaBar = (() => {
   const editing = signal(null);   // { cm, key, subject } while a row is edited: the bar holds still
   const draft = signal(null);     // { def, rows: [{ key, label, formula, gone? }], fresh?, pattern?, keep? }: a definition being edited; `fresh`, written for the first time, `keep`, what's typed under it to leave
   const whyNote = signal('');      // why, what the draft's change will say of itself
+  const lasting = signal(false);  // Why to be kept as what the rule's page says of it, too
+  const needsWhy = signal(false); // Save anyway asked why, and hasn't been told
+  const armed = signal(false);    // a first Esc has said what a second would do
   const open = signal(false);     // the rows dropped over the view, as Excel's expanded bar
   const pick = signal(null);      // for two objects, the relation shown
   const hover = signal(null);     // { key, from, to }: the part of a row under the pointer
@@ -438,7 +441,7 @@ const FormulaBar = (() => {
       const no = notsOf(Rv, m.id);
       (no ? [...no.held, ...no.failed].flatMap(x => x.parts ?? []) : g.parts).forEach(walk);
     }
-    if (m.err) {
+    if (m.err && m.err.error.code !== '#N/A') {
       // The loop: every record the definition would give that shows this error, and what closes it here.
       for (const e of Rv.errors) if (e.def === m.def.id && e.error.code === m.err.error.code)
         for (const x of e.args ?? [{ at: e.at }]) { const o = Tree.objectOf(Rv.records, x.at); if (o) map.set(o, ['loop', 0]); }
@@ -892,7 +895,7 @@ const FormulaBar = (() => {
     const c = { id: [id, ...reads].find(fx) ?? id, ids: [id, ...reads], subj: null, poss: false, pre: [], obj: [], post: [] };
     // Entries read, said with the record: with a voting percentage of 7%; with a status of Filed and a date of ….
     const withs = xs => xs.flatMap((e, i) => { const x = recs[e], and = !i ? ' ' : i < xs.length - 1 ? ', ' : ' and ';
-      return 'tag' in x ? [`${and}${x.tag ? 'with' : 'without'} ${lower(x.edge)}`] : [`${and}${i ? '' : 'with '}${article(x.edge)} ${lower(x.edge)} of `, term(e, Tree.outputText(x))]; });
+      return 'tag' in x ? [`${and}${x.tag ? 'with' : 'without'} ${lower(x.edge)}`] : [`${and}${i ? '' : 'with '}${an(x.edge)}${lower(x.edge)} of `, term(e, Tree.outputText(x))]; });
     if (r.args) {
       // An item a list found, with what was read of it, is one fact: what the other side has, one of its list,
       // named by what kind it is (typeOf) or else as the list names one, with the rest of what was read: AIV-1
@@ -944,7 +947,7 @@ const FormulaBar = (() => {
     if (done) return Object.assign(c, { subj: O, pre: [` ${[would && 'would have', done[1]?.toLowerCase(), done[3].toLowerCase(), done[2] && `its ${lower(done[2])}`, 'on '].filter(Boolean).join(' ')}`, term(id, v)] });
     // One named for the last or first of what's done is past too: the Manager's last annual amendment was on ….
     const once = r.field === 'date' && /^(?:last|first)\s/i.test(Tree.clean(r.edge));
-    return Object.assign(c, { subj: O, poss: true, pre: [` ${lower(r.edge)}`, once ? (would ? ' would have been on ' : ' was on ') : be(), term(id, v)] });
+    return Object.assign(c, { subj: O, poss: true, pre: [` ${lower(r.edge)}`, once ? (would ? ' would have been on ' : ' was on ') : plural(r.edge) && !would ? ' are ' : be(), term(id, v)] });
   }
   // A relation's sides past the second as the place rule says them (Notes.placed): each after its label, none
   // twice.
@@ -1232,8 +1235,17 @@ const FormulaBar = (() => {
     const m = model.value, dr = draft.value, o = m?.option;
     if (m?.absent) { const full = dr?.def === m.def?.id ? null : notRuns(R.value, o); return full && { full, short: full }; }
     if (o?.entered) { const full = enteredRuns(R.value, o.id); return full && { full, short: full }; }
+    // What a rule can't say says why: what's blank, whose (dendra.md, Definitions: Can't say).
+    if (m?.err && m.err.error.blanks?.length && m.def?.type === 'tag' && dr?.def !== m.def.id) { const full = [{ text: `${blankSaid(m.err, R.value)}, so ${m.def.name} can’t say` }]; return { full, short: full }; }
     return !m?.rec || m.err || !m.def || dr?.def === m.def.id ? null : whyOf(R.value, m.id, m.clause);
   });
+  // What's wanted, in words: whose it is, and which, by its name, as it would read filled in. "Priya N. Raman’s D&O Questionnaire Date is blank".
+  function blankSaid(e, Rv = R.peek()) {
+    const recs = Rv.records, n = N(), xs = e.error?.blanks ?? [];
+    if (!xs.length) return String(e.error?.msg ?? '').replace(/\.$/, '');
+    const said = xs.map(b => { const o = Tree.objectOf(recs, b.at), s = o ? n.shortOf(recs, o) : ''; return s ? `${s}${/s$/.test(s) ? '’' : '’s'} ${b.name}` : b.name; });
+    return `${sayList(said)} ${said.length > 1 ? 'are' : 'is'} blank`;
+  }
   // A fact clicked: a computed one steps down into its reasons, by the clause that cited it; an entered one is
   // selected. A step down selects what it steps to, so the panel follows the band, the rows staying open.
   let stepping = false, holding = false;
@@ -1278,8 +1290,9 @@ const FormulaBar = (() => {
   function preview(change, from = 'outside') {
     clearTimeout(timer);
     if (!change) { pending.value = null; return; }
-    // (A draft's says too what's wrong with it, and then the redline shows nothing: what a broken rule would give is no answer.)
-    const run = () => { const t = performance.now(), h = hypothetical(change), d = from === 'bar' ? draft.peek() : null; pending.value = { change, from, ...h, flaws: d ? flawsIn(h.R2, d) : [] }; slow = performance.now() - t; };
+    // (A draft's says too what's wrong with it, and then the redline shows nothing: what a broken rule would give is no answer; and that
+    // it would apply to no one, as a warning apart. A word still being typed isn't wrong yet.)
+    const run = () => { const t = performance.now(), h = hypothetical(change), d = from === 'bar' ? draft.peek() : null; pending.value = { change, from, ...h, flaws: d ? flawsIn(h.R2, d, caret()) : [], nobody: d ? nobodyIn(h.R2, d) : null, ...spoilt(R.peek(), h.R2) }; slow = performance.now() - t; };
     // A big chart waits for a pause in typing: a change that replaces the one shown from the same place. A
     // hover, or the first key, shows at once.
     if (slow < 40 || pending.peek()?.from !== from) run(); else timer = setTimeout(run, 300);
@@ -1300,7 +1313,7 @@ const FormulaBar = (() => {
     if (change.rows) ds = ds.flatMap(d => !(d.id in change.rows) ? [d] : change.rows[d.id] ? [{ ...d, rows: change.rows[d.id] }] : []);
     if (change.fresh) ds = [...ds, { ...change.fresh, rows: change.rows[NEW] }];
     const before = R.peek();
-    const R2 = Formulas.computeState(entered, ds, { relations: App.relations.peek(), schema: App.schema.peek() }), diff = Formulas.diff(before, R2);
+    const R2 = Formulas.computeState(entered, ds, App.namesOn(App.day.peek())), diff = Formulas.diff(before, R2);
     return { R2, diff, deltas: deltasOf(diff, before, R2) };
   }
   // Per definition, the records it would attest or give more, fewer, and with another value, and which. A record at one
@@ -1323,35 +1336,86 @@ const FormulaBar = (() => {
     tally(B, NB, d.appear, 'plus'); tally(A, NA, d.go, 'minus');
     for (const { n, plus, minus } of held.values()) { const both = Math.min(plus.length, minus.length); if (both) { const e = by.get(n); e.plus -= both; e.minus -= both; const at = (ids, k) => { const out = new Set(ids.slice(0, both)); e.of[k] = e.of[k].filter(x => !out.has(x.id)); }; at(plus, 'plus'); at(minus, 'minus'); } }
     // A value that goes and comes at one place, as one typed over a rule does, has changed.
-    for (const e of by.values()) if (e.plus && e.minus && e.def.edges?.length < 2) for (const p of [...e.of.plus]) {
+    for (const e of by.values()) if (e.plus && e.minus && (e.def.edges?.length ?? 0) < 2) for (const p of [...e.of.plus]) {
       const m = e.of.minus.find(x => x.say === p.say);
       if (m) { e.of.plus.splice(e.of.plus.indexOf(p), 1); e.of.minus.splice(e.of.minus.indexOf(m), 1); e.of.changed.push(p); e.plus--; e.minus--; e.changed++; }
     }
     const out = [...by.values()].filter(x => x.plus + x.minus + x.changed).sort((x, y) => (y.plus + y.minus + y.changed) - (x.plus + x.minus + x.changed));
     // What errs where it didn't comes first, as what a wrong kind of value gives is no conclusion, and it would otherwise read as none changing.
-    const ek = e => `${e.def}|${e.id}`, inA = new Set(A.errors.map(ek)), inB = new Set(B.errors.map(ek)), plus = B.errors.filter(e => !inA.has(ek(e))), minus = A.errors.filter(e => !inB.has(ek(e)));
-    const whereErr = (X, n, e) => (e.at ? [e.at] : (e.args ?? []).map(a => a.at)).filter(at => X.records[at]).map(at => n.shortOf(X.records, Tree.objectOf(X.records, at))).join(' → ');
+    const ek = e => `${e.def}|${e.id}`, inA = new Set(A.errors.map(ek)), inB = new Set(B.errors.map(ek)), wanting = e => e.error.code === '#N/A', plus = B.errors.filter(e => !inA.has(ek(e)) && !wanting(e)), minus = A.errors.filter(e => !inB.has(ek(e)) && !wanting(e));
+    const whereErr = errorAt;
     const said = (X, n, e) => ({ id: ek(e), get say() { return `${whereErr(X, n, e)}: ${e.error.msg ?? e.error.code}`; } });
     // And what fails a check where it didn't, or no longer does, as the status bar counts it: a no that comes or goes is otherwise no conclusion.
-    const failing = (X, n) => Object.keys(X.records).filter(id => X.records[id].tag === false && n.check(Tree.treeOf(X.records, id)));
-    const failsA = failing(A, NA), failsB = failing(B, NB), failure = (X, n, id) => ({ id, get say() { return `${who(X, n, id)}: ${name(X, id) ?? Tree.treeOf(X.records, id).args?.[0]?.edge ?? 'a check'} fails`; } });
-    const fails = failsB.filter(id => !failsA.includes(id)).map(id => failure(B, NB, id)), clears = failsA.filter(id => !failsB.includes(id)).map(id => failure(A, NA, id));
-    const errs = { plus: [...plus.map(e => said(B, NB, e)), ...fails], minus: [...minus.map(e => said(A, NA, e)), ...clears] };
-    if (errs.plus.length || errs.minus.length) out.unshift({ name: 'error', def: { id: null, name: 'error', type: 'error', edges: [] }, plus: errs.plus.length, minus: errs.minus.length, changed: 0, of: { ...errs, changed: [] } });
-    return out;
+    // (A check still being written has no rule in the notes yet, and what it gives is what it's asked to check.)
+    const asks = (X, n, id) => { const t = Tree.treeOf(X.records, id); return !!t && (n.check(t) || (!!X.computed[id] && n.value('Check', t) === true)); };
+    const failing = (X, n) => Object.keys(X.records).filter(id => X.records[id].tag === false && asks(X, n, id));
+    const failsA = failing(A, NA), failsB = failing(B, NB), person = (X, n, id) => ({ id, get who() { return who(X, n, id); }, get say() { return `${who(X, n, id)}: ${name(X, id) ?? Tree.treeOf(X.records, id).args?.[0]?.edge ?? 'a check'}`; } });
+    const failedA = new Set(failsA), failedB = new Set(failsB);
+    // Who a check would start or stop failing, said as that, by name, once: what a no that comes or goes is. What it stops failing because it no longer tests it is another thing, and is said so:
+    // a rule made to apply to no one isn't good news. And who it would newly pass, of a check that didn't say.
+    const checked = id => !!id && !('field' in (B.records[id] ?? A.records[id] ?? {})) && [B, A].some(X => X.records[id] && X.computed[id] && asks(X, X === B ? NB : NA, id));
+    const fails = failsB.filter(id => !failedA.has(id)).map(id => person(B, NB, id)), clears = failsA.filter(id => !failedB.has(id)), stops = clears.filter(id => B.records[id]).map(id => person(A, NA, id)), untested = clears.filter(id => !B.records[id]).map(id => person(A, NA, id));
+    const passes = Object.keys(B.records).filter(id => B.records[id].tag === true && !A.records[id] && B.computed[id] && asks(B, NB, id)).map(id => person(B, NB, id));
+    // And who it can't say of where it could, or could say of: not knowing, by name, apart from what fails.
+    const cant = B.errors.filter(e => wanting(e) && !inA.has(ek(e))).map(e => ({ id: ek(e), get who() { return whereErr(B, NB, e); }, get say() { return `${whereErr(B, NB, e)}: ${e.error.msg ?? e.error.code}`; } }));
+    // (Those go here, not as what a check gives: a check's yes-or-no comes and goes as this does, and is said once.)
+    for (const x of out) if (x.def?.id && x.def.type === 'tag' && !x.def.edges?.length) { const ofCheck = o => checked(o.id); for (const k of ['plus', 'minus']) { const left = x.of[k].filter(o => !ofCheck(o)); x[k] -= x.of[k].length - left.length; x.of[k] = left; } }
+    const kept = out.filter(x => x.plus + x.minus + x.changed);
+    const errs = { plus: plus.map(e => said(B, NB, e)), minus: minus.map(e => said(A, NA, e)) };
+    if (errs.plus.length || errs.minus.length) kept.unshift({ name: 'error', def: { id: null, name: 'error', type: 'error', edges: [] }, plus: errs.plus.length, minus: errs.minus.length, changed: 0, of: { ...errs, changed: [] } });
+    if (fails.length || stops.length || untested.length || passes.length || cant.length) kept.unshift({ name: 'fail', def: { id: null, name: 'fail', type: 'fail', edges: [] }, plus: fails.length, minus: stops.length, changed: 0, untested: untested.length, passes: passes.length, of: { plus: fails, minus: stops, changed: [], cant, untested, passes } });
+    return kept;
+  }
+  // Who a check moves, in words: "Helen V. Ortiz would start failing", "3 would stop failing"; "Can't say of Priya N. Raman". `done`, once it's made.
+  const MOVES = [['plus', 'would start failing', 'starts failing', 'start failing', 'take'], ['minus', 'would stop failing', 'stops failing', 'stop failing', 'add'], ['cant', '', '', '', 'change', 'Can’t say of '], ['untested', 'would no longer be tested', 'is no longer tested', 'are no longer tested', 'change'], ['passes', 'would pass', 'passes', 'pass', 'add']];
+  const moves = (d, done = false) => MOVES.filter(([k]) => d.of[k]?.length).map(([k, would, did, plural_, cls, pre = '']) => { const of = d.of[k], n = of.length, words = done ? (n === 1 ? did : plural_) : would, who = n === 1 ? of[0].who : String(n); return { k, cls, of, pre, who, words, said: `${pre}${who}${words ? ` ${words}` : ''}` }; });
+  // A rule that says nothing of anyone, though it could say both yes and no, applies to no one, which isn't everyone being fine (dendra.md, Definitions: Not tested). → what to say, or null.
+  function nobody(Rv, def) {
+    if (Rv.rows?.[def]?.length) return null;
+    const c = Formulas.coverage(Rv, def);
+    if (!c || c.silent !== 'untested' || c.says || !c.quiet?.length) return null;
+    const recs = Rv.records, kinds = new Set(c.quiet.map(x => recs[Tree.objectOf(recs, x)]?.kind)), k = kinds.size === 1 ? [...kinds][0] : null, n = c.quiet.length;
+    return `It applies to no one: n/a at ${n === 1 ? 'the one' : `all ${n}`} ${k ? (n === 1 ? lower(k) : Tree.plural(lower(k))) : n === 1 ? 'record' : 'records'}.`;
+  }
+  // The same of a draft: where it applies to some now, or it's new.
+  function nobodyIn(R2, d) {
+    const now = nobody(R2, d.fresh?.id ?? d.def);
+    if (!now) return null;
+    if (d.fresh) return now;
+    const was = Formulas.coverage(R.peek(), d.def);
+    if (!was?.says) return null;
+    const recs = R.peek().records, whose = [...was.holds, ...was.fails, ...was.cant, ...was.typed, ...was.broken].map(x => { const r = recs[x] ?? R.peek().errors.find(e => e.id === x); const o = Tree.objectOf(recs, r?.at ?? r?.args?.[0]?.at ?? x); return o ? N().shortOf(recs, o) : null; }).filter(Boolean);
+    const named = whose.length > 3 ? `${whose.slice(0, 3).join(', ')} and ${whose.length - 3} more` : sayList(whose);
+    return `${now} It applies now to ${named}.`;
+  }
+  // What any change would leave of the rules, whatever it's a change of (a record renamed, say): those it would break, and those it would leave applying to no one, that apply to some now.
+  function spoilt(A, B) {
+    const was = new Set(Formulas.broken(A).roots.map(r => r.def)), breaks = Formulas.broken(B).roots.filter(r => !was.has(r.def));
+    const emptied = N().notes('Check').flatMap(n => { const d = App.definitions.peek().find(x => x.name === n.pattern.args?.[0]?.edge && !x.edges); return d ? [d] : []; }).filter(d => !was.has(d.id) && !breaks.some(r => r.def === d.id) && A.rows?.[d.id]?.length && nobody(B, d.id));
+    return { breaks, emptied };
   }
   // A definition's flaws as a draft would leave it (Formulas: A rule in error), and any other rule's it would newly flaw, each with
   // the row it's in by its key, where it's the draft's own: what the Done says. `d`, the draft.
-  function flawsIn(R2, d) {
+  function flawsIn(R2, d, typing = null) {
     const was = R.peek().flaws ?? {}, seen = new Set(), rows = d.rows.filter(r => !r.gone), out = [];
     const put = f => { if (!seen.has(f.message)) { seen.add(f.message); out.push(f); } };
+    // (A name the cursor's still at the end of isn't wrong yet; Done says it, whatever's typed.)
+    const own = (R2.flaws ?? {})[d.def] ?? [], early = new Set(typing ? own.filter(f => f.code === '#NAME?' && rows[f.row]?.key === typing.key && f.to === typing.at).map(f => f.message) : []);
     for (const [def, fs] of Object.entries(R2.flaws ?? {})) for (const f of fs) if (def === d.def || (!f.warn && !was[def]?.some(x => x.message === f.message))) put({ ...f, def, key: def === d.def ? rows[f.row]?.key ?? null : null });
     for (const b of Formulas.broken(R2).roots) if (b.def === d.def) b.problems.forEach(message => put({ message, def: b.def, code: b.code, key: null }));
-    // What it can't work out where it could, as a date compared with a number: no conclusion, however few the places.
-    const ek = e => `${e.def}|${e.id}`, had = new Set((R.peek().errors ?? []).map(ek)), errs = (R2.errors ?? []).filter(e => e.def === (d.fresh?.id ?? d.def) && !had.has(ek(e)));
-    if (errs.length) put({ message: `It can’t be worked out at ${errs.length} ${errs.length === 1 ? 'place' : 'places'}: ${errs[0].error.msg ?? errs[0].error.code}`, def: d.def, key: null });
-    return out;
+    // What it can't work out where it could, as a list where it wants one value: no conclusion, however few the places, and whatever was there before: an edit that leaves
+    // errors is flawed. Not what it can't say for want of a value (a blank's to fill in), nor what its flaws already say.
+    const mine = d.fresh?.id ?? d.def, said = new Set(own.map(f => f.message)), errs = (R2.errors ?? []).filter(e => e.def === mine && !['#N/A', '#NAME?', '#CIRCULAR!', '#OPTION?'].includes(e.error.code) && !said.has(e.error.msg));
+    if (errs.length && !own.some(f => !f.warn)) {
+      const at = errs.slice(0, 3).map(e => errorAt(R2, N(), e)).filter(Boolean);
+      put({ message: `It can’t be worked out at ${sayList(errs.length > 3 ? [...at, `${errs.length - 3} more`] : at) || `${errs.length} ${errs.length === 1 ? 'place' : 'places'}`}: ${errs[0].error.msg ?? errs[0].error.code}`, def: d.def, key: null });
+    }
+    return early.size ? out.filter(f => !early.has(f.message)) : out;
   }
+  // Whose an error is, in the place rule's words: at a record, by where it is; at what a relation would be, by its sides.
+  const errorAt = (X, n, e) => e.at ? (X.records[e.at] ? (X.records[e.at].kind !== undefined ? n.shortOf(X.records, e.at) : n.whereOf(X.records, e)) : '') : (e.args ?? []).filter(a => X.records[a.at]).map(a => n.shortOf(X.records, Tree.objectOf(X.records, a.at))).join(' → ');
+  // Where the cursor is in the row being typed, for what's not wrong yet.
+  const caret = () => { const ed = editing.peek(), cm = ed?.cm; return cm?.hasFocus?.() && cm.somethingSelected?.() === false ? { key: ed.key, at: cm.indexFromPos(cm.getCursor()) } : null; };
   // In the bar's words, what a change does to what's worked out (Delta), and for each what it counts: a relation or a noun
   // by how many ("5 controls"); a yes-or-no named as a condition, where it holds ("Has Side Letter at 1 entity").
   const noun = d => d?.edges?.length > 1 || d?.type !== 'tag' || /^an?\s/i.test(String((d.id && noteOf(d.id) && N().description(noteOf(d.id).pattern)) ?? ''));
@@ -1363,19 +1427,27 @@ const FormulaBar = (() => {
   const sayList = xs => xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs[0] ?? '';
   const WORDS = [['plus', 'Adds', 'add'], ['minus', 'Takes away', 'take'], ['changed', 'Changes', 'change']];
   // Those words of a change's deltas: "Adds 5 controls; takes away 2 affiliated persons", or that no conclusion changes; lower-case to follow a colon.
-  const deltaWords = ds => {
-    const said = WORDS.map(([k, verb], i) => { const of = ds.filter(x => x[k]); return of.length ? [verb, sayList(of.map(x => countedOf(x[k], x.def, x.of[k])))] : null; }).filter(Boolean);
-    return said.length ? said.map(([verb, xs], i) => `${i ? verb[0].toLowerCase() + verb.slice(1) : verb} ${xs}`).join('; ') : 'No conclusions change';
+  const deltaWords = (ds, done = false) => {
+    const rest = ds.filter(x => x.name !== 'fail'), first = ds.filter(x => x.name === 'fail').flatMap(x => moves(x, done).map(m => m.said));
+    const said = WORDS.map(([k, verb], i) => { const of = rest.filter(x => x[k]); return of.length ? [verb, sayList(of.map(x => countedOf(x[k], x.def, x.of[k])))] : null; }).filter(Boolean);
+    const words = said.map(([verb, xs], i) => `${i || first.length ? verb[0].toLowerCase() + verb.slice(1) : verb} ${xs}`);
+    return first.length || said.length ? [...first, ...words].join('; ') : 'No conclusions change';
   };
   // What a change did to what's concluded, in the same words, and which by name, between two workings-out (History's replays): for its
-  // effect. One that broke a rule says that, for what a broken rule gives is no conclusion; one that mended it, that it works.
+  // effect. One that broke a rule says that, for what a broken rule gives is no conclusion; one that mended it, that it works, only where it now gives answers everywhere it should;
+  // and one that left it applying to no one, that.
   function saying(A, B, NA, NB) {
     const was = Formulas.broken(A).roots, now = Formulas.broken(B).roots, broke = now.filter(r => !was.some(x => x.def === r.def)), mended = was.filter(r => !now.some(x => x.def === r.def));
     if (broke.length) return { said: `It doesn’t work: ${broke[0].problems[0]}`, which: [] };
-    if (mended.length) return { said: `${mended[0].name} works again`, which: [] };
+    const none = (B.definitions ?? App.definitions.peek()).filter(d => d.type === 'tag' && !d.edges && nobody(B, d.id) && Formulas.coverage(A, d.id)?.says);
+    if (none.length) return { said: `${none[0].name} applies to no one`, which: [] };
+    const stuck = mended.find(r => B.errors.some(e => e.def === r.def && e.error.code !== '#N/A'));
+    if (stuck) { const e = B.errors.find(x => x.def === stuck.def && x.error.code !== '#N/A'); return { said: `${stuck.name} can’t be worked out: ${e.error.msg ?? e.error.code}`, which: [] }; }
+    if (mended.length && !nobody(B, mended[0].def)) return { said: `${mended[0].name} works again`, which: [] };
+    if (mended.length) return { said: `${mended[0].name} applies to no one`, which: [] };
     // (Errors, its status line says, and what they were it opens to: so here only what else it concluded, or nothing, where errors are all it moved.)
-    const all = deltasOf(Formulas.diff(A, B), A, B, NA, NB), ds = all.filter(x => x.name !== 'error');
-    return { said: ds.length || !all.length ? deltaWords(ds) : '', which: ds.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => ({ said: `${verb} ${countedOf(x[k], x.def, x.of[k])}`, names: x.of[k].map(o => o.say) }))) };
+    const all = deltasOf(Formulas.diff(A, B), A, B, NA, NB), ds = all.filter(x => x.name !== 'error' && x.name !== 'fail');
+    return { said: ds.length || !all.length ? deltaWords(ds, true) : '', which: ds.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => ({ said: `${verb} ${countedOf(x[k], x.def, x.of[k])}`, names: x.of[k].map(o => o.say) }))) };
   }
   // What a change pending leaves as it was, said in black where it takes something away: of the first definition of a
   // relation it takes from that reads as a holding (Control, not an Affiliated Person, a role), who holds what it's about
@@ -1397,7 +1469,7 @@ const FormulaBar = (() => {
   }
   effect(() => {
     const p = pending.value, canvas = Shell.parts.peek().canvas;
-    if (!p || p.flaws?.some(f => !f.warn)) return canvas?.redline(null);
+    if (!p || p.unread || p.flaws?.some(f => !f.warn)) return canvas?.redline(null);
     const text = (X, id) => { const r = X.records[id]; return !r || isObj(r) ? '' : Tree.outputText(r); };
     const changed = Object.fromEntries(p.diff.change.map(id => [id, { before: text(R.peek(), id), after: text(p.R2, id) }]));
     canvas?.redline({ appear: p.diff.appear, go: p.diff.go, changed, records: p.R2.records });
@@ -1449,13 +1521,17 @@ const FormulaBar = (() => {
     claimed = true;
     open.value = true;
     problem.value = null;
+    armed.value = false;
     const was = draftOf(def);
     draft.value = { ...was, rows: fn(was.rows.map(r => ({ ...r }))) };
     previewDraft();
   }
   function previewDraft(d = draft.peek()) {
     if (!d || unchanged(d)) return preview(null);
-    if (!unread(d)) preview(rowsChange(d), 'bar');   // while a row doesn't read, the redline stays as it was
+    if (!unread(d)) return preview(rowsChange(d), 'bar');
+    // While a row doesn't read it's still being typed: nothing's said of it, right or wrong, till it reads or Done asks.
+    const p = pending.peek();
+    if (p?.from === 'bar') pending.value = { ...p, flaws: [], nobody: null, unread: true };
   }
   // A first formula for what has none: nothing's written till it's Done, as one change, and a rule's rows open on its one row to
   // type in, the `=` it starts with already there. `pattern`, what it covers.
@@ -1478,48 +1554,66 @@ const FormulaBar = (() => {
       if (cm) { cm.focus(); cm.setCursor(cm.posFromIndex(bad.from)); }
       return;
     }
-    const h = d && !unchanged(d) ? hypothetical(rowsChange(d)) : null, flaws = h ? flawsIn(h.R2, d) : [];
-    if (flaws.some(f => !f.warn) && !anyway) {
-      // (Said under the rows, Flaws, as it's typed; the keys go to the first of it. What's only said, a role two relations share, stops nothing.)
-      if (pending.peek()?.from !== 'bar' || !pending.peek().flaws?.length) preview(rowsChange(d), 'bar');
-      const cm = document.querySelector(`.fxbar .fx-row[data-key="${flaws[0].key}"] .CodeMirror`)?.CodeMirror;
-      if (cm) { cm.focus(); cm.setCursor(cm.posFromIndex(flaws[0].from ?? 0)); }
+    const h = d && !unchanged(d) ? hypothetical(rowsChange(d)) : null, flaws = h ? flawsIn(h.R2, d) : [], none = h ? nobodyIn(h.R2, d) : null, stops = flaws.some(f => !f.warn) || !!none;
+    if (stops && !anyway) {
+      // (Said under the rows, Flaws, as it's typed; the keys go to the first of it, in its row where it has one, or else to what's said. What's only said, a role two relations share, stops nothing.)
+      pending.value = { ...(pending.peek()?.from === 'bar' ? pending.peek() : { change: rowsChange(d), from: 'bar', ...h }), flaws, nobody: none, unread: false };
+      requestAnimationFrame(() => {
+        const first = flaws.find(f => !f.warn), cm = first?.key && document.querySelector(`.fxbar .fx-row[data-key="${first.key}"] .CodeMirror`)?.CodeMirror;
+        if (cm) { cm.focus(); cm.setCursor(cm.posFromIndex(first.from ?? 0)); } else document.querySelector('.fxbar .fx-flaws')?.focus();
+      });
+      return;
+    }
+    // What's saved that doesn't work, or that applies to no one, is saved for a reason, which the log keeps.
+    if (stops && !Tree.clean(whyNote.peek())) {
+      needsWhy.value = true;
+      requestAnimationFrame(() => document.querySelector('.fxbar .fx-reason input')?.focus());
       return;
     }
     endEditing();
     writing.value = null;
     problem.value = null;
+    armed.value = false;
+    needsWhy.value = false;
     if (!d) return;
-    const note = whyNote.peek();
-    batch(() => { draft.value = null; whyNote.value = ''; preview(null); });
+    const note = whyNote.peek(), keepIt = lasting.peek() && !!Tree.clean(note);
+    batch(() => { draft.value = null; whyNote.value = ''; lasting.value = false; preview(null); });
     if (!h) return;
     const name = defOf(d.def)?.name ?? d.fresh?.name ?? 'the formula', broke = flaws.find(f => !f.warn);
-    const said = broke ? `It doesn’t work: ${broke.message}` : deltaWords(h.deltas);
+    const said = broke ? `It doesn’t work: ${broke.message}` : none ? 'It applies to no one' : deltaWords(h.deltas, true);
     const say = `${d.fresh ? `Defined ${name}` : `Changed the formula of ${name}`}. ${said}`;
-    // A row's label changed takes the words the Description sets beside it with it.
+    // A row's label changed takes the words the Description sets beside it with it. And Why, kept as what the rule's page says of it for good, where it's asked to be.
     const moved = d.fresh ? [] : d.rows.filter(r => !r.gone && /^r\d+$/.test(r.key)).map(r => [kept(d.def).find(x => x.key === r.key)?.label ?? '', r.label]).filter(([a, b]) => a && b && a !== b);
-    const p = !d.fresh && noteOf(d.def)?.pattern, words = p && N().description(p);
-    const also = moved.length && words ? tx => { let t = words; for (const [a, b] of moved) t = t.split('\n').map(l => l.startsWith(a) ? b + l.slice(a.length) : l).join('\n'); if (t !== words) tx.note('Description', p, t); } : null;
+    const p = d.fresh ? d.pattern : noteOf(d.def)?.pattern, words = p && N().description(p);
+    const also = (moved.length && words) || keepIt ? tx => { let t = words; for (const [a, b] of moved) t = t.split('\n').map(l => l.startsWith(a) ? b + l.slice(a.length) : l).join('\n'); if (keepIt && !words) t = Tree.clean(note); if (t !== words) tx.note('Description', p, t); } : null;
     commit(rowsChange(d), say, { note, also, pattern: d.pattern });
   }
   function discard() {
     endEditing();
     problem.value = null;
     writing.value = null;
+    armed.value = false;
+    needsWhy.value = false;
     const d = draft.peek(), note = whyNote.peek();
     if (d) {
-      batch(() => { draft.value = null; whyNote.value = ''; preview(null); });
+      batch(() => { draft.value = null; whyNote.value = ''; lasting.value = false; preview(null); });
       // What's thrown away says so, and comes back: Esc is one key from a line of typing.
       if (!unchanged(d)) Shell.toast(`Discarded your edit of ${d.fresh?.name ?? defOf(d.def)?.name ?? 'the formula'}`, { ms: 15000, redo: () => { if (!draft.peek()) batch(() => { whyNote.value = note; draft.value = d; writing.value = d.def; open.value = true; wanted.value = true; previewDraft(d); }); } });
     }
     const a = document.activeElement;
     if (a?.closest?.('.fxbar')) a.blur();
   }
+  // Esc is one key from a line of typing, and throws nothing away that's been typed without asking once more: a first says what a second would do. With nothing typed, it does it.
+  function escape() {
+    const d = draft.peek();
+    if (d && !unchanged(d) && !armed.peek()) { armed.value = true; return; }
+    discard();
+  }
   // Esc, while the rows are open, discards a draft, and then closes them.
   let unlayer = null;
   effect(() => {
     const on = open.value || !!draft.value;
-    if (on && !unlayer) unlayer = Shell.layer(() => { if (draft.peek() || editing.peek() || writing.peek()) discard(); else open.value = false; });
+    if (on && !unlayer) unlayer = Shell.layer(() => { if (draft.peek() || editing.peek() || writing.peek()) escape(); else open.value = false; });
     else if (!on && unlayer) { unlayer(); unlayer = null; }
   });
   // The chevron, or Ctrl+Shift+U: the rows open, or closed, a draft still pending.
@@ -1637,7 +1731,7 @@ const FormulaBar = (() => {
       const hints = { hint, completeSingle: false, extraKeys: { Enter: (c, h) => { if (picked) h.pick(); else { h.close(); commitDraft(); } }, Up: (c, h) => { picked = true; unpicked(false); h.moveFocus(-1); }, Down: (c, h) => { picked = true; unpicked(false); h.moveFocus(1); } } };
       const cm = CodeMirror(host.current, {
         value: row.formula, mode: 'dendra', lineWrapping: true, matchBrackets: true, viewportMargin: Infinity, scrollbarStyle: null, readOnly: App.readOnly.peek() || !write,
-        extraKeys: { Enter: () => commitDraft(), Esc: () => discard(), Tab: c => { c.getWrapperElement().closest('.fx-panel')?.querySelector('.fx-reason input')?.focus(); }, 'Ctrl-Space': c => c.showHint(hints) },
+        extraKeys: { Enter: () => commitDraft(), Esc: () => escape(), Tab: c => { c.getWrapperElement().closest('.fx-panel')?.querySelector('.fx-reason input')?.focus(); }, 'Ctrl-Space': c => c.showHint(hints) },
         lint: { delay: 120, getAnnotations: (text, _, c) => Formulas.check(text, ctx()).problems.map(p => {
           const end = text.trimEnd().length, from = p.from < end ? p.from : Math.max(0, end - 1);
           return { from: c.posFromIndex(from), to: c.posFromIndex(Math.max(p.to, from + 1)), message: p.message, severity: 'error' };
@@ -1710,6 +1804,10 @@ const FormulaBar = (() => {
     let i = 0, j = 0;
     while (i < text.length && i < now.length && text[i] === now[i]) i++;
     while (j < text.length - i && j < now.length - i && text[text.length - 1 - j] === now[now.length - 1 - j]) j++;
+    // (Whole words: what's struck never breaks in the middle of one.)
+    const word = /[\p{L}\p{N}_&%.$-]/u;
+    while (i > 0 && word.test(text[i - 1]) && (word.test(text[i] ?? '') || word.test(now[i] ?? ''))) i--;
+    while (j > 0 && word.test(text[text.length - j]) && (word.test(text[text.length - j - 1] ?? '') || word.test(now[now.length - j - 1] ?? ''))) j--;
     return html`<p class="fx-before"><span class="ba">Before</span> ${text.slice(0, i)}<span class="del">${text.slice(i, text.length - j)}</span>${j ? text.slice(-j) : ''}</p>`;
   }
 
@@ -1735,8 +1833,10 @@ const FormulaBar = (() => {
       <span class="fx-end">
         <${Delta} p=${p} />
         ${m.computed && m.rec && 'tag' in m.rec && !m.absent && !App.readOnly.value && !draft.value && !App.held(m.id) ? html`<${Override} m=${m} />` : null}
-        ${m.covered && !m.covered.agrees && m.rec && !m.computed && !m.absent && !draft.value ? html`<span class="fx-typed-over">Typed over the rule${App.readOnly.value ? null : html` <button class="btn" onClick=${() => { preview(null); App.change(tx => tx.remove(m.id, null), { dated: false, say: c => Time.describe(c) }); }}>Back to the rule</button>`}</span>` : null}
+        ${m.err && m.err.error.code === '#N/A' && m.def?.type === 'tag' && m.err.at && !App.readOnly.value && !draft.value ? html`<button class="btn fx-override" onClick=${() => { preview(null); App.overriding(null, { at: m.err.at, edge: m.def.name }); }}>Override…</button>` : null}
+        ${m.covered && !m.covered.agrees && m.rec && !m.computed && !m.absent && !draft.value ? html`<span class="fx-typed-over">Typed over the rule${App.readOnly.value ? null : html` <button class="btn" onClick=${() => { preview(null); App.backToRule(m.id); }}>Back to the rule…</button>`}</span>` : null}
         ${draft.value && !unchanged(draft.value) ? html`<span class="fx-acts">
+          ${armed.value ? html`<span class="fx-esc" role="status">Esc again discards your edit</span>` : null}
           <button class="btn ghost" data-tip="Discard" data-keys="Esc" onClick=${() => discard()}>Discard</button>
           <button class="btn primary" data-tip="Done" data-keys="Enter" onClick=${() => commitDraft()}>Done</button></span>` : null}
         ${opens ? html`<button class="btn icon fx-open" aria-expanded=${!shut} aria-label=${toggled(shut)} data-tip=${toggled(shut)} data-keys=${EXPAND} onClick=${toggle}>${Shell.icon('chevron')}</button>` : null}
@@ -1751,7 +1851,7 @@ const FormulaBar = (() => {
     if (e.target.closest?.('.CodeMirror')) { e.stopPropagation(); return; }
     if (!draft.peek() || !e.target.matches?.('input.fx-label, .fx-reason input')) return;
     e.stopPropagation(); e.preventDefault();
-    if (e.key === 'Enter') commitDraft(); else discard();
+    if (e.key === 'Enter') commitDraft(); else escape();
   }
 
   // What the pointer lights goes when the pointer leaves it, and when what it points at goes: a sentence closed,
@@ -1851,10 +1951,11 @@ const FormulaBar = (() => {
     return html`<div class=${'fx-panel' + (editing.value ? ' editing' : '')} ref=${ref}>
       ${w ? html`<p class="fx-said"><${Said} runs=${w.full} cls="fx-why" /></p>` : null}
       <div class="fx-rows" hidden=${!rows}>${rows ? m.rows.map(r => html`<${Row} key=${r.key} r=${r} m=${m} colors=${r.cited || editing.value?.key === r.key || hover.value?.key === r.key || reading.value === r.key ? f.colors : null} editable=${editable} />`) : null}</div>
-      ${moved && pend?.flaws?.length ? html`<${Flaws} flaws=${pend.flaws} d=${d} />` : null}
+      ${moved && (pend?.flaws?.length || pend?.nobody) ? html`<${Flaws} flaws=${pend.flaws ?? []} none=${pend.nobody} d=${d} />` : null}
       ${!moved && !d && m.def && R.value.flaws?.[m.def.id]?.length ? html`<${Flaws} flaws=${R.value.flaws[m.def.id].map(x => ({ ...x, def: m.def.id }))} />` : null}
       ${moved && d.fresh ? html`<${TypedUnder} d=${d} />` : null}
-      ${moved ? html`<label class="fx-reason"><span>Why</span><input class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${whyNote.value} onInput=${e => { whyNote.value = e.target.value; }} /></label>` : null}
+      ${moved ? html`<div class=${'fx-reason' + (needsWhy.value && !Tree.clean(whyNote.value) ? ' needed' : '')}><label><span>Why</span><input class="cell" spellcheck=${false} autocomplete="off" aria-label="Why" value=${whyNote.value} onInput=${e => { whyNote.value = e.target.value; }} /></label>
+        ${N().description(d.fresh ? d.pattern : noteOf(m.def.id)?.pattern ?? {}) ? null : html`<label class="fx-lasting"><input type="checkbox" checked=${lasting.value} onChange=${e => { lasting.value = e.target.checked; }} />Keep it as its description</label>`}</div>` : null}
       <div class="fx-foot">
         ${rows && editable && m.def ? html`<button class="btn icon fx-add" aria-label="Add a row" data-tip="Add a row" onClick=${() => addRow(m)}>${Shell.icon('plus')}</button>` : null}
         ${said && m.def ? html`<button class="btn ghost fx-show" onClick=${() => { wanted.value = false; showing(!rows); }}>${rows ? 'Hide the formula' : 'Show the formula'}</button>` : null}
@@ -1868,19 +1969,20 @@ const FormulaBar = (() => {
   // pointed at, and goes through the change pending's bar (App.overriding).
   function Override({ m }) {
     const point = usePoint(() => preview(flipped(m), 'tag'), () => pending.peek()?.from === 'tag' && previewDraft());
-    return html`<button class="btn fx-override" ...${point} onClick=${() => { preview(null); App.overriding(m.id); }}>${m.rec.tag ? 'Rule out…' : 'Attest…'}</button>`;
+    return html`<button class="btn fx-override" ...${point} onClick=${() => { preview(null); App.overriding(m.id); }}>Override…</button>`;
   }
   // What's wrong with a rule as written, in words: a name that isn't there, a quoted value that's no option, a rule that depends on
   // itself; a click mending what's close, or making what's typed an option. Written, with a draft, Save anyway stands apart from
   // Done, which makes nothing while it's so: the rule's page says the same of one saved so.
-  function Flaws({ flaws, d }) {
+  function Flaws({ flaws, none, d }) {
     const mend = f => change(d.def, rows => rows.map(r => r.key === f.key ? { ...r, formula: r.formula.slice(0, f.from) + f.fix + r.formula.slice(f.to) } : r));
     const option = f => {
       const s = Object.values(App.schema.peek()).find(t => t.out && 'choice' in t.out && t.args?.length && Tree.same(t.args.length > 1 ? N().name(Tree.bare(t)) : t.args[0].edge, f.label));
       if (s && App.change(tx => tx.add('spec', { tree: { ...s, out: { choice: f.value } } }), { dated: false, say: `Added the option ${f.value} to ${f.label}` })) previewDraft();
     };
-    return html`<div class="fx-flaws" role="alert">${flaws.map(f => html`<p class=${'fx-flaw' + (f.warn ? ' warn' : '')} key=${f.message}>${f.message}${d && f.fix && f.key ? html` <button class="btn" onClick=${() => mend(f)}>${f.fix}</button>` : null}${d && f.value ? html` <button class="btn" onClick=${() => option(f)}>Make it an option</button>` : null}</p>`)}
-      ${d && flaws.some(f => !f.warn) ? html`<button class="btn fx-anyway" onClick=${() => commitDraft({ anyway: true })}>Save anyway</button>` : null}</div>`;
+    return html`<div class="fx-flaws" role="alert" tabindex="-1">${flaws.map(f => html`<p class=${'fx-flaw' + (f.warn ? ' warn' : '')} key=${f.message}>${f.message}${d && f.fix && f.key ? html` <button class="btn" onClick=${() => mend(f)}>${f.fix}</button>` : null}${d && f.value ? html` <button class="btn" onClick=${() => option(f)}>Make it an option</button>` : null}</p>`)}
+      ${none ? html`<p class="fx-flaw warn nobody">${none}</p>` : null}
+      ${d && (flaws.some(f => !f.warn) || none) ? html`<button class="btn fx-anyway" data-tip="Asks why" onClick=${() => commitDraft({ anyway: true })}>Save anyway</button>` : null}</div>`;
   }
   // What's typed under a first formula, by name: asked what becomes of it, each going to the rule unless it's kept. A hand tick left
   // over from making the field must never beat the rule without saying so.
@@ -1912,6 +2014,7 @@ const FormulaBar = (() => {
     const asMade = () => { const out = { tag: !m.rec.tag }; return App.would(tx => App.putting(tx, m.id, m.rec, out), { dated: App.asksFrom(m.id, out) ? App.day.peek() : true }); };
     const o = m.out, point = usePoint(() => m.rec && !m.computed && !m.covered && preview(asMade(), 'tag'), () => pending.peek()?.from === 'tag' && previewDraft());
     if (!o) return null;
+    if (o.error?.code === '#N/A' && m.def?.type === 'tag') return html`<span class="fx-out cant">Can’t say</span>`;
     if (o.error) return html`<span class="fx-out err">${o.error.code}</span>`;
     const a = after(m);
     if ('tag' in o) {
@@ -1980,9 +2083,15 @@ const FormulaBar = (() => {
     // (As many as it has room for, what's the preview of never cut for them; the rest are a click away, by "more".)
     const [fit, setFit] = preactHooks.useState({ of: null, n: 3 }), box = preactHooks.useRef(), n = fit.of === p?.deltas ? fit.n : 3;
     preactHooks.useLayoutEffect(() => { const el = box.current; if (el && n > 1 && el.scrollWidth > el.clientWidth + 1) setFit({ of: p?.deltas, n: n - 1 }); });
+    // (What's still being typed says nothing, right or wrong.)
+    if (p?.unread) return null;
     if (p?.flaws?.some(f => !f.warn)) return html`<span class="fx-delta fx-doesnt"><b class="take">The formula doesn’t work</b></span>`;
-    const ds = p?.deltas.slice(0, n) ?? [], said = WORDS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => [countedOf(d[k], d.def, d.of[k]), d.of[k]])] : null; }).filter(Boolean), calm = p ? steady(p) : null;
-    if (p?.from === 'bar' && !said.length) return html`<span class="fx-delta">No conclusions change</span>`;
+    // A rule that would apply to no one is said as that: what it took away is no conclusion, and never good news.
+    if (p?.nobody) return html`<span class="fx-delta fx-doesnt"><b class="change">It would apply to no one</b></span>`;
+    // What any change would do to a rule itself comes first: a rule it breaks, or leaves applying to no one, is what someone's about to do without knowing.
+    const spoils = p ? [...(p.breaks ?? []).map(r => `${r.name} would stop working`), ...(p.emptied ?? []).map(d => `${d.name} would apply to no one`)] : [], fail = p?.deltas.find(d => d.name === 'fail');
+    const all = p?.deltas.filter(d => d.name !== 'fail') ?? [], ds = all.slice(0, n), said = WORDS.map(([k, verb, cls]) => { const of = ds.filter(d => d[k]); return of.length ? [verb, cls, of.map(d => [countedOf(d[k], d.def, d.of[k]), d.of[k]])] : null; }).filter(Boolean), calm = p ? steady(p) : null, moved = fail ? moves(fail) : [];
+    if (p?.from === 'bar' && !said.length && !moved.length && !spoils.length) return html`<span class="fx-delta">No conclusions change</span>`;
     // A transfer to one named as it's typed takes away what reached through the old holder, till the new one has its own.
     const to = p?.from === 'pending' && App.pending.peek()?.verb === 'Transfer' && App.pending.peek().transfer?.to, until = to?.kind && ds.some(d => d.minus) ? `until ${to.name} has ${lower(ownerWord(App.pending.peek().transfer.rid))}` : null;
     // Too long to read as pairs, and all with one record, it's what it means: "31 affiliated persons with Northpine", opening to who, each once.
@@ -1992,10 +2101,11 @@ const FormulaBar = (() => {
     const countedAs = (x, of) => { const one = withOne(of); return one ? `${x} with ${short(one)}` : x; };
     const which = (e, verb, x, of) => Shell.popover(e.currentTarget, () => html`<div class="fx-which"><p>${verb} ${countedAs(x, of)}</p><ul>${listed(of)}</ul></div>`, { placement: 'bottom-end' });
     // What there's no room to say here is a click away, never left out: the smallest may be what's taken away.
-    const rest = p?.deltas.slice(n) ?? [], more = e => Shell.popover(e.currentTarget, () => html`<div class="fx-which">${rest.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => html`<p>${verb} ${countedAs(countedOf(x[k], x.def, x.of[k]), x.of[k])}</p><ul>${listed(x.of[k])}</ul>`))}</div>`, { placement: 'bottom-end' });
+    const rest = all.slice(n), more = e => Shell.popover(e.currentTarget, () => html`<div class="fx-which">${rest.flatMap(x => WORDS.filter(([k]) => x[k]).map(([k, verb]) => html`<p>${verb} ${countedAs(countedOf(x[k], x.def, x.of[k]), x.of[k])}</p><ul>${listed(x.of[k])}</ul>`))}</div>`, { placement: 'bottom-end' });
     // (All of them with one record, that's said once, after them all.)
     const allWith = xs => { const ones = xs.map(([, of]) => withOne(of)), one = ones[0]; return xs.length > 1 && one && ones.every(o => o?.id === one.id) ? one : null; };
-    return said.length ? html`<span class="fx-delta" ref=${box}>${said.map(([verb, cls, xs], i) => html`<span>${i ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `}${xs.map(([x, of], j) =>
+    const lead = (i, verb) => i || moved.length || spoils.length ? `${verb[0].toLowerCase()}${verb.slice(1)} ` : `${verb} `;
+    return said.length || moved.length || spoils.length ? html`<span class="fx-delta" ref=${box}>${spoils.map((s, i) => html`<span><b class="change">${s}</b>${i < spoils.length - 1 || moved.length || said.length ? ';' : ''}</span>`)}${moved.map((m, i) => html`<span>${m.pre}<button type="button" class="fx-count" aria-haspopup="dialog" onClick=${e => which(e, m.pre + m.who, m.words, m.of)}><b class=${m.cls}>${m.who}</b></button>${m.words ? ` ${m.words}` : ''}${i < moved.length - 1 || said.length ? ';' : ''}</span>`)}${said.map(([verb, cls, xs], i) => html`<span>${lead(i, verb)}${xs.map(([x, of], j) =>
       html`${j ? (j === xs.length - 1 ? ' and ' : ', ') : ''}<button type="button" class="fx-count" aria-haspopup="dialog" onClick=${e => which(e, verb, x, of)}><b class=${cls + (/^\d+ errors?$/.test(x) ? (cls === 'take' ? ' good' : cls === 'add' ? ' bad' : '') : '')}>${allWith(xs) ? x : countedAs(x, of)}</b></button>`)}${allWith(xs) ? ` with ${short(allWith(xs))}` : ''}${i < said.length - 1 || rest.length ? ';' : ''}</span>`)}${rest.length ? html`<span><button type="button" class="fx-count" aria-haspopup="dialog" onClick=${more}><b>${rest.length} more</b></button></span>` : null}${until ? html`<span>${until}</span>` : null}${calm ? html`<span class="fx-net" title=${calm}>· ${calm}</span>` : null}</span>` : null;
   };
   // What a relation's holder is called, by the list it makes ("an owner"), as a toast offers one.
@@ -2034,7 +2144,7 @@ const FormulaBar = (() => {
       ${was !== null && was !== r.formula && !r.gone && r.label && r.label === kept(m.def.id).find(x => x.key === r.key)?.label ? html`<p class=${'fx-ask' + (stale ? ' stale' : '')}>${stale ? `The label says ${stale}; the formula doesn’t.` : 'Does the label still say it?'} <button class="lk" onClick=${e => { const el = e.currentTarget.closest('.fx-row').querySelector('input.fx-label'); el?.focus(); el?.select(); }}>${r.label}</button></p>` : null}
       ${write ? html`<button class="btn icon fx-x" aria-label=${keep ? 'Keep row' : 'Delete row'} data-tip=${keep ? 'Keep row' : 'Delete row'} ...${point}
           onClick=${() => change(m.def.id, rows => rows.map(x => x.key === r.key ? { ...x, gone: !x.gone } : x))}>${Shell.icon('x')}</button>`
-        : editable ? html`<button class="btn icon fx-pencil" aria-label="Edit row" data-tip="Edit row" onClick=${e => { e.stopPropagation(); openAt(r.key, { write: true }); }}>${Shell.icon('Pencil')}</button>` : null}
+        : editable ? html`<button class="btn icon fx-pencil" aria-label="Edit the formula" data-tip="Edit the formula" onClick=${e => { e.stopPropagation(); openAt(r.key, { write: true }); }}>${Shell.icon('Pencil')}</button>` : null}
     </div>`;
   }
   // What the rows would give where an entry overrides them, after the cited row: "C Corporation" beside the
@@ -2077,7 +2187,7 @@ const FormulaBar = (() => {
   // and its code. Where it's at a relation, `who`, whose it first is: so what's one problem, one check failing at one
   // person's relations, lists as one. `Rv` and `n`, a working-out and notes other than those shown (History's replays).
   // → { what, where, figure, who? }
-  function needOf({ kind, id, edge, error }, Rv = R.peek(), n = N()) {
+  function needOf({ kind, id, edge, error, by }, Rv = R.peek(), n = N()) {
     const recs = Rv.records, r = recs[id];
     const whose = x => recs[x] ? Time.whose(recs, x, n) : '';
     const named = defOfRecord(Rv, null, error?.def)?.name ?? error?.error.code;
@@ -2085,7 +2195,13 @@ const FormulaBar = (() => {
     if (error?.rule) return { what: named, where: error.error.msg, figure: error.error.code };
     if (error) return { what: named, where: error.args ? placeText(argsOf(Rv, error, null), 'short') : whose(error.at), figure: error.error.code, ...(['#NAME?', '#CIRCULAR!', '#OPTION?'].includes(error.error.code) && { who: error.error.msg }) };
     if (!r) return { what: edge ?? '', where: '', figure: '' };
-    if (kind === 'blank') return { what: edge, where: whose(id), figure: '' };
+    // (Which rule can't say for want of it, where one can't.)
+    if (kind === 'blank') return { what: edge, where: whose(id), figure: by ? `${defOfRecord(Rv, null, by.def)?.name ?? ''} can’t say` : '' };
+    // What's typed over a rule, whose, what the rule says, and why, until when.
+    if (kind === 'overrides') {
+      const o = Rv === R.peek() ? App.overOf(id) : null;
+      return { what: n.nameOf(recs, id), where: [r.args ? n.segmentOf(recs, id) : whose(r.at), o?.why].filter(Boolean).join(' · '), figure: `${Tree.outputText(r)}; the rule ${App.ruleSaid(id, Rv)}${o?.until ? `, until ${Tree.formatDate(o.until, 'short')}` : ''}` };
+    }
     const where = r.args ? n.segmentOf(recs, id) : whose(r.at), rel = r.args ? r : recs[r.at]?.args ? recs[r.at] : null, t = rel && Tree.treeOf(recs, r.args ? id : r.at), first = t && n.edges(t)[0];
     const side = first && rel.args.find(a => Tree.same(a.edge, first)), who = side ? n.shortOf(recs, Tree.objectOf(recs, side.at)) : undefined;
     if (kind === 'overdue' || kind === 'soon') return { what: n.nameOf(recs, id), where, figure: Tree.formatDate(r.value, 'short'), who };
@@ -2214,5 +2330,5 @@ const FormulaBar = (() => {
   const startSaid = kind => kind === 'implies' ? '← implied by: yes where what follows holds, and says nothing elsewhere' : '= gives what follows, yes or no or a value';
   Shell.register('broken', Broken);
   return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, define, light: ids => { lit.value = ids; },
-    reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, because, between, pickLine, isntHere, whyIsnt, emptyLists, isntOn, model, finder, pending, draft, hover, open, saying, brokenSaid, startSaid, limit, notOn };
+    reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, because, between, pickLine, isntHere, whyIsnt, emptyLists, isntOn, model, finder, pending, draft, hover, open, saying, brokenSaid, startSaid, limit, notOn, blankSaid, nobody };
 })();

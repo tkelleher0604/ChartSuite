@@ -363,7 +363,9 @@ async function checks() {
   // Esc steps back a layer at a time: the edit, then the rows
   Shell.select([OKAFOR_GP]); await wait(20);
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(20);
-  check('Esc discards the edit and keeps the rows', !FormulaBar.draft.peek() && !!document.querySelector('.fx-panel'));
+  check('A first Esc throws nothing away, saying what a second would do', !!FormulaBar.draft.peek() && /Esc again discards your edit/.test(document.querySelector('.fx-esc')?.textContent ?? ''), document.querySelector('.fx-acts')?.textContent);
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(20);
+  check('… a second discards the edit and keeps the rows', !FormulaBar.draft.peek() && !!document.querySelector('.fx-panel'));
   document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await wait(20);
   check('… and Esc again closes them', !document.querySelector('.fx-panel'));
   // The rows never cover what they're about: dropped, the boxes of the record worked out are brought into the
@@ -724,7 +726,7 @@ async function checks() {
   const ms = performance.now() - t0;
   let p = FormulaBar.pending.peek();
   // Rebutting Okafor's presumed control of GP III takes his control of the eleven it reaches through GP III.
-  check('pointing at Rule out… previews it, in plain words: Takes away 11 controls', document.querySelector('.fx-override').textContent === 'Rule out…' && p?.deltas.find(d => d.name === 'Control')?.minus === 11 && /^Takes away (.* and )?11 controls(?![a-z])/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
+  check('pointing at Override… previews it, in plain words: Takes away 11 controls', document.querySelector('.fx-override').textContent === 'Override…' && p?.deltas.find(d => d.name === 'Control')?.minus === 11 && /^Takes away (.* and )?11 controls(?![a-z])/.test(document.querySelector('.fx-delta')?.textContent ?? ''), document.querySelector('.fx-delta')?.textContent);
   check('the canvas is asked to redline', StandIn.rl.peek()?.go?.length === p?.diff.go.length && p.diff.go.length >= 11, `${StandIn.rl.peek()?.go?.length} of ${p?.diff.go.length}`);
   check(`the preview is fast enough per keystroke (${ms.toFixed(0)} ms, the engine ${R().ms.toFixed(0)} ms)`, ms < 120, `${ms.toFixed(0)} ms`);
   document.querySelector('.fx-override').dispatchEvent(new PointerEvent('pointerleave')); await wait(10);
@@ -742,7 +744,10 @@ async function checks() {
   keyTag.click(); await wait(20);
   check('… and a click opens why, overriding nothing', App.version.peek() === v1 && !!document.querySelector('.fx-panel') && R().records[OKAFOR_GP]?.tag === true);
   document.querySelector('.fx-override').click(); await wait(30);
-  check('… and Rule out… is a change pending, asking from when', App.version.peek() === v1 && App.pending.peek()?.typed?.[0]?.id === OKAFOR_GP && App.pending.peek().act === 'Rule out' && App.pending.peek().asks === 'from', JSON.stringify(App.pending.peek()?.what));
+  check('… and Override… is a change pending, asking from when and why', App.version.peek() === v1 && App.pending.peek()?.typed?.[0]?.id === OKAFOR_GP && App.pending.peek().act === 'Override' && App.pending.peek().asks === 'from' && App.pending.peek().reason === true, JSON.stringify(App.pending.peek()?.what));
+  App.commit(); await wait(30);
+  check('… made only with why', App.version.peek() === v1 && !!App.pending.peek());
+  { const i = document.querySelector('.pendbar .why-in input'); i.value = 'Rebutted by counsel'; i.dispatchEvent(new InputEvent('input', { bubbles: true })); await wait(20); }
   App.commit(); await wait(30);
   check('… Enter making it', App.version.peek() === v1 + 1 && !FormulaBar.pending.peek() && Object.values(App.entered.peek()).some(r => r.tag === false && r.args?.length === 2), `${App.version.peek()} ${v1}`);
   Shell.parts.peek().undo.undo(); await wait(30);
@@ -780,7 +785,7 @@ async function checks() {
   p = FormulaBar.pending.peek();
   check('typing a formula previews it: 65% rules out Okafor’s half of GP III', p?.from === 'bar' && p.deltas.find(d => d.name === 'Control')?.minus >= 5, JSON.stringify(p?.deltas));
   check('Done and Discard show while it is pending', [...document.querySelectorAll('.fxbar .fx-acts .btn')].map(b => b.textContent).join() === 'Discard,Done');
-  check('the row being edited is a field showing what’s typed, no marks in the number; what it said stands apart under it, struck', !document.querySelector('.fx-row.editing .CodeMirror .add, .fx-row.editing .CodeMirror .del') && /> 65%/.test(document.querySelector('.fx-row.editing .CodeMirror')?.textContent ?? '') && document.querySelector('.fx-row.editing .fx-before .del')?.textContent === '2',
+  check('the row being edited is a field showing what’s typed, no marks in the number; what it said stands apart under it, struck', !document.querySelector('.fx-row.editing .CodeMirror .add, .fx-row.editing .CodeMirror .del') && /> 65%/.test(document.querySelector('.fx-row.editing .CodeMirror')?.textContent ?? '') && document.querySelector('.fx-row.editing .fx-before .del')?.textContent === '25%',
     document.querySelector('.fx-row.editing')?.textContent);
   const v0 = App.version.peek();
   FormulaBar.commitEdit(); await wait(30);
@@ -913,6 +918,9 @@ async function ruleChecks() {
   document.querySelector('.fx-acts .btn:last-child').click(); await wait(30);
   check('… Done makes nothing, with Save anyway apart from it', App.version.peek() === v0r && !!document.querySelector('.fx-anyway') && !!FormulaBar.draft.peek());
   document.querySelector('.fx-anyway').click(); await wait(40);
+  check('… which asks why, and makes nothing till it’s told', App.version.peek() === v0r && !!document.querySelector('.fx-reason.needed'), document.querySelector('.fx-reason')?.className);
+  { const i = document.querySelector('.fx-reason input'); i.value = 'Fixing it next'; i.dispatchEvent(new InputEvent('input', { bubbles: true })); await wait(20); }
+  document.querySelector('.fx-anyway').click(); await wait(40);
   const broken = App.broken.peek();
   check('… which makes it, and says so', App.version.peek() === v0r + 1 && /It doesn’t work: Nothing is called/.test(toast()) && broken.roots.some(x => x.name === 'Control'), toast());
   check('a rule in error is said across the view, with what reads it and the way there', /Nothing is called Voting Percentge/.test(document.querySelector('.fx-band')?.textContent ?? '') && /Don’t rely on/.test(document.querySelector('.fx-band')?.textContent ?? ''), document.querySelector('.fx-band')?.textContent);
@@ -943,12 +951,12 @@ async function ruleChecks() {
   document.querySelector('.fxbar .fx-pencil')?.click(); await wait(40);
   const firstRow = document.querySelector('.fxbar .fx-row')?.dataset.key, firstCm = cmOf(firstRow);
   firstCm.replaceRange('← 1 = 1', { line: 0, ch: 0 }, { line: firstCm.lineCount(), ch: 0 }, '+input'); await wait(80);
-  check('a rule’s edit that clears a failing check says how many errors go', /takes away \d+ errors?/i.test(delta()), delta());
+  check('a rule’s edit that clears a failing check says who stops failing, once', /would stop failing/.test(delta()) && !/takes away/i.test(delta()), delta());
   // A formula that can't be worked out where it could: said, and Done stops, as for a name misspelled.
   firstCm.replaceRange('← 1 + "x" > 2', { line: 0, ch: 0 }, { line: firstCm.lineCount(), ch: 0 }, '+input'); await wait(80);
   const nWrong = App.wb.changes().length;
   document.querySelector('.fx-done, .fxbar .btn.primary')?.click(); await wait(60);
-  check('a formula of the wrong kinds is said, and Done makes nothing, Save anyway apart', /can’t be worked out at \d+ place/.test(flaws()) && App.wb.changes().length === nWrong && [...document.querySelectorAll('.fxbar button')].some(b => b.textContent === 'Save anyway'), `${flaws()} | ${delta()}`);
+  check('a formula of the wrong kinds is said, by where, and Done makes nothing, Save anyway apart', /can’t be worked out at .+: /.test(flaws()) && App.wb.changes().length === nWrong && [...document.querySelectorAll('.fxbar button')].some(b => b.textContent === 'Save anyway'), `${flaws()} | ${delta()}`);
   FormulaBar.discard(); await wait(30);
   if (FormulaBar.open.peek()) { document.querySelector('.fx-open').click(); await wait(20); }
 }

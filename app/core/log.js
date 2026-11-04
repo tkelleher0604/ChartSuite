@@ -140,6 +140,16 @@ function open(data) {
     return d;
   }
   const schema = c => { const d = chart(c); return d.schema ??= schemaOf(d.rows); };
+  // What objects have been called, on any day, each name normalized (and "The BDC" as BDC too) with the objects it's been of: what a rule points at
+  // one by, as what it's called on another day is still it. Kept while the chart's rows stand.
+  function named(c) {
+    const d = chart(c);
+    if (d.named) return d.named;
+    const out = new Map(), objects = new Set(d.rows.filter(r => r.kind !== undefined && 'record' in r && r.kind !== 'View').map(r => r.record));
+    for (const r of d.rows) if ('record' in r && r.field === 'text' && r.value && objects.has(r.at) && ['name', 'short name'].includes(Tree.norm(r.edge ?? '')))
+      for (const x of [Tree.norm(r.value), Tree.norm(String(r.value).replace(/^The\s+/i, ''))]) { if (!out.has(x)) out.set(x, new Set()); out.get(x).add(r.at); }
+    return d.named = out;
+  }
   // The chart as of a day: the records that hold on it. A record holds when its row is valid on the day,
   // the day is from its start entry and before its end entry, and its locations hold.
   function asOf(c, day = today()) {
@@ -295,6 +305,7 @@ function open(data) {
       }
     };
     const tx = {
+      reword,
       add(type, payload, id = name()) { put({ id: newId(), [type]: id, ...payload, ...(type === 'record' && day && { since: day }) }); return id; },
       set(id, payload) {
         const rs = items.get(id);
@@ -440,7 +451,7 @@ function open(data) {
   }
 
   const wb = {
-    apply, edit, asOf, schema, canReverse, reverse, canAmend, took, annotate, reasons, deleted, restore, disagreements,
+    apply, edit, asOf, schema, named, canReverse, reverse, canAmend, took, annotate, reasons, deleted, restore, disagreements,
     changes: list,
     charts: () => [...live.values()].filter(r => typeOf(r) === 'chart'),
     rows: c => chart(c).rows,
