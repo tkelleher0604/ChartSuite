@@ -47,11 +47,14 @@ const Table = (() => {
   const looked = Shell.signal(0);
   const frozenOf = l => l.frozen ?? 1;
 
+  // A tag's cell where its rule hasn't tested the record (Formulas.notTested): its own value, apart from Yes, No and blank.
+  const NA = 'n/a';
   // How a column's values compare, as its sort, its filter's list and its groups put them: numbers and dates as such,
-  // a choice in its options' order, a tag Yes first, text and names as words, figures in them as numbers.
+  // a choice in its options' order, a tag Yes first, then No, then n/a, text and names as words, figures in them as numbers.
   function compare(c) {
     const at = v => { const i = c.options?.indexOf(v) ?? -1; return i < 0 ? Infinity : i; };
     return (a, b) => {
+      if (a === NA || b === NA) return (a === NA) - (b === NA);
       if (typeof a === 'number' && typeof b === 'number') return a - b;
       if (typeof a === 'boolean' && typeof b === 'boolean') return b - a;
       const i = at(a), j = at(b);
@@ -108,16 +111,29 @@ const Table = (() => {
       if (!minePath || kind === undefined || docs.has(norm(kind))) continue;
       const pattern = shape(s), title = N.listName(pattern, other.edge), k = Tree.key(pattern) + '|' + norm(other.edge);
       if (!lists.has(k)) lists.set(k, { key: '~' + norm(title), title, type: 'list', pattern, param: other.edge, mine: mine.edge, other: other.edge, minePath, up,
-        otherLoc: shape(other.loc), kinds: new Set(), kindNames: [], base: [Infinity, Infinity, Infinity], fx: !!N.resolve('Formula', pattern), choice: false });
+        otherLoc: shape(other.loc), kinds: new Set(), kindNames: [], base: [Infinity, Infinity, Infinity], fx: !!N.resolve('Formula', pattern), choice: false,
+        reach: N.name(other.loc), onRelation: other.loc.args?.length > 1 });
       const c = lists.get(k);
       if (!c.kinds.has(norm(kind))) { c.kinds.add(norm(kind)); c.kindNames.push(kind); }
       if ('choice' in s.out) c.choice = true;
     }
-    // Two lists of one name are told apart by the side they're seen from.
-    const out = [...lists.values()], taken = new Map();
-    for (const c of out) taken.set(c.key, (taken.get(c.key) ?? 0) + 1);
-    for (const c of out) if (taken.get(c.key) > 1) c.key += '|' + norm(c.mine);
+    // Two lists of one name are told apart by the side they're seen from; of one side, by what they reach, as their
+    // headings and the Columns list say (Position › Evidences, Signing Authority › Evidences).
+    const out = [...lists.values()], alike = () => { const n = new Map(); for (const c of out) n.set(c.key, (n.get(c.key) ?? 0) + 1); return k => n.get(k) > 1; };
+    const sided = alike();
+    for (const c of out) if (sided(c.key)) c.key += '|' + norm(c.mine);
+    const reached = alike();
+    for (const c of out) if (reached(c.key)) { c.key += '|' + norm(c.reach); c.parent = c.reach; c.told = [c.reach, c.title]; }
     return out;
+  }
+  // A record as a cell names it: an object by its name; a relation, which has none, by the place rule and what it is
+  // (Margaret A. Chen → Cayman GP, Director; Holdco → Blocker, 100%).
+  function saidOf(st, id, N = App.notes.peek()) {
+    const r = st[id];
+    if (!r?.args) return N.nameOf(st, id);
+    const at = (Tree.index(st).entries.get(id) ?? []).map(e => st[e]), amount = at.find(e => NUMERIC.has(e.field));
+    const what = 'choice' in r ? r.choice : at.find(e => 'choice' in e)?.choice ?? (amount && Tree.format(amount.field, amount.value));
+    return `${N.segmentOf(st, id)}${what ? `, ${what}` : ''}`;
   }
   // The relatives a list's cell names, at the record its side is at: each relation of it held there, by the other side's name.
   const relativesIn = (st, at, c, N = App.notes.peek()) => (Tree.index(st).relations.get(at) ?? []).flatMap(rid => {
@@ -125,7 +141,7 @@ const Table = (() => {
     if (r.args?.length !== 2 || r.tag === false) return [];
     const mine = r.args.find(a => a.at === at && same(a.edge, c.mine)), other = mine && r.args.find(a => a !== mine && same(a.edge, c.other));
     const obj = other && Tree.objectOf(st, other.at);
-    return obj && Tree.fits(st, rid, c.pattern) ? [{ rid, obj, name: N.nameOf(st, obj) }] : [];
+    return obj && Tree.fits(st, rid, c.pattern) ? [{ rid, obj, name: saidOf(st, obj, N) }] : [];
   }).sort((a, b) => a.name.localeCompare(b.name));
   // The record a record is of: the object it's in; for one in a relation (a tax year's), the object its sentence begins with.
   function ownerOf(st, id, N) {
@@ -175,9 +191,8 @@ const Table = (() => {
     for (let i = 0; i < Math.max(a.base.length, b.base.length); i++) { const d = (a.base[i] ?? -2) - (b.base[i] ?? -2); if (d) return d; }
     return a.key.localeCompare(b.key);
   }
-  function model(view, R = App.computed.value, S = App.schema.value, look = lookOf(view)) {
+  function model(view, R = App.computed.value, S = App.schema.value, look = lookOf(view), rows = viewOf(view)?.rows) {
     const st = R.records, N = App.notes.value;
-    const rows = viewOf(view)?.rows;
     if (!rows) return null;
     const isDatatype = typeof rows === 'string', isKind = !isDatatype && !rows.args;
     const order = (p, path) => path.map((_, i) => N.order(below(p, path.slice(0, i + 1))) ?? Infinity);
@@ -222,27 +237,36 @@ const Table = (() => {
         cols.push(c);
       }
       if (!base.args) cols.push(...listColumns(S, base, N, up));
-      // In the view, Order places a column and Shown shows it; by default every entry at the row shows, and no list. A
-      // tag a Check note covers is a check, which says only where it fails.
+      // In the view, Order places a column and Shown shows it; by default every entry at the row shows, and no list, nor
+      // a tag a Check note covers: a check is marked where it fails, on its row, and only shows as a column ticked.
       for (const c of cols) {
         const o = c.pattern && N.resolve('Order', c.pattern, view, c.param);
         c.place = o?.note.view === view ? o.value : Infinity;
-        const said = c.pattern ? N.value('Shown', c.pattern, view, c.param) : undefined;
-        c.shown = !c.pattern || (said ?? (c.type !== 'list' && (!!c.param || c.path.length === 1)));
-        c.said = said !== undefined;
         c.check = c.type === 'tag' && !!c.specs?.some(s => N.value('Check', s) === true);
+        const said = c.pattern ? N.value('Shown', c.pattern, view, c.param) : undefined;
+        c.shown = !c.pattern || (said ?? (c.type !== 'list' && !c.check && (!!c.param || c.path.length === 1)));
       }
       cols.sort((a, b) => a.place - b.place || ownOrder(a, b));
       // Beside a row's Name, its link says where the document is filed rather than its name again.
       if (isKind && cols.some(c => c.path?.length === 1 && same(c.title, 'Name'))) for (const c of cols) if (c.type === 'document' && c.path.length === 1) c.filed = true;
     }
-    cols = [...lead, ...cols, ...trail];
+    // Why: a table of what's worked out, deadlines among dates or a relation a formula gives, can show why each row holds,
+    // in words, after the rest unless it's moved. It's the view's own column: a Shown note at the view, Why its param.
+    let why = null;
+    if (rows === 'date' || (!isKind && !isDatatype && Object.values(S).some(t => t.args?.length > 1 && Tree.narrower(t, rows) && N.resolve('Formula', t)))) {
+      const pattern = { id: view, kind: 'View' }, o = N.resolve('Order', pattern, view, 'Why');
+      why = { key: '$why', title: 'Why', type: 'text', pattern, param: 'Why', shown: N.value('Shown', pattern, view, 'Why') === true, place: o?.value ?? Infinity, base: [Infinity] };
+    }
+    if (why && base) { const at = cols.findIndex(c => c.place > why.place); cols.splice(at < 0 ? cols.length : at, 0, why); }
+    cols = [...lead, ...cols, ...trail, ...(why && !base ? [why] : [])];
+    const said = R === App.computed.value ? id => FormulaBar.because?.(id) ?? FormulaBar.sentenceIn(R, id) : id => FormulaBar.sentenceIn(R, id);
 
     // Each cell: the record there, if any, and where one would go.
     const cellOf = (row, c) => {
+      if (c.key === '$why') return { v: c.shown || App.pending.peek()?.cols?.has('$why') ? said(row) || undefined : undefined };
       if (c.type === 'edge') {
         const a = st[row].args.find(x => same(x.edge, c.edge));
-        return { at: a?.at, v: a ? N.nameOf(st, Tree.objectOf(st, a.at)) : undefined };
+        return { at: a?.at, v: a ? saidOf(st, Tree.objectOf(st, a.at), N) : undefined };
       }
       if (c.key === '$out') return { id: row, at: null, v: valueOf(st[row]) };
       if (c.key === '$value') return { id: row, at: st[row].at, v: st[row].value };
@@ -265,7 +289,7 @@ const Table = (() => {
       const row = { id, _m: {}, _red: null };   // _red: 'add' or 'go' while a change is pending (redlined)
       for (const c of cols) {
         const m = cellOf(id, c), r = m.id && st[m.id], f = field(c), type = typeIn(c, r);
-        row[f] = m.v ?? null;
+        row[f] = c.type === 'tag' && !r && m.at && Formulas.notTested(N, st, m.at, c.path.at(-1)) ? NA : m.v ?? null;
         // The engine says what it worked out, and what entered it also covers; a date a formula gives is a deadline.
         // A value of another datatype than its column's reads as its own.
         const fx = !!R.computed?.[m.id] || (!!m.rels && (c.fx || m.rels.some(x => R.computed?.[x]))), cov = !!R.covered?.[m.id], over = R.covered?.[m.id]?.agrees === false;
@@ -285,10 +309,6 @@ const Table = (() => {
       later = scheduled().filter(s => s.starts && (isKind ? same(then(s)[s.id].kind ?? '', rows.kind) : !!then(s)[s.id].args && Tree.fits(then(s), s.id, rows)))
         .map(s => ({ id: s.id, day: s.day, name: isKind ? N.nameOf(then(s), s.id) : s.whose }));
     }
-    // A check's column is shown, unless the view says, only while a row fails it, as the inspector shows a check only where it
-    // fails; ticked, it shows with its every box.
-    for (const c of cols) if (c.check) { c.fails = data.some(r => r[field(c)] === false); if (!c.said) c.shown = c.fails; }
-
     // Dates fall into months, with what's overdue first, then from this month on, then back from it; grouped by a column
     // instead (whose, or what falls due), each group's by its days.
     let groups = null, named = null;
@@ -302,7 +322,8 @@ const Table = (() => {
       groups = [...(keys.includes('overdue') ? ['overdue'] : []), ...ahead, ...past];
       const at = new Map(groups.map((g, i) => [g, i]));
       data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b[f0].localeCompare(a[f0]) : a[f0].localeCompare(b[f0])));
-    } else if (f0) data.sort((a, b) => text(typeOf(cols[0], a), a[f0]).localeCompare(text(typeOf(cols[0], b), b[f0])));
+    // (The row being typed stays where it's typed, under the rest, till it's left.)
+    } else if (f0) data.sort((a, b) => (a.id === keeping) - (b.id === keeping) || text(typeOf(cols[0], a), a[f0]).localeCompare(text(typeOf(cols[0], b), b[f0])));
     // Grouped by a column, the rows fall under its values, in the order it sorts them, Blank last.
     // Whose a date is, grouped, is the record it's of: AIV-1, for its annual tax and its Delaware franchise tax alike. A
     // group that's one record (a side's, the Name's, whose a date is) is that record's, as its checks say (`grec`).
@@ -330,6 +351,7 @@ const Table = (() => {
     const cs = m.cols.filter(drawn), paths = cs.map(c => c.path ?? [c.title]), keys = paths.map(p => p.map(norm));
     const ends = (a, b, k) => b.length >= k && a.slice(-k).join('›') === b.slice(-k).join('›');
     cs.forEach((c, i) => {
+      if (c.told) { c.head = c.told; return; }
       let k = 1;
       while (k < paths[i].length && keys.some((o, j) => j !== i && ends(keys[i], o, k))) k++;
       c.head = paths[i].slice(-k);
@@ -363,7 +385,7 @@ const Table = (() => {
 
   // ---- How cells read, copy and edit ----
   const NUMERIC = new Set(['number', 'percent', 'money']);
-  const text = (type, v) => v === null || v === undefined ? '' : type === 'tag' ? (v ? 'Yes' : 'No')
+  const text = (type, v) => v === null || v === undefined ? '' : v === NA ? NA : type === 'tag' ? (v ? 'Yes' : 'No')
     : type === 'date' ? Tree.formatDate(v, 'short') : type === 'list' ? String(v) : Tree.format(type, v);
   // What a cell copies and exports as: a document as its address, so the link survives.
   const plain = (type, v) => type === 'document' ? String(v ?? '') : type === 'date' ? (v ? Tree.formatDate(v) : '') : text(type, v);
@@ -373,19 +395,26 @@ const Table = (() => {
   const YES = /^(yes|y|true|x|✓|✔|1)$/i, NO = /^(no|n|false|0)$/i;
   const meta = cell => cell.getRow().getData()._m[cell.getField()];
 
+  // What a cell's marks mean, on hover: italic is worked out, the corner is typed over what's worked out, and n/a untested.
+  function markTip(c, m, v) {
+    if (v === NA) return 'Not tested: its rule doesn’t apply here';
+    if (m?.over) { const was = App.computed.peek().covered?.[m.id]?.value; return `Typed over what’s worked out, which is ${typeof was === 'boolean' ? (was ? 'Yes' : 'No') : was?.t === 'date' ? Tree.formatDate(was.iso, 'short') : typeof was === 'number' ? Tree.format(m.type ?? c.type, was) : was ?? 'nothing'}`; }
+    return m?.fx ? 'Worked out by a formula' : null;
+  }
   function formatter(c) {
-    // A tag's box, blank, attested or ruled out.
-    const box = (v, m) => v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : 'no'}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
+    // A tag's box, blank, attested or ruled out; or that it isn't tested.
+    const box = (v, m) => v === NA ? `<span class="na">${NA}</span>` : v === null ? '<span class="tag"></span>' : `<span class="tag ${v ? 'yes' : 'no'}${m?.fx ? ' fx' : ''}${m && 'was' in m ? ' pend' : ''}"></span>`;
     const shown = (v, m, type = m?.type ?? c.type) => type === 'tag' ? box(v, m)
       : type === 'document' && v ? `<a href="${esc(SharePoint.href(v))}" target="_blank" rel="noopener" tabindex="-1">${esc(c.filed ? filed(v) : Tree.format('document', v))}</a>`
       : esc(text(type, v));
     return cell => {
-      const el = cell.getElement(), m = meta(cell), v = cell.getValue();
+      const el = cell.getElement(), m = meta(cell), v = cell.getValue(), tip = markTip(c, m, v);
       el.tabIndex = -1;   // the grid is one stop in the tab order, and the arrows move within it
       el.classList.toggle('fx', !!m?.fx);
       el.classList.toggle('over', !!m?.over);
       el.classList.toggle('due', !!m?.due);
       el.classList.toggle('none', c.type !== 'edge' && !c.key.startsWith('$') && !m?.at);
+      if (tip) el.dataset.tip = tip; else delete el.dataset.tip;
       if (!m || !('was' in m) || c.type === 'tag') return shown(v, m);
       return [m.was !== null && `<span class="del">${shown(m.was, null, m.type ?? c.type)}</span>`, v !== null && `<span class="add">${shown(v, m)}</span>`].filter(Boolean).join(' ');
     };
@@ -448,7 +477,7 @@ const Table = (() => {
     const pop = Object.assign(document.createElement('div'), { className: 'float pick' }), list = Object.assign(document.createElement('div'), { className: 'menu' });
     list.setAttribute('role', 'listbox');
     pop.append(list);
-    let done = false, lit = -1, items = [];
+    let done = false, lit = -1, items = [], wrong = null;
     const options = () => c.type === 'edge' ? objects(current, c) : c.options ?? [];
     function draw() {
       const q = clean(input.value), k = norm(q), opts = options();
@@ -457,12 +486,13 @@ const Table = (() => {
       const none = !!q && typing && !found.length, fresh = c.type === 'choice' && !!q && typing && !opts.some(o => same(o, q));
       if (fresh) items.push({ label: `New option: ${q}`, value: q, fresh: true });
       lit = !typing ? found.findIndex(o => same(o, was)) : found.length ? 0 : -1;
+      wrong = none && c.type === 'edge' ? otherKind(current, c.edge, q) : null;
       input.classList.toggle('bad', none);
       input.toggleAttribute('aria-invalid', none);
       paint(none);
     }
     function paint(none = input.classList.contains('bad')) {
-      const said = none ? `<div class="menu-none">${c.type === 'choice' ? 'Not an option' : 'No match'}</div>${items.length ? '<div class="menu-sep"></div>' : ''}` : '';
+      const said = none ? `<div class="menu-none">${esc(c.type === 'choice' ? 'Not an option' : wrong ?? 'No match')}</div>${items.length ? '<div class="menu-sep"></div>' : ''}` : '';
       list.innerHTML = said + items.map((it, i) => `<div class="menu-item${i === lit ? ' on' : ''}" role="option" aria-selected="${i === lit}" data-i="${i}"><span class="label">${esc(it.label)}</span></div>`).join('');
       list.querySelector('.menu-item.on')?.scrollIntoView({ block: 'nearest' });
       const r = cell.getElement().getBoundingClientRect(), h = pop.offsetHeight;
@@ -596,14 +626,14 @@ const Table = (() => {
     + `<button type="button" class="col-menu" tabindex="-1" aria-haspopup="menu" aria-label="${esc(c.title)}" data-tip="Column menu" data-keys="Alt+↓">${CHEVRON}</button>`;
   function columnDefs(m, look = lookOf(m.view)) {
     const defs = m.cols.filter(drawn).map(c => {
-      const editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of', right = NUMERIC.has(c.type) ? 'right' : 'left', width = look.widths?.[c.key];
+      const editable = c.type !== 'tag' && c.key !== '$entry' && c.key !== '$of' && c.key !== '$why', right = NUMERIC.has(c.type) ? 'right' : 'left', width = look.widths?.[c.key];
       return {
-        title: c.title, titleDownload: headed(c), field: field(c), minWidth: c.type === 'tag' ? 56 : 72, maxInitialWidth: 340, ...(width && { width }),
+        title: c.title, titleDownload: headed(c), field: field(c), minWidth: c.type === 'tag' ? 56 : 72, maxInitialWidth: 340, ...(width && { width }), ...(c.key === '$why' && { variableHeight: true }),
         titleFormatter: () => heading(c),
-        hozAlign: right, headerHozAlign: right, cssClass: 'c-' + (c.type === 'edge' ? 'edge' : c.type) + (look.filters?.[c.key] ? ' filtered' : '') + (look.sort?.key === c.key ? ' sorted' : ''),
+        hozAlign: right, headerHozAlign: right, cssClass: 'c-' + (c.key === '$why' ? 'why' : c.type === 'edge' ? 'edge' : c.type) + (look.filters?.[c.key] ? ' filtered' : '') + (look.sort?.key === c.key ? ' sorted' : ''),
         sorter: sorter(c),
         formatter: formatter(c),
-        editable: cell => !App.readOnly.peek() && !current?.red && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
+        editable: cell => !App.readOnly.peek() && !current?.red && (c.type === 'list' ? !c.fx && !c.choice && !c.onRelation && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
         editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? chooser(c) : editor(c, put),
         accessorClipboard: (v, d) => plain(typeOf(c, d), v), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), v)),
       };
@@ -617,15 +647,32 @@ const Table = (() => {
   }
   const csvSafe = s => /^[=+\-@]/.test(s) && !Tree.isNumber(s) ? `'${s}` : s;
   // The kinds of object a relation's side can be at, as the schema has them (under the entry it's at, if any).
+  const sideLocs = (m, edge) => Object.values(App.schema.value).filter(t => t.args?.length > 1 && Tree.narrower(t, m.rows)).flatMap(t => t.args.filter(a => same(a.edge, edge)).map(a => a.loc));
   function sideKindNames(m, edge) {
     const kinds = new Map(), root = loc => loc.args ? root(loc.args[0].loc) : loc.kind;
-    for (const t of Object.values(App.schema.value)) if (t.args?.length > 1 && Tree.narrower(t, m.rows))
-      for (const a of t.args) if (same(a.edge, edge) && root(a.loc) && !kinds.has(norm(root(a.loc)))) kinds.set(norm(root(a.loc)), root(a.loc));
+    for (const loc of sideLocs(m, edge)) if (root(loc) && !kinds.has(norm(root(loc)))) kinds.set(norm(root(loc)), root(loc));
     return [...kinds.values()];
   }
   const sideKinds = (m, edge) => new Set(sideKindNames(m, edge).map(norm));
-  const objects = (m, c) => { const st = App.state.value; return [...sideKinds(m, c.edge)].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => App.notes.peek().nameOf(st, id)).sort(); };
+  // A side that's a relation (what a document evidences) is one of that relation's records, by the place rule; nothing new
+  // can be named into being there.
+  const onRelation = (m, edge) => sideLocs(m, edge).some(l => l.args?.length > 1);
+  function sideRecords(m, edge) {
+    const st = App.state.value, ls = sideLocs(m, edge);
+    return Object.keys(st).filter(id => st[id].args?.length > 1 && ls.some(l => Tree.fits(st, id, l))).map(id => ({ id, name: saidOf(st, id) })).sort((a, b) => a.name.localeCompare(b.name));
+  }
+  const objects = (m, c) => { const st = App.state.value; return onRelation(m, c.edge) ? sideRecords(m, c.edge).map(x => x.name) : [...sideKinds(m, c.edge)].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => App.notes.peek().nameOf(st, id)).sort(); };
   const objectsOf = (st, kinds) => [...kinds].flatMap(k => Tree.index(st).kinds.get(norm(k)) ?? []);
+  // A name that reads as a record the chart has of another kind than a side or a list takes, said as what it is and what
+  // this takes, so nothing new of the wrong sort is offered: "Fund III is an entity; this takes individuals". Else null.
+  function wrongKind(kinds, names, name) {
+    const st = App.state.value, N = App.notes.peek(), others = [...Tree.index(st).kinds.keys()].filter(k => k !== 'view' && !kinds.has(k)), id = name && find(st, name, others);
+    if (!id) return null;
+    const what = st[id].kind.toLowerCase(), takes = names.map(k => plural(k).toLowerCase());
+    return `${N.shortOf(st, id)} is ${/^[aeiou]/.test(what) ? 'an' : 'a'} ${what}; this takes ${takes.length < 2 ? takes.join('') : `${takes.slice(0, -1).join(', ')} or ${takes.at(-1)}`}`;
+  }
+  // …of a relation's side.
+  const otherKind = (m, edge, name) => onRelation(m, edge) ? wrongKind(new Set(), [...new Set(sideLocs(m, edge).map(l => App.notes.peek().name(l)))], name) : wrongKind(sideKinds(m, edge), sideKindNames(m, edge), name);
   // ---- Names as people write them ----
   // A name read for what it names: its letters and figures, whatever their case, the spaces and punctuation between them
   // aside, so "Calder Ridge Capital Partners III L.P." reads as "Calder Ridge Capital Partners III, L.P.".
@@ -665,7 +712,7 @@ const Table = (() => {
     return objectsOf(st, kinds).map(id => { const n = N.nameOf(st, id), s = N.shortOf(st, id); return { id, name: n, short: s, d: closeness(l, [n, s]) }; })
       .sort((a, b) => (a.d - b.d || 0) || a.name.localeCompare(b.name)); };
   // Where a relation's side is at under an object: the object, or the entry the side's pattern names there.
-  const follow = (st, id, loc) => !loc.args ? id : (x => x && entryAt(st, x, loc.args[0].edge))(follow(st, id, loc.args[0].loc));
+  const follow = (st, id, loc) => !loc.args || loc.args.length > 1 ? id : (x => x && entryAt(st, x, loc.args[0].edge))(follow(st, id, loc.args[0].loc));
   const sideLoc = (m, edge) => m.rows.args.find(a => same(a.edge, edge)).loc;
 
   // A group's header: its name and count, and under each column of numbers its rows' sum, as Excel's subtotal is (placed
@@ -679,11 +726,24 @@ const Table = (() => {
     }).join('');
     return `<span class="gname${fails ? ' no' : ''}"${fails ? ` data-tip="${esc(fails.join(', '))}"` : ''}>${esc(name)}</span><span class="gn">${n}</span>${fails ? sums.replace(/class="gsum"/g, 'class="gsum no"') : sums}`;
   }
+  // How far the grid is scrolled across is by what's there, not by how many pixels: the column at the edge of those kept in
+  // view, how far into it, and those after it. So a column hidden before it moves nothing under the pointer, and one hidden
+  // where it is gives way to the next, which never goes under those kept in view for it.
+  function scrolled(t) {
+    const h = t.rowManager.element, at = 48 + frozenWidth(t), cs = t.getColumns().filter(c => c.getField() && !PIN.test(c.getDefinition().cssClass));
+    const i = Math.max(0, cs.findIndex(c => c.getElement().offsetLeft + c.getElement().offsetWidth - at > h.scrollLeft)), e = cs[i]?.getElement();
+    return { left: h.scrollLeft, from: cs.slice(i).map(c => c.getField()), into: e ? h.scrollLeft - (e.offsetLeft - at) : 0 };
+  }
+  function rescroll(t, { left, from, into }) {
+    const h = t.rowManager.element, f = left > 0 && from.find(x => t.getColumns().some(c => c.getField() === x && !PIN.test(c.getDefinition().cssClass)));
+    h.scrollLeft = f ? t.getColumns().find(c => c.getField() === f).getElement().offsetLeft - (48 + frozenWidth(t)) + (f === from[0] ? into : 0) : 0;
+  }
   function build(m) {
     // Built again in its view (a column shown, hidden or kept in view), the grid stays where it was scrolled, with what was
-    // selected in it, by its records and columns (stay); in another, with nothing.
+    // selected in it, by its records and columns (stay), and its headings as tall as they were, so a two-line heading hidden
+    // moves no row under the pointer; in another, with nothing.
     const look = lookOf(m.view), h = table?.rowManager.element;
-    const was = table && ready && built?.view === m.view ? { left: h.scrollLeft, top: h.scrollTop,
+    const was = table && ready && built?.view === m.view ? { ...scrolled(table), top: h.scrollTop, tall: Math.max(...table.getColumns().map(c => c.getElement().offsetHeight)),
       fields: table.getColumns().map(c => c.getField()).filter(Boolean), pins: pinsOf(table).map(c => c.getField()) } : null;
     if (!was) chosen = keeping = null;
     if (table) { table.destroy(); table = null; }
@@ -731,6 +791,7 @@ const Table = (() => {
       ...(sorted && { initialSort: [{ column: field(sorted), dir: look.sort.dir }] }),
       ...(passes && { initialFilter: passes }),
     });
+    if (was) host.style.setProperty('--heading', `${was.tall}px`);
     // Laid out, the grid draws its rows again from where it's scrolled, each drawn row measured at the columns'
     // new widths and the rest reckoned from them. Tabulator would measure every row, drawn or not, but go on
     // reckoning the rows it hasn't drawn from the rows first drawn, before the columns were laid out: rows a
@@ -773,7 +834,7 @@ const Table = (() => {
       if (was) stay(); else reveal(Shell.selection.peek()[0]);
       regain();
       settle();
-      if (was) { t.rowManager.element.scrollLeft = was.left; t.rowManager.element.scrollTop = was.top; }
+      if (was) { rescroll(t, was); t.rowManager.element.scrollTop = was.top; }
       // Built again in its view, what came into it (a column shown, inserted or pasted into) is shown where it is; or what
       // moved in it, into or out of the columns kept in view, with the column that went out of them, or came in, for it,
       // as they're kept by place (Excel's frozen panes): so none goes under them unseen.
@@ -1031,7 +1092,8 @@ const Table = (() => {
     const c = columnOf(cell), m = meta(cell), st = App.state.peek(), r = m?.id && st[m.id], entered = !!m?.id && m.id in App.entered.peek();
     if (!c || !m) return null;
     if (c.type === 'edge') return clean(raw) ? { side: [cell.getRow().getData().id, c.edge, raw] } : null;
-    if (c.type === 'list') return m.at && !c.fx && !c.choice && namesIn(raw).join('\n') !== (m.names ?? []).join('\n') ? { list: [cell.getRow().getData().id, c, raw] } : null;
+    if (c.key === '$why') return null;
+    if (c.type === 'list') return m.at && !c.fx && !c.choice && !c.onRelation && namesIn(raw).join('\n') !== (m.names ?? []).join('\n') ? { list: [cell.getRow().getData().id, c, raw] } : null;
     const s = clean(raw);
     if (!s) return entered ? { gone: m.id } : null;
     const out = value(typeFor(c, r, s), s);
@@ -1069,14 +1131,17 @@ const Table = (() => {
   }
   // A relation's side moved to another object, found by name.
   function side(tx, st, row, edge, name) {
-    const o = find(st, name, sideKinds(current, edge)), to = o && follow(st, o, sideLoc(current, edge));
+    const o = onRelation(current, edge) ? sideRecords(current, edge).find(x => same(x.name, name))?.id : find(st, name, sideKinds(current, edge)), to = o && follow(st, o, sideLoc(current, edge));
     if (to) tx.update(row, { args: st[row].args.map(a => same(a.edge, edge) ? { edge: a.edge, at: to } : a) });
   }
-  // A tag's box: blank, attested, ruled out, and blank again; over a formula, entering wins and clearing
-  // gives the formula back. A check has a box only where it fails.
+  // A tag's box: blank, attested, ruled out, and blank again. A box a formula covers, worked out or typed over, is no click
+  // from a false fact: clicked, or by Space, it opens its reason, where overriding it is a command of its own. A check
+  // blank has found nothing to tick; one untested, nothing to say.
   function flip(cell) {
     const m = meta(cell), c = columnOf(cell), v = cell.getValue(), entered = m.id in App.entered.value;
-    if (!m.at || App.readOnly.peek() || current.red || (c.check && v !== false)) return;
+    if (!m.at || current.red || v === NA) return;
+    if (m.fx || App.computed.peek().covered?.[m.id]) return Shell.emit('why-open', m.id);
+    if (App.readOnly.peek() || (c.check && v !== false)) return;
     if (v === false && entered) edit(tx => tx.remove(m.id));
     else { const p = placed(m, c, { tag: v !== true }); if (p) enter(Object.fromEntries([p])); }
   }
@@ -1149,7 +1214,7 @@ const Table = (() => {
   function named(m, h) {
     const N = App.notes.peek(), is = (a, b) => same(a, b) || same(plural(a), b) || same(a, plural(b));
     const kinds = new Map(m.cols.filter(c => c.type === 'edge').map(c => [c, sideKinds(m, c.edge)]));
-    const names = c => [c.title, ...(c.path ?? []).map((_, i, p) => i && p.slice(-i - 1).join(' › ')),
+    const names = c => [...(c.told ? [c.told.join(' › ')] : [c.title]), ...(c.path ?? []).map((_, i, p) => i && p.slice(-i - 1).join(' › ')),
       ...(c.type === 'edge' ? [N.listName(m.rows, c.edge), ...[...kinds.get(c)].filter(k => [...kinds].every(([d, ks]) => d === c || !ks.has(k)))] : []),
       ...(m.isKind && c.path?.length === 1 && same(c.title, 'Name') ? [m.rows.kind, `${m.rows.kind} Name`] : [])].filter(Boolean);
     const hits = m.cols.filter(c => names(c).some(n => is(clean(h), n)));
@@ -1250,7 +1315,8 @@ const Table = (() => {
   // a new one of it.
   function changeOf(m, { keys, plan }, as = new Map()) {
     const st = App.state.peek(), entered = App.entered.peek(), records = {}, made = new Map(), kids = new Map();
-    const x = { records, values: 0, rows: [], made: [], skipped: 0, matched: 0, cols: new Set(), rels: [], ends: [] };
+    const x = { records, values: 0, rows: [], made: [], skipped: 0, matched: 0, cols: new Set(), rels: [], ends: [], wrong: [] };
+    const refused = said => { if (said && !x.wrong.includes(said)) x.wrong.push(said); return !!said; };
     const put = (rec, id = Log.newId()) => { records[id] = rec; return id; };
     const make = (name, kind, kinds, row = false, names = [kind]) => {
       const o = put({ kind });
@@ -1263,10 +1329,12 @@ const Table = (() => {
     const childAt = (at, edge) => kids.get(`${at}|${norm(edge)}`) ?? entryAt(st, at, edge);
     // A side named in the paste: an object of the kinds that side can be, or a new one, of the kind it's pointed at, or
     // else of the kind those like it are (kindAt), `other` being the rest of its row, each side's record the chart has.
-    const has = (edge, name) => asId(name) ?? find(st, name, sideKinds(m, edge)) ?? made.get(loose(name));
+    const rel = edge => onRelation(m, edge);
+    const has = (edge, name) => asId(name) ?? (rel(edge) ? sideRecords(m, edge).find(y => loose(y.name) === loose(name))?.id : find(st, name, sideKinds(m, edge)) ?? made.get(loose(name)));
+    // Nothing new of the wrong sort: a name of a record of another kind says so, and a side that's a relation takes only its records.
     const sideAt = (edge, name, other) => {
-      const o = has(edge, name) ?? make(name, as.get(loose(name))?.kind ?? kindAt(m, edge, other), sideKinds(m, edge), false, sideKindNames(m, edge));
-      return follow(st, o, sideLoc(m, edge));
+      const o = has(edge, name) ?? (refused(otherKind(m, edge, name)) || rel(edge) ? null : make(name, as.get(loose(name))?.kind ?? kindAt(m, edge, other), sideKinds(m, edge), false, sideKindNames(m, edge)));
+      return o && follow(st, o, sideLoc(m, edge));
     };
     for (const p of plan) {
       let row = p.row ?? (m.isKind && p.key[0] && asId(p.key[0])) ?? null;
@@ -1312,11 +1380,11 @@ const Table = (() => {
       for (const [c, raw] of lists) {
         let at = c.up ? (records[row] ?? st[row])?.at : row;
         for (const e of c.minePath) at = at && childAt(at, e);
-        if (!at || c.fx || c.choice) { if (clean(raw)) x.skipped++; continue; }
+        if (!at || c.fx || c.choice || c.onRelation) { if (clean(raw)) x.skipped++; continue; }
         const had = st[at] ? relativesIn(st, at, c) : [], want = [];
         for (const name of namesIn(raw)) {
-          const o = asId(name) ?? find(st, name, c.kinds) ?? made.get(loose(name)) ?? make(name, as.get(loose(name))?.kind ?? listKind(m, c), c.kinds, false, c.kindNames);
-          if (!want.includes(o)) want.push(o);
+          const o = asId(name) ?? find(st, name, c.kinds) ?? made.get(loose(name)) ?? (refused(wrongKind(c.kinds, c.kindNames, name)) ? null : make(name, as.get(loose(name))?.kind ?? listKind(m, c), c.kinds, false, c.kindNames));
+          if (o && !want.includes(o)) want.push(o);
         }
         for (const o of want) if (!had.some(h => h.obj === o)) {
           const to = follow({ ...st, ...records }, o, c.otherLoc);
@@ -1369,6 +1437,7 @@ const Table = (() => {
     // a deletion.
     if (!Object.keys(x.records).length) {
       if (as.size && was?.source === source) App.discard();
+      if (x.wrong.length) { Shell.toast(x.wrong.join('. ')); return back(); }
       if (x.ends.length) { App.deleting(x.ends, x.ends.length > 1 ? count(x.ends.length, N.nameOf(st, x.ends[0]).toLowerCase()) : rel(x.ends[0]), { source }); return back(); }
       return Shell.toast(x.skipped ? `Left out ${count(x.skipped, 'value')}` : `Nothing new to ${file ? `import from ${file}` : 'paste'}`);
     }
@@ -1398,7 +1467,7 @@ const Table = (() => {
     const more = asked.length + plain.length - listed.length;
     const ended = x.ends.length > 2 ? [count(x.ends.length, N.nameOf(st, x.ends[0]).toLowerCase())] : x.ends.map(rel);
     const parts = [x.values && ink(count(x.values, 'value')), x.rows.length && ink(`${x.rows.length} new ${x.rows.length === 1 ? noun : plural(noun)}`),
-      ...related.map(ink), ...ended.map(t => html`<span class="del">${t}</span>`), ...listed.map(named), more && ink(`${more} more`), x.skipped && `${count(x.skipped, 'value')} left out`,
+      ...related.map(ink), ...ended.map(t => html`<span class="del">${t}</span>`), ...listed.map(named), more && ink(`${more} more`), x.skipped && `${count(x.skipped, 'value')} left out`, ...x.wrong,
       // An import says how many of its rows are records the chart has already.
       file && x.matched && `${x.matched} already in the chart`].filter(Boolean);
     const entered = App.entered.peek();
@@ -1522,12 +1591,11 @@ const Table = (() => {
     }
     return now.filter(f => was.includes(f) && !kept.has(f));
   }
-  // The first that scrolls brought into view (but a check's, which comes as a row fails it, not as it's asked for), each
-  // lit; not a sweeping change's.
+  // The first that scrolls brought into view, each lit; not a sweeping change's.
   function arrive(fields) {
     if (!fields.length || fields.length > 4 || !table) return;
     const cols = fields.map(f => table.getColumns().find(c => c.getField() === f)).filter(Boolean);
-    into(cols.find(c => !current?.byField.get(c.getField())?.check && !PIN.test(c.getDefinition().cssClass)));
+    into(cols.find(c => !PIN.test(c.getDefinition().cssClass)));
     for (const col of cols) for (const e of [col.getElement(), ...cells.querySelectorAll(`.tabulator-row .tabulator-cell[tabulator-field="${CSS.escape(col.getField())}"]`)]) {
       if (!e?.isConnected) continue;
       e.classList.remove('come');
@@ -1579,6 +1647,22 @@ const Table = (() => {
     setLook(current.view, { widths: move(l.widths), filters: move(l.filters), sort: l.sort?.key === was ? { ...l.sort, key: now } : l.sort, group: l.group === was ? now : l.group });
   }
   const columnItems = m => m.cols.filter(c => c.pattern).map(c => ({ label: called(c), checked: c.shown, run: () => show(c, !c.shown) }));
+  // What's always kept in a table: what names its rows, a Name or a relation's sides.
+  const naming = c => c.type === 'edge' || (c.path?.length === 1 && same(c.title, 'Name'));
+  const keptOf = m => { const cs = m.cols.filter(c => c.pattern && naming(c)); return cs.length || m.cols.some(c => !c.pattern) ? cs : m.cols.filter(c => c.pattern).slice(0, 1); };
+  // Show all and Hide all, as one change: every column, or every one but what names the rows, saying how many.
+  const showEvery = (m, on) => { const keep = on ? [] : keptOf(m), cs = m.cols.filter(c => c.pattern && !keep.includes(c) && !!c.shown !== on);
+    return !!cs.length && edit(tx => cs.forEach(c => note(tx, 'Shown', c, m.view, on)), `${on ? 'Showed' : 'Hid'} ${count(cs.length, 'column')} in ${viewOf(m.view)?.name}`); };
+  // A new table opens with what names its rows and a few more, in its own order, and its columns offered beside it: the
+  // rest it would show are hidden by the change that makes it.
+  const FEW = 5;
+  function opening(tx, view, rows) {
+    const m = model(null, App.computed.peek(), App.schema.peek(), {}, rows);
+    if (!m?.cols) return;
+    const cs = m.cols.filter(c => c.pattern && c.shown), keep = new Set(keptOf(m));
+    for (const c of cs) if (keep.size < FEW) keep.add(c);
+    for (const c of cs) if (!keep.has(c)) tx.note('Shown', c.pattern, false, { view, param: c.param });
+  }
 
   // ---- How it's looked at: sorted, filtered, grouped, kept in view, sized ----
   // Sorted by a column, which the heading's arrow shows and flips; kept as Tabulator sorts (dataSorted).
@@ -1636,12 +1720,20 @@ const Table = (() => {
     keeping = null;
     const p = filterOf(current), d = current.data.find(r => r.id === id);
     if (p && d && !p(d)) { refilter(); Shell.toast(`Added ${App.notes.peek().nameOf(App.state.peek(), id)}, which a filter hides`); }
-    resort();
+    settleRow(id);
   }
   // Sorted, the rows are sorted again, so a row come or changed takes its place; not while a row is being typed.
   function resort() {
     const s = !keeping && table?.getSorters();
     if (s?.length) table.setSort(s.map(x => ({ column: x.field, dir: x.dir })));
+  }
+  // Left, a row typed goes where the sort says, or, with none, where the table's own order of its names does.
+  function settleRow(id) {
+    if (table.getSorters().length) return resort();
+    const f0 = current?.cols[0] && field(current.cols[0]), row = table.rowManager.findRow(id), of = d => text(typeOf(current.cols[0], d), d[f0]);
+    if (!row || !f0 || current.rows === 'date' || current.groups) return;
+    const rows = table.getRows().filter(r => r.getData().id !== id), mine = of(row.getData()), at = rows.findIndex(r => of(r.getData()).localeCompare(mine) > 0);
+    if (at >= 0) table.getRow(id).move(rows[at], true);
   }
   // A heading's arrow or funnel coming or going, its column is fitted again, so its name stays whole.
   const relayout = () => { if (table && ready) { laid.delete(table); settle(); } };
@@ -1934,36 +2026,61 @@ const Table = (() => {
     { id: 'table.fit', name: 'Fit columns', names: ['Autofit', 'Fit width', 'Column width', 'Resize columns'], run: fitColumns },
   ].forEach(a => Shell.register('action', { ...a, enabled: () => viewOf(Shell.view.peek())?.layout === 'table' && !!current && ready, why: () => 'Show a table first' }));
   // Every column, each a checkbox that shows or hides it, dragged by its row to reorder; and a new one, named as it's typed.
+  // Opened, those ticked come first; a row then stays where it is as it's ticked or unticked, so nothing moves under the
+  // pointer, and the search finds among them all. Show all and Hide all are at its top, what names the rows always kept.
   const GRIP = Shell.iconMarkup('grip');
+  const pathed = c => c.parent ? html`<span class="up">${c.parent} › </span>${c.title}` : c.title;
   function Columns({ view }) {
     looked.value;
-    const ref = useRef(), [naming, setNaming] = useState(false), [found0, setQ] = useState(['', view]);
+    const ref = useRef(), opened = useRef(null), [typingName, setNaming] = useState(false), [found0, setQ] = useState(['', view]);
     const m = shownM.value, q = found0[1] === view ? found0[0] : '';   // what's typed is the view's: another table starts afresh
     if (!m || m.view !== view) return null;
-    // Found as they're typed, as a long list's fields are; dragged among those found, each lands among them all.
+    if (opened.current?.view !== view) opened.current = { view, first: new Set(m.cols.filter(c => c.shown).map(c => c.key)) };
+    const first = opened.current.first, rows = [...m.cols.filter(c => first.has(c.key)), ...m.cols.filter(c => !first.has(c.key))];
+    // Found as they're typed, as a long list's fields are; dragged among those found, each lands among them all, after the
+    // row it's dropped after, and among the ticked or the rest as that row is.
     const t = q.trim().toLowerCase(), found = c => !t || called(c).toLowerCase().includes(t);
-    const writes = canWrite(), mv = m.cols.filter(c => c.pattern), vis = mv.filter(found);
+    const writes = canWrite(), mv = m.cols.filter(c => c.pattern), vis = rows.filter(c => c.pattern && found(c)), kept = keptOf(m);
     const down = (e, c) => {
       if (!writes || e.target.closest('input, button')) return;
       Shell.drag(e, { item: e.currentTarget, items: [...ref.current.querySelectorAll('.colrow.mv')], onDrop: (from, i) => {
-        const a = vis[from], rest = vis.filter(x => x !== a), o = mv.filter(x => x !== a), anchor = rest[i];
-        o.splice(anchor ? o.indexOf(anchor) : rest.length ? o.indexOf(rest.at(-1)) + 1 : o.length, 0, a);
+        const a = vis[from], rest = vis.filter(x => x !== a), o = mv.filter(x => x !== a), before = rest[i - 1], next = rest[i], near = before ?? next;
+        o.splice(before ? o.indexOf(before) + 1 : next ? o.indexOf(next) : o.length, 0, a);
+        if (near) { if (first.has(near.key)) first.add(a.key); else first.delete(a.key); }
         place(o, undefined, undefined, a);
       } });
     };
     const add = e => { if (e.key === 'Enter') { e.preventDefault(); if (addColumn(e.target.value)) e.target.value = ''; } else if (e.key === 'Escape') { e.stopPropagation(); setNaming(false); } };
     return html`<div class="cols" ref=${ref}>
       <input type="search" class="col-find" placeholder="Find" aria-label="Find" value=${q} spellcheck=${false} onInput=${e => setQ([e.target.value, view])} />
+      ${mv.length ? html`<div class="col-all"><button type="button" class="btn ghost" disabled=${!writes || mv.every(c => c.shown)} onClick=${() => showEvery(m, true)}>Show all</button>
+        <button type="button" class="btn ghost" disabled=${!writes || mv.every(c => !c.shown || kept.includes(c))} onClick=${() => showEvery(m, false)}>Hide all</button></div>` : null}
       <div class="cols-list">
-      ${m.cols.filter(found).map(c => c.pattern
+      ${rows.filter(found).map(c => c.pattern
         ? html`<div class="colrow mv" key=${c.key} onPointerDown=${e => down(e, c)}><span class="colgrip" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: GRIP }} />
-            <label><input type="checkbox" checked=${c.shown} disabled=${!writes} onChange=${() => show(c, !c.shown)} /><span>${called(c)}</span></label></div>`
-        : html`<div class="colrow" key=${c.key}><span class="colgrip" /><label><input type="checkbox" checked disabled /><span>${called(c)}</span></label></div>`)}
-      ${m.base && writes ? naming
+            <label><input type="checkbox" checked=${c.shown} disabled=${!writes} onChange=${() => show(c, !c.shown)} /><span>${pathed(c)}</span></label></div>`
+        : html`<div class="colrow" key=${c.key}><span class="colgrip" /><label><input type="checkbox" checked disabled /><span>${pathed(c)}</span></label></div>`)}
+      ${m.base && writes ? typingName
         ? html`<div class="colrow new"><span class="colgrip" /><input class="col-new" placeholder="New column" aria-label="New column" spellcheck=${false} ref=${x => x && !x.dataset.on && (x.dataset.on = 1, x.focus())} onKeyDown=${add} onBlur=${e => { if (!clean(e.target.value)) setNaming(false); }} /></div>`
         : html`<button type="button" class="colrow new" onClick=${() => setNaming(true)}><span class="colgrip">${Shell.icon('plus')}</span><span>New column</span></button>` : null}
       </div>
     </div>`;
+  }
+
+  // A list a formula gives a record, as a table (the panel's Open … as a table, and Find): its relation's rows, with why
+  // each holds, in the table of them the chart has, or a new one named for the list; and, where others have such lists,
+  // this record's, by a filter of its side.
+  function openList(name, rid, at) {
+    const st = App.state.peek(), N = App.notes.peek(), rows = App.layouts.peek().relations.find(l => Tree.fits(st, rid, l.rows))?.rows;
+    if (!rows || App.readOnly.peek()) return;
+    const why = (tx, id) => tx.note('Shown', { id, kind: 'View' }, true, { view: id, param: 'Why' });
+    let v = App.views.peek().find(x => x.layout === 'table' && JSON.stringify(x.rows) === JSON.stringify(rows))?.id;
+    if (!v) v = App.addView(name, rows, undefined, why);
+    else if (N.value('Shown', { id: v, kind: 'View' }, v, 'Why') !== true) App.change(tx => why(tx, v), { dated: false, say: ch => Time.describe(ch) });
+    if (!v) return;
+    const side = st[rid].args.find(a => Tree.objectOf(st, a.at) === at), held = new Set(Object.keys(st).filter(id => st[id].args?.length > 1 && Tree.fits(st, id, rows)).map(id => Tree.objectOf(st, st[id].args.find(a => same(a.edge, side?.edge))?.at)));
+    if (side && held.size > 1) setLook(v, { filters: { ...lookOf(v).filters, ['@' + norm(side.edge)]: [N.nameOf(st, at)] } });
+    Shell.show(v);
   }
 
   // ---- The new row, under the last: a name typed there makes a record of the table's kind, as one change; a relation's
@@ -1984,7 +2101,14 @@ const Table = (() => {
   // Enter makes it and stays for the next; Tab makes it and goes on to its next cell; Esc leaves it.
   function newName(e) {
     const input = e.currentTarget, s = clean(input.value);
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); input.value = ''; focus(); return; }
+    // Esc goes back to the grid as it stands: to the row just made, selected, or, with none, wherever it's scrolled.
+    if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation(); input.value = '';
+      inside = true;
+      holder()?.focus({ preventScroll: true });
+      if (keeping && inGrid(keeping)) Shell.select([keeping]);
+      return;
+    }
     if ((e.key !== 'Enter' && e.key !== 'Tab') || !s) return;
     e.preventDefault();
     const m = current;
@@ -2012,8 +2136,8 @@ const Table = (() => {
     if (tries) setTimeout(() => landed(id, then, tries - 1), 25);
   }
   function relate(anchor) {
-    const m = current, sides = m.cols.filter(c => c.type === 'edge'), picked = {}, st = App.state.peek(), N = App.notes.peek();
-    const say = o => typeof o === 'string' ? N.nameOf(st, o) : clean(o.name);
+    const m = current, sides = m.cols.filter(c => c.type === 'edge'), picked = {}, st = App.state.peek();
+    const say = o => typeof o === 'string' ? saidOf(st, o) : clean(o.name);
     const next = i => {
       if (i === sides.length) return addRelation(m, sides, picked);
       choosing.value = { picked: sides.slice(0, i).map(c => say(picked[c.edge])), next: sides[i].title };
@@ -2023,14 +2147,16 @@ const Table = (() => {
   }
   // One side, from the objects it can be, found as they're typed; or a new one of each kind it can be, that most like it first.
   function pickSide(anchor, m, c, done, other = new Map()) {
-    const st = App.state.peek(), N = App.notes.peek(), first = kindAt(m, c.edge, other), kinds = [first, ...sideKindNames(m, c.edge).filter(k => !same(k, first))];
-    const all = [...sideKinds(m, c.edge)].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => ({ id, name: N.nameOf(st, id), short: N.shortOf(st, id) }))
+    const st = App.state.peek(), N = App.notes.peek(), rel = onRelation(m, c.edge), first = rel ? null : kindAt(m, c.edge, other), kinds = rel ? [] : [first, ...sideKindNames(m, c.edge).filter(k => !same(k, first))];
+    const all = rel ? sideRecords(m, c.edge).map(x => ({ ...x, short: x.name })) : [...sideKinds(m, c.edge)].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => ({ id, name: N.nameOf(st, id), short: N.shortOf(st, id) }))
       .sort((a, b) => a.name.localeCompare(b.name));
     Shell.menu(anchor, q => {
-      // Found as typed, or as people write it ("Partners III LP"); a new one offered only where none reads alike.
+      // Found as typed, or as people write it ("Partners III LP"); a new one offered only where none reads alike, and where
+      // the name isn't of a record the side doesn't take, which is said instead.
       const t = norm(q), l = loose(q), hit = all.filter(x => !t || norm(x.name).includes(t) || norm(x.short).includes(t) || (l && loose(x.name).includes(l)));
-      return [{ head: c.title }, ...hit.slice(0, 60).map(x => ({ label: x.name, run: () => done(x.id) })),
-        ...(q && l && !all.some(x => loose(x.name) === l || loose(x.short) === l) ? kinds.map(kind => ({ label: `New ${kind}: ${q}`, run: () => done({ name: q, kind }) })) : [])];
+      const wrong = q && l && !hit.length ? otherKind(m, c.edge, q) : null;
+      return [{ head: c.title }, ...hit.slice(0, 60).map(x => ({ label: x.name, run: () => done(x.id) })), ...(wrong ? [{ label: wrong }] : []),
+        ...(!wrong && q && l && !all.some(x => loose(x.name) === l || loose(x.short) === l) ? kinds.map(kind => ({ label: `New ${kind}: ${q}`, run: () => done({ name: q, kind }) })) : [])];
     }, { search: true, placement: 'top-start', onClose: () => { choosing.value = null; } });
   }
   function addRelation(m, sides, picked) {
@@ -2325,7 +2451,7 @@ const Table = (() => {
       rows.forEach((d, i) => {
         const v = value(d, c), type = typeOf(c, d);
         if (blank(v)) return;
-        ws[at(i + 1, j)] = type === 'tag' ? { t: 's', v: v ? 'Yes' : 'No' }
+        ws[at(i + 1, j)] = type === 'tag' ? { t: 's', v: text('tag', v) }
           : typeof v === 'number' && NUMERIC.has(type) ? { t: 'n', v, ...(type === 'percent' ? { z: pct(v) } : type === 'money' ? { z: `"$"#,##0${Number.isInteger(v) ? '' : '.00'}` } : {}) }
           : type === 'date' && /^\d{4}-\d\d-\d\d$/.test(v) ? { t: 'n', v: serial(v), z: 'mmm d, yyyy' }
           : type === 'document' ? { t: 's', v: c.filed ? filed(v) : Tree.format('document', v), l: { Target: String(v) } }
@@ -2415,5 +2541,5 @@ const Table = (() => {
     if (!on && unexport) { unexport(); unexport = null; }
   });
 
-  return { model, paste, focus, look: lookOf, workbook, Columns, importFile, importing, moved, get grid() { return table; } };
+  return { model, paste, focus, look: lookOf, workbook, Columns, importFile, importing, moved, opening, openList, get grid() { return table; } };
 })();

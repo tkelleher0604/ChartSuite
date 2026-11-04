@@ -73,12 +73,15 @@ const column = title => Table.grid.getColumns().find(c => c.getDefinition().titl
 const rowOf = id => Table.grid.getRow(id);
 // The + menu, as a person picks from it: a submenu's item, or one at the top. Says whether the new tab's name
 // was then being typed into, and leaves it as it is.
-async function addTable(sub, label) {
+async function addTable(sub, label, few = false) {
   $('.foot > .btn.icon[aria-label="New view"]').click(); await tick();
   if (sub) { hover(item(sub)); await tick(); }
   item(label).click(); await tick(150);
   const typing = !!$('.sheets .sheet input');
   document.activeElement?.blur?.(); await tick();
+  // What a new table hid as it opened is taken back (unless it's what's being checked), so these checks read its columns as they'd stand by default.
+  if (!few && label !== 'Chart') { const view = Shell.view.peek(), hidden = App.notes.peek().notes('Shown').filter(n => n.view === view && n.value === false);
+    if (hidden.length) { App.change(tx => hidden.forEach(n => tx.note('Shown', n.pattern, undefined, { view, param: n.param })), { dated: false }); await tick(150); } }
   return typing;
 }
 function paste(text, target = Table.grid.rowManager.element) {
@@ -130,7 +133,7 @@ async function run() {
 
   // ---- Adding a table view from the + menu ----
   let n0 = N();
-  const typing = await addTable('Records', 'Entities');
+  const typing = await addTable('Records', 'Entities', true);
   const ent = Shell.view.peek(), ev = st()[ent];
   const layout = App.notes.peek().value('Layout', { id: ent, kind: 'View' });
   check('The + menu makes a View object, as one change, never dated', ev?.kind === 'View' && N() === n0 + 1 && last().adds.every(r => !r.since));
@@ -138,6 +141,17 @@ async function run() {
   check('Its tab comes last, named for its rows, and shows', views().at(-1).name === 'Entities 2' && views().at(-1).layout === 'table');
   check('Its name is being typed into, as a new tab’s is', typing);
   await tick(100);
+  // A new table opens with its name and a few, in its own order, with its columns offered beside it, those ticked first.
+  {
+    const heads = () => Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean), rows = () => $$('.cols .colrow.mv');
+    check('A new table opens with Name and a few, in the one change that makes it', heads().join() === 'Name,Short Name,Vehicle Type,Entity Type,Jurisdiction' && last().adds.filter(r => r.label === 'Shown' && r.view === ent && r.value === false).length > 5, heads().join());
+    check('… and says it made the table, not what it hid', Time.describe(last()).includes('Entities 2') && !Time.describe(last()).includes('Hid'), Time.describe(last()));
+    $$('.tbar .btn').find(b => b.textContent === 'Columns').click(); await tick(60);
+    check('Opened, the Columns list has those ticked first', rows().slice(0, 5).every(r => r.querySelector('input').checked) && !rows()[5].querySelector('input').checked && rows()[4].textContent.trim() === 'Jurisdiction', rows().slice(0, 6).map(r => r.textContent.trim()).join());
+    Shell.closeAll(); await tick();
+    const hidden = App.notes.peek().notes('Shown').filter(n => n.view === ent && n.value === false);
+    App.change(tx => hidden.forEach(n => tx.note('Shown', n.pattern, undefined, { view: ent, param: n.param })), { dated: false }); await tick(200);
+  }
 
   // ---- The Entities table ----
   const ents = Tree.index(st()).kinds.get('entity').length;
@@ -996,7 +1010,7 @@ async function run() {
     const n = App.notes.peek().notes('Formula').find(x => x.note === id); if (n) tx.note('Check', n.pattern, true); }), { dated: false });
   await tick(150);
   const checkCells = () => Table.grid.getRows().map(r => r.getCells().find(c => c.getColumn().getDefinition().title === 'Percentages In Range')?.getElement()).filter(Boolean);
-  check('A check’s column shows only while a row fails it', !column('Percentages In Range') && Table.model(own).cols.some(c => c.check && c.title === 'Percentages In Range' && !c.shown), Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
+  check('A check’s column shows only as it’s ticked', !column('Percentages In Range') && Table.model(own).cols.some(c => c.check && c.title === 'Percentages In Range' && !c.shown), Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
   // Ticked in Columns, it shows its heading and its boxes.
   $$('.tbar .btn').find(b => b.textContent === 'Columns').click(); await tick(60);
   const inRangeRow = $$('.cols .colrow').find(r => r.textContent.trim() === 'Percentages In Range');
@@ -1009,6 +1023,9 @@ async function run() {
   const usRow = Table.grid.getRows().find(r => r.getData()['f:@owner'] === 'U.S. Investors').getData().id;
   const usPct = (Tree.index(st()).entries.get(usRow) ?? []).find(e => st()[e].edge === 'Percentage');
   App.change(tx => tx.update(usPct, { value: 64.7 }), { say: 'Changed Percentage' }); await tick(150);
+  check('A row failing a check adds no column and ticks none: the columns stay as set', !column('Percentages In Range') && !Table.model(own).cols.find(c => c.title === 'Percentages In Range').shown && rowOf(usRow).getElement().classList.contains('fails'), Table.grid.getColumns().map(c => c.getDefinition().title).filter(Boolean).join());
+  $$('.tbar .btn').find(b => b.textContent === 'Columns').click(); await tick(60);
+  $$('.cols .colrow').find(r => r.textContent.trim() === 'Percentages In Range')?.querySelector('input').click(); await tick(250); Shell.closeAll(); await tick();
   check('A percentage out of range fails its check: a red ✗ in that row’s cell, and only there', checkCells().filter(e => e.querySelector('.tag.no')).length === 1
     && rowOf(usRow).getCells().find(c => c.getColumn().getDefinition().title === 'Percentages In Range').getElement().querySelector('.tag.no'), checkCells().map(e => e.innerHTML).join(' | '));
   check('… counted as an error in the status bar, with Fund III’s ownership no longer adding up', errorsNow() === e0 + 2 && new RegExp(`${e0 + 2} errors`).test($('.status .counts')?.textContent), `${e0} → ${errorsNow()}: ${$('.status .counts')?.textContent}`);
@@ -1030,7 +1047,7 @@ async function run() {
   for (const it of Shell.parts.peek().attention.flatMap(a => a.items()).filter(i => i.kind === 'error')) { it.go(); await tick(40); if (Shell.selection.peek().join() === usRow) break; }
   offAsk();
   check('… and going to it selects what it’s at, asking why it fails', Shell.selection.peek().join() === usRow && st()[asked]?.edge === 'Percentages In Range' && st()[asked].tag === false, `${Shell.selection.peek().join()} ${asked}`);
-  Shell.select([]); undo(); await tick(150);
+  Shell.select([]); undo(); await tick(150); undo(); await tick(150);
   check('Undone, nothing fails, nothing is counted, and the check’s column goes', errorsNow() === e0 && !column('Percentages In Range'));
 
   // A relation ruled out: a red ✗ in the margin, its words intact.

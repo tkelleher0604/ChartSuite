@@ -422,13 +422,14 @@ const Shell = (() => {
   }
 
   // A menu; with `search`, a field that ranks its items, or that `items(query)` answers. An item `asked` (a new option named
-  // as it's typed, from `more(query)`) is never the one Enter takes of itself: it's chosen, by the pointer or the arrows.
+  // as it's typed, from `more(query)`) is what Enter takes only where it's highlighted: by the pointer or the arrows, or
+  // of itself where nothing else is found.
   function Menu({ f }) {
     const [q, setQ] = useState(f.query ?? '');
     const [act, setAct] = useState(-1);
     const items = typeof f.items === 'function' ? f.items(q.trim()) : f.search && q.trim() ? [...rank(f.items.filter(it => selectable(it) && !it.asked), q), ...(f.more?.(q.trim()) ?? [])] : f.items;
     const live = items.map((it, i) => selectable(it) ? i : -1).filter(i => i >= 0);
-    const active = f.search && q.trim() && act < 0 ? live.find(i => !items[i].asked) ?? -1 : act;
+    const active = f.search && q.trim() && act < 0 ? live.find(i => !items[i].asked) ?? live[0] ?? -1 : act;
     const checks = items.some(it => it && it.checked !== undefined);
     const mi = i => `mi${f.id}-${i}`, el = i => document.getElementById(mi(i));
     const run = it => {

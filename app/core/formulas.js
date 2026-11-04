@@ -3611,9 +3611,34 @@ function pay({ R, due, day, add }) {
   return year;
 }
 
+// Not tested (dendra.md, Definitions). What a row of a tag's definition can say, [yes, no]: a literal, itself; IF, what its
+// branches say, its condition being what it asks; LET, what its end says; anything else is worked out, and can say either.
+// `←` says only yes.
+function saying(n) {
+  if (n.k === 'lit') return typeof n.v === 'boolean' ? [n.v, !n.v] : [false, false];
+  if (isCall(n, 'LET')) return saying(n.args.at(-1).x);
+  if (!isCall(n, 'IF')) return [true, true];
+  const said = n.args.slice(1).map(a => saying(a.x));
+  return [said.some(s => s[0]), said.some(s => s[1])];
+}
+const twoSided = new WeakMap();
+function saysBoth(rows) {
+  if (!twoSided.has(rows)) {
+    const said = rows.map(r => { try { const f = splitFormula(r.formula); return f.kind === 'implies' ? [true, false] : saying(parseCached(f.body, f.offset)); } catch { return [false, false]; } });
+    twoSided.set(rows, said.some(s => s[0]) && said.some(s => s[1]));
+  }
+  return twoSided.get(rows);
+}
+// Whether the tag `edge` at the record `at` is untested: a definition covers it that can say both yes and no, and has said
+// neither. One that can only say yes says no by its silence; one that can only say no finds nothing wrong by it.
+function notTested(N, recs, at, edge) {
+  const t = recs[at] && !Tree.entryAt(recs, at, edge) && Tree.treeOf(recs, at), n = t && N.resolve('Formula', { args: [{ edge, loc: t }] });
+  return !!n && saysBoth(n.value);
+}
+
 return {
   computeState, ground, evaluateRow, diff, check, suggest, evaluateAt, text, attention, pay, renameName, computedId, splitFormula, tidyArrow,
-  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS),
+  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS), notTested,
 };
 
 })();

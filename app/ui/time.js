@@ -444,7 +444,7 @@ const Time = (() => {
     const at = n.pattern.id, isView = at !== undefined && Tree.isView(recs[at] ?? {}), line = at === undefined && (n.pattern.args?.length ?? 0) > 1 && Tree.idsIn(n.pattern).size > 0;
     // A field of one box: its entry's pattern with that box's record in it, "Jurisdiction of Offshore Feeder".
     const field = at === undefined && n.pattern.args?.length === 1 && Tree.idsIn(n.pattern).size === 1;
-    const of = at !== undefined ? N.nameOf(recs, at) : line ? lineOf(recs, n.pattern, N) : field ? `${N.name(n.pattern)} of ${N.shortOf(recs, [...Tree.idsIn(n.pattern)][0])}`
+    const of = isView && n.param ? n.param : at !== undefined ? N.nameOf(recs, at) : line ? lineOf(recs, n.pattern, N) : field ? `${N.name(n.pattern)} of ${N.shortOf(recs, [...Tree.idsIn(n.pattern)][0])}`
       : n.param ? N.listName(n.pattern, n.param) : N.name(n.pattern), one = at !== undefined || line || field;
     const inView = n.view ? ` in ${N.nameOf(recs, n.view)}` : '';
     const gone = !i.now.length;
