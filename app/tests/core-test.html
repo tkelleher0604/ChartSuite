@@ -48,10 +48,10 @@ function run(json) {
   }));
   // 136 changes, each the legal team's own, the last its revisions after a general counsel's review in October
   // 2026: what the app's building changed is folded into the rows it fixed. Each entity's formation document and
-  // governing agreement is among its 55 documents, and each Delaware tax paid, a corporation's franchise tax
+  // governing agreement is among its 59 documents, and each Delaware tax paid, a corporation's franchise tax
   // among them, is at the tax year it settled.
   const docs = Object.values(now).filter(r => r.kind === 'Document').length;
-  check('the sample is as big as it should be', Object.keys(now).length === 974 && docs === 55 && wb.changes().length === 136,
+  check('the sample is as big as it should be', Object.keys(now).length === 1016 && docs === 59 && wb.changes().length === 136,
     `${Object.keys(now).length} records, ${docs} documents, ${wb.changes().length} changes`);
   const hourIn = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' });
   const late = wb.changes().filter(c => { const h = +hourIn.formatToParts(new Date(c.when)).find(p => p.type === 'hour').value; return h < 9 || h >= 17; });
@@ -83,14 +83,35 @@ function run(json) {
     && Tree.parameterization(now, 'fund_formed') === '["[\\"formation date\\",\\"kind:entity\\"]"]'
     && Tree.key(Tree.specOf(tree('fund_type'))) === '["choice:limited partnership","[\\"entity type\\",\\"kind:entity\\"]"]');
   check('a narrower pattern weighs more', Tree.weight(tax) > Tree.weight(spec) && Tree.weight(spec) > Tree.weight(param) && Tree.weight(param) > Tree.weight(tc()));
+  check('a plural: one already plural is itself', ['Entity', 'Tax', 'Status', 'Address', 'Analysis', 'ERISA Plan Assets', 'Cayman Islands', 'Document', 'Bylaws'].map(Tree.plural).join()
+    === 'Entities,Taxes,Statuses,Addresses,Analyses,ERISA Plan Assets,Cayman Islands,Documents,Bylaws');
+
+  // ---- A location left open: one relation with a side of several kinds of record ----
+  {
+    const open = { args: [{ edge: 'Document', loc: {} }, { edge: 'Evidenced', loc: Tree.OPEN }] };
+    const ofOwnership = tree('doc_cert_blk_ev'), ofPosition = tree('ev_ma_chen'), ofSigning = tree('mvpcpcot3zvo7g');
+    check('any record fits a location left open, whatever its shape', [ofOwnership, ofPosition, ofSigning].every(t => Tree.narrower(t, open))
+      && Tree.narrower(Tree.bare(Tree.specOf(ofOwnership)), open) && !Tree.narrower(open, Tree.bare(Tree.specOf(ofOwnership))) && !Tree.narrower(tree('doc_lpa3_on_fund'), open));
+    check('a pattern leaving a location open is wider than one of a shape', Tree.isOpen(open) && !Tree.isOpen(Tree.bare(Tree.specOf(ofOwnership))) && Tree.key(open) !== Tree.key({ args: [{ edge: 'Document', loc: {} }, { edge: 'Evidenced', loc: {} }] }));
+    const evidence = N.relations(S).filter(r => r.name === 'Evidence');
+    check('Evidence is one relation, whose one Name note covers each kind of record it evidences', evidence.length === 1 && j(evidence[0].edges) === j(['Document', 'Evidenced']) && evidence[0].covers.length === N.fitting(S, open).length && N.fitting(S, open).length >= 7,
+      `${evidence.length} relations, ${evidence[0]?.covers.length} covered`);
+    check('… with one Evidences and one Evidenced By, on an ownership, a position and a signing authority alike', [ofOwnership, ofPosition, ofSigning].every(t => N.name(t) === 'Evidence' && N.listName(t, 'Evidenced') === 'Evidences' && N.listName(t, 'Document') === 'Evidenced By'),
+      [ofOwnership, ofPosition, ofSigning].map(t => `${N.name(t)} ${N.listName(t, 'Evidenced')} ${N.listName(t, 'Document')}`).join());
+    check('… and one pattern, the Name note’s, for any of it; another relation’s is itself with its labels gone', [ofOwnership, ofPosition, ofSigning].every(t => Tree.key(N.relationPattern(t)) === Tree.key(open))
+      && j(N.relationPattern(tree('own_fund_blkr'))) === j({ args: [{ edge: 'Owner', loc: {} }, { edge: 'Owned', loc: {} }] }));
+    const evidenced = Object.keys(now).filter(id => now[id].args && Tree.fits(now, id, open)).map(id => now[id].args.find(a => a.edge === 'Evidenced').at);
+    check('the sample has a stock certificate on real holdings', evidenced.includes('own_fund_blkr') && evidenced.includes('own_blkr_hlvd') && now.doc_cert_blk_type.choice === 'Stock Certificate' && now.doc_cert_hlvd_type.choice === 'Stock Certificate');
+    check('a relation with a side that’s a relation reads by the place rule', N.segmentOf(now, 'own_fund_blkr') === 'Fund III → Fund III Blocker' && /Margaret A\. Chen for Fund III, via GP III/.test(N.segmentOf(now, 'sign_chen_fund')), N.segmentOf(now, 'sign_chen_fund'));
+  }
 
   // ---- Notes: the narrowest decides ----
   const own = tree('own_fund_blkr');
   check('a relation is named, and so are its lists', N.name(own) === 'Ownership' && N.listName(own, 'Owner') === 'Owners'
     && N.listName(own, 'Owned') === 'Holdings' && j(N.edges(own)) === j(['Owner', 'Owned']), `${N.name(own)} ${N.edges(own)}`);
   check('an entry goes by its label and a kind by itself without a Name', N.name(tree('fund_ein')) === 'EIN' && N.name(tree('fund')) === 'Entity');
-  check('Required reaches every option of a position', ['pos_chen_bdc_title', 'pos_okfr_bdc_start', 'pos_lind_mgmt_title', 'fund_formed'].every(id => N.required(tree(id)))
-    && !N.required(tree('fund_ein')) && !N.required(tree('pos_raman_bdc_title')) === false);
+  check('Required reaches every option of a position, but a Director’s Title, the narrowest deciding', ['pos_fer_mgmt_title', 'pos_okfr_bdc_start', 'pos_lind_mgmt_title', 'fund_formed'].every(id => N.required(tree(id)))
+    && !N.required(tree('fund_ein')) && !N.required(tree('pos_raman_bdc_title')) && !N.required(tree('pos_chen_bdc_title')));
   check('entries are ordered, Name first', N.order(tree('fund_name')) === 0 && N.order(tree('fund_short')) < N.order(tree('fund_formed')) && N.order(tree('fund_target')) === undefined);
   check('start and end entries', N.isStart(tree('fund_formed')) && N.isStart(tree('gp_admitted')) && N.isStart(tree('pos_chen_bdc_start'))
     && N.isEnd(Tree.treeOf(wb.asOf(C, '2024-01-01'), 'gp_of_feeder_withdrawn')) && !N.isStart(tree('doc_lpa3_date')));
@@ -134,10 +155,10 @@ function run(json) {
 
   // ---- What formulas.js takes ----
   const defs = N.definitions(S), def = id => defs.find(d => d.id === id);
-  check('every definition covers what it covered', defs.length === 29 && defs.every(d => d.covers.length && d.rows.length),
+  check('every definition covers what it covered', defs.length === 32 && defs.every(d => d.covers.length && d.rows.length),
     defs.filter(d => !d.covers.length).map(d => d.id).join(' '));
   check('a definition’s covers, type and rows', def('def_tax').covers.length === 3 && def('def_tax').type === 'choice' && def('def_tax').options.includes('Partnership')
-    && def('def_formation_on_file').covers.length === 5 && def('def_close').rows.length === 5 && def('def_look_through').datatype === 'percent');
+    && def('def_formation_on_file').covers.length === 5 && def('def_close').rows.length === 7 && def('def_look_through').datatype === 'percent');
   check('a relation’s definition has its name and edges in order', def('def_control').name === 'Control' && j(def('def_control').edges) === j(['Controller', 'Controlled'])
     && def('def_private_fund').name === 'Private Fund');
   const rels = N.relations(S), ownership = rels.find(r => r.name === 'Ownership');
@@ -150,7 +171,7 @@ function run(json) {
     j([listOf('Look-Through Ownership').Investor, listOf('Membership').Member]));
   // A check is a definition whose ruled-out records are problems: a Check note at its pattern says so.
   const patternOf = id => N.notes('Formula').find(n => n.note === id).pattern, checked = defs.filter(d => N.check(patternOf(d.id))).map(d => d.id).sort();
-  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range'])
+  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range', 'def_one_survivor'])
     && N.check({ out: { tag: false }, args: [{ edge: 'Ownership Adds Up', loc: tree('gp') }] }) && !N.check(tree('fund_good')) && !N.check(patternOf('def_remote')), j(checked));
 
   // ---- Time: as of a day ----
@@ -160,7 +181,34 @@ function run(json) {
     && on('2024-07-08', 'gp_of_feeder') && !on('2024-07-08', 'gp_cay_fdr') && !on('2024-07-09', 'gp_of_feeder') && on('2024-07-09', 'gp_cay_fdr') && on('2024-07-09', 'sign_chen_fdr_cay'));
   const pct = (d, id) => wb.asOf(C, d)[id]?.value;
   check('a closing changes a percentage from its day', pct('2026-06-14', 'own_fund_corvane_pct') === 0.56 && pct('2026-06-15', 'own_fund_corvane_pct') === 0.49
-    && pct('2026-06-14', 'own_3a_corvane_pct') === 0.08 && !on('2026-06-14', 'own_coinv_corvane') && pct('2026-07-01', 'own_coinv_corvane_pct') === 0.125);
+    && pct('2026-06-14', 'own_3a_corvane_pct') === 0.08 && !on('2026-06-14', 'own_coinv_corvane') && pct('2026-07-01', 'own_coinv_corvane_pct') === 0.08);
+  check('Corvane’s re-cut balances: the funds sell 8 points and Co-Invest buys them, so no points vanish', Math.abs(pct('2026-06-14', 'own_fund_corvane_pct') + pct('2026-06-14', 'own_3a_corvane_pct')
+    - (pct('2026-06-15', 'own_fund_corvane_pct') + pct('2026-06-15', 'own_3a_corvane_pct') + pct('2026-06-15', 'own_coinv_corvane_pct'))) < 1e-9);
+  // Holdings start on the day the closing documents say, nothing before the fund could have made it.
+  const docDay = id => now[`${id}_date`].value, starts = (rel, day) => !on(prev(day), rel) && on(day, rel), prev = d => { const x = new Date(`${d}T00:00:00Z`); x.setUTCDate(x.getUTCDate() - 1); return x.toISOString().slice(0, 10); };
+  check('a holding starts on the day its closing document says', starts('own_fund_npine', docDay('doc_consent_np')) && starts('own_bdc_npine', docDay('doc_consent_np')) && starts('own_blkr_hlvd', docDay('doc_blk_res'))
+    && starts('own_aivblk_tess', docDay('doc_tess_consent')) && starts('own_fund_corvane', docDay('doc_consent_corvane')) && starts('own_3a_corvane', docDay('doc_consent_corvane'))
+    && starts('own_us_fund', docDay('doc_consent_close')) && starts('own_fdr_fund', docDay('doc_consent_close')) && starts('own_nonus_fdr', docDay('doc_consent_close'))
+    && starts('own_pens_bdc', docDay('doc_bdc_iaa')) && starts('own_holdco_bdc', docDay('doc_bdc_iaa')) && starts('adv_bdc', docDay('doc_bdc_iaa')));
+  check('… a stock certificate is dated with the holding it evidences', docDay('doc_cert_hlvd') === docDay('doc_blk_res') && docDay('doc_cert_blk') === now.blocker_formed.value);
+  check('a holding says the day it was made, in its own row: nothing is “all along” against a later start', wb.item(C, 'own_us_fund')[0].since === '2023-06-30' && wb.item(C, 'own_blkr_hlvd')[0].since === '2024-03-11');
+  {
+    const blanks = ['northpine_formed', 'halvard_formed', 'pension_juris', 'pos_raman_bdc_start'].filter(id => !now[id]);
+    check('what was only a gap in the typing is recorded', !blanks.length, blanks.join());
+    check('a Director’s position is its title: Title isn’t required of one, and still is of an officer', !N.required(tree('pos_chen_bdc_title')) && N.required(tree('pos_fer_mgmt_title')));
+    check('a group’s name says only what the chart can answer', now.inv_aiv_name.value === 'AIV-1 Investors' && now.inv_coinv_name.value === 'Co-Invest Investors');
+    check('a merger is an end entry, as a dissolution is, with its relation of two entities and a check that it has one survivor', N.isEnd({ out: { field: 'date' }, args: [{ edge: 'Merger Date', loc: tree('fund') }] })
+      && N.isEnd({ out: { field: 'date' }, args: [{ edge: 'Dissolution Date', loc: tree('fund') }] })
+      && N.notes('End').findIndex(n => n.pattern.args[0].edge === 'Dissolution Date') < N.notes('End').findIndex(n => n.pattern.args[0].edge === 'Merger Date'));
+    const merger = N.relations(S).find(r => r.name === 'Merger');
+    check('… Merged Into, from the entity merged', merger && merger.lists.Merged.Survivor === 'Merged Into' && merger.lists.Survivor.Merged === 'Merged In' && j(merger.edges) === j(['Merged', 'Survivor']) && N.fitting(S, { args: [{ edge: 'Merged', loc: { kind: 'Entity' } }, { edge: 'Survivor', loc: { kind: 'Entity' } }] }).length === 1);
+    check('… and it draws no line', N.value('Shown', { args: [{ edge: 'Merged', loc: tree('fund') }, { edge: 'Survivor', loc: tree('gp') }], out: { tag: true } }, 'view_main') === false);
+    const moretti = wb.changes().find(c => c.id === 'mvpi746a03mp5p');
+    check('a rule edit says why, in a note kept with the change', /isn’t a problem/.test(moretti.note ?? '') && moretti.who === 'Rebecca A. Moretti');
+    const tag = fresh().edit({ chart: C, who: WHO, note: 'Because.' });
+    tag.add('record', { at: 'fund', edge: 'Note Tested', tag: true });
+    check('… and an edit can be given one', tag.commit()?.note === 'Because.');
+  }
   check('a fund is absent before its Formation Date, with all that’s at it, and its investors before its first sale', !on('2024-09-15', 'fund3a') && !on('2024-09-15', 'fund3a_name')
     && !on('2024-09-15', 'own_inv3a_3a') && !on('2024-09-15', 'gp_of_3a') && on('2024-09-16', 'fund3a') && !on('2024-09-16', 'own_inv3a_3a') && on('2024-11-15', 'own_inv3a_3a'));
   check('the Blocker was in good standing from its formation', wb.asOf(C, '2023-12-31').blocker_good?.tag === true && wb.asOf(C, TODAY).blocker_good?.tag === true);
@@ -421,7 +469,7 @@ function run(json) {
   check('values parse and read by datatype', Tree.parse('percent', '71.6') === 0.716 && Tree.parse('money', '$1,000') === 1000 && Tree.parse('number', '5%') === undefined
     && Tree.format('percent', 0.716) === '71.6%' && Tree.format('percent', 0.26696) === '26.696%' && Tree.format('money', 750000000) === '$750,000,000'
     && Tree.format('document', 'https://x/a%20b.pdf') === 'a b.pdf' && Tree.format('document', 'https://contoso.sharepoint.com/:b:/s/FundLegal/EaBcD123xyz?e=AbC12') === 'PDF in SharePoint');
-  check('an output reads as its value, its option, or Yes and No', Tree.outputText(now.fund_good) === 'Yes' && Tree.outputText(now.fund_erisa) === 'No'
+  check('an output reads as its value, its option, or Yes and No', Tree.outputText(now.fund_good) === 'Yes' && Tree.outputText(now.fund_regd_open) === 'No'
     && Tree.outputText(now.fund_juris) === 'Delaware' && Tree.outputText(now.fund_target) === '$750,000,000');
   check('a day of the year is typed with its month’s name or as a date, kept as ISO’s --MM-DD, and read without a year', Tree.parse('yearly', 'December 31') === '--12-31'
     && Tree.parse('yearly', 'Dec. 31') === '--12-31' && Tree.parse('yearly', '31 December') === '--12-31' && Tree.parse('yearly', '12/31') === '--12-31' && Tree.parse('yearly', '2023-12-31') === '--12-31'

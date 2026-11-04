@@ -223,7 +223,7 @@ function allOf(s, n) {
   const lower = w => common && /^[A-Z][a-z]/.test(w) ? w[0].toLowerCase() + w.slice(1) : w, last = words.at(-1);
   if (/^(not|no|in|with|without)$/i.test(words[0])) return `${all} ${lower(caption)}`;
   const one = w => w.replace(/ies$/i, 'y').replace(/(?<![su])s$/i, '');
-  return `${n === 1 ? 'The only' : all} ${[...words.slice(0, -1), n === 1 ? one(last) : /s$/i.test(last) ? last : Tree.plural(last)].map((w, i) => i ? w : lower(w)).join(' ')}`;
+  return `${n === 1 ? 'The only' : all} ${[...words.slice(0, -1), n === 1 ? one(last) : Tree.plural(last)].map((w, i) => i ? w : lower(w)).join(' ')}`;
 }
 // The scope a change goes to: the group chosen (by its key), or else the selection itself. With nothing selected, a
 // Styles row aimed at, its click in the panel: { style, key, … }, a group of Scene.groupsOf.
@@ -1017,7 +1017,7 @@ function giveLook(ids, look, say) {
   let left = 0;
   const rows = chartRows();
   App.change(tx => { for (const id of ids) left = Math.max(left, Notes.takeLook(tx, rows, id, look, { has: hasHere }).left); tx.says(say); },
-    { dated: false, say: () => left ? `${say}, but for ${left} ${left === 1 ? 'setting' : 'settings'} of what this chart hasn’t got` : say, empty: () => Shell.toast(`${ids.length > 1 ? 'They already have' : `${viewNamed(ids[0])} already has`} that look`) });
+    { dated: false, say: () => left ? `${say}, but for ${left} ${left === 1 ? 'setting' : Tree.plural('setting')} of what this chart hasn’t got` : say, empty: () => Shell.toast(`${ids.length > 1 ? 'They already have' : `${viewNamed(ids[0])} already has`} that look`) });
 }
 const matchLook = (id, from) => giveLook([id], Notes.houseLook(chartRows(), from), `Gave ${viewNamed(id)} the look of ${viewNamed(from)}`);
 const applyHouse = (id, s) => giveLook([id], s.look, `Gave ${viewNamed(id)} the house style ${s.name}`);

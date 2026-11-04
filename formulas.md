@@ -176,12 +176,14 @@ A tag relation **Close Affiliate** has edges Close Affiliate (an Entity or Indiv
 | --- | --- |
 | (b)(1) | `← [Close Affiliate] IN BDC.Personnel` |
 | (b)(1) affiliates | `← ANY(BDC.Personnel, [Affiliated Person]([Close Affiliate], @).[(C)])` |
-| (b)(2) | `← [Close Affiliate] IN BDC.Advisers OR [Close Affiliate] IN BDC.[General Partners] OR Control([Close Affiliate], BDC)` |
+| (b)(2) | `← [Close Affiliate] IN BDC.Advisers` |
+| (b)(2) | `← [Close Affiliate] IN BDC.[General Partners]` |
+| (b)(2) | `← Control([Close Affiliate], BDC)` |
 | (b)(2) | `← ANY(BDC.Controllers, WITHOUT(BDC, Control(@, [Close Affiliate])))` |
 | (b)(2) affiliates | `← ANY(BDC.[Close Affiliates], @.[(b)(2)] AND LET(a, [Affiliated Person]([Close Affiliate], @), a.[(C)] OR a.[(D)]))` |
 
 - **(b)(1)** is the BDC's directors, officers, employees and advisory board members, and their §2(a)(3)(C) affiliates.
-- **(b)(2)** is its adviser and general partner, and anyone who controls it or is under common control with it. Promoters and principal underwriters would be two more `OR`s. Two rows share the label, so the last row cites them together.
+- **(b)(2)** is its adviser and general partner, and anyone who controls it or is under common control with it, each ground a row of its own, so a reason says which. Promoters and principal underwriters would be two more rows. The rows share the label, so the last row cites them together.
 - **(b)(2) affiliates** are the (C) and (D) affiliates of the persons under (b)(2). `@.[(b)(2)]` works because a dot after a list item looks first at the linking relation, here the Close Affiliate record.
 
 **The carve-out, in the second (b)(2) row.** §57(b)(2) excepts "any person who, if it were not directly or indirectly controlled by the business development company, would not be directly or indirectly under the control of a person who controls the business development company". `WITHOUT(BDC, …)` works its second argument out as if the BDC weren't in the chart, so control that runs through the BDC drops out, and what's left is control some other way. If the BDC has no controller, everything it controls is excepted.
@@ -218,6 +220,8 @@ These readings come from the statutory text and are for you to correct. The poin
 
 On the sample, the pension plan holds 7% of the BDC, so it's a remote affiliate under (e)(1)(A). The sample records no officers, directors or general partners of the pension plan, so (e)(1)(B) finds no one; (e)(2) finds only the BDC's close affiliates. The BDC's 21 close affiliates are ruled out as remote ones.
 
+Fiona MacAllister, an independent director of the Cayman GP, is on neither list, rightly on the chart's facts. She's a (D) affiliate of the Cayman GP, which is close only as Chen's (C) affiliate under (b)(1): none of (b)(1), (b)(2) or (e)(2) reaches an affiliate of an affiliate, and the chart records no controller of the BDC, so nothing is under common control with it. Control of the BDC entered (by the Manager, say) makes the Cayman GP a (b)(2) person, and her a close affiliate by (b)(2) affiliates.
+
 The 40 Act view shows the BDC and its affiliates by a tag, **BDC Affiliate**, on Entities and Individuals: `← [Investment Company] OR COUNT([Close Affiliate Of]) + COUNT([Remote Affiliate Of]) > 0`. A ruled-out tag doesn't make a relative, so the count is of attested ones: on the sample, the BDC, its 21 close affiliates and the pension plan.
 
 ### Counting beneficial owners under §3(c)(1)
@@ -246,6 +250,24 @@ Signing Authority is a tag relation with edges Signatory, On Behalf Of and Via (
 | Authorized signatory | `= IF(Capacity = "Authorized Signatory", COUNT([Evidenced By]) > 0)` |
 
 In an entry's formula at a relation, `Signatory` and `Via` are the relation's sides. On the sample, Chen signs for the funds as GP III's managing member, on its LLC agreement; Okafor is recorded as signing for them the same way, but he is a member of GP III and not its managing member, so his four authorities through it are ruled out until a delegation is recorded.
+
+### Whose assets are plan assets?
+
+A private fund's assets are plan assets where benefit plan investors hold 25% or more of it, unless it's an operating company (29 C.F.R. § 2510.3-101, as ERISA § 3(42) modifies it). So **ERISA Plan Assets** is worked out at a fund, never typed, from **Benefit Plan Percentage**, worked out at a fund from **Benefit Plan Investors**, typed at an investor group, by the group's look-through ownership of it, so through a feeder as well:
+
+| Label | Row |
+| --- | --- |
+| Through its investors | `= IF([Private Fund], SUM(EACH([Look-Through Investors], @.[Look-Through Ownership] * @.[Benefit Plan Investors])))` |
+
+and:
+
+| Label | Row |
+| --- | --- |
+| An operating company | `= IF([Benefit Plan Percentage] >= 25% AND ANY(Documents, @.[Document Type] = "VCOC Opinion" AND @.Status IN {"Executed", "Final"}), FALSE)` |
+| Under the limit | `= IF([Benefit Plan Percentage] < 25%, FALSE)` |
+| At the limit or over | `← [Benefit Plan Percentage] >= 25%` |
+
+The exception comes first, so where it holds it's the reason; it's read only where the test is met. A record that's no private fund has no Benefit Plan Percentage, so nothing to say. On the sample, Fund III's benefit plan investors hold 12.84%, and Fund III-A's 100%, with a VCOC opinion. The regulation tests each class of equity by value and leaves out the sponsor's own interests; this reads the holding.
 
 ### Deadlines
 

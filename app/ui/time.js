@@ -326,7 +326,8 @@ const Time = (() => {
   // from Fund III Blocker to Northwind Holdings LLC on Nov 1, 2026"; one without an amount, by its option or its name.
   const FIGURES = new Set(['number', 'percent', 'money']);
   function transferIn(all, rec, recs, N) {
-    const pair = r => r?.args?.length === 2 && recs[r.args[0].at] && recs[r.args[1].at];
+    // A relation of two sides, neither itself a relation: what evidences a stake ends with it, and isn't what's transferred.
+    const pair = r => r?.args?.length === 2 && r.args.every(a => recs[a.at] && !recs[a.at].args);
     // Its amount's item, of those at it: the first figure, in its entries' order.
     const order = i => N.order(Tree.treeOf(recs, i.id) ?? {}) ?? Infinity;
     const amountAt = rel => all.filter(i => i.type === 'record' && rec(i).at === rel && FIGURES.has(rec(i).field)).sort((a, b) => order(a) - order(b) || rec(a).edge.localeCompare(rec(b).edge))[0];
@@ -575,6 +576,7 @@ const Time = (() => {
           lastDay = day;
           return html`${head}<div class=${'hist-row' + (off ? ' undone' : '')} role="button" aria-selected=${on} onClick=${() => on ? now() : stand(c)}>
             <div class="what">${describe(c)}</div>
+            ${c.note ? html`<div class="note">${c.note}</div>` : null}
             <div class="meta">${c.who} · ${clock(c.when)}${off ? ` · undone${last.who !== c.who ? ` by ${last.who}` : ''}` : ''}</div>
             ${on ? html`<div class="acts"><button class="btn" disabled=${!App.wb.canReverse(last.id)} onClick=${ev => { ev.stopPropagation(); App.reverse(last.id); now(); }}>${off ? 'Redo this change' : 'Undo this change'}</button>
               ${App.wb.canReverse(last.id) ? null : html`<span class="why">${blocker(last) ? html`A later change touches it: <button class="lk" onClick=${ev => { ev.stopPropagation(); stand(blocker(last)); }}>undo that</button> first` : 'It has changed since'}</span>`}</div>` : null}
