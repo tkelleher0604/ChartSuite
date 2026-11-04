@@ -96,10 +96,10 @@ function standardWidth(t, text, size) {
 // ---- A PDF's fonts ----
 // A PDF's text is in the face the canvas draws it in, where this computer has it and lets it be read (the browser's
 // Local Font Access, which asks once): the first font of its stack installed (Scene's FONTS), in the face of its
-// style CSS would take (where it has none, the nearest by slant, then weight), embedded with only the letters used.
-// A font whose face installed has a standard font's widths (Arial Helvetica's, Times New Roman Times's, Courier New
-// Courier's) is in that standard font, which every reader has. So is one this computer hasn't, or won't let be read,
-// or that can't be embedded: PostScript outlines, which jsPDF can't, or a face its maker restricts.
+// style CSS would take (where it has none, the nearest by slant, then weight), embedded with only the letters used,
+// Arial as much as any, so a viewer or a print shop sets what was laid out.
+// One this computer hasn't, or won't let be read, or that can't be embedded (PostScript outlines, which jsPDF can't, or a
+// face its maker restricts) is in the standard font of its class, which every reader has, and it's said.
 const METRIC = new Set(['arial', 'helvetica', 'liberation sans', 'arimo', 'times new roman', 'times', 'liberation serif', 'tinos', 'courier new', 'courier', 'liberation mono', 'cousine']);
 const GENERIC = new Set(['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui']);
 const stackOf = f => Scene.fontFamily(f).split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(s => !GENERIC.has(s.toLowerCase()));
@@ -182,7 +182,8 @@ async function fontsOf(scenes, local) {
   const faces = new Map(), files = new Map(), missed = new Map(), unread = !local?.size;
   for (const [k, t] of looks) {
     const stack = stackOf(t.Font), family = unread ? stack[0] : stack.find(f => local.has(f.toLowerCase()));
-    if (METRIC.has((family ?? stack[0]).toLowerCase())) continue;
+    // (What this computer hasn't, of a family with a standard font's widths, is that font, as near as a face can be, and said only where it wasn't asked.)
+    if (!unread && !family && METRIC.has(stack[0].toLowerCase())) continue;
     if (!family) { missed.set(t.Font, 'absent'); continue; }
     const face = !unread && faceOf(local.get(family.toLowerCase()), styleOf(t));
     if (face && !files.has(face.postscriptName)) files.set(face.postscriptName, await fontFile(face).catch(() => null));
@@ -295,8 +296,7 @@ function swatch(sw, { x, y, w, h }) {
   // (Its arrowheads as its lines', but Auto, which is by which way a line runs.)
   if (sw.kind === 'line') return route([[x, y + h / 2], [x + w, y + h / 2]], { ...sw, Arrow: sw.Arrow === 'auto' ? 'none' : sw.Arrow });
   if (sw.kind === 'frame') return g(x, y, body('rect', w, h, { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }));
-  const t = sw.Shape === 'triangle';
-  return g(x, t ? y - 1 : y, body(sw.Shape ?? 'rect', w, t ? h + 2 : h, sw));
+  return g(x, y, body(sw.Shape ?? 'rect', w, h, sw));
 }
 function markSvg(m, pdf) {
   const s = look(m);
@@ -490,12 +490,25 @@ function typed(it) {
   if (left.length) (out.at(-1) ?? out[out.push([]) - 1]).push(...left);
   return out;
 }
+// A box's text wraps in PowerPoint as any shape's does, where that gives the scene's lines: a rectangle's, a rounded rectangle's or an oval's, centred,
+// nothing hung or cut. → the margin either side, in the page's pixels, that leaves PowerPoint's text area just the room those lines take and a
+// little for its own measure of them; or null, where PowerPoint would set them otherwise, and the scene's breaks stay (a triangle's, by its slopes).
+function wrapsAt(m) {
+  const look0 = look(m), inX = { rect: () => 0, rounded: () => Scene.textRect('rounded', m.w, m.h, look0.Corner).x, oval: () => m.w * (1 - Math.SQRT1_2) / 2 }[m.shape];
+  if (!inX || !m.texts.length || m.texts.some(it => it.blank || it.hang || it.inline || it.was || it.look.Align !== 'center' || it.lines.some(l => l.cut || l.spans))) return null;
+  const plain = s => s.replace(/ /g, ' ').trim(), widest = Math.max(...m.texts.flatMap(it => it.lines.map(l => l.w))), scale = m.h ? (m.texts[0].look.Size || 10) / 10 : 1, room = widest + 3 * scale;
+  const set = (ls, look1, width) => { const out = []; let line = ''; for (const w of plain(ls.map(l => l.text).join(' ')).split(/ +/)) { const next = line ? `${line} ${w}` : w; if (Scene.measure(next, look1) <= width) line = next; else { if (line) out.push(line); line = w; } } out.push(line); return out.join('\n'); };
+  for (const it of m.texts) for (const ls of typed(it)) { const want = ls.map(l => plain(l.text)).join('\n'); if (set(ls, it.look, room + 2 * scale) !== want || set(ls, it.look, room) !== want) return null; }
+  const side = (m.w - 2 * inX() - room) / 2;
+  return side >= 0 ? side : null;
+}
 // Texts as PowerPoint holds them, in a shape anchored at `anchor`: each line where the scene breaks it, so that
-// PowerPoint never wraps it again; in its look at its size on the slide (k times its page's, and at least 1 pt,
+// PowerPoint never wraps it again, or, where `wrap` gives the margin either side (inches), a paragraph PowerPoint wraps to the same lines (see wrapsAt);
+// in its look at its size on the slide (k times its page's, and at least 1 pt,
 // the least PowerPoint opens), its lines as far apart as the scene sets them, and in as far as it hangs them; a
 // paragraph for each line it was typed on; its spaces plain, as typed, so that PowerPoint's Find finds them. Its margins are `inset` inches
 // all round, or PowerPoint's own where that's null.
-function txBody(items, k, anchor, inset, { fit = false, upright = false } = {}) {
+function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = null } = {}) {
   // (What a text said before it, struck, is a run of the paragraph it stands on: see Scene's labelOf.)
   let before = '';
   const ps = items.flatMap(it => {
@@ -515,11 +528,11 @@ function txBody(items, k, anchor, inset, { fit = false, upright = false } = {}) 
     const runsBefore = before;
     before = '';
     return (it.blank ? it.lines.map(() => []) : typed(it)).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${para(ls)}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc>${mark(ls)}</a:pPr>${runsBefore}`
-      + ls.map(l => l.spans ? spanRuns(l) : `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`) + `<a:endParaRPr ${attrs}>${face}</a:endParaRPr></a:p>`);
+      + (wrap !== null ? `<a:r>${rPr}<a:t>${esc(ls.map(l => l.text.replace(/\u00a0/g, ' ')).join(' '))}</a:t></a:r>` : ls.map(l => l.spans ? spanRuns(l) : `<a:r>${rPr}<a:t>${esc(l.text.replace(/\u00a0/g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`)) + `<a:endParaRPr ${attrs}>${face}</a:endParaRPr></a:p>`);
   });
   // (Its margins each side's, where its own Inner margins say. Shrunk, PowerPoint's own shrink goes on from there; flipped upside down, its text stays the right way up.)
-  const margins = inset === null ? '' : ['l', 't', 'r', 'b'].map(side => ` ${side}Ins="${E(typeof inset === 'object' ? inset[side] : inset)}"`).join('');
-  return `<p:txBody><a:bodyPr${upright ? ' rot="10800000"' : ''}${ps.length ? ' wrap="none"' : ''}${margins} rtlCol="0" anchor="${anchor}"${fit ? '><a:normAutofit/></a:bodyPr>' : '/>'}<a:lstStyle/>${ps.join('') || '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>'}</p:txBody>`;
+  const margins = inset === null ? '' : ['l', 't', 'r', 'b'].map(side => ` ${side}Ins="${E(wrap !== null && (side === 'l' || side === 'r') ? wrap : typeof inset === 'object' ? inset[side] : inset)}"`).join('');
+  return `<p:txBody><a:bodyPr${upright ? ' rot="10800000"' : ''}${ps.length ? ` wrap="${wrap !== null ? 'square' : 'none'}"` : ''}${margins} rtlCol="0" anchor="${anchor}"${fit ? '><a:normAutofit/></a:bodyPr>' : '/>'}<a:lstStyle/>${ps.join('') || '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>'}</p:txBody>`;
 }
 const xfrm = (x, y, w, h, turn = '') => `<a:xfrm${turn}><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>`;
 // A color, as transparent as `clear` (0–100) says.
@@ -594,8 +607,8 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
   const add = (kind, ...args) => { sl[kind](...args); return 2 + count++; };
   // A stand-in for what `write` writes once it has its number. → that number.
   const put = write => add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: `·${parts.push(write) - 1}·` });
-  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title, rotate, flip, alt, locked, fit } = {}) =>
-    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset, { fit, upright: !!flip?.v }), { box, title, rotate, flip, alt, locked }));
+  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title, rotate, flip, alt, locked, fit, wrap = null } = {}) =>
+    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset, { fit, upright: !!flip?.v, wrap: wrap === null ? null : L(wrap) }), { box, title, rotate, flip, alt, locked }));
   // Texts on their own, their lines placed from (x0, y0): a text box at the side they're aligned to, from
   // their first line's top, its margins round them. → its rect.
   const textBox = (items, x0, y0, inset) => {
@@ -639,7 +652,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
   const write = m => {
     const s = look(m);
     if (m.type === 'box') {
-      const box = () => { ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : VALIGN[s.Valign] ?? 'ctr', inset: CHART })); return [rect(m)]; };
+      const box = () => { ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : VALIGN[s.Valign] ?? 'ctr', inset: CHART, wrap: wrapsAt(m) })); return [rect(m)]; };
       const own = carried.get(m.id);
       return own ? group(m.texts[0]?.text ?? 'Shape', () => [...box(), ...own.map(l => textBox(l.texts, l.labelAt.x, l.labelAt.y, CHART))]) : box();
     }
@@ -682,7 +695,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
         const sw = r.swatch, box = { x: m.x + r.sw.x, y: m.y + r.sw.y, w: r.sw.w, h: r.sw.h }, name = r.caption.text;
         if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: sw.Arrow === 'auto' ? 'none' : sw.Arrow, Connector: 'straight' }, null, name);
         else if (sw.kind === 'frame') shape(rect(box), 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }, name);
-        else shape(rect(sw.Shape === 'triangle' ? { ...box, y: box.y - 1, h: box.h + 2 } : box), sw.Shape ?? 'rect', sw, name);
+        else shape(rect(box), sw.Shape ?? 'rect', sw, name);
         textBox([r.caption], m.x, m.y, PAGE);
       }
       return [rect(m)];
@@ -694,25 +707,34 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
       { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate, flip: m.flip, alt: m.alt, locked: m.locked, inset: ins, fit: !!s.Shrink }));
     return [rect(m)];
   };
-  // A crossing, as the chart draws it (Scene's `runs`). A connector can't be broken, so a patch of the page's white goes over
-  // the line that's broken there, under the line crossing it: the one is written before the other, and the patch between
-  // them. Lines that cross each other both ways round have a patch only where that order allows. Moved in the deck, a
-  // line leaves its patch where it was, white on white.
+  // A crossing, as the chart draws it (Scene's `runs`). A connector can't be broken, so the line crossing carries its own casing: a white
+  // connector under it, a little wider, glued to the same two boxes, written over the line it breaks. Moved in the deck, the two run together, so
+  // a crossing goes with its line and nothing stays behind. Lines that run together (a trunk's, those into one apex) are written together,
+  // over all their casings, so that none is cut where it leaves the rest. Lines that cross each other both ways round break where that order allows.
+  // Over a free shape filled behind the lines, where white would show, a line has none, and crosses plainly.
   const flat = scene.marks.filter(m => m.type === 'line' && (m.settings?.Layer?.value ?? 0) === 0), legsOf = l => l.points.slice(1).map((p, i) => [l.points[i], p]);
-  const gaps = new Map(flat.map(l => [l, (l.runs ?? []).slice(1).map((r, i) => { const [p, q] = [l.runs[i].at(-1), r[0]], x0 = Math.min(p[0], q[0]), x1 = Math.max(p[0], q[0]);
-    return { x0, x1, y: p[1], by: flat.filter(o => o !== l && legsOf(o).some(([a, b]) => Math.abs(a[0] - b[0]) < 0.5 && a[0] > x0 && a[0] < x1 && p[1] > Math.min(a[1], b[1]) && p[1] < Math.max(a[1], b[1]))) }; })]));
   const under = new Map(flat.map(l => [l, new Set()]));
-  for (const [l, gs] of gaps) for (const g of gs) for (const o of g.by) under.get(o).add(l);
-  const inOrder = [], unwritten = new Set(flat);
-  while (unwritten.size) { const next = [...unwritten].find(l => [...under.get(l)].every(x => !unwritten.has(x))) ?? unwritten.values().next().value; inOrder.push(next); unwritten.delete(next); }
-  const patched = l => { for (const g of gaps.get(l) ?? []) if (!g.by.some(o => done.has(o.id))) shape({ x: X(g.x0), y: Y(g.y) - L(look(l).Weight * 4 / 3 + 1.5) / 2, w: L(g.x1 - g.x0), h: L(look(l).Weight * 4 / 3 + 1.5) }, 'rect', { Fill: '#ffffff' }, 'Crossing'); };
+  for (const l of flat) (l.runs ?? []).slice(1).forEach((r, i) => { const [p, q] = [l.runs[i].at(-1), r[0]], x0 = Math.min(p[0], q[0]), x1 = Math.max(p[0], q[0]);
+    for (const o of flat) if (o !== l && legsOf(o).some(([a, b]) => Math.abs(a[0] - b[0]) < 0.5 && a[0] > x0 && a[0] < x1 && p[1] > Math.min(a[1], b[1]) && p[1] < Math.max(a[1], b[1]))) under.get(o).add(l); });
+  const with_ = new Map(flat.map(l => [l, l])), bandOf = l => with_.get(l) === l ? l : bandOf(with_.get(l));
+  for (const key of [l => `${l.from}|${l.trunk}`, l => scene.byId.get(l.to)?.shape === 'triangle' ? l.to : null]) { const first = new Map(); for (const l of flat) { const k = key(l); if (k === null) continue; if (first.has(k)) with_.set(bandOf(l), bandOf(first.get(k))); else first.set(k, l); } }
+  const bands = new Map();
+  for (const l of flat) (bands.get(bandOf(l)) ?? bands.set(bandOf(l), []).get(bandOf(l))).push(l);
+  const inOrder = [], unwritten = new Set(bands.keys());
+  while (unwritten.size) { const next = [...unwritten].find(b => bands.get(b).every(l => [...under.get(l)].every(x => !unwritten.has(bandOf(x)) || bandOf(x) === b))) ?? unwritten.values().next().value; inOrder.push(...bands.get(next)); unwritten.delete(next); }
+  const behind = scene.marks.filter(m => m.type === 'shape' && (m.look?.Layer ?? 0) < 0 && !none(m.look?.Fill));
+  const overBehind = l => behind.some(r => l.points.some(([x, y]) => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h) || legsOf(l).some(([a, b]) => Math.max(a[0], b[0]) > r.x && Math.min(a[0], b[0]) < r.x + r.w && Math.max(a[1], b[1]) > r.y && Math.min(a[1], b[1]) < r.y + r.h));
+  const cased = new Set();
+  const casings = l => { const b = bandOf(l); if (cased.has(b)) return; cased.add(b);
+    for (const o of bands.get(b)) if (under.get(o).size && !overBehind(o)) connector(o.points, { ...look(o), Outline: '#ffffff', Dash: 'solid', Arrow: 'none', Arrowhead: null, Weight: 6 / (scene.page.scale ?? 1) }, [o.from, o.to], `Gap: ${say([o.record]) ?? 'Line'}`); };
   const written = new Set();
   let nextLine = 0;
   for (const mark of reading(scene.marks)) {
     const m = flat.includes(mark) ? inOrder[nextLine++] : mark;
     if (written.has(m.id)) continue;
+    if (flat.includes(m)) casings(m);
     const g = inGroup.get(m.id), of = g ? g.members.map(id => scene.byId.get(id)).filter(Boolean) : [];
-    if (of.length < 2) { write(m); patched(m); continue; }
+    if (of.length < 2) { write(m); continue; }
     of.forEach(x => written.add(x.id));
     const names = of.map(x => x.texts?.[0]?.text ?? x.title ?? 'Shape');
     group(names.length < 3 ? names.join(' and ') : `${names[0]} and ${names.length - 1} more`, () => of.flatMap(write));

@@ -189,7 +189,7 @@ async function run() {
   await closeMenus(); await tick(80);
   check('… and the cue goes once the menu does, the selection being the scope', !dulled().length && !$$('.dc-marks .dc-cue').length, dulled().join());
   // The groups are the Key's: a style's outputs that look alike are one group, Funds, its reach every box of them.
-  Shell.select(['fund']); await tick(120);
+  Shell.select(['feeder']); await tick(120);
   $('[data-fb="groups"]').click(); await tick(120);
   const fundItems = menuItems(), funds = sc().legend.find(r => r.caption === 'Funds');
   const fundReach = sc().marks.filter(m => m.type === 'box' && Scene.reach(App.shown.peek(), App.chart.peek(), sc().view, sc(), m.id, App.state.peek())
@@ -409,7 +409,7 @@ async function run() {
   const swatches = $$('.float .palette > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
   check('a swatch is named so on hover', tips.join() === 'White, Background 1,Black, Text 1,Light Gray, Background 2', tips.join(' | '));
   const fillRows = $$('.float .palette .menu-item').map(txt);
-  check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, then More colors, the Eyedropper, Transparency and No fill', swatches.length === 70
+  check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, the chart’s own, then More colors, the Eyedropper, Transparency and No fill', swatches.length >= 70 && swatches.length <= 80 && swatches.slice(70).every(b => /^#[0-9A-F]{6}$/.test(b.dataset.tip))
     && getComputedStyle($('.float .palette')).gridTemplateColumns.split(' ').length === 10
     && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple'
     && fillRows.length === 7 && fillRows[0] === 'More colors#' && fillRows[1] === 'Eyedropper' && /^Set this chart.s colors/.test(fillRows[2]) && fillRows[3] === 'Gradient' && fillRows[4] === 'Pattern' && /^Transparency ?\d*%$/.test(fillRows[5]) && fillRows[6] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
@@ -541,8 +541,8 @@ async function run() {
   Shell.select([`${legend.id}#${fundsKey.key}`]); await tick(100);
   FormatBar.apply('Fill', '#fff2cc'); await tick(150);
   const fundRows = Scene.groupsOf(App.notes.peek(), sc().view).filter(g => g.caption === 'Funds');
-  check('a Key row restyled restyles its Styles row, every output of it, those not drawn too', coinvest.length && fundsKey.outputs.length === 5 && fundRows.length === 1
-    && fundRows[0].outputs.length === 6 && fundRows[0].swatch.Fill === '#fff2cc', `${fundsKey.outputs.length} in the Key; ${fundRows.map(g => `${g.swatch.Fill} ×${g.outputs.length}`).join(', ')}`);
+  check('a Key row restyled restyles its Styles row, every output of it, those not drawn too', coinvest.length && fundsKey.outputs.length === 4 && fundRows.length === 1
+    && fundRows[0].outputs.length === 5 && fundRows[0].swatch.Fill === '#fff2cc', `${fundsKey.outputs.length} in the Key; ${fundRows.map(g => `${g.swatch.Fill} ×${g.outputs.length}`).join(', ')}`);
   Shell.parts.peek().undo.undo(); await tick(120); Shell.parts.peek().undo.undo(); await tick(120);
 
   // ---- A highlight lights a relation the view hides on the line it already draws between the two boxes,
@@ -652,8 +652,8 @@ async function run() {
     Shell.parts.peek().undo.undo(); await tick(250);
     // A toggle says what's there, as Office's: a box whose name is bold and whose jurisdiction isn't shows Bold
     // unpressed, and pressing it sets them all; then it's pressed.
-    const boldOn = () => $('[data-fb="bold"]').getAttribute('aria-pressed') === 'true', feederTexts = () => App.scene.peek().byId.get('feeder').texts;
-    Shell.select([]); await tick(80); Shell.select(['feeder']); await tick(200);
+    const boldOn = () => $('[data-fb="bold"]').getAttribute('aria-pressed') === 'true', feederTexts = () => App.scene.peek().byId.get('fund').texts;
+    Shell.select([]); await tick(80); Shell.select(['fund']); await tick(200);
     const mixed = feederTexts().some(it => it.look.Bold) && feederTexts().some(it => !it.look.Bold), mixedOn = boldOn();
     $('[data-fb="bold"]').click(); await tick(250);
     check('Bold, with a box whose texts are bold and not, shows unpressed, and pressing it bolds them all, then shows pressed', mixed && !mixedOn && feederTexts().every(it => it.look.Bold) && boldOn(),
@@ -690,10 +690,10 @@ async function run() {
     check('… its name shown while its box is selected, and its room empty once it isn’t, as it prints', seenOn === 'visible' && seen() === 'hidden', `${seenOn} → ${seen()}`);
     Shell.parts.peek().undo.undo(); await tick(200);
     // Show on chart, at the scope chosen in the format bar: a group of Vehicle Type writes beside its outputs.
-    Shell.select(['fund']); await tick(200);
+    Shell.select(['feeder']); await tick(200);
     $('[data-fb="groups"]').click(); await tick(120);
     $$('.float .menu-item').find(e => /^Funds \(\d+\)/.test(txt(e)))?.click(); await tick(150);
-    const eye = $('.insp .row[data-key="fund_ein"] .onchart');
+    const eye = $('.insp .row[data-key="feeder_ein"] .onchart');
     eye?.click(); await tick(300);
     const beside = App.notes.peek().notes('Shown').filter(n => n.param === 'EIN' && n.view === Shell.view.peek());
     check('Show on chart with a group chosen shows the entry in every box of the group, a Shown note beside each of its outputs, one change',
@@ -937,7 +937,7 @@ async function run() {
   for (let i = 0; i < 4; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
   check('… and Undo takes back the paint and the look given', !notesAt('corvane').length && !notesAt('halvard').length, `${notesAt('corvane')} ${notesAt('halvard')}`);
   // A group's look cleared: every note of its outputs' looks in the view, Funds' fill among them.
-  Shell.select(['fund']); await tick(120);
+  Shell.select(['feeder']); await tick(120);
   $('[data-fb="groups"]').click(); await tick(120);
   $$('.float .menu-item').find(e => txt(e).startsWith('Funds ('))?.click(); await tick(120);
   $('[data-fb="clear"]').click(); await tick(200);
@@ -1465,8 +1465,10 @@ async function wherePut() {
   await drag(mark(), 0, 30); Shell.select([a]); await tick(250);
   was = at();
   const resetBtn = $$('.insp .sect').find(s => /Position/.test(txt(s)))?.querySelector('.reset');
+  const keyAt = () => { const k = sc().marks.find(m => m.geometry === 'legend'); return [k.x, k.y].map(Math.round).join(); }, keyWas = keyAt();
   resetBtn?.click(); await tick(450);
   check('Reset position moves that box alone', !!resetBtn && !others(was, [a]).length && /^Reset the position/.test(txt($$('.toast').at(-1))), JSON.stringify({ moved: others(was, [a]), toast: txt($$('.toast').at(-1)) }));
+  check('… and it goes around the Key, which stays where it is, over nothing', keyAt() === keyWas && !Scene.says(sc()).some(w => /^The Key overlaps /.test(w)), `${keyWas} → ${keyAt()}`);
   await undo(); await undo();
 
   // A group moves as one: its members keep their distances exactly.
@@ -1686,7 +1688,32 @@ async function layered() {
     check('a Key dropped on a box warns on Export', Scene.says(sc()).some(w => /^The Key overlaps /.test(w) && /Northpine/.test(w)), JSON.stringify(Scene.says(sc())));
     const k = sc().marks.find(m => m.geometry === 'legend'), under = sc().marks.filter(m => m.type === 'line' && m.points.slice(1).some((p, i) => { const q = m.points[i]; return Math.max(p[0], q[0]) > k.x + 1 && Math.min(p[0], q[0]) < k.x + k.w - 1 && Math.max(p[1], q[1]) > k.y + 1 && Math.min(p[1], q[1]) < k.y + k.h - 1 && m.from !== 'northpine' && m.to !== 'northpine'; }));
     check('… and a line goes round it where its way isn’t long', under.length <= 3, under.map(m => m.id).join());
+    // And Tidy, which it's offered, is of the page with one box selected, and gives that Key back to the page, clear of them all.
+    Shell.select(['halvard']); await tick(200);
+    check('… Tidy is on offer, one box selected, called Tidy', cv().tidyable() && cv().tidyName() === 'Tidy', cv().tidyName());
+    cv().tidy(); await tick(600);
+    const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h, keyNow = sc().marks.find(m => m.geometry === 'legend');
+    check('… it clears the Key of every box: the page’s to place again, and it’s said no more', !sc().marks.some(m => m.type === 'box' && hit(m, keyNow)) && !Scene.says(sc()).some(w => /^The Key overlaps /.test(w)) && !Number.isFinite(App.shown.peek().rows(App.chart.peek()).find(r => r.shape === key.id && 'x' in r)?.x), JSON.stringify(Scene.says(sc())));
+    Shell.select([]); await tick(150);
     for (let i = App.wb.changes().length; i > n2; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
+  }
+  // A page nobody has arranged: every place the layout's own, the first Tidy is free of the order they stand in. One place a hand gave, and it keeps it.
+  {
+    const hereView = sc().view, ctrl = charts().find(v => v.id === 'view_control'), nA = App.wb.changes().length, stNow = () => App.state.peek();
+    await show(ctrl); Shell.select([]); await tick(300);
+    const placed = () => App.change(tx => sc().marks.filter(m => m.type === 'box').forEach(m => tx.note('Position', Tree.treeOf(stNow(), m.record), { x: m.x, y: m.y, w: m.w, kept: true }, { view: ctrl.id })), { dated: false });
+    const heldIn = () => cv().tidied().rows(App.chart.peek()).filter(r => 'note' in r && r.label === 'Position' && r.view === ctrl.id).length;
+    placed(); await tick(400);
+    const free = heldIn();
+    cv().tidy(); await tick(700);
+    check('a page nobody has arranged: its first Tidy is held to no order, and enters what it lays out', free === 0 && App.notes.peek().notes('Position').filter(n => n.view === ctrl.id).every(n => Number.isFinite(n.value.x) && n.value.order === n.value.x), `${free}`);
+    for (let i = App.wb.changes().length; i > nA; i--) { Shell.parts.peek().undo.undo(); await tick(200); }
+    placed(); await tick(400);
+    const moved1 = sc().marks.find(m => m.type === 'box');
+    App.change(tx => tx.note('Position', Tree.treeOf(stNow(), moved1.record), { x: moved1.x + 12, y: moved1.y, w: moved1.w }, { view: ctrl.id }), { dated: false }); await tick(400);
+    check('… one place a hand gave, and Tidy keeps the order they stand in', heldIn() === sc().marks.filter(m => m.type === 'box').length, `${heldIn()}`);
+    for (let i = App.wb.changes().length; i > nA; i--) { Shell.parts.peek().undo.undo(); await tick(200); }
+    await show(charts().find(v => v.id === hereView)); Shell.select([]); await tick(300);
   }
   // A percentage clear of an arrowhead (gui3 P-16).
   const n3 = App.wb.changes().length, own = sc().byId.get('own_blkr_hlvd') ?? sc().marks.find(m => m.type === 'line' && m.labelAt && m.points.length === 2), base = own.labelAt.x - own.points.at(-1)[0];
@@ -2046,8 +2073,9 @@ async function keptAsDrawn() {
   check('a new owner of a box low on the chart goes beside its other owners, in their row: Northwind beside the AIV-1 Blocker, over Tessellate', !!was.get(nw) && Math.abs(was.get(nw)[1] - was.get('aivblk')[1]) < 0.5,
     JSON.stringify({ nw: was.get(nw), aivblk: was.get('aivblk'), tessellate: was.get('tessellate') }));
   App.change(tx => tx.add('record', { at: nw, edge: 'Entity Type', choice: 'Limited Liability Company' })); await tick(400);
-  const now = boxAt(), ln = routes(), moved = [...was].filter(([id, p]) => !near(now.get(id), p)), rerouted = [...lw].filter(([id, p]) => !near(ln.get(id), p)).map(([id]) => id);
-  check('an edit that places nothing moves no box and re-routes no line: Northwind, bought into Tessellate among owners just imported, made an LLC', !!nw && was.has(nw) && !moved.length && !rerouted.length,
+  // (But its own line, which leaves a box with rounded corners clear of them.)
+  const now = boxAt(), ln = routes(), moved = [...was].filter(([id, p]) => !near(now.get(id), p)), rerouted = [...lw].filter(([id, p]) => !near(ln.get(id), p) && sc().byId.get(id).from !== nw).map(([id]) => id);
+  check('an edit that places nothing moves no box and re-routes no line but its own: Northwind, bought into Tessellate among owners just imported, made an LLC', !!nw && was.has(nw) && !moved.length && !rerouted.length,
     JSON.stringify({ moved: moved.map(([id, p]) => [id, p, now.get(id)]), rerouted }));
   // A box dropped in a row the lanes over it have moved down lands where it's dropped: on screen, by as much as it was dragged.
   Shell.select([]); await tick(150);
@@ -2262,7 +2290,7 @@ async function format() {
   }, { dated: false });
   await tick(300);
   const filter = notesIn(act, 'Shown').filter(n => n.value === false), frames = notesIn(act, 'Frame').map(n => Tree.key(n.pattern)).sort().join(), caps = notesIn(act, 'Caption').map(n => n.value).sort().join();
-  const placed = rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length, n0 = App.wb.changes().length, keyActWas = shapeIn(act, r => r.geometry === 'legend');
+  const j4 = JSON.stringify, capsWere = notesIn(act, 'Caption').map(n => n.value), placed = rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length, n0 = App.wb.changes().length, keyActWas = shapeIn(act, r => r.geometry === 'legend');
   const oldFill = noteAt(act, 'Fill', FUNDS)?.value, onlyTarget = notesIn(act).find(n => JSON.stringify(n.pattern).includes('Close Affiliate') && n.label !== 'Shown');
   await show(act);
   let items = FormatBar.lookMenu(act.id);
@@ -2275,7 +2303,7 @@ async function format() {
   check('… a style only in the look comes across', noteAt(act, 'Bold', NEW)?.value === true);
   check('… the title and the Key take theirs, their words and places their own', shapeIn(act, r => r.role === 'title').format?.Font === 'Garamond' && shapeIn(act, r => r.geometry === 'legend').columns === 1 && /Affiliates/.test(shapeIn(act, r => r.role === 'title').text) && shapeIn(act, r => r.geometry === 'legend').x === keyActWas.x);
   check('… the view’s own Shown, frames, captions and places stay', notesIn(act, 'Shown').filter(n => n.value === false).length === filter.length && notesIn(act, 'Frame').map(n => Tree.key(n.pattern)).sort().join() === frames
-    && notesIn(act, 'Caption').map(n => n.value).sort().join().includes(caps) && rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length >= placed, caps);
+    && capsWere.every(c => c === 'The BDC' /* (a style both have, whose caption comes with its look) */ || notesIn(act, 'Caption').some(n => n.value === c)) && rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length >= placed, j4([notesIn(act, 'Shown').filter(n => n.value === false).length, filter.length, notesIn(act, 'Frame').map(n => Tree.key(n.pattern)).sort().join() === frames, capsWere.filter(c => !notesIn(act, 'Caption').some(n => n.value === c)), rows().filter(r => 'note' in r && r.view === act.id && r.label === 'Position').length, placed]));
   check('… a style only in the view stays', !onlyTarget || !!notesIn(act).find(n => n.note === onlyTarget.note));
   const ordered = App.notes.peek().styles(act.id).map(s => s.key), inLook = App.notes.peek().styles(st.id).map(s => s.key), there = ordered.filter(k => inLook.includes(k));
   check('… its styles in the look’s order, its own after them', JSON.stringify(there) === JSON.stringify(inLook.filter(k => ordered.includes(k))) && ordered.slice(0, there.length).every(k => inLook.includes(k)));
@@ -2379,7 +2407,7 @@ async function format() {
   // A narrower note keeps its own, said, with a way to make it all that font.
   App.change(tx => tx.note('Font', { args: [{ edge: 'Name', loc: {} }] }, 'Garamond', { view: stE.id }), { dated: false }); await tick(300);
   FormatBar.apply('Font', 'Verdana'); await tick(500);
-  check('… what a narrower note gives keeps it, and it’s said, with a way to make it all that font', sc().byId.get('fund').texts[0].look.Font === 'Garamond' && /Names keep their own font/.test(txt($('.toasts'))) && $$('.toast button').some(b => /^Make it all Verdana/.test(txt(b))), txt($('.toasts')));
+  check('… what a narrower note gives keeps it, and it’s said, with a way to make it all that font', sc().byId.get('fund').texts[0].look.Font === 'Garamond' && /Names and title keep their own font/.test(txt($('.toasts'))) && $$('.toast button').some(b => /^Make it all Verdana/.test(txt(b))), txt($('.toasts')));
   $$('.toast button').find(b => /^Make it all/.test(txt(b)))?.click(); await tick(400);
   check('… which, taken, leaves it all that font', sc().byId.get('fund').texts[0].look.Font === 'Verdana');
   for (let i = 0; i < 3; i++) { Shell.parts.peek().undo.undo(); await tick(300); }
@@ -2586,9 +2614,9 @@ async function format() {
   check('with nothing selected, the ribbon’s font and size aim at All text, the rest off', barOn() && !$('[data-fb="size"]').disabled && !!$('[data-fb="all"]') && txt($('[data-fb="all"]')) === 'All text' && $('[data-fb="bold"]').disabled && $('[data-fb="fill"]').disabled);
   const scopeAt0 = $('[data-fb="scope"]').getBoundingClientRect(), fontAt0 = $('[data-fb="font"]').getBoundingClientRect();
   cap('Funds').click(); await tick(150);
-  check('a Styles row clicked aims the ribbon at it, what it reaches lit, the rest dulled', barOn() && /^All 6 funds/.test(likeSays()) && dull() > 0 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
+  check('a Styles row clicked aims the ribbon at it, what it reaches lit, the rest dulled', barOn() && /^All 5 funds/.test(likeSays()) && dull() > 0 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
   check('… the bar’s controls where they were', Math.abs($('[data-fb="scope"]').getBoundingClientRect().left - scopeAt0.left) < 0.5 && Math.abs($('[data-fb="scope"]').getBoundingClientRect().width - scopeAt0.width) < 0.5 && Math.abs($('[data-fb="font"]').getBoundingClientRect().left - fontAt0.left) < 0.5);
-  const fundBox = () => sc().byId.get('fund');
+  const fundBox = () => sc().byId.get('feeder');
   $('[data-fb="fill"]').click(); await tick(120);
   const hexIn = $('.float .palette .hex > input');
   hexIn.value = '1F3864'; hexIn.dispatchEvent(new Event('input', { bubbles: true })); hexIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(400);
@@ -2608,13 +2636,16 @@ async function format() {
   Shell.parts.peek().undo.undo(); await tick(300); Shell.parts.peek().undo.undo(); await tick(300);
   // The swatch aims too; Esc ends it; a press on the chart ends it.
   row('Funds').querySelector('.k').click(); await tick(120);
-  const bySwatch = /^All 6 funds/.test(likeSays());
+  const bySwatch = /^All 5 funds/.test(likeSays());
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(120);
   check('a row’s swatch clicked does too, and Esc ends it', bySwatch && !!$('[data-fb="all"]') && dull() === 0);
   cap('Names').click(); await tick(120);
   // ---- The ribbon reports what's on the page ----
   const sizeBox = () => $('[data-fb="size"]');
-  check('Names chosen: the font and size are the names’, B lit where every name is bold', barOn() && sizeBox().value !== '' && $('[data-fb="bold"]').getAttribute('aria-pressed') === 'true', `${sizeBox().value} ${$('[data-fb="bold"]').getAttribute('aria-pressed')}`);
+  check('Names chosen: the font and size are the names’, B not lit where only the subject’s is bold', barOn() && sizeBox().value !== '' && $('[data-fb="bold"]').getAttribute('aria-pressed') === 'false', `${sizeBox().value} ${$('[data-fb="bold"]').getAttribute('aria-pressed')}`);
+  $('[data-fb="bold"]').click(); await tick(300);
+  check('… and lit once every name is', $('[data-fb="bold"]').getAttribute('aria-pressed') === 'true', $('[data-fb="bold"]').getAttribute('aria-pressed'));
+  Shell.parts.peek().undo.undo(); await tick(300);
   cap('Jurisdictions').click(); await tick(120);
   const before7 = sizeBox().value;
   sizeBox().value = '7'; sizeBox().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(400);
@@ -2700,6 +2731,9 @@ async function format() {
   const handle = () => $('.dc-over > .dc-adjust');
   check('a rounded shape selected shows its corner handle', !!handle() && sc().byId.get('northpine').shape === 'rounded');
   // A redline that moves the box takes the handle with it, and back.
+  // (On a page the layout places, where its owners gone moves it.)
+  const hereWas = sc().view;
+  await show(charts().find(v => v.id === 'view_fund3')); Shell.select(['northpine']); await tick(300);
   const handleAt = () => [parseFloat(handle().style.left), parseFloat(handle().style.top)], handleWas = handleAt(), nowState = App.state.peek();
   const without = Object.fromEntries(Object.entries(nowState).filter(([, r]) => !r.args?.some(a => a.at === 'northpine')));
   cv().redline({ appear: [], go: [], changed: {}, records: without }); await tick(300);
@@ -2707,6 +2741,7 @@ async function format() {
   check('a redline moving a selected rounded box takes its handle along', (handleRed[0] !== handleWas[0] || handleRed[1] !== handleWas[1]) && Math.abs(handleRed[0] - redAt.x) < 1 && Math.abs(handleRed[1] - redAt.y) < 1, `${handleWas} ${handleRed} ${redAt.x},${redAt.y}`);
   cv().redline(null); await tick(300);
   check('… and it comes back with the box', handleAt().join() === handleWas.join(), `${handleAt()} ${handleWas}`);
+  await show(charts().find(v => v.id === hereWas)); Shell.select(['northpine']); await tick(300);
   const hr = handle().getBoundingClientRect(), hx = hr.left + hr.width / 2, hy = hr.top + hr.height / 2, opts = o => ({ bubbles: true, cancelable: true, pointerId: 1, button: 0, ...o });
   handle().setPointerCapture = () => {};
   const ownCorner = () => sc().byId.get('northpine').settings.Corner;
@@ -2778,10 +2813,10 @@ async function format() {
   box2.click(); await tick(300);
   check('a row unticked stays where it is', keyRows().join() === before2.join() && !keyM().rows.some(r => r.caption.text === second), keyRows().join());
   box2.isConnected ? rowEl(second).querySelector('input').click() : null; await tick(300);
-  const capBtn = rowEl(before2[2]).querySelector('.cap');
+  const capBtn = rowEl(before2[2]).querySelector('.cap'), drawnWas = keyM().rows.length;
   capBtn.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await tick(150);
   const capField = $('.keyrow .cell');
-  check('a caption double-clicked is typed over, and no row is hidden by it', !!capField && keyM().rows.length === before2.length, `${keyM().rows.length}`);
+  check('a caption double-clicked is typed over, and no row is hidden by it', !!capField && keyM().rows.length === drawnWas, `${keyM().rows.length}`);
   capField.value = 'LPs'; capField.dispatchEvent(new Event('input', { bubbles: true })); capField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(300);
   check('… and kept, as the Key says it', keyM().rows.some(r => r.caption.text === 'LPs'), keyM().rows.map(r => r.caption.text).join());
   await openMenu(rowEl('LPs').querySelector('.cap'));
