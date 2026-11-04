@@ -268,7 +268,13 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .ex-views { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .ex-views > label { display: inline-flex; align-items: center; gap: 6px; min-height: var(--row); color: var(--ink); }
 .ex-says { margin: 0; color: var(--ink-2); }
-.ex-well { height: min(56vh, 520px); overflow: auto; display: grid; align-content: safe center; justify-content: safe center; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; background: var(--side); border: 1px solid var(--rule); border-radius: var(--r); }
+.ex-warns > .ex-says { color: var(--ink); }
+.ex-says.ex-off { display: flex; align-items: center; gap: 8px; min-height: var(--row); }
+.ex-foot > input[type="text"] { flex: 1; min-width: 200px; height: var(--row); padding: 0 8px; border: 1px solid var(--rule-2); border-radius: 3px; background: var(--surface); color: var(--ink); font: inherit; }
+.ex-foot > label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
+/* The dialog with the page in it stands at once: nothing of the chart under it shows through as it comes. */
+dialog.dlg:has(.ex)[open] { animation: none; }
+.ex-well { height: min(calc(56vh - var(--said, 0px)), 520px); overflow: auto; display: grid; align-content: safe center; justify-content: safe center; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; background: var(--side); border: 1px solid var(--rule); border-radius: var(--r); }
 .ex-well.full { grid-template-columns: max-content; }
 .ex-well.many { grid-template-columns: repeat(2, minmax(0, 1fr)); container-type: size; }
 .ex-well.many .ex-page { width: min(100%, (50cqh - 28px) * var(--a)); justify-self: center; }

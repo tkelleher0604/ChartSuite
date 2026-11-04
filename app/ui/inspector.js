@@ -830,8 +830,7 @@ function Relatives({ id }) {
 
 // Look: each format property set for a mark and its value, under where it comes from, said once, as an
 // entry's entries sit under it; shown once there is one. A color goes by PowerPoint's name for it, a code
-// only for one of the user's own; a size or a weight is the slide's, as the format bar has it, a size to the
-// half point and a weight as PowerPoint gives it. Format is what a mark's own text shows, as the scene sets it:
+// only for one of the user's own; a size is as typed, what it prints at, and a weight as PowerPoint gives it. Format is what a mark's own text shows, as the scene sets it:
 // a box's and a tag's is its name, whatever the format, unless it's none, so there it says whether the name is
 // shown; what's recorded at it (a line's percentage) is a text of its own, so a line can hide its name and
 // still draw its 64%.
@@ -842,7 +841,7 @@ const shadowSaid = v => { const o = Scene.shadowOf(v); return !o ? 'None' : `${o
 const headSaid = v => Object.entries(v ?? {}).map(([end, h]) => `${upper(end)}: ${h.type}, ${h.size}`).join('; ') || 'Triangle, small';
 const colorName = v => (typeof FormatBar !== 'undefined' && FormatBar.colorName?.(v)) || v.toUpperCase();
 const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
-  : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' ? `${Math.round(Scene.toSlide(App.scene.value?.page, v) * 2) / 2} pt`
+  : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' ? `${v} pt`
   : label === 'Weight' ? `${+Scene.toSlide(App.scene.value?.page, v).toFixed(2)} pt`
   : label === 'Format' ? (named ? (v === 'none' ? 'Hidden' : 'Shown') : TEXTS[v] ?? upper(String(v)))
   : label === 'Corner' || label === 'Transparency' ? `${Math.round(v)}%`

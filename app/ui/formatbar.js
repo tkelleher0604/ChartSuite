@@ -61,10 +61,10 @@ function chartColors() {
 // PowerPoint's name for a color of its palette ("Blue, Accent 1, Lighter 80%"), where a color is in it twice
 // the theme's; "None" for none; null for any other.
 const colorName = c => c === 'none' ? 'None' : typeof c === 'string' ? NAMES.get(`#${c.replace(/^#/, '').toLowerCase()}`) ?? null : null;
-// A slide's number for the page's, to the half point PowerPoint's sizes keep; and the page's for a slide's.
+// A text's size as it prints: the page's size at the page's scale, what was typed where a note gives it, or the sheet's
+// half point where none does.
 const page = () => Canvas.active.peek()?.scene()?.page;
-const shown = v => typeof v === 'number' ? Math.round(Scene.toSlide(page(), v) * 2) / 2 : v;
-const put = v => Math.round(Scene.fromSlide(page(), v) * 100) / 100;
+const shown = v => typeof v === 'number' ? Math.round(Scene.toSlide(page(), v) * 100) / 100 : v;
 const TEXT_LABELS = new Set(['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing', 'Format']);
 let current = null; // { canvas, scopes, scope, marks }
 
@@ -317,6 +317,9 @@ function apply(label, value) {
   const inView = `${Time.looked(label, value, scope.caption)} in ${App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && !!scope.outputs && !fieldOf(c);
   App.change(tx => { write(tx, c, label, value); first.also?.(tx); if (oneAct) tx.says(inView); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : null });
   fade();
+  // A size the chart can't hold is said, never left to be seen.
+  const short = label === 'Size' && (App.scene.peek()?.page.short ?? []);
+  if (short?.length) Shell.toast(Scene.says(App.scene.peek()).filter(t => / print at /.test(t)).join('; '), { undo: () => Shell.parts.peek().undo?.undo() });
   // Keys go back to the chart, so the next change can be typed.
   requestAnimationFrame(() => c.root.focus({ preventScroll: true }));
 }
@@ -389,21 +392,6 @@ function firstFor(c, scope, label, value) {
   }
   memo.set(k, out);
   return out;
-}
-// A size picked is the size on the slide, where the chart can keep a scale for it, and otherwise as near as the
-// page allows, never shrinking the chart more than holding the scale would (Scene.toPage). Worked out once for
-// each scene, selection and scope, as pointing at it previews it and picking it makes it.
-const picks = new WeakMap();
-function sized(v) {
-  const c = Canvas.active.peek(), sc = c?.scene();
-  if (!sc) return put(v);
-  const k = JSON.stringify([c.keys(), chosen.peek(), v]), seen = picks.get(sc) ?? picks.set(sc, new Map()).get(sc);
-  if (!seen.has(k)) {
-    const r = t => Math.round(t * 100) / 100;
-    const scaleAt = t => Scene.of(trying(c, 'Size', r(t)), App.chart.peek(), sc.view, sc.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true }).page.scale;
-    seen.set(k, r(Scene.toPage(v, sc.page.scale, scaleAt)));
-  }
-  return seen.get(k);
 }
 // A setting's value on the selection: its first mark's, or its first text's for a text property (a frame's,
 // its caption's).
@@ -731,7 +719,7 @@ const grown = v => v < 8 ? Math.floor(v + 1e-6) + 1 : STEPS.find(z => z > v + 1e
 const shrunk = v => v <= 8 + 1e-6 ? Math.max(1, Math.ceil(v - 1 - 1e-6)) : [...STEPS].reverse().find(z => z < v - 1e-6) ?? 96;
 function resize(f) {
   const v = shown(value('Size'));
-  if (typeof v === 'number' && current?.marks.length) apply('Size', sized(f(v)));
+  if (typeof v === 'number' && current?.marks.length) apply('Size', f(v));
 }
 // The size: a field that takes any size typed (11.5), made with Enter, Esc putting it back; and its list.
 function SizeBox({ v, disabled }) {
@@ -741,7 +729,7 @@ function SizeBox({ v, disabled }) {
     if (e.key === 'Enter') {
       e.preventDefault();
       const x = parseFloat(el.value.replace(/\s*pt$/i, ''));
-      if (Number.isFinite(x) && x >= 1 && x <= 1584) { apply('Size', sized(Math.round(x * 2) / 2)); el.blur(); } else el.select();
+      if (Number.isFinite(x) && x >= 1 && x <= 1584) { apply('Size', Math.round(x * 100) / 100); el.blur(); } else el.select();
     } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); back(el); }
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); resize(e.key === 'ArrowUp' ? grown : shrunk); }
   };
@@ -749,7 +737,7 @@ function SizeBox({ v, disabled }) {
     <input data-fb="size" value=${String(v)} disabled=${disabled} aria-label="Font size" spellcheck="false" autocomplete="off" inputmode="decimal"
       onFocus=${e => e.currentTarget.select()} onKeyDown=${keys} onBlur=${e => { e.currentTarget.value = String(v); }} />
     <button class="dd" data-fb="sizes" aria-label="Font sizes" disabled=${disabled} onClick=${e => offer(e.currentTarget, STEPS.slice(0, 15).map(z => ({ label: String(z), checked: v === z,
-      run: () => apply('Size', sized(z)), get tries() { return ['Size', sized(z)]; } })))} /></span>`;
+      run: () => apply('Size', z), tries: ['Size', z] })))} /></span>`;
 }
 
 // ---- The format painter, and Clear formatting ----
@@ -848,14 +836,14 @@ function pasteLook(look = copied?.look) {
   const onlyTexts = textStyle ? (it => scope.outputs.some(p => Tree.fits(st, it.id, p))) : () => true;
   const wanted = (it, l) => (textStyle ? null : look.fields?.[Tree.norm(fieldEdge(it) ?? '')]?.[l]) ?? look[l];
   const markDiffers = (m, l) => JSON.stringify(lookOf(m)[l]) !== JSON.stringify(look[l]), textDiffers = (m, l) => texts(m).filter(onlyTexts).some(it => JSON.stringify(textValue(it, l)) !== JSON.stringify(wanted(it, l)));
-  const at = (l, v) => l === 'Size' ? sized(v) : v, textLabels = TEXT_LOOK.filter(l => l in look);
+  const textLabels = TEXT_LOOK.filter(l => l in look);
   // What goes to a pattern, for the marks it reaches.
   const give = (tx, pattern, ms) => {
-    for (const l of new Set(ms.flatMap(m => markLabels(m).filter(k => markDiffers(m, k))))) tx.note(l, pattern, at(l, look[l]), { view });
+    for (const l of new Set(ms.flatMap(m => markLabels(m).filter(k => markDiffers(m, k))))) tx.note(l, pattern, look[l], { view });
     for (const l of textLabels) if (ms.some(m => textDiffers(m, l))) {
       if (scope.own) ms.forEach(m => ownFields(tx, m, l));
-      tx.note(l, pattern, at(l, look[l]), { view });
-      if (!textStyle) for (const e of new Map(ms.flatMap(m => texts(m)).map(it => [Tree.norm(fieldEdge(it) ?? ''), it])).values()) if (fieldEdge(e)) tx.note(l, pattern, at(l, wanted(e, l)), { view, param: fieldEdge(e) });
+      tx.note(l, pattern, look[l], { view });
+      if (!textStyle) for (const e of new Map(ms.flatMap(m => texts(m)).map(it => [Tree.norm(fieldEdge(it) ?? ''), it])).values()) if (fieldEdge(e)) tx.note(l, pattern, wanted(e, l), { view, param: fieldEdge(e) });
     }
   };
   if (!marks.some(m => markLabels(m).some(l => markDiffers(m, l)) || textLabels.some(l => textDiffers(m, l))) && !s.aim) { Shell.toast('Already has that look'); return true; }
@@ -864,11 +852,11 @@ function pasteLook(look = copied?.look) {
     tx.says(said);
     if (scope.outputs) {
       for (const p of scope.outputs) give(tx, p, marks);
-      if (textStyle) for (const l of textLabels) everyField(tx, sc, scope, l, at(l, look[l]));
+      if (textStyle) for (const l of textLabels) everyField(tx, sc, scope, l, look[l]);
       return;
     }
     for (const m of marks) {
-      if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, ...Object.fromEntries([...markLabels(m), ...textLabels].map(l => [l, at(l, look[l])])) } });
+      if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, ...Object.fromEntries([...markLabels(m), ...textLabels].map(l => [l, look[l]])) } });
       else give(tx, Tree.treeOf(st, m.record), [m]);
     }
   }, { say: said });
@@ -1170,7 +1158,7 @@ function Bar() {
     <button class="btn dd wide" data-fb="align" disabled=${none} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
     <button class="btn dd wide" data-fb="order" disabled=${!layered} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
     <button class="btn wide" data-fb="group" disabled=${grouping.disabled} onClick=${grouping.run}>${grouping.label}</button>
-    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: !layered })), '-', grouping, tidy])}>
+    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none, items: aligns }, '-', ...orders.map(o => ({ ...o, disabled: !layered })), '-', grouping, tidy, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
     <button class="btn" data-fb="tidy" disabled=${tidy.disabled} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label}</button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',

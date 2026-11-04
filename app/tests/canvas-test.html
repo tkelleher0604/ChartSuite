@@ -761,7 +761,7 @@ async function run() {
     `${Math.round(newKey.w)}×${Math.round(newKey.h)} at ${sc().page.scale}`);
   for (let i = 0; i < 2; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
 
-  // ---- A box moved past the page's edge: the page grows round it, and the chart holds still, the zoom as it was,
+  // ---- A box moved past the page's edge stays there: the page as it was, and the chart holds still, the zoom as it was,
   // in a view framed or zoomed in alike, the box where it was put on screen and every other where it was ----
   cv().zoom('fit'); await tick(120);
   Shell.select(['halvard']); await tick(80);
@@ -769,8 +769,8 @@ async function run() {
   const fundBefore = onSc('fund'), hvBefore = onSc('halvard');
   cv().nudge(0, 300); await tick(150);
   const fundAfter = onSc('fund'), hvAfter = onSc('halvard');
-  check('a box moved past the page’s edge in a view framed: the page grows round it, the zoom as it was, the box where it was put and every other where it was',
-    `${sc().page.w}×${sc().page.h}` !== size0 && g.zoom() === zf && Math.abs(fundAfter.x - fundBefore.x) < 0.5 && Math.abs(fundAfter.y - fundBefore.y) < 0.5
+  check('a box moved past the page’s edge in a view framed: the page as it was, the zoom as it was, the box where it was put and every other where it was',
+    `${sc().page.w}×${sc().page.h}` === size0 && g.zoom() === zf && Math.abs(fundAfter.x - fundBefore.x) < 0.5 && Math.abs(fundAfter.y - fundBefore.y) < 0.5
     && Math.abs(hvAfter.x - hvBefore.x) < 0.5 && Math.abs(hvAfter.y - hvBefore.y - 300 * zf) < 0.5, `${size0} → ${sc().page.w}×${sc().page.h}; ${JSON.stringify({ zf, z: g.zoom(), fundBefore, fundAfter, hvBefore, hvAfter })}`);
   Shell.parts.peek().undo.undo(); await tick(150);
   cv().zoom(1); await tick(80);
@@ -778,7 +778,7 @@ async function run() {
   const at0 = g.localToGraph(hv().x, hv().y), z0h = g.zoom();
   cv().nudge(0, 300); await tick(150);
   const at1 = g.localToGraph(hv().x, hv().y);
-  check('… and in a view zoomed in, it stays where it was put on screen, though the page grows', `${sc().page.w}×${sc().page.h}` !== size0 && g.zoom() === z0h
+  check('… and in a view zoomed in, it stays where it was put on screen, the page as it was', `${sc().page.w}×${sc().page.h}` === size0 && g.zoom() === z0h
     && Math.abs(at1.x - at0.x) < 0.5 && Math.abs(at1.y - at0.y - 300 * z0h) < 0.5, `${size0} → ${sc().page.w}×${sc().page.h}; moved ${(at1.x - at0.x).toFixed(1)}, ${((at1.y - at0.y) / z0h).toFixed(1)}`);
   Shell.parts.peek().undo.undo(); await tick(150);
   cv().zoom('fit'); await tick(120);
@@ -932,7 +932,7 @@ async function run() {
   // ---- A page drawn very small (as a chart of hundreds of boxes is) opens whole, not at 60% on its blank
   // margin or its title many times its size ----
   const pageOf = { id: main.id, kind: 'View' };
-  App.change(tx => tx.note('Page', pageOf, { w: 240, h: 135 }), { dated: false }); await tick(200);
+  App.change(tx => { tx.note('Page', pageOf, { w: 240, h: 135 }); for (const n of App.notes.peek().notes('Scale')) if (n.pattern.id === main.id) tx.remove(n.note); }, { dated: false, keep: false }); await tick(200);
   // (Opened again, after another view: the page's size changed holds the zoom, as every change does.)
   await show(charts()[1]); await show(main);
   { const p = sc().page, { z, W, H } = onScreen(), t = titleAt();
