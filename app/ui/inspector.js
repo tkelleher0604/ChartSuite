@@ -978,7 +978,7 @@ function Relatives({ id }) {
   return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${counted(items)}
       cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} act=${html`${endRows(items)}${adds(name, items)}`}>${items.map(item)}
       ${worked(items) && asTable() ? html`<button class="lk as-table" onClick=${() => Table.openList(name, items[0].rid, id)}>Open ${name} as a table</button>` : null}
-      ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t… among ${lower(name)}?</button></div>` : null}</${Section}>`)}
+      ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t… on this list?</button></div>` : null}</${Section}>`)}
     ${docs.length || typing || docList(id) ? html`<${Section} title="Documents" id="docs" n=${docs.length} act=${docAdd(id)}>
       ${docs.map(docRow)}
       ${typing ? html`<div class="row"><div class="k wide"><input class="cell" placeholder="Link" aria-label="Link" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus())}
@@ -1743,7 +1743,7 @@ function GeneralView({ p, style }) {
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
       ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('A blank needs filling in', n.required(p), on => flag('Required', p, on))}
       ${type === 'tag' ? checkRow(def || writing ? 'A failure counts as an error' : 'A no needs attention', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
-      ${kind || rel || dated ? null : checkRow('Changes over time', !n.fixed(p), on => flag('Fixed', p, on ? undefined : true))}
+      ${kind || rel || dated || def ? null : checkRow('Changes over time', !n.fixed(p), on => flag('Fixed', p, on ? undefined : true))}
       ${dated ? ['Start', 'End'].map(l => checkRow(l, l === 'Start' ? n.isStart(dp) : n.isEnd(dp), on => flag(l, dp, on))) : null}
       ${adds.length ? html`<${AddRow} items=${() => adds} />` : null}
     </div>
@@ -1815,8 +1815,10 @@ const attending = a => {
     select([obj]);
     if (why) emit('why-open', why);
   };
+  // (A rule in error that shows at no record goes to the rule.)
+  const toRule = () => { const q = N().notes('Formula').find(x => x.note === a.error.def)?.pattern; if (q) select([general(q)]); };
   const p = a.error && (placeOf(a.error) ?? a.error.args?.[0]);
-  return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, go: a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
+  return { kind: a.kind, id: a.id, edge: a.edge, error: a.error, go: a.error?.rule ? toRule : a.error ? go(p?.at, p?.edge, a.id) : a.kind === 'blank' ? go(a.id, a.edge) : go(a.id, null, a.id) };
 };
 const attention = computed(() => App.needs.value.filter(a => a.kind !== 'error' || a.error).map(attending));
 

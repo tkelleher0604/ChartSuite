@@ -1500,8 +1500,18 @@ async function saysWhen(C, keep) {
   const relFound = Shell.parts.peek().find.flatMap(s => s.items('Ownership')).filter(x => x.detail === 'Relation').map(x => x.label);
   check('… and Find reopens a relation no rule gives, by its name', relFound.includes('Ownership'), relFound.join());
 
+  // A rule in error at no record: an item of its own, going to the rule
+  const pf = N().notes('Formula').find(x => N().name(x.pattern) === 'Private Fund');
+  App.change(tx => tx.note('Formula', pf.pattern, [{ label: '', formula: '← [Private Fund]' }]), { dated: false }); await tick(120);
+  const ruleItem = Shell.parts.value.attention.flatMap(a => a.items()).find(i => String(i.id).startsWith('rule:'));
+  check('a rule in error that shows at no record is listed as the rule’s', !!ruleItem && /holds only where it already holds/.test(ruleItem.error.error.msg), JSON.stringify(ruleItem?.error));
+  Shell.select(['fund']); await tick(60);
+  ruleItem?.go(); await tick(80);
+  check('… and goes to its page', $('.ih .cell')?.value === 'Private Fund' && Shell.selection.peek()[0]?.startsWith('~'), Shell.selection.peek()[0]);
+  Shell.parts.value.undo.undo(); await tick(80);
+
   // A rule in error, on its page and in a list it gives
-  const brokenRule = v => v.map(r => ({ ...r, formula: r.formula.replace('[Voting Percentage]', '[Voting Percentge]') }));
+  const brokenRule =v => v.map(r => ({ ...r, formula: r.formula.replace('[Voting Percentage]', '[Voting Percentge]') }));
   App.change(tx => tx.note('Formula', ctl.pattern, brokenRule(N().notes('Formula').find(x => N().name(x.pattern) === 'Control').value)), { dated: false }); await tick(120);
   Shell.select([Shell.general(ctl.pattern)]); await tick(80);
   check('a rule in error says what’s wrong on its page', /Nothing is called Voting Percentge/.test($('.rule-err')?.textContent ?? ''), $('.rule-err')?.textContent);
