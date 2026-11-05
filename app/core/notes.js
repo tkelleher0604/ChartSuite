@@ -229,6 +229,8 @@ function index(rows) {
     // (Its value `true`, or the verb for the act where a word of its entry doesn't say it: { verb, done }.)
     isStart: t => { const v = value('Start', t); return v === true || !!v?.verb; },
     isEnd: t => { const v = value('End', t); return v === true || !!v?.verb; },
+    // (Or that its end leaves what it's at on the chart, drawn as ended: { stays: true }, a template's to say of a marriage. dendra.md, Time.)
+    stays: t => value('End', t)?.stays === true,
     shown: (t, view) => value('Shown', t, view),
     position: (t, view) => value('Position', t, view),
     caption: (t, view) => value('Caption', t, view),

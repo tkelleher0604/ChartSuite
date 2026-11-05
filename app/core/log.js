@@ -42,6 +42,8 @@ function validAt(records, day) {
 // it's a start after the day, or an end on it or before; or nothing. `recs`, the records it's among.
 function outOn(notes, recs, id, day) {
   const r = recs[id], t = r.field === 'date' && r.at && recs[r.at] && Tree.treeOf(recs, id);
+  // (An end that leaves what it's at on the chart keeps only itself out, till its day: before that it isn't ended.)
+  if (t && notes.stays?.(t)) return day < r.value ? id : null;
   return t && ((notes.isStart(t) && day < r.value) || (notes.isEnd(t) && day >= r.value)) ? r.at : null;
 }
 // Of the records valid on a day (`on`, by id), those that hold on it: each from its start entry and before its end

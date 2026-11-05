@@ -134,7 +134,7 @@ function slots(at, all) {
   // What's blank that others of its kind have stands empty too, so what's missing can be seen and typed; or says it isn't ours.
   const apart = own && !all ? App.blanksApart.value.filter(b => b.id === at && !b.list && ![...given, ...asked].some(x => T.same(x.edge, b.edge))).map(b => slot(b.edge, { open: true, apart: true })) : [];
   // On a chart that keeps no dated record a box's panel is its form: every entry its kind has stands in it, empty till typed, a new one on the rest of its kind too. (A rule's are its rule's to give, where they're given.)
-  const formed = own && !all && !App.isDated.value ? unentered(at).filter(s => !N().resolve('Formula', T.bare(s)) && !N().check({ args: [{ edge: s.args[0].edge, loc: tree(at) }] }) && ![...given, ...asked, ...apart].some(x => T.same(x.edge, s.args[0].edge))).map(s => slot(s.args[0].edge, { open: true })) : [];
+  const formed = (own || !!r[at]?.args) && !all && !App.isDated.value ? unentered(at).filter(s => !N().resolve('Formula', T.bare(s)) && !N().check({ args: [{ edge: s.args[0].edge, loc: tree(at) }] }) && ![...given, ...asked, ...apart].some(x => T.same(x.edge, s.args[0].edge))).map(s => slot(s.args[0].edge, { open: true })) : [];
   const out = [...ents.filter(e => !(own && e.pinned)), ...given, ...asked, ...open, ...apart, ...formed].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
     .sort((a, b) => a.o - b.o || a.p - b.p || a.edge.localeCompare(b.edge));
   // Offered, the first not yet given, blank or not, is typed into at once.
@@ -380,7 +380,7 @@ function drag(e, onDrop, onClick) {
 // Text, and a title, wrap, as many lines as they take; a title's name keeps its suffix (Scene.bind). With `preview`,
 // what keeping it would change (out → a change), the formula bar redlines that while it's typed, as it does a value
 // typed in the bar, so the chart is laid out ahead as Enter leaves it.
-function Field({ r, datatype, put, rule, preview, fx, over, id, auto, ph, cls = '', title, label, due, held = null, reads, looks, children }) {
+function Field({ r, datatype, put, rule, preview, fx, over, id, auto, ph, cls = '', title, label, due, held = null, reads, loose, looks, children }) {
   const doc = datatype === 'document', shown = r ? T.format(r.field, r.value) : '', raw = r ? (doc ? r.value : shown) : '';
   // What's typed, null while nothing is; kept in a ref too, as a blur can come after the record has gone. `held`, what
   // was typed, pending (App.put): shown as typed is, till it's made or discarded, and typed over again.
@@ -388,8 +388,11 @@ function Field({ r, datatype, put, rule, preview, fx, over, id, auto, ph, cls = 
   // What text typed keeps: its output, null where it's cleared, undefined where it doesn't read; false where it's as it was.
   const outOf = t => {
     if (t === null || t === T.clean(raw)) return false;
-    const dt = datatype ?? T.classify(t), v = t ? (reads ?? (x => T.parse(dt, x)))(t) : null;
-    return v === undefined ? undefined : t ? { field: dt, value: v } : null;
+    // (What a new value is, by what's typed; a year alone, under a name that says an act, is its date: Divorced, 1979.)
+    const dt = datatype ?? (label && /^\d{4}$/.test(t) && /(\w+ed|born|date|day|year)$/i.test(T.clean(label)) ? 'date' : T.classify(t)), read = reads ?? (x => T.parse(dt, x));
+    // (Its own name said before it isn't refused: "divorced 1979", in Divorced.)
+    const named = label && !reads && t.toLowerCase().startsWith(T.clean(label).toLowerCase()) ? t.slice(T.clean(label).length).replace(/^[\s:,-]+/, '') : '', v = t ? read(t) ?? (named ? read(named) : undefined) : null;
+    return v === undefined ? (loose && t ? loose(t) : undefined) : t ? { field: dt, value: v } : null;
   };
   const redline = c => { const k = c ? JSON.stringify(c) : null; if (k !== previewed.current) { previewed.current = k; FormulaBar.preview(c); } };
   const type = t => {
@@ -626,7 +629,9 @@ function Output({ id, slot, label }) {
   if (g) return html`<${Answers} g=${g} />`;
   const r = id ? recs()[id] : null, f = !!id && fx(id), o = !!id && overrides(id);
   const k = r ? null : slot.type ? slot : kindAt(tree(slot.at), slot.edge);
-  const type = r ? T.typeOf(r) : k.type, set = (out, o2) => put(id, slot, out, o2), held = id ? App.held(id) : undefined;
+  const type = r ? T.typeOf(r) : k.type, set = (out, o2) => (out?.words ? App.asWords(id, slot, out.words) : put(id, slot, out, o2)), held = id ? App.held(id) : undefined;
+  // (Words typed in a figure or a date made by hand, and nowhere else yet, say what it is: it's words.)
+  const loose = !App.readOnly.value && ['number', 'percent', 'money', 'date'].includes(r?.field ?? k?.datatype) && App.handMade(r?.edge ?? slot.edge, id) ? t => ({ words: t }) : null;
   // A start entry blank offers the day the record's first relation holds from (a company inserted on Dec 1, its Formation Date).
   const firstDay = !r && k?.datatype === 'date' && recs()[slot.at]?.kind && !App.readOnly.value && N().isStart({ out: { field: 'date' }, args: [{ edge: slot.edge, loc: tree(slot.at) }] }) ? firstRelated(slot.at) : null;
   const more = !r ? (firstDay ? html`<button class="lk hint" data-tip="From its first relation" onClick=${() => set({ field: 'date', value: firstDay })}>${short(firstDay)}?</button>` : null) : !f ? html`<${Versions} id=${id} />` : r.field === 'date' ? html`<${Filed} id=${id} />` : null;
@@ -636,7 +641,7 @@ function Output({ id, slot, label }) {
         flip=${() => (held ? set(false) : ruled ? emit('why-open', id) : flip(id, slot))} change=${ruled || held ? null : () => putChange(id, slot, flipped(id))}>${more}</${TagBox}>`
     : type === 'choice' ? html`<${Choice} r=${held ? { ...r, ...held } : r} was=${held ? r.choice : null} id=${id} fx=${f && !held} over=${o} put=${out => (held && T.same(out.choice, r.choice) ? set(false) : set(out, { auto: true }))} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}
         hint=${!r && recs()[slot.at]?.kind ? namedOption(nameOf(slot.at), k.options ?? []) : null}>${more}</${Choice}>`
-    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} rule=${t => FormulaBar.typed(r?.at ?? slot.at, r?.edge ?? slot.edge, t, r?.field ?? k.datatype)} preview=${out => putChange(id, slot, out)} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}
+    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} loose=${loose} rule=${t => FormulaBar.typed(r?.at ?? slot.at, r?.edge ?? slot.edge, t, r?.field ?? k.datatype)} preview=${out => (out?.words ? null : putChange(id, slot, out))} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}
         held=${held ? T.format(held.field, held.value) : null}>${more}</${Field}>`;
 }
 
@@ -713,7 +718,7 @@ function listsOf(id, docs = false) {
     const sl = s.args.find(a => a !== sm), at = own.find(x => T.narrower(tree(x), sm.loc));
     if (!at || !sl || doc(sl.loc) !== docs) continue;
     const name = n.listName(T.bare(s), sl.edge), was = lists.get(T.norm(name));
-    if (!was) lists.set(T.norm(name), { name, ways: [{ s, sm, sl, at }] }); else if (!was.ways.some(w => T.key(w.sl.loc) === T.key(sl.loc) && T.same(w.sm.edge, sm.edge))) was.ways.push({ s, sm, sl, at });
+    if (!was) lists.set(T.norm(name), { name, ways: [{ s, sm, sl, at }] }); else if (!was.ways.some(w => T.key(w.sl.loc) === T.key(sl.loc) && T.same(w.sm.edge, sm.edge) && T.same(n.name(T.bare(w.s)), n.name(T.bare(s))))) was.ways.push({ s, sm, sl, at });
   }
   return [...lists.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -724,24 +729,50 @@ const listItems = (id, anchor) => listsOf(id).map(l => ({ label: `${l.name}…`,
 // Who can be in a list: each record the chart has that fits its other side, by name, as typed, but those it has already;
 // and a new one of each kind the side can be, named as typed.
 function whoFor(id, l, q) {
+  const relOf = w => T.norm(N().name(T.bare(w.s))), rels = [...new Set(l.ways.map(relOf))], some = rels.length > 1, named = T.clean(q ?? '');
+  // A list always means its relation. Two read as one list (a Mother Of and a Father Of, each a list of children), which one is asked, each said of who it's of; never the last one made. Where this
+  // record has said which it is, by another of the list, that one's what Enter takes, the first.
+  const held = relatives(id).lists.find(([name]) => T.same(name, l.name))?.[1] ?? [], oneOf = w => /^(from|to)$/i.test(w.sm.edge) ? N().name(T.bare(w.s)) : lower(w.sm.edge), as = (who, w) => `${bound(shortOf(who))} the ${oneOf(w)}`;
+  const saysOf = new Set(held.filter(it => recs()[it.rid]?.args).map(it => T.norm(nameOf(it.rid)))), said = saysOf.size === 1 ? [...saysOf][0] : null, first = (a, b) => (relOf(a) === said ? 0 : 1) - (relOf(b) === said ? 0 : 1);
   // (Found by either side, in any order: "blocker halvard". A stake, with its amount, before what only says that it holds.)
-  const out = [], seen = new Set(relatives(id).lists.find(([name]) => T.same(name, l.name))?.[1].map(it => it.obj) ?? []), words = T.norm(q ?? '').split(' ').filter(Boolean);
+  const out = [], seen = new Set(held.map(it => it.obj)), taken = new Set(), words = T.norm(q ?? '').split(' ').filter(Boolean);
   for (const w of l.ways) for (const x of Object.keys(recs())) {
-    const b = objectOf(x);
-    if (seen.has(b) || b === id || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {})) continue;
+    const b = objectOf(x), k = some ? `${b}|${relOf(w)}` : b;
+    if (seen.has(b) || taken.has(k) || b === id || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {})) continue;
     const hay = T.norm(`${placeName(b)} ${recs()[b].args ? '' : shortOf(b)}`);
     if (!words.every(word => hay.includes(word))) continue;
-    seen.add(b);
+    taken.add(k);
     // (A name typed whole comes first: "Fund III" is Fund III, before Fund III-A and Fund III Blocker.)
     const exact = words.length && (T.same(placeName(b), q) || (!recs()[b].args && T.same(shortOf(b), q)));
-    out.push({ label: placeName(b), detail: recs()[b].kind ?? nameOf(b), rank: exact ? -1 : recs()[b].args && !App.transferable(b)?.amount ? 1 : 0, run: () => joinTo(id, b, w, x) });
+    out.push({ label: placeName(b), detail: some ? as(id, w) : recs()[b].kind ?? nameOf(b), rank: exact ? -1 : recs()[b].args && !App.transferable(b)?.amount ? 1 : 0, exact, begins: words.length > 0 && words.every(word => hay.split(/\s+/).some(h => h.startsWith(word))), of: some ? relOf(w) === said : true, run: () => joinTo(id, b, w, x) });
   }
   out.sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
   // The kinds a new one can be, in one order, as Insert offers them, the one its name says first.
-  const named = T.clean(q ?? ''), kinds = App.newKinds([...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()], named, w => w.sl.loc.kind);
-  // (Of a box stood side by side with another, one new under them is of the two first: a child of the couple. Named alone, it's the next row.)
-  const pairs = (w, kind) => matesOf(id).filter(x => T.narrower(tree(x), w.sm.loc) && N().value('Above', T.bare(w.s), Shell.view.peek()) !== 'level').map(x => ({ label: `New ${kind}: ${named}, with ${nameOf(x)}`, run: () => joinTo(id, null, w, null, { kind, name: named, also: x }) }));
-  if (named && kinds.length && !out.some(o => T.same(o.label, named))) out.push('-', ...kinds.flatMap(w => [...pairs(w, w.sl.loc.kind), { label: `New ${w.sl.loc.kind}: ${named}`, run: () => joinTo(id, null, w, null, { kind: w.sl.loc.kind, name: named }) }]));
+  const kinds = App.newKinds([...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()], named, w => w.sl.loc.kind);
+  // (Of a box stood side by side with another, one new under them is of the two first: a child of the couple. With one, that's what Enter takes, and with two or more it's asked whose; each with
+  // a row for one of them alone, as a step-child is. Who's under a box is what that's said of: never its parent, added to a child's list.)
+  const under = w => { const p = T.bare(w.s), a = N().value('Above', p, Shell.view.peek()); return a !== 'level' && a !== 'none' && T.same(a ?? N().edges(p)[0], w.sm.edge); };
+  const mates = l.ways.some(under) ? matesOf(id).filter(x => l.ways.some(w => under(w) && T.narrower(tree(x), w.sm.loc))) : [];
+  const rowsOf = (kind, w) => {
+    const ways = l.ways.filter(y => T.same(y.sl.loc.kind ?? '', kind)), own = [...new Map(ways.map(y => [relOf(y), y])).values()].sort(first), go = (y, also, as2) => () => joinTo(id, null, y, null, { kind, name: named, ...(also ? { also, alsoAs: as2 } : mates.length ? { alone: true } : {}) });
+    // Whose, where the list has one relation.
+    if (own.length === 1) {
+      const it = (label, also) => ({ label, run: go(own[0], also) });
+      if (!mates.length) return [it(`New ${kind}: ${named}`)];
+      if (mates.length === 1) return [it(`New ${kind}: ${named}, with ${nameOf(mates[0])}`, mates[0]), it(`New ${kind}: ${named}, ${bound(shortOf(id))}’s only`)];
+      return [{ head: `New ${kind}: ${named}. Whose ${lower(one(l.name))}?` }, ...mates.map(x => ({ ...it(`${bound(shortOf(id))} and ${nameOf(x)}`, x), choose: true })), { ...it(`${bound(shortOf(id))} alone`), choose: true }];
+    }
+    // Which, where it has more: this one as each, with the other as the other.
+    const asked = !said;
+    return [{ head: `New ${kind}: ${named}` }, ...own.flatMap(y => mates.flatMap(x => own.filter(z => z !== y).slice(0, 1).map(z => ({ label: `${as(id, y)}, ${as(x, z)}`, choose: asked || relOf(y) !== said, run: go(y, x, z) })))), ...own.map(y => ({ label: as(id, y), choose: asked || relOf(y) !== said || mates.length > 0, run: go(y) }))];
+  };
+  const fresh = named && kinds.length ? kinds.flatMap(w => rowsOf(w.sl.loc.kind, w)) : [];
+  if (fresh.length) out.push('-', ...fresh);
+  // Enter takes a name typed whole, or else the one thing that begins with what's typed, as Excel completes it; or a new one where nothing does. Never a near one where there are two: it asks. (Two with that very name, too.)
+  if (words.length) {
+    const found = out.filter(o => o.rank !== undefined), whole = found.filter(o => o.exact && o.of), near = found.filter(o => o.begins && o.of), takes = whole.length === 1 ? whole[0] : !whole.length && near.length === 1 ? near[0] : null, asks = whole.length > 1 || (!whole.length && near.length > 1) || (some && !said && found.length > 0);
+    for (const o of out) if (o.run && o !== takes && (o.rank !== undefined || takes || asks)) o.choose = true;
+  }
   return out;
 }
 // What a relation that keeps its two on one rank joins a box to on the page shown: its spouses.
@@ -752,7 +783,7 @@ function matesOf(id) {
 // Relates a record to another as a list's side, or to a new one (`fresh`, { kind, name }) made with it: a role to choose
 // opens the two-box panel; any other is a change pending, as one ticked there is (App.relating), redlined and asked in
 // its row of the two-box panel, or, for a new one, in the bar; Enter makes it, the new one with it, as one change.
-function joinTo(id, b, w, lb, fresh = null) {
+function joinTo(id, b, w, lb, fresh = null, once = false) {
   // What's added here is left to the view (dendra.md, Views): related to nothing a page draws, the new one is kept off it by the
   // same change (App.keepOff), and the toast says so, with Show.
   let o = null, kept = [];
@@ -762,6 +793,12 @@ function joinTo(id, b, w, lb, fresh = null) {
   const told = { go: () => (offOf() ? ['Put on the chart', () => showHere([o], offOf())] : null) }, saying = () => `${fresh?.name} isn’t on ${offOf()?.name}`;
   const rec = (other, out = { tag: true }) => ({ args: [{ edge: w.sm.edge, at: w.at }, { edge: w.sl.edge, at: other }], ...out });
   const p = T.bare(w.s), first = T.same(N().edges(p)[0], w.sm.edge), here = rowName(id), there = fresh?.name ?? rowName(lb), standIn = { ...recs(), ...(fresh && { '§new': { kind: fresh.kind } }) }, at = lb ?? '§new';
+  // Of a list named as one holds one (a Manager): one there's one of already is asked as a move, As well being a click; a list of many only gains one (dendra.md, Time: Moving).
+  if (!w.s.out?.choice && !once) {
+    const a = N().value('Above', p, Shell.view.peek()), top = a && a !== 'level' && a !== 'none' ? a : N().edges(p)[0], topList = N().listName(p, top), low = T.same(w.sm.edge, top) ? b : id, over = T.same(w.sm.edge, top) ? id : (b ?? fresh);
+    const rank = low && a !== 'level' && a !== 'none' && T.same(T.singular(topList), topList) && App.rankBy(low, over);
+    if (rank && T.same(rank.name, N().name(p)) && App.linesOver(low, rank).length && App.moving([low], over, { alone: () => joinTo(id, b, w, lb, fresh, true) }) !== null) return;
+  }
   // A role to choose goes straight to the kind and the day, in its bar: who's named, so what's left is what they are, and from when.
   if ('choice' in w.s.out) {
     const options = optionsOf(N().fitting(App.schema.value, p));
@@ -774,9 +811,34 @@ function joinTo(id, b, w, lb, fresh = null) {
     return select([id, b]);
   }
   // The new one, related as it's made. What it asks is asked of a stand-in of its kind.
-  const both = fresh.also ? `${here} and ${rowName(fresh.also)}` : here, what = `${N().name(w.s)}: ${first ? `${both} → ${fresh.name}` : `${fresh.name} → ${both}`}`;
-  const made = tx => { const n = make(tx), r = tx.add('record', enterAt(tx, rec(n))); if (fresh.also) tx.add('record', enterAt(tx, { args: [{ edge: w.sm.edge, at: fresh.also }, { edge: w.sl.edge, at: n }], tag: true })); kept = App.keepOff(tx, [n]); return r; };
-  App.relating(rec('§new'), { what, source: `list ${id}`, needs: [id, ...(fresh.also ? [fresh.also] : [])], make: made, ...told, say: c => (offOf() ? saying() : Time.describe(c)) }, standIn);
+  const both = fresh.also ? `${here} and ${rowName(fresh.also)}` : here, what = `${N().name(w.s)}: ${first ? `${both} → ${fresh.name}` : `${fresh.name} → ${both}`}`, w2 = fresh.alsoAs ?? w;
+  const made = tx => { const n = make(tx), r = tx.add('record', enterAt(tx, rec(n))); if (fresh.also) tx.add('record', enterAt(tx, { args: [{ edge: w2.sm.edge, at: fresh.also }, { edge: w2.sl.edge, at: n }], tag: true })); kept = App.keepOff(tx, [n]); return r; };
+  // (Whose it is, said, where there's more than one it could have been.)
+  const ofIt = lower(one(N().listName(p, w.sl.edge))), whose = fresh.also || fresh.alone ? `Added ${fresh.name}, ${article(ofIt)} ${ofIt} of ${here}${fresh.also ? ` and ${rowName(fresh.also)}` : ' alone'}` : null;
+  App.relating(rec('§new'), { what, source: `list ${id}`, needs: [id, ...(fresh.also ? [fresh.also] : [])], make: made, ...told, say: c => (offOf() ? saying() : whose ?? Time.describe(c)) }, standIn);
+}
+// Who stands over these, changed, one change however many (dendra.md, Time: Moving), in the word the relation's list has for who that is: Change manager…, from a box's right-click, from what's
+// selected, or a list's ticked rows. A search of who, one the chart has or a new one named, as a list's + is. `at` is where it opens.
+function changesOf(ids) {
+  const w = ids.length && ids.every(x => recs()[x]?.kind) ? App.rankOver(ids[0]) : null;
+  if (!w || !ids.every(x => T.same(App.rankOver(x)?.name ?? '', w.name))) return [];
+  const word = lower(one(N().listName(T.bare(w.s), w.top)));
+  return [{ label: `Change ${word}…`, run: at => menu(at, q => whoOver(ids, w, q), { search: true, ph: `New ${word}` }) }];
+}
+function whoOver(ids, w, q) {
+  const hi = w.s.args.find(a => T.same(a.edge, w.top)), words = T.norm(q ?? '').split(' ').filter(Boolean), named = T.clean(q ?? ''), rows = [];
+  for (const b of Object.keys(recs())) {
+    if (!recs()[b].kind || T.isView(recs()[b]) || ids.includes(b) || !T.narrower(tree(b), hi.loc) || !App.rankBy(ids[0], b)) continue;
+    const hay = T.norm(`${nameOf(b)} ${shortOf(b)}`);
+    if (!words.every(x => hay.includes(x))) continue;
+    const exact = !!words.length && (T.same(nameOf(b), q) || T.same(shortOf(b), q));
+    rows.push({ label: nameOf(b), detail: recs()[b].kind, exact, begins: !!words.length && words.every(x => hay.split(/\s+/).some(h => h.startsWith(x))), run: () => App.moving(ids, b) });
+  }
+  rows.sort((a, b) => (b.exact ? 1 : 0) - (a.exact ? 1 : 0) || a.label.localeCompare(b.label));
+  const kinds = hi.loc.kind && named ? [hi.loc.kind] : [], whole = rows.filter(o => o.exact), near = rows.filter(o => o.begins), takes = whole.length === 1 ? whole[0] : !whole.length && near.length === 1 ? near[0] : null, asks = whole.length > 1 || (!whole.length && near.length > 1);
+  const fresh = kinds.map(kind => ({ label: `New ${kind}: ${named}`, ...((takes || asks) && { choose: true }), run: () => App.moving(ids, { kind, name: named }) }));
+  for (const o of rows) if (words.length && o !== takes) o.choose = true;
+  return [...rows, ...(fresh.length ? ['-', ...fresh] : [])];
 }
 // A role asked in its bar: "Elena Vasquez is a [ … ] of GP III", its list open at once, picked, the keys go on to the day.
 function RoleFill({ p }) {
@@ -1119,6 +1181,9 @@ function detail(it) {
   const words = [...at.filter(([, e]) => 'choice' in e).map(([, e]) => e.choice), ...at.filter(([, e]) => e.field === 'text').map(([, e]) => e.value)];
   let role = 'choice' in rel ? rel.choice : 'field' in rel ? T.format(rel.field, rel.value) : at.some(([, e]) => 'choice' in e) ? words[0] : null;
   role = (role && words.find(w => w.length > role.length && T.norm(w).startsWith(T.norm(role)))) ?? role;
+  // (One whose end leaves it on the chart, ended: its other side is still there, as former.)
+  const stayed = id => recs()[id]?.field === 'date' && N().stays(tree(id));
+  if (!role && at.some(([id]) => stayed(id))) role = 'Former';
   const figures = at.filter(([id, e]) => 'field' in e && !['text', 'date', 'document'].includes(e.field) && !(fx(id) && e.value === 0)).map(([, e]) => value(e)).filter(Boolean);
   // With no role, its figures stand for one, at the right.
   const figure = !role && figures.length ? figures.join(' · ') : null;
@@ -1126,7 +1191,7 @@ function detail(it) {
     ...further(it).map(a => ({ text: `${lower(a.edge)} ${termOf(a.at)}` })),
     ...words.filter(w => !(role && T.same(w, role))).map(text => ({ text })),
     ...(figure ? [] : figures.map(text => ({ text }))),
-    ...at.filter(([, e]) => e.field === 'date').map(([e, f]) => ({ date: e, text: `${N().isStart(tree(e)) ? 'since' : N().isEnd(tree(e)) ? 'ends' : lower(f.edge)} ${short(f.value)}` }))];
+    ...at.filter(([, e]) => e.field === 'date').map(([e, f]) => ({ date: e, text: `${N().isStart(tree(e)) ? 'since' : N().isEnd(tree(e)) && !stayed(e) ? 'ends' : lower(f.edge)} ${short(f.value)}` }))];
   // When it holds, where it has no date of its own to say so: an ownership's period, or what's at its sides'; a row dates the
   // value it shows ("85% since Dec 20"), so where its figure has held for less than the relation has, from then. What's
   // coming stands beside it ("55% from Feb 1, 2027").
@@ -1298,7 +1363,9 @@ function Relatives({ id }) {
     return bad ? html`${items.length} · <span class="no">${bad} ${bad === 1 ? 'doesn’t' : 'don’t'} hold</span>` : items.length; };
   // Ticked rows of a list end together, on one day, as a change pending; the panel stays on this record.
   const endRows = items => { const ids = items.filter(it => picked.has(it.rid)).map(it => it.rid);
-    return !ids.length || still ? null : html`<button class="btn ghost ends" onClick=${() => { const n = ids.length; App.deleting(ids, n === 1 ? said(ids[0]) : `${n} ${lower(T.plural(nameOf(ids[0])))}`, { source: 'inspector', auto: true, done: () => { ticked.value = new Set(); } }); }}>${App.deleteVerb(ids)} ${ids.length > 1 ? 'these' : 'this'}…</button>`; };
+    // (Those who stand under this one can go to another together, too.)
+    const under = items.filter(it => picked.has(it.rid)), rank = under.length && App.rankOver(under[0].obj), changes = rank && under.every(it => T.same(it.mine, rank.top)) ? changesOf(under.map(it => it.obj)) : [];
+    return !ids.length || still ? null : html`${changes.map(c => html`<button class="btn ghost ends" onClick=${e => c.run(e.currentTarget)}>${c.label}</button>`)}<button class="btn ghost ends" onClick=${() => { const n = ids.length; App.deleting(ids, n === 1 ? said(ids[0]) : `${n} ${lower(T.plural(nameOf(ids[0])))}`, { source: 'inspector', auto: true, done: () => { ticked.value = new Set(); } }); }}>${App.deleteVerb(ids)} ${ids.length > 1 ? 'these' : 'this'}…</button>`; };
   const adds = (name, items) => items[0]?.rest.length || worked(items) ? null : plus(`Add to ${name}`, e => add(e, name));
   // Those a check fails at after those that hold, so a list never leads with the one that doesn't (Okafor's signing).
   const holdingFirst = items => { const bad = it => entriesAt(it.rid).some(e => recs()[e].tag === false && failed(e)); return [...items.filter(it => !bad(it)), ...items.filter(bad)]; };
@@ -1457,7 +1524,8 @@ function moreOf(id, o = {}) {
     [...(App.isDated.value && App.transferable(id) ? [{ label: 'Transfer…', disabled: still, run: () => App.transferring(id) }] : []),
       ...(App.interposable(id) ? [{ label: App.interposeWord(id), disabled: still, run: () => App.interposing(id) }] : []),
       ...(App.endsOf(id).some(e => e.rel) ? [{ label: 'Merge into…', disabled: still, run: () => App.merging(id) }] : []),
-      { label: App.deleteLabel([id]), danger: true, disabled: still, run: () => remove(id, asked) },
+      // (Said as what it is, End… or Divorce…, it opens on that: the mistake is its own row, below.)
+      { label: App.deleteLabel([id]), danger: true, disabled: still, run: () => remove(id, { ...asked, meant: true }) },
       // What the word for an act hides, offered plainly: a mistake is taken back as never held.
       ...(App.endOf(id) !== false ? [{ label: App.mistakeLabel(), danger: true, disabled: still, run: () => { remove(id, asked); App.neverHeld(); } }] : [])],
   ];
@@ -2146,14 +2214,18 @@ function CoupleView({ x, rel }) {
   const r = recs(), n = N(), view = Shell.view.value, still = App.readOnly.value;
   const [p, q] = r[rel]?.args?.map(a => objectOf(a.at)) ?? [], form = naming.value?.a === rel && naming.value.b === x ? naming.value : null;
   const name = id => html`<${Go} to=${id}>${bound(nameOf(id))}</${Go}>`;
-  const rows = !r[x] || !p || !q ? [] : Object.values(App.schema.value).filter(s => s.args?.length === 2 && 'tag' in s.out && !n.resolve('Formula', T.bare(s)) && n.value('Above', T.bare(s), view) !== 'level').flatMap(s => s.args.flatMap(sm => {
+  const ways = !r[x] || !p || !q ? [] : Object.values(App.schema.value).filter(s => s.args?.length === 2 && 'tag' in s.out && !n.resolve('Formula', T.bare(s)) && n.value('Above', T.bare(s), view) !== 'level').flatMap(s => s.args.flatMap(sm => {
     const sl = s.args.find(a => a !== sm), above = n.value('Above', T.bare(s), view) ?? n.edges(T.bare(s))[0];
     return T.same(above, sm.edge) && [p, q].every(y => T.narrower(tree(y), sm.loc)) && T.narrower(tree(x), sl.loc) ? [{ s, sm, sl, key: T.key(T.bare(s)) }] : [];
   }));
-  const holding = (row, y) => (T.index(r).relations.get(y) ?? []).find(id => r[id].tag === true && r[id].args.some(a => T.same(a.edge, row.sm.edge) && a.at === y) && r[id].args.some(a => T.same(a.edge, row.sl.edge) && a.at === x));
+  const listOf = w => T.norm(n.listName(T.bare(w.s), w.sl.edge));
+  // (Two relations read as one list, a Mother Of and a Father Of: each of the two is one of them, and a tick says which. One alone, it's the same of both.)
+  const rows = ways.flatMap(w => { const others = ways.filter(y => y !== w && listOf(y) === listOf(w)); return others.length ? others.map(y => ({ ...w, also: y, key: `${w.key}|${y.key}` })) : [w]; });
+  const wayOf = (row, y) => (y === q && row.also) || row;
+  const holding = (row, y) => (T.index(r).relations.get(y) ?? []).find(id => r[id].tag === true && r[id].args.some(a => T.same(a.edge, wayOf(row, y).sm.edge) && a.at === y) && r[id].args.some(a => T.same(a.edge, wayOf(row, y).sl.edge) && a.at === x) && T.same(nameOf(id), n.name(T.bare(wayOf(row, y).s))));
   // (What it is of the two, as the list of them names it, as Thomas Whitfield is a child of Arthur and Mary; a side named only by which end it is, linked to.)
-  const words = row => { const list = T.singular(n.listName(T.bare(row.s), row.sm.edge)), named = /^(from|to)$/i.test(row.sl.edge) ? row.s && n.name(T.bare(row.s)) : T.same(list, row.sm.edge) ? row.sl.edge : list; return `${bound(shortOf(x))} ${/^(from|to)$/i.test(row.sl.edge) ? `is linked to` : `is ${article(named)} ${lower(named)} of`} ${bound(shortOf(p))} and ${bound(shortOf(q))}`; };
-  const join = row => { const toAdd = [p, q].filter(y => !holding(row, y)), rec = y => ({ args: [{ edge: row.sm.edge, at: y }, { edge: row.sl.edge, at: x }], tag: true });
+  const words = row => { const list = T.singular(n.listName(T.bare(row.s), row.sm.edge)), named = /^(from|to)$/i.test(row.sl.edge) ? row.s && n.name(T.bare(row.s)) : T.same(list, row.sm.edge) ? row.sl.edge : list; return row.also ? `${bound(shortOf(p))} the ${lower(row.sm.edge)} and ${bound(shortOf(q))} the ${lower(row.also.sm.edge)} of ${bound(shortOf(x))}` : `${bound(shortOf(x))} ${/^(from|to)$/i.test(row.sl.edge) ? `is linked to` : `is ${article(named)} ${lower(named)} of`} ${bound(shortOf(p))} and ${bound(shortOf(q))}`; };
+  const join = row => { const toAdd = [p, q].filter(y => !holding(row, y)), rec = y => ({ args: [{ edge: wayOf(row, y).sm.edge, at: y }, { edge: wayOf(row, y).sl.edge, at: x }], tag: true });
     if (!toAdd.length) return;
     App.relating(rec(toAdd[0]), { what: `${n.name(T.bare(row.s))}: ${shortOf(p)} and ${shortOf(q)} → ${shortOf(x)}`, source: `couple ${rel} ${x}`, needs: [p, q, x], make: tx => { const made = toAdd.map(y => tx.add('record', enterAt(tx, rec(y)))); return made[0]; }, say: words(row), done: () => select([x]) }); };
   const open = rows.filter(row => !holding(row, p) || !holding(row, q));
@@ -2409,7 +2481,8 @@ function Many({ ids }) {
   const box = useRef();
   useLayoutEffect(() => { const a = document.activeElement; if (Shell.keyed() && (!a || a === document.body || !a.isConnected || a.closest('.insp'))) box.current?.querySelector('.row')?.focus({ preventScroll: true }); }, []);
   return html`<div class="insp"><${Head} title=${`${n} selected`} /><div class="rows" ref=${box} data-list=":scope > .row">
-    ${ids.filter(x => recs()[x]).map(x => html`<div class="row" key=${x} tabindex="-1" data-why=${x} onKeyDown=${e => { if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation(); goTo(x); } }}><div class="k wide"><${Go} to=${x}>${recs()[x].args ? html`${nameOf(x)} · ${segment(x)}` : bound(nameOf(objectOf(x)))}</${Go}></div></div>`)}</div></div>`;
+    ${ids.filter(x => recs()[x]).map(x => html`<div class="row" key=${x} tabindex="-1" data-why=${x} onKeyDown=${e => { if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation(); goTo(x); } }}><div class="k wide"><${Go} to=${x}>${recs()[x].args ? html`${nameOf(x)} · ${segment(x)}` : bound(nameOf(objectOf(x)))}</${Go}></div></div>`)}</div>
+    ${App.readOnly.value ? null : changesOf(ids).map(c => html`<div class="relate"><div class="rr new"><button class="btn ghost add-entry" onClick=${e => c.run(e.currentTarget)}>${c.label}</button></div></div>`)}</div>`;
 }
 
 // Each new selection is shown from the panel's top, as a new page is, but where a row is aimed at (RecordView), which
@@ -2541,7 +2614,7 @@ function drawnLists(id) {
   return (some.length ? some : lists.filter(l => l.ways.some(drawn))).sort((a, b) => a.ways[0].s.args.indexOf(a.ways[0].sl) - b.ways[0].s.args.indexOf(b.ways[0].sl));
 }
 const addsOf = id => drawnLists(id).map(l => ({ label: `Add ${one(l.name).toLowerCase()}…`, run: at => addTo(at, id, l) }));
-Shell.register('inspector', { addTo: addToList, adds: addsOf, renameLine: renameOfLine, ending: rid => remove(rid, { auto: true }), ask: into => { Shell.showPanel?.(); aim.value = 'merged'; select([into]); }, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
+Shell.register('inspector', { addTo: addToList, adds: addsOf, changes: changesOf, renameLine: renameOfLine, ending: rid => remove(rid, { auto: true }), ask: into => { Shell.showPanel?.(); aim.value = 'merged'; select([into]); }, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
 Shell.register('attention', { items: () => attention.value, within: days => App.needsWithin(days).filter(a => a.kind === 'soon').map(attending),
   apart: () => App.blanksApart.value.map(b => ({ ...attending({ kind: 'blank', id: b.id, edge: b.edge }), ...(b.list && { go: () => { aim.value = 'list:' + b.edge; select([b.id]); } }), apart: b.ours ? 'optional' : 'ours', list: !!b.list, say: () => App.sayNotOurs(b.id, b.edge, b.ours) })) });
 // What the panel's ⋯ changes, for Find, of the one record selected: Transfer… (by the words a sale goes by) and Delete…,

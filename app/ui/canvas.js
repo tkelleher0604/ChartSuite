@@ -1005,7 +1005,10 @@ function mount(el) {
     const along = [...found].sort(), boxes = new Set(was.map(k => scene.byId.get(keyParts(k)[0])).filter(m => m?.type === 'box').map(m => m.id));
     const mine = along.filter(id => { const l = scene.byId.get(id); return boxes.has(l?.from) || boxes.has(l?.to); });
     if (mine.length === 1) { lastRun = { p, along, i: along.indexOf(mine[0]) + 1 }; return mine; }
-    const again = lastRun && same(lastRun.along, along) && Math.hypot(lastRun.p[0] - p[0], lastRun.p[1] - p[1]) * graph.zoom() < 6, i = again ? (lastRun.i + 1) % (along.length + 1) : 0;
+    const again = lastRun && same(lastRun.along, along) && Math.hypot(lastRun.p[0] - p[0], lastRun.p[1] - p[1]) * graph.zoom() < 6, side = along.filter(id => scene.byId.get(id)?.level);
+    // (Along a marriage, it's the marriage that's meant, what ends it and adds to it being there; a child's lines that run along it a click on.)
+    if (!again && side.length === 1) { lastRun = { p, along, i: along.indexOf(side[0]) + 1 }; return side; }
+    const i = again ? (lastRun.i + 1) % (along.length + 1) : 0;
     lastRun = { p, along, i };
     return i ? [along[i - 1]] : along;
   }
@@ -1347,18 +1350,23 @@ function mount(el) {
   }
   // A text box dragged over a box: the box lit, with all the pen reaches, so it's plain it would join them. (While a design is edited, a text box is a part, and stands where it's put.)
   const textBoxOf = node => { const m = node.getData()?.kind === 'shape' && !designing && !still() ? scene.byId.get(node.id) : null; return m?.geometry === 'text' && !m.role && !m.locked && sel.getSelectedCells().length <= 1 && rowOf(m.id)?.text?.trim() ? m : null; };
-  const boxAtPointer = e => { if (!e) return null; const p = graph.clientToLocal(e.clientX, e.clientY); return [...scene.marks].reverse().find(b => b.type === 'box' && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) ?? null; };
+  const boxAtPointer = (e, but = []) => { if (!e) return null; const p = graph.clientToLocal(e.clientX, e.clientY); return [...scene.marks].reverse().find(b => b.type === 'box' && !but.includes(b) && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) ?? null; };
+  // A box dragged onto one it could stand under, by a relation that ranks the two, a report onto a manager, that one lit: let go, it asks, for all that's selected (App.moving).
+  const dragged = node => (sel.isSelected(node) ? sel.getSelectedCells().map(c => scene.byId.get(c.id)) : [scene.byId.get(node.id)]).filter(m => m?.type === 'box');
+  const moveOnto = (node, e) => { if (node.getData()?.kind !== 'box' || designing || still()) return null; const from = dragged(node), b = boxAtPointer(e, from); return b && App.movable(from.map(m => m.record), b.record) ? b : null; };
   function joinCue(node, e) {
-    const b = textBoxOf(node) && boxAtPointer(e);
+    const text = textBoxOf(node), b = text ? boxAtPointer(e) : moveOnto(node, e);
     if ((b?.id ?? null) === dropOn) return;
     dropOn = b?.id ?? null;
-    const s = b && scoped(b);
-    cue(b ? (s.own ? [b.id] : [...s.marks]) : null);
+    const s = b && text && scoped(b);
+    cue(b ? (s && !s.own ? [...s.marks] : [b.id]) : null);
     paintFields();
   }
   function joining(node, e) {
-    const m = textBoxOf(node), b = m && boxAtPointer(e);
+    const m = textBoxOf(node), b = m && boxAtPointer(e), onto = !m && moveOnto(node, e);
     if (dropOn) { dropOn = null; cue(null); paintFields(); }
+    // (Back where they were till that's made, or discarded.)
+    if (onto) { const from = dragged(node); quietly(() => from.forEach(f => graph.getCellById(f.id)?.setPosition(f.x, f.y))); showHandles(null); grips(); App.moving(from.map(f => f.record), onto.record); return true; }
     if (!b) return false;
     const p = node.getPosition();
     // (Back where it was till that's made, so nothing's left hanging over the box; and the box it joined selected.)
@@ -2528,7 +2536,7 @@ function mount(el) {
     const free = ms.filter(m => m.type === 'shape' && m.geometry !== 'legend' && !m.role), pictured = one?.geometry === 'picture';
     // About a dozen rows, in one order on everything: what it says; what it's made of and related to; the clipboard; how it looks, and all else (More); and what takes it away, last, so nothing goes by a slip. A row that isn't for this thing isn't there; the rest keep their order.
     // (What a structure chart is made of: its owner and its holding, or what else its first lists call them, as a list's + asks; many, one row.)
-    const adds = one?.type === 'box' && !ro ? addsOf(one) : [];
+    const adds = [...(one?.type === 'box' && !ro ? addsOf(one) : []), ...(ms.length && !ro && ms.every(m => m.type === 'box') ? (Shell.parts.peek().inspector?.changes?.(ms.map(m => m.record)) ?? []).map(x => ({ label: x.label, run: () => { const g = graph.localToClient(ms[0].x + ms[0].w / 2, ms[0].y + ms[0].h); x.run({ x: g.x, y: g.y + 4 }); } })) : [])];
     // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line.
     const deals = one?.type === 'box' ? [...(App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []), ...stakeItems(one)] : [];
     const more = [

@@ -762,7 +762,10 @@ const Time = (() => {
       const whose = sides[0].text, tax = said(all, r.at, N)[0].replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
       return `${act[1]} ${/\)$/.test(whose) ? `the ${tax} of ${whose}` : `${whose}${whose.endsWith('s') ? '’' : '’s'} ${tax}`} for ${sides[1].text} on ${short(r.value)}`;
     }
-    if (!i.was.length) return end ? `${(Tree.isObject(all[r.at]) && act?.[1]) || 'Ended'} ${itOf(r.at, said(all, r.at, N))} on ${short(r.value)}`
+    // (An end that leaves it on the chart, said as what it is, of who it's between; and a year's or a month's is in it, not on it.)
+    const stayed = end && N.stays(Tree.treeOf(all, i.id)), inOn = /^\d{4}(-\d{2})?$/.test(String(r.value)) ? 'in' : 'on';
+    if (!i.was.length && stayed && act && all[r.at]?.args) return `${act[1]} ${N.placed(all, r.at).map(s => s.text).join(' and ')} ${inOn} ${short(r.value)}`;
+    if (!i.was.length) return end ? `${(Tree.isObject(all[r.at]) && act?.[1]) || 'Ended'} ${itOf(r.at, said(all, r.at, N))} ${inOn} ${short(r.value)}`
       : Tree.isObject(r) || fact ? `${added} ${it}${fact ? when : ''}` : 'tag' in r ? `${verdict} ${it}` : r.args || back ? `${added} ${it}${when}`
       : `${own ? `${whose()} was set` : `Set ${it}`} to ${valueText(r)}${day(r.since !== r.value && r.since)}`;
     if (!i.now.length) return Tree.isObject(r) || r.args ? `Deleted ${it}${back || Tree.isView(r) || !App.isDated.peek() ? '' : ' as never held'}` : ruled ? `Back to the rule: ${it}, as never typed over` : `Cleared ${it}`;

@@ -10,9 +10,10 @@ Templates.register({
     t.undated();
     t.note('Order', person, { by: 'Born' });
     const parent = t.relation('Parent Of', ['Parent', 'Child'], { kinds: [['Person', 'Person']], lists: { Parent: 'Parents', Child: 'Children' } });
-    const married = t.relation('Married To', ['Spouse', 'Partner'], { kinds: [['Person', 'Person']], lists: { Spouse: 'Spouses', Partner: 'Spouses' }, at: { Married: 'date', Ended: 'date' }, above: 'level' });
+    // (A divorce doesn't take a marriage off a family's tree: its line stays, drawn as ended, and each still has the other, as former.)
+    const married = t.relation('Married To', ['Spouse', 'Partner'], { kinds: [['Person', 'Person']], lists: { Spouse: 'Spouses', Partner: 'Spouses' }, at: { Married: 'date', Divorced: 'date' }, above: 'level' });
     t.starts('Married', married, { verb: 'Marry', done: 'Married' });
-    t.ends('Ended', married, { verb: 'End', done: 'Ended' });
+    t.ends('Divorced', married, { verb: 'Divorce', done: 'Divorced', stays: true });
 
     t.page('tree', 'Family Tree', 1, { title: { format: { Bold: false, Color: '#3d2f1f' } }, date: false, key: false });
     t.shown('tree', field('Name'), { Bold: true, Color: '#2b241b' });
@@ -28,6 +29,8 @@ Templates.register({
     t.style('tree', { out: { tag: true }, ...married }, 'Married to', { Outline: '#7a6a52', Weight: 1.5 });
     t.note('Shown', { out: { tag: true }, ...married }, true, { view: 'tree' });
     t.note('Format', { out: { tag: true }, ...married }, 'none', { view: 'tree' });
+    t.style('tree', { out: { field: 'date' }, ...t.entry('Divorced', married) }, 'Divorced', { Dash: 'dashed' });
+    t.shown('tree', { out: { field: 'date' }, ...t.entry('Divorced', married) }, { Format: 'label', Color: '#6b6256' });
     t.table('people', 'People', 2, person);
   }),
   example: {

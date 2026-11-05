@@ -930,6 +930,20 @@ const App = (() => {
     else if (c) { p.done?.(c); after(p); }
     return c;
   }
+  // A field made by hand, on the chart's hands alone: no record has it but `id`, and neither a template nor a rule says anything of it. → its specifications, or null.
+  function handMade(edge, id) {
+    const c = chart.peek(), rows = book.peek().rows(c), begun = book.peek().changes().find(y => y.chart === c);
+    if (rows.some(x => 'record' in x && x.record !== id && Tree.same(x.edge ?? '', edge))) return null;
+    const of = x => Tree.same(x.pattern?.args?.[0]?.edge ?? '', edge), specs = rows.filter(x => 'spec' in x && x.tree?.args?.length === 1 && Tree.same(x.tree.args[0].edge, edge));
+    return !specs.length || specs.some(x => begun?.adds.some(a => a.id === x.id)) || rows.some(x => 'note' in x && ((of(x) && ['Required', 'Check', 'Formula', 'Start', 'End'].includes(x.label)) || (x.label === 'Formula' && JSON.stringify(x.value).toLowerCase().includes(edge.toLowerCase())))) ? null : specs;
+  }
+  // It goes, what's said of its look with it: deleted means gone, and it stops being asked. (A template's or a rule's stays: it's the chart's.)
+  function unmakeField(tx, edge, specs) { if (!specs) return; specs.forEach(x => tx.remove(x.spec)); book.peek().rows(chart.peek()).filter(x => 'note' in x && Tree.same(x.pattern?.args?.[0]?.edge ?? '', edge)).forEach(x => tx.remove(x.note)); }
+  // Words typed in a figure or a date made by hand and nowhere else yet: it's words.
+  function asWords(id, slot, text) {
+    const r = id ? state.peek()[id] : slot, edge = r.edge, at = r.at, specs = handMade(edge, id), t = at && Tree.treeOf(state.peek(), at);
+    return change(tx => { (specs ?? []).forEach(x => tx.remove(x.spec)); tx.add('spec', { tree: { out: { field: 'text' }, args: [{ edge, loc: Tree.specOf(t) }] } }); if (id) tx.set(id, { at, edge, field: 'text', value: text }); else tx.add('record', { at, edge, field: 'text', value: text }); }, { dated: false, say: `Set ${edge} to ${text}` });
+  }
   // Deleting records, as a change pending: each ended as endOf says. A record an end entry ends is given it, the day
   // asked, recorded from the day shown as one typed in the inspector is, so the record says, before that day, when it
   // ends; any other object or relation ends on the day asked, with all that's at it; and never held, each is deleted as
@@ -947,6 +961,8 @@ const App = (() => {
     // One of a kind with more than one end says which (Dissolution Date, Merger Date), by its menu. An end named for a relation
     // of what it ends (a merger) asks that relation's other side too, in its bar, and makes it.
     const others = ids.length === 1 && typeof ends[0] === 'string' ? endsOf(ids[0], recs) : [];
+    // A field made by hand, taken from the last record that has it, goes with it: deleted means gone, and it stops being asked. (Not one a template or a rule says anything of, which is the chart's.)
+    const forget = tx => { for (const id of ids) { const edge = recs[id]?.edge; if (edge && endOf(id, recs) === false) unmakeField(tx, edge, handMade(edge, id)); } };
     const alts = others.length > 1 ? p => others.map(m => ({ label: m.say, checked: p.word === m.edge, run: () => amend(p, { word: m.edge, act: actOf(m.edge)?.[0] ?? p.verb, merge: m.rel ? { rel: m.rel, to: pending.peek()?.merge?.to ?? null } : null, Fill: m.rel ? Merging : null }) })) : null;
     // Merged, its toast asks what those holders received, and the survivor's panel goes on asking.
     let into = null;
@@ -954,12 +970,16 @@ const App = (() => {
     // (Who it leaves, said: who takes them, or that they've no manager now, each with its + in the panel.)
     let taker = null;
     const leaves = c => { const N = notes.peek(), names = under.boxes.map(x => bind(N.shortOf(recs, x))), them = names.length > 2 ? `${names.length} ${Tree.plural(lowered(under.low))}` : names.join(' and '); return `${Time.describe(c)}; ${taker ? `${bind(N.shortOf(recs, taker))} takes ${them}` : `${them} ${names.length > 1 ? 'have' : 'has'} no ${lowered(under.word)}`}`; };
-    stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : under ? leaves(c) : Time.describe(c), ...o, alts, ready: p => !p.merge || p.day === null || !!p.merge.to,
-      ...(asks && { asks: 'until', day: ids.every(aSlip) ? null : day.peek(), word: words.length === 1 && ends.every(e => e === words[0] || e === false) ? words[0] : true }),
+    // (What stays on the chart as it ends isn't struck out: it isn't going.)
+    const stays = ids.length === 1 && typeof ends[0] === 'string' && notes.peek().stays({ out: { field: 'date' }, args: [{ edge: ends[0], loc: Tree.treeOf(recs, ids[0]) }] });
+    stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : under ? leaves(c) : Time.describe(c), ...o, alts, ...(stays && { parts: [html`<span class="add">${what}</span>`] }), ready: p => !p.merge || p.day === null || !!p.merge.to,
+      // (A Delete pressed on what was only just made opens on its being a mistake; asked for by the word for it, End… or Divorce…, on that.)
+      ...(asks && { asks: 'until', day: ids.every(aSlip) && !o.meant ? null : day.peek(), word: words.length === 1 && ends.every(e => e === words[0] || e === false) ? words[0] : true }),
       ...(under && { heirs: { ...under, to: null } }),
       go: () => (into && stakesAt(ids[0], recs).some(s => s.held) ? ['What did its holders receive?', () => Shell.parts.peek().inspector?.ask?.(into)] : null),
       make: (tx, d, p) => {
         ids.forEach((id, i) => end(tx, d, id, typeof p?.word === 'string' && others.length > 1 ? p.word : ends[i]));
+        forget(tx);
         p?.too?.forEach(id => end(tx, d, id, endOf(id)));
         into = null;
         if (d && p?.merge?.to) { tx.add('record', { args: [{ edge: p.merge.rel.edges[0], at: ids[0] }, { edge: p.merge.rel.edges[1], at: p.merge.to.at }], tag: true }); into = p.merge.to.at; }
@@ -1244,6 +1264,68 @@ const App = (() => {
       make: (tx, d) => { made = transfer(tx, rid, { to: { at: b }, part: null, other: true }, d); }, say: () => `Re-pointed ${what}: ${N.segmentOf(recs, rid)}, to ${name(b)}`,
       done: () => { if (made && state.peek()[made]) Shell.select([made]); } });
     Shell.showPanel?.();
+  }
+  // Moving (dendra.md, Time): in a chart that says no figures, a relation its page draws ranking its boxes (Reports To, Parent Of), by which `box` could stand under `over`, a record or
+  // a new one's kind. Of several, the one it stands under already, then the one that's on top by already. → { s, top, low, name } or null.
+  const figureless = () => !Object.values(schema.peek()).some(s => s.args?.length === 1 && s.out?.field === 'percent' && s.args[0].loc.args);
+  const linesOver = (x, w, recs = state.peek()) => (Tree.index(recs).relations.get(x) ?? []).filter(rid => recs[rid].tag === true && recs[rid].args?.length === 2 && !result.peek().computed[rid] && Tree.same(notes.peek().nameOf(recs, rid), w.name) && recs[rid].args.find(a => Tree.same(a.edge, w.low))?.at === x);
+  const topOf = (rid, w, recs = state.peek()) => Tree.objectOf(recs, recs[rid].args.find(a => Tree.same(a.edge, w.top)).at);
+  function rankBy(box, over, recs = state.peek()) {
+    const N = notes.peek(), view = Shell.view.peek(), tb = Tree.treeOf(recs, box), to = typeof over === 'string' ? Tree.treeOf(recs, over) : { kind: over.kind };
+    if (!tb || !to || !figureless()) return null;
+    const ways = [];
+    for (const s of Object.values(schema.peek())) {
+      if (s.args?.length !== 2 || !('tag' in s.out) || N.resolve('Formula', Tree.bare(s))) continue;
+      const p = Tree.bare(s), a = N.value('Above', p, view);
+      if (a === 'none' || a === 'level' || N.value('Shown', s, view) !== true) continue;
+      const top = a ?? N.edges(p)[0], hi = s.args.find(x => Tree.same(x.edge, top)), lo = s.args.find(x => x !== hi);
+      if (hi && lo && Tree.narrower(to, hi.loc) && Tree.narrower(tb, lo.loc) && !ways.some(w => Tree.same(w.name, N.name(p)))) ways.push({ s, top: hi.edge, low: lo.edge, name: N.name(p) });
+    }
+    const held = w => (linesOver(box, w, recs).length ? 0 : 1), onTop = w => (typeof over === 'string' && (Tree.index(recs).relations.get(over) ?? []).some(rid => Tree.same(N.nameOf(recs, rid), w.name) && recs[rid].args.find(a => Tree.same(a.edge, w.top))?.at === over) ? 0 : 1);
+    return ways.sort((a, b) => held(a) - held(b) || onTop(a) - onTop(b))[0] ?? null;
+  }
+  // Whether every one of these can be moved under that one.
+  const movable = (boxes, over) => boxes.length > 0 && !boxes.includes(over) && boxes.every(x => !!rankBy(x, over));
+  // What a box stands under by such a relation, if anything: the way, as rankBy says it, whatever's on top. → { s, top, low, name } or null.
+  function rankOver(box, recs = state.peek()) {
+    const N = notes.peek(), view = Shell.view.peek();
+    if (!figureless()) return null;
+    const rid = (Tree.index(recs).relations.get(box) ?? []).find(x => { const r = recs[x]; if (r.tag !== true || r.args?.length !== 2 || result.peek().computed[x]) return false; const p = Tree.bare(Tree.treeOf(recs, x)), a = N.value('Above', p, view); return a !== 'none' && a !== 'level' && !Tree.same(a ?? N.edges(p)[0], r.args.find(y => y.at === box)?.edge ?? '') && !!Object.values(schema.peek()).find(s => s.args?.length === 2 && Tree.same(N.name(Tree.bare(s)), N.name(p)) && N.value('Shown', s, view) === true); });
+    if (!rid) return null;
+    const p = Tree.bare(Tree.treeOf(recs, rid)), a = N.value('Above', p, view), top = a ?? N.edges(p)[0];
+    return { s: Tree.specOf(Tree.treeOf(recs, rid)), top, low: recs[rid].args.find(y => !Tree.same(y.edge, top)).edge, name: N.name(p) };
+  }
+  // How one under it is said, as a question to it: Report to, Child of.
+  function rankWord(w) {
+    const p = Tree.bare(w.s), N = notes.peek(), up = t => t.replace(/^./, c => c.toUpperCase()), [a, words] = typeof FormulaBar !== 'undefined' ? FormulaBar.phrase(p, w.low, w.top) : [null, ''];
+    const noun = /^ is (?:an? )?(.*) $/.exec(words);
+    if (Tree.same(a ?? '', w.low) && words && !noun) { const [verb, ...rest] = words.trim().split(' '); return up([Tree.singular(verb), ...rest].join(' ')); }
+    if (Tree.same(a ?? '', w.low) && noun && !/^(linked to)$/.test(noun[1])) return up(noun[1]);
+    return `${up(lowered(Tree.singular(N.listName(p, w.low))))} of`;
+  }
+  // Moved under another: one change, a question in its bar and its redline, whoever's moved and however many: each one's lines of that relation end (on the day, where the
+  // chart keeps them), and it has the one, a new one made with it. `alone`, what As well does, where a person could mean a second as well as another (a list's +).
+  function moving(boxes, over, o = {}) {
+    const recs = state.peek(), N = notes.peek(), name = x => bind(N.shortOf(recs, x)), fresh = typeof over === 'string' ? null : over, to = fresh ? fresh.name : name(over);
+    const moves = [...new Set(boxes)].filter(x => x !== over && recs[x]?.kind).map(x => ({ x, w: rankBy(x, over) })).filter(m => m.w).map(m => ({ ...m, olds: linesOver(m.x, m.w) }));
+    if (!moves.length) return null;
+    // (Nobody's under what's under them.)
+    const upFrom = m => { const seen = new Set(), walk = [over]; while (walk.length) { const y = walk.pop(); if (typeof y !== 'string' || seen.has(y)) continue; seen.add(y); walk.push(...linesOver(y, m.w).map(rid => topOf(rid, m.w))); } return seen; };
+    const loop = moves.find(m => upFrom(m).has(m.x));
+    if (loop) { Shell.toast(`${to} stands under ${name(loop.x)}: nothing changed`, { ms: 4000 }); return false; }
+    const todo = moves.filter(m => !m.olds.some(rid => topOf(rid, m.w) === over));
+    if (!todo.length) { Shell.toast(`${moves.length > 1 ? `All ${moves.length} are` : `${name(moves[0].x)} is`} there already: nothing changed`, { ms: 3000 }); return false; }
+    const w = todo[0].w, list = xs => (xs.length > 2 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs.join(' and '));
+    const who = todo.length > 3 ? `${todo.length} ${Tree.plural(lowered(Tree.singular(N.listName(Tree.bare(w.s), w.low))))}` : list(todo.map(m => name(m.x))), from = [...new Set(todo.flatMap(m => m.olds.map(rid => name(topOf(rid, m.w)))))];
+    const asked = `${rankWord(w)} ${to}${from.length ? ` instead of ${list(from)}` : ''}?`, says = `Moved ${who} to ${to}`;
+    stage({ verb: 'Change', act: from.length ? 'Move' : 'Add', what: `${who} to ${to}`, parts: [html`<span class="add">${who}: ${asked}</span>`], source: `move ${todo.map(m => m.x).join()}`, needs: [...todo.map(m => m.x), ...(fresh ? [] : [over]), ...todo.flatMap(m => m.olds)], asking: true, ...(isDated.peek() && { asks: 'on', day: day.peek() }),
+      ...(o.alone && from.length && { instead: { label: 'As well', run: () => { discard({ quiet: true }); o.alone(); } } }),
+      make: (tx, d) => {
+        const b = !fresh ? over : (y => { tx.add('record', { at: y, edge: 'Name', field: 'text', value: fresh.name }); return y; })(tx.add('record', { kind: fresh.kind }));
+        for (const m of todo) { m.olds.forEach(rid => tx.remove(rid, d || undefined)); tx.add('record', enterAt(tx, { args: [{ edge: m.w.low, at: m.x }, { edge: m.w.top, at: b }], tag: true, ...(d && { since: d }) })); }
+        tx.says(says);
+      }, say: says, done: () => Shell.select(todo.map(m => m.x)) });
+    return true;
   }
   // The ways a relation of two sides can run, of the sides `tr` reads it by, whatever's at them.
   function waysOf(rid, recs, tr) {
@@ -2130,7 +2212,7 @@ const App = (() => {
 
   return {
     get wb() { return book.value; },
-    chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs,
+    chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs, moving, movable, rankBy, rankOver, linesOver, handMade, asWords,
     mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, isDated, deleteLabel, mistakeLabel, bookName, lineNamed, nameLine, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken, sandbox, sandboxBegun, unsandbox,
   };
