@@ -20,6 +20,9 @@
   --t13: 13px/20px var(--sans);
   --t15: 600 15px/20px var(--sans);
   --t22: 600 22px/28px var(--sans);
+  /* One heading scale, in the panel: a section's, above its rows; under it, what's within it (a style's name, where a look comes from); rows are 13 regular, so a heading always outranks them. */
+  --th: 600 13px/20px var(--sans);
+  --th2: 500 13px/20px var(--sans);
   --row: 28px;              /* every control and row */
   --bar: 40px;              /* the title bar */
   --foot: 32px;             /* the sheet tabs and the status bar */
@@ -31,6 +34,7 @@
   --calm: 200ms;            /* panels and view changes */
 
   --paper: #f7f6f3; --surface: #ffffff; --side: #efeee9; --page: #ffffff;
+  --well: #ffffff;          /* what a drawing of the page's sits on, in a menu, a gallery or the panel: the page, or in dark a quieter one, so nothing's a glaring island and its colors stay true */
   --ink: #1b1e1d; --ink-2: #4f5451; --ink-3: #616662;
   --off: #838783;           /* what can't be pressed now: quieter than any text, and still 3:1 or more, so it can be told from nothing */
   --rule: #e4e2dc; --rule-2: #cdcac2; --edge: #808580;   /* edge: a field's or a box's border at rest */
@@ -48,6 +52,7 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --paper: #131514; --surface: #171a19; --side: #1d211f;
+  --well: #d5d4cf;
   --ink: #e6e4df; --ink-2: #a3a6a1; --ink-3: #8f948f;
   --off: #737874;
   --rule: #272b29; --rule-2: #373c39; --edge: #6b716d;
@@ -75,6 +80,8 @@ body { margin: 0; background: var(--paper); color: var(--ink); font: var(--t13);
 /* Focus: one ring, for the keys, everywhere, fields included; inside the edge of what fills a region. The window goes by the hand
    last used (data-hand, the shell's): what a mouse gave focus to has no ring, however it got it, but a field being typed in. */
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* (On a field, over its own edge, so it's one ring and not two.) */
+:where(input, textarea, select):focus-visible { outline-offset: -1px; }
 :focus:not(:focus-visible) { outline: none; }
 [data-region]:focus-visible, .view > .host > :focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 html[data-hand="mouse"] :focus-visible:not(input, textarea, select, [contenteditable]) { outline: none !important; }
@@ -114,10 +121,11 @@ kbd { font: var(--t12); color: var(--ink-3); }
 .btn.ghost { border-color: transparent; background: transparent; }
 .btn.icon { width: var(--row); padding: 0; border-color: transparent; background: transparent; color: var(--ink-2); }
 .btn.icon:hover:not(:disabled, [aria-disabled="true"]) { color: var(--ink); }
+.btn.dd { gap: 4px; }
 .btn.dd::after, .dd::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; flex: none; }
 /* One state language (dendra.md, Part 3, States): on is the selection's tint and the accent's ink, everywhere; open, the press's wash. */
 .btn[aria-pressed="true"] { background-color: var(--selected); background-image: none; color: var(--accent-ink); }
-.btn[aria-expanded="true"] { background-image: linear-gradient(var(--press), var(--press)); }
+.btn[aria-expanded="true"], .btn[data-open] { background-image: linear-gradient(var(--press), var(--press)); }
 
 /* ---- Inputs and selects ---- */
 :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]), select, textarea, .input) {
@@ -153,7 +161,9 @@ input.bare { border-color: transparent; background: transparent; }
 .float.in { animation: rise var(--quick) var(--ease); }
 @keyframes rise { from { opacity: 0; transform: translateY(-2px); } }
 .menu, .pop { background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r-pop); box-shadow: var(--shadow-pop); }
-.menu { min-width: 200px; max-width: 360px; padding: 4px; max-height: calc(100vh - 24px); overflow: auto; outline: none; }
+/* However tall, it hangs from what opened it and scrolls inside (--room, the shell's place). */
+.menu { min-width: 200px; max-width: 360px; padding: 4px; max-height: var(--room, calc(100vh - 24px)); overflow: auto; outline: none; }
+.pop { max-height: var(--room, calc(100vh - 16px)); overflow: auto; }
 /* A searched menu is as tall as a whole number of rows, so none is cut at its foot, and the arrows and the wheel go row by row under its field, which stays. */
 .menu:has(> .menu-find) { max-height: calc(42px + round(down, min(434px, 100vh - 122px), var(--row))); scroll-padding-top: 40px; scroll-snap-type: y proximity; }
 .menu:has(> .menu-find) > :is(.menu-item, .menu-head) { scroll-snap-align: start; }
@@ -173,7 +183,12 @@ input.bare { border-color: transparent; background: transparent; }
 .menu:has(> .menu-item > .glyph) > .menu-item:not(:has(> .glyph, > .check)) > .label { padding-left: 24px; }
 .menu-item > .detail, .menu-item > kbd { color: var(--ink-3); font: var(--t12); margin-left: 16px; }
 .menu-item.on { background: var(--hover); }
-.menu-item[aria-disabled="true"] { color: var(--off); }
+/* A popover's own rows are a menu's, by one rule: a wash under the pointer, a ring where the keys are, so the two are never taken for each other. */
+button.menu-item { width: 100%; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
+.pop .menu-item:hover:not([aria-disabled="true"], :disabled) { background: var(--hover); }
+.pop .menu-item:focus-visible { outline: none; }
+:root[data-hand="keys"] .pop .menu-item:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.menu-item:disabled, .menu-item[aria-disabled="true"] { color: var(--off); }
 .menu-item.danger { color: var(--no); }
 .menu-item.danger[aria-disabled="true"] { color: var(--off); }
 .menu-item.sub::after { content: ""; width: 6px; height: 10px; background: var(--chev) no-repeat center / 10px 6px; transform: rotate(-90deg); }
@@ -312,9 +327,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .row.in > .k { padding-left: 16px; }
 .row:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
 .row[aria-selected="true"] { background: var(--selected); }
-.sect { display: flex; align-items: baseline; justify-content: space-between; padding: 16px 20px 4px; font: 500 var(--t12); color: var(--ink-3); border-top: 1px solid var(--rule); }
+.sect { display: flex; align-items: baseline; justify-content: space-between; padding: 16px 20px 4px; font: var(--th); color: var(--ink); border-top: 1px solid var(--rule); }
 .sect:first-child { border-top: 0; }
-.sect > .n { font-weight: 400; color: var(--ink-3); }
+.sect > .n { font: var(--t12); color: var(--ink-3); }
 .path { display: flex; flex-wrap: wrap; gap: 0 4px; font: var(--t12); color: var(--ink-3); }
 .path > :not(:last-child)::after { content: "›"; margin-left: 4px; }
 /* The kind, a dropdown, drawn as one: it says so where it's read, not only on hover. */
@@ -501,8 +516,8 @@ html[data-splash]::after { content: ""; position: fixed; inset: 0; z-index: 2147
 html[data-splash][data-theme="dark"]::after { background: #111315; }
 
 /* ---- The tour: the app under a scrim, cut out around the one thing to do ---- */
-.tour-hole { position: fixed; border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), 0 0 0 100vmax var(--scrim); pointer-events: none; z-index: 40; }
-.tour-hole.none { box-shadow: 0 0 0 100vmax var(--scrim); }
+.tour-hole { position: fixed; border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), 0 0 0 200vmax var(--scrim); pointer-events: none; z-index: 40; }
+.tour-hole.none { box-shadow: 0 0 0 200vmax var(--scrim); }
 .tour-card { position: fixed; z-index: 41; width: 280px; padding: 16px; border: 1px solid var(--rule-2); border-radius: var(--r-pop); background: var(--surface); box-shadow: var(--shadow-pop); }
 .tour-hole.glide { transition: left var(--calm) var(--ease), top var(--calm) var(--ease), width var(--calm) var(--ease), height var(--calm) var(--ease); }
 .tour-card.glide { transition: left var(--calm) var(--ease), top var(--calm) var(--ease); }

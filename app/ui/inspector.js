@@ -1009,41 +1009,45 @@ function Section({ title, n, shut = false, act, id, cls = '', list, pen, childre
 // Look and Position last, always shown, however many there are before them. It shows once the panel runs past the window.
 function Strip() {
   App.state.value; App.scene.value;   // (Sections come and go with the chart.)
-  const [names, setNames] = useState([]), [long, setLong] = useState(false), [more, setMore] = useState(false), [at, setAt] = useState(null), ref = useRef();
+  const [names, setNames] = useState([]), [long, setLong] = useState(false), [more, setMore] = useState(false), [buried, setBuried] = useState(false), [at, setAt] = useState(null), ref = useRef(), went = useRef(null);
   useLayoutEffect(() => {
     const panel = ref.current?.parentElement, pane = panel?.closest('.inspector');
     if (!panel) return;
     const now = [...panel.querySelectorAll(':scope > section')].map(s => s.dataset.title);
     if (now.join('|') !== names.join('|')) setNames(now);
     if (!long && pane && pane.scrollHeight > pane.clientHeight + 8) setLong(true);
-    const row = ref.current.querySelector('.names'), over = !!row && row.scrollWidth > row.clientWidth + 1;
+    // (Whole words: the names that don't fit go down a line it doesn't show.)
+    const row = ref.current.querySelector('.names'), over = !!row && row.scrollHeight > row.clientHeight + 1, off = !!row?.querySelector('.lk.on') && row.querySelector('.lk.on').offsetTop > row.offsetTop + 4;
     if (over !== more) setMore(over);
+    if (off !== buried) setBuried(off);
   });
-  // Where you are: the section under the strip, marked, and in view along it.
+  // Where you are: the section under the strip, marked; or the one you clicked, for as long as the panel stays where that took it, however little it could scroll.
   useLayoutEffect(() => {
     const panel = ref.current?.parentElement, pane = panel?.closest('.inspector');
     if (!pane) return;
     const here = () => {
+      if (went.current !== null) { if (Math.abs(pane.scrollTop - went.current) <= 2) return; went.current = null; }
       const edge = ref.current.getBoundingClientRect().bottom + 4, s = [...panel.querySelectorAll(':scope > section')].filter(x => x.getBoundingClientRect().top <= edge).at(-1), to = pane.scrollTop < 8 ? null : s?.dataset.title ?? null;
       setAt(a => (a === to ? a : to));
     };
     pane.addEventListener('scroll', here, { passive: true });
     return () => pane.removeEventListener('scroll', here);
   }, []);
-  useLayoutEffect(() => { const row = ref.current?.querySelector('.names'), on = row?.querySelector('.lk.on'); if (on) { if (on.offsetLeft < row.scrollLeft) row.scrollLeft = on.offsetLeft; else if (on.offsetLeft + on.offsetWidth > row.scrollLeft + row.clientWidth - 16) row.scrollLeft = on.offsetLeft + on.offsetWidth - row.clientWidth + 16; } }, [at]);
   const go = title => {
     const panel = ref.current.parentElement, pane = panel.closest('.inspector');
-    if (!title) { pane.scrollTop = 0; return; }
+    setAt(title);
+    if (!title) { went.current = null; pane.scrollTop = 0; return; }
     const s = [...panel.querySelectorAll(':scope > section')].find(x => x.dataset.title === title);
     s?.querySelector('.fold[aria-expanded="false"]')?.click();
-    setTimeout(() => s?.scrollIntoView({ block: 'start' }));
+    went.current = pane.scrollTop;
+    setTimeout(() => { s?.scrollIntoView({ block: 'start' }); went.current = pane.scrollTop; });
   };
   const chip = (title, label = title) => html`<button class=${'lk' + (at === title ? ' on' : '')} key=${label} aria-current=${at === title ? 'true' : null} onClick=${() => go(title)}>${label}</button>`, pinned = ['Position', 'Look'].filter(x => names.includes(x)), rest = names.filter(x => !pinned.includes(x));
   // Those there's no room for are a click away, all by name, where you are ticked.
   const all = e => menu(e.currentTarget, [{ label: 'Record', checked: !at, run: () => go(null) }, ...rest.map(x => ({ label: x, checked: at === x, run: () => go(x) }))], { search: rest.length > 7 });
   return html`<nav class=${'strip' + (long ? '' : ' none')} ref=${ref} aria-label="Sections">
-    <span class=${'names' + (more ? ' more' : '')} onWheel=${e => { if (e.deltaY) { e.currentTarget.scrollLeft += e.deltaY; e.preventDefault(); } }}>${chip(null, 'Record')}${rest.map(x => chip(x))}</span>
-    ${more ? html`<button class="btn icon strip-more" aria-haspopup="menu" aria-label="All sections" data-tip="All sections" onClick=${all}>${icon('chevron')}</button>` : null}
+    <span class="names">${chip(null, 'Record')}${rest.map(x => chip(x))}</span>
+    ${more ? html`<button class=${'btn icon strip-more' + (buried ? ' on' : '')} aria-haspopup="menu" aria-label="All sections" data-tip="All sections" onClick=${all}>${icon('chevron')}</button>` : null}
     ${pinned.length ? html`<span class="pinned">${pinned.map(x => chip(x))}</span>` : null}</nav>`;
 }
 const plus = (label, run) => App.readOnly.value ? null : html`<button class="btn icon" aria-label=${label} data-tip=${label} onClick=${run}>${icon('plus')}</button>`;
@@ -1287,12 +1291,17 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
   : label === 'Inset' ? `${v.l ?? 7.2}, ${v.t ?? 3.6}, ${v.r ?? 7.2}, ${v.b ?? 3.6} pt` : label === 'Indent' ? `${v} pt` : label === 'Layer' ? (v > 0 ? 'Brought forward' : v < 0 ? 'Sent back' : 'As it was made') : label === 'Tail' ? 'Moved' : label === 'Connector' ? upper(String(v))
   : label === 'Design' ? v?.name ?? 'What’s said over its design'
   : label === 'Shape' ? (typeof FormatBar !== 'undefined' && FormatBar.shapeName?.(v)) || SHAPES[v] || upper(String(v)) : upper(String(v));
+// Which of the bar's menus sets each thing Look says: its row opens that menu, hung from what the row says, so it's changed where it's read.
+const LOOK_MENUS = { Fill: 'fill', Gradient: 'fill', Pattern: 'fill', Picture: 'fill', Transparency: 'fill', Outline: 'outline', Weight: 'outline', Dash: 'outline', Compound: 'outline', 'Line Gradient': 'outline', 'Line Transparency': 'outline', Arrow: 'outline', Arrowhead: 'outline', Connector: 'outline', Frame: 'outline',
+  Shape: 'shape', Corner: 'shape', Design: 'design', Shadow: 'effects', Glow: 'effects', 'Soft Edge': 'effects', Reflection: 'effects', 'Inner Shadow': 'effects', Bevel: 'effects', 'Turn 3D': 'effects',
+  Font: 'font', Size: 'size', Color: 'color', 'Text Gradient': 'color', 'Text Outline': 'color', Align: 'paragraph', Valign: 'paragraph', Spacing: 'paragraph', Bullet: 'paragraph', Direction: 'paragraph', Columns: 'paragraph', Indent: 'paragraph', 'First Line': 'paragraph', Tabs: 'paragraph', Inset: 'paragraph', Shrink: 'paragraph' };
 function LookSection({ look, reset, named }) {
   if (!look.length) return null;
-  const from = [...new Set(look.map(x => x.from))];
+  const from = [...new Set(look.map(x => x.from))], ro = App.readOnly.value;
+  // (What's here to read only, its wash gone, so nothing offers what it can't do.)
   return html`<${Section} title="Look" id="look" act=${reset}>${from.map(f => html`
     ${f ? html`<div class="row src" key=${f}><div class="k wide">${f}</div></div>` : null}
-    ${look.filter(x => x.from === f).map(x => html`<div class="row" key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${labelOf(x.label, named)}</div><div class="v">${x.said ?? val(x.label, x.value, named)}</div></div>`)}`)}</${Section}>`;
+    ${look.filter(x => x.from === f).map(x => { const what = !ro && !x.said && LOOK_MENUS[x.label]; return html`<div class=${'row' + (what ? '' : ' still')} key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${labelOf(x.label, named)}</div><div class=${what ? 'v ctl' : 'v'}>${what ? html`<div class="hug"><button class="sel dd" aria-haspopup="menu" onClick=${e => FormatBar.open(what, e.currentTarget)}><span>${val(x.label, x.value, named)}</span></button></div>` : x.said ?? val(x.label, x.value, named)}</div></div>`; })}`)}</${Section}>`;
 }
 // A place on the page, where it's drawn, in points on the slide (the page is drawn smaller to fit it, by its scale), so the
 // numbers are the ones PowerPoint shows: typed over to move or size it, and read back as typed, to a tenth. `lock`, keeping
@@ -1618,7 +1627,8 @@ function HiddenHere({ id }) {
 // A style's outputs, each as the legend draws it (Scene's swatch), with its caption; each 2 px inside its chip,
 // a box's outline too, however heavy, so none runs along the chip's edge.
 function Swatch({ sw, off }) {
-  const stroke = sw.Outline === 'none' ? 'none' : sw.Outline, dash = Scene.dash(sw.Dash, sw.Weight), w = stroke === 'none' ? 0 : Math.max(1, Math.min(sw.Weight * Scene.PT, 2.5));
+  // (A dashed outline, thin enough that its dashes come round the chip more than once: seen whole, never one stray piece of a dash.)
+  const stroke = sw.Outline === 'none' ? 'none' : sw.Outline, dash = Scene.dash(sw.Dash, sw.Dash && sw.Dash !== 'solid' ? 0.75 : sw.Weight), w = stroke === 'none' ? 0 : Math.max(1, Math.min(sw.Weight * Scene.PT, dash ? 1.25 : 2.5));
   // (A gradient or a pattern, drawn as the chart draws it.)
   const fancy = sw.Gradient?.stops?.length || sw.Pattern?.prst ? `sw-${JSON.stringify([sw.Gradient, sw.Pattern, sw.Fill]).replace(/\W/g, '')}` : null;
   return html`<svg class=${'sw' + (off ? ' off' : '')} viewBox="0 0 28 16" aria-hidden="true">${sw.kind === 'line'
