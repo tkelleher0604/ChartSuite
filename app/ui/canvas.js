@@ -2915,12 +2915,9 @@ function mount(el) {
   // with `names`, a hand having put it there, the blanks' names in those too.
   const pointedAt = new Map();
   function whilePointed(kind, by, end) {
-    pointedAt.get(kind)?.disconnect();
+    pointedAt.get(kind)?.();
     pointedAt.delete(kind);
-    if (!by?.isConnected) return;
-    const watch = new MutationObserver(() => { if (!by.isConnected) end(); });
-    watch.observe(document.body, { childList: true, subtree: true });
-    pointedAt.set(kind, watch);
+    if (by?.isConnected) pointedAt.set(kind, Shell.whileThere(by, end));
   }
   function cue(ids, by = null, words = null) {
     const next = ids ? new Set(ids) : null, say = JSON.stringify([next && [...next], words]);
@@ -3758,7 +3755,8 @@ function mount(el) {
     }, { dated: false }),
     captioned: edge => App.notes.peek().value('Format', entryAnywhere(edge), viewOf()) === 'label',
     setCaptioned: (edge, on) => App.change(tx => tx.note('Format', entryAnywhere(edge), on ? 'label' : undefined, { view: viewOf() }), { dated: false, say: `${on ? 'Named' : 'Stopped naming'} ${edge} where it’s shown` }),
-    light: key => { if (litKey !== key) { litKey = key; paintFields(); } },
+    // (`by`, the row pointed at: gone from under the pointer, it takes the light with it, as a cue's does.)
+    light(key, by = null) { whilePointed('light', key && by, () => fields.light(null)); if (litKey !== key) { litKey = key; paintFields(); } },
     over(cx, cy) {
       // (While a design is edited, a part stood on the page takes a row dropped too.)
       const p = cx == null ? null : graph.clientToLocal(cx, cy), m = p && [...scene.marks].reverse().find(b => (b.type === 'box' || (designing && b.type === 'shape' && designing.keeps(b.id))) && (!designing || designing.keeps(b.id)) && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);

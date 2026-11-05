@@ -3673,6 +3673,9 @@ async function craft() {
   Shell.select([fund.id]); await tick(250);
   const eye = $$('.insp .onchart').find(p => p.closest('.row'));
   if (eye) { enter(eye); await tick(80); Shell.select([]); await tick(200); check('… and an eye', dull() === 0 && cued() === 0, `${dull()} ${cued()}`); }
+  Shell.select([fund.id]); await tick(250);
+  const fieldRow = $$('.insp .ent > .row').find(r => r.querySelector('.onchart.on'));
+  if (fieldRow) { enter(fieldRow); await tick(80); const lit = $$('.dc-field.lit').length; Shell.select([]); await tick(200); check('… and a row that lights its field on the box', lit > 0 && !$$('.dc-field.lit').length, `${lit} ${$$('.dc-field.lit').length}`); }
   // The pair: the one the pen isn't at takes it; the one it's at opens what else it could go to.
   Shell.select([fund.id]); await tick(250);
   like().click(); await tick(120);

@@ -303,6 +303,7 @@ const OPEN = Shell.icon('open');
 const draft = signal(null);     // an entry being added: { at, type, edge?, datatype?, options? }
 const renaming = signal(null);  // the entry whose label is being typed over
 const aim = signal(null);       // a row or list to bring into view and focus, by its key
+let clauseGone = null;          // a rule's clause pointed at: what stops watching for its going
 const linking = signal(null);   // the record a link is being typed for
 const fresh = signal(null);     // a relation the two-box panel just added, its entries offered at once: { a, b, key }
 const naming = signal(null);    // a relation of a new name being typed in the two-box panel: { a, b, name, ra, rb }
@@ -938,11 +939,11 @@ function Entry({ it, at, depth }) {
   const k = html`<div class="k" onPointerDown=${press}><${Label} it=${it} fx=${f} />${under ? html`<button class=${'subfold' + (shut ? ' shut' : '')} tabindex="-1" aria-expanded=${!shut} aria-label=${`${shut ? 'Open' : 'Fold'} what’s under ${it.edge}`} data-tip=${shut ? 'Open' : 'Fold'} onClick=${e => { e.stopPropagation(); foldRow(it.id, !shut); }}>${icon('chevron')}${shut ? html`<span>${under}</span>` : null}</button>` : null}</div>`, v = end
     ? html`<div class="v redline">${r ? html`<s class="del date">${short(r.value)}</s>` : null}<span class="add date">${short(end)}</span></div>`
     : html`<div class="v ctl"><${Output} id=${it.id} slot=${it} label=${it.edge} /></div>`;
-  const light = on => fields()?.light(on ? fieldKey(it, at) : null);
+  const light = (on, by) => fields()?.light(on ? fieldKey(it, at) : null, by);
   const tone = r?.tag === false ? App.noTone(it.id) : '';
   return html`<div class="ent" data-drag=${r ? at : null}>
     <div class=${'row' + (tag ? ' chk' : '') + (r?.tag === false ? (tone === 'fails' ? ' failed' : tone === 'heeds' ? ' heeds' : ' ruled') : '') + (lit(it, at) ? ' lit' : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`}
-      onKeyDown=${keyMenu} onPointerEnter=${() => light(true)} onPointerLeave=${() => light(false)} onCopy=${e => copied(e, it, at)}>
+      onKeyDown=${keyMenu} onPointerEnter=${e => light(true, e.currentTarget)} onPointerLeave=${() => light(false)} onCopy=${e => copied(e, it, at)}>
       ${r ? html`<${Pen} w=${{ entry: it.id }} row=${`entry:${it.id}`} host=${hostIn(at)} />` : null}
       ${tag ? [v, k] : [k, v]}
       <${OnChart} it=${it} at=${at} />
@@ -2257,7 +2258,7 @@ function Statute({ def, p, law }) {
   return html`<div class="statute">
     ${lead.map(x => words(x, 'st-lead'))}
     <ol class="st-clauses">${groups.map((g, k) => { const ids = gives(g);
-      return html`<li class="st-clause" key=${k} onPointerEnter=${() => FormulaBar.light(ids)} onPointerLeave=${() => FormulaBar.light(null)}>
+      return html`<li class="st-clause" key=${k} onPointerEnter=${e => { clauseGone?.(); clauseGone = Shell.whileThere(e.currentTarget, () => FormulaBar.light(null)); FormulaBar.light(ids); }} onPointerLeave=${() => { clauseGone?.(); FormulaBar.light(null); }}>
         <span class="st-label">${g.label}</span>${words(g, 'st-law')}
         <div class="st-forms">${g.rows.length ? g.rows.map(r => html`<${Typeset} key=${r.i} r=${r} def=${def.note} />`)
           : App.readOnly.value ? null : html`<button class="st-write" onClick=${write(g)}>${'='}</button>`}</div>

@@ -438,6 +438,12 @@ const Shell = (() => {
     floats.value = [...floats.peek(), { ...f, id, close }];
     return close;
   }
+  // What's pointed at, gone from under the pointer, sends no word of its going: `end` once `el` has left the page, so a preview ends with what began it. → what stops watching.
+  function whileThere(el, end) {
+    const watch = new MutationObserver(() => { if (!el.isConnected) { watch.disconnect(); end(); } });
+    watch.observe(document.body, { childList: true, subtree: true });
+    return () => watch.disconnect();
+  }
   const menu = (anchor, items, o = {}) => openFloat({ kind: 'menu', anchor, items, ...o });
   const popover = (anchor, draw, o = {}) => openFloat({ kind: 'pop', anchor, draw, ...o });
   const closeAll = () => floats.peek().forEach(x => x.close());
@@ -1262,7 +1268,7 @@ const Shell = (() => {
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
     register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart, firstBox, roved, land, enter, keyed: () => keyed, usingKeys,
-    widen, narrow, wide, gliding, showPanel, theme, setTheme, html, h, signal, computed, effect, parts: reg,
+    widen, narrow, wide, gliding, showPanel, theme, setTheme, whileThere, html, h, signal, computed, effect, parts: reg,
     problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n) })), listProblems: kind => listOf(kind),
     aside: c => { aside.value = c; },
   };
