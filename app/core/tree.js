@@ -90,6 +90,31 @@ function pathOf(recs, id) {
 const objectOf = (recs, id) => pathOf(recs, id)[0];
 // The entry at a record with this label.
 const entryAt = (recs, id, edge) => (index(recs).entries.get(id) ?? []).find(e => same(recs[e].edge, edge));
+// What a box knows, as a table's columns know its row, as a filter reads it (dendra.md, Views): by a key, its kind; each entry down from it by
+// its path, as it reads there; or a relation's side (`sideKey`, those on the other side of it from the box, by their ids, as a name can change, and
+// who stands on that side themselves: Owned By's Owning Team is Commerce Team, for what it owns and for Commerce Team). → what it has, or [null], a blank.
+const KIND = '$kind', SIDE = '$side ';
+const sideKey = (mine, theirs) => `${SIDE}${mine}|${theirs}`, isSide = key => key.startsWith(SIDE);
+function valuesAt(recs, id, key) {
+  if (key === KIND) return [recs[id]?.kind ?? null];
+  if (isSide(key)) {
+    const [mine, theirs] = key.slice(SIDE.length).split('|'), out = new Set();
+    for (const rid of index(recs).relations.get(id) ?? []) {
+      const r = recs[rid], a = r.args.find(x => same(x.edge, mine)), b = r.args.find(x => same(x.edge, theirs));
+      if (!a || !b || r.tag === false) continue;
+      if (a.at === id) out.add(b.at);
+      if (b.at === id) out.add(id);
+    }
+    return out.size ? [...out] : [null];
+  }
+  let at = id;
+  for (const e of key.split(' › ')) { at = entryAt(recs, at, e); if (!at) return [null]; }
+  return [outputText(recs[at]) || null];
+}
+// Whether a box stays under a filter: `{ key, values }`, any of what it has among them.
+const passes = (recs, id, f) => valuesAt(recs, id, f.key).some(v => f.values.includes(v));
+// Whether a page's list or rule (its Filter note's value) has a box on the page: on the list, or under every filter of the rule.
+const onPage = (recs, id, rule) => rule.only ? rule.only.includes(id) : (rule.filters ?? []).every(f => passes(recs, id, f));
 
 // ---- Patterns ----
 
@@ -397,7 +422,7 @@ return {
   nameOfFile,
   clean, norm, same,
   isObject, isField, isTag, isChoice, isRelation, isView, typeOf, argsOf, rootLabel,
-  treeOf, index, dependents, pathOf, objectOf, entryAt,
+  treeOf, index, dependents, pathOf, objectOf, entryAt, KIND, sideKey, isSide, valuesAt, passes, onPage,
   specOf, bare, key, paramKey, shapeOf, weight, narrower, fits, idsIn, renamed, rename, lift, OPEN, isOpen,
   // A record's parameterization key, as formulas.js keys what a definition covers.
   parameterization: (recs, id) => { const t = treeOf(recs, id); return t && paramKey(t); },

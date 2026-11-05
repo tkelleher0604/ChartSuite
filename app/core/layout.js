@@ -109,6 +109,24 @@ function keeping(most = 24) {
 // Positions for every box, top left at 0, 0: { id → { x, y } }. Should ELK fail, the boxes are set out in rows
 // by rank, so a chart is always drawn.
 function place({ boxes, links, clusters, room = ROOM }) {
+  // A frame drawn on the page (`solid`, dendra.md, Frames) is one box to the layout, what it holds laid out within it, so nothing it doesn't hold stands among them.
+  const solid = clusters.filter(c => c.solid);
+  if (solid.length) {
+    const byId = new Map(boxes.map(b => [b.id, b])), home = new Map(), inside = new Map();
+    for (const c of solid) for (const m of c.members) if (byId.has(m) && !home.has(m)) home.set(m, c);
+    const stands = solid.flatMap(c => {
+      const ms = c.members.filter(m => home.get(m) === c).map(m => byId.get(m));
+      if (!ms.length) return [];
+      const at = place({ boxes: ms, links: links.filter(l => home.get(l.from) === c && home.get(l.to) === c), clusters: [], room }), x0 = Math.min(...ms.map(b => at.get(b.id).x)), y0 = Math.min(...ms.map(b => at.get(b.id).y));
+      inside.set(c.id, { c, ms: ms.map(b => ({ id: b.id, x: at.get(b.id).x - x0, y: at.get(b.id).y - y0 })) });
+      const orders = ms.map(b => b.order).filter(o => o != null);
+      return [{ id: c.id, w: Math.max(...ms.map(b => at.get(b.id).x + b.w)) - x0 + c.pad.l + c.pad.r, h: Math.max(...ms.map(b => at.get(b.id).y + b.h)) - y0 + c.pad.t + c.pad.b, shape: 'rect', class: null, order: orders.length ? Math.min(...orders) : null, around: false }];
+    });
+    const to = id => home.get(id)?.id ?? id;
+    const at = place({ boxes: [...boxes.filter(b => !home.has(b.id)), ...stands], links: links.filter(l => to(l.from) !== to(l.to)).map(l => ({ ...l, from: to(l.from), to: to(l.to) })), clusters: clusters.filter(c => !c.solid), room });
+    for (const { c, ms } of inside.values()) { const p = at.get(c.id); at.delete(c.id); for (const m of ms) at.set(m.id, { x: p.x + c.pad.l + m.x, y: p.y + c.pad.t + m.y }); }
+    return at;
+  }
   const hung = hanging(boxes, links, clusters, room);
   if (hung) {
     const at = placed(hung.boxes, hung.links, clusters, room);
@@ -1900,5 +1918,5 @@ function searching(s, t, reach, solids, legs, { avoid, pad: C, given, strict, ma
   return way.filter((p, i) => i === 0 || i === way.length - 1 || !((p[0] === way[i - 1][0] && p[0] === way[i + 1][0]) || (p[1] === way[i - 1][1] && p[1] === way[i + 1][1])));
 }
 
-return { place, arrange, route, around, labels: placeLabels, pin, pinned, sideY, sideX, keepIn, mainOf, BIG, OPTIONS, fit: ({ boxes, links, clusters, room }) => { const h = hanging(boxes, links, clusters, room); return tiers(h?.boxes ?? boxes, h?.links ?? links, room, clusters).fit; } };
+return { place, arrange, route, around, labels: placeLabels, pin, pinned, sideY, sideX, keepIn, mainOf, BIG, OPTIONS, fit: ({ boxes, links, clusters: all, room }) => { const clusters = all.filter(c => !c.solid), h = hanging(boxes, links, clusters, room); return tiers(h?.boxes ?? boxes, h?.links ?? links, room, clusters).fit; } };
 })();

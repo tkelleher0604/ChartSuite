@@ -626,6 +626,12 @@ function partPicked(c, label) {
   const f = label === 'Design' || label === 'Format' ? null : fieldOf(c);
   return f && (f.it.of || (f.it.part && !(f.it.rested && TEXT_LABELS.has(label)))) ? f : null;
 }
+// A look at an output: this view's; but a check's No, the chart's, on every page it's drawn (dendra.md, Styles), and any this view had of its own goes.
+function writeAt(tx, p, label, value, view) {
+  if (!App.notes.peek().failing(p)) return tx.note(label, p, value, { view });
+  if (App.notes.peek().notes(label).some(n => n.view === view && Tree.key(n.pattern) === Tree.key(p))) tx.note(label, p, undefined, { view });
+  tx.note(label, p, value);
+}
 function write(tx, c, label, value) {
   // (A design, and a part of one, are the box's: where the pen stands for the box, whatever's picked in it.)
   const s = scopesOf(c), { marks, scopes } = s, part = partPicked(c, label);
@@ -652,7 +658,7 @@ function write(tx, c, label, value) {
     if (own) tx.note(label, scope.outputs[0], value, { view, param: own });
     else for (const m of [...scope.marks].map(id => c.scene().byId.get(id)).filter(Boolean)) for (const it of m.texts ?? []) { const e = fieldEdge(it) ?? it.blank?.edge; if (e) tx.note(label, scope.outputs[0], value, { view, param: e }); }
   } else if (scope.outputs) {
-    for (const p of scope.outputs) tx.note(label, p, value, { view });
+    for (const p of scope.outputs) writeAt(tx, p, label, value, view);
     if (texty) everyField(tx, c.scene(), scope, label, value);
   } else for (const m of marks) {
     if (m.type === 'box' || m.type === 'line') {

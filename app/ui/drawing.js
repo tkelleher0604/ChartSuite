@@ -11,7 +11,7 @@ const { useState } = preactHooks;
 const round = v => Math.round(v * 2) / 2;
 const lowered = s => String(s).replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
 // What a line's end can be glued to: a box, or a free shape that has an outline, a table too (not a line, a group, the Key or the page's own texts).
-const gluable = m => !!m && !m.revealed && !m.master && (m.type === 'box' || (m.type === 'shape' && !['line', 'group', 'legend'].includes(m.geometry) && !m.role));
+const gluable = m => !!m && !m.revealed && !m.master && (m.type === 'box' || (m.type === 'shape' && !['line', 'group', 'legend', 'frame'].includes(m.geometry) && !m.role));
 // What a shape that's only a line of its own takes as it's drawn: no fill.
 const opening = g => (Shapes.OPEN.has(g) ? { Fill: 'none' } : {});
 // What a free shape's Set as default is of: a line, a text box or a shape.
@@ -203,7 +203,7 @@ function attach(x) {
     const view = x.viewOf(), ids = new Map();
     for (const m of ms) if (m.type === 'shape' && m.geometry !== 'group') {
       const { ends, kept, ...row } = x.rowOf(m.id) ?? {};
-      ids.set(m.id, tx.add('shape', { ...row, view, x: (row.x ?? m.x) + dx, y: (row.y ?? m.y) + dy, ...(row.points && { points: row.points.map(([a, b]) => [round(a + dx), round(b + dy)]) }), ...(ends && { ends: null }) }));
+      ids.set(m.id, tx.add('shape', { ...row, view, x: (row.x ?? m.x) + dx, y: (row.y ?? m.y) + dy, ...(row.points && { points: row.points.map(([a, b]) => [round(a + dx), round(b + dy)]) }), ...(ends && { ends: null }), ...(row.geometry === 'frame' && { holds: [], pad: null, w: m.w, h: m.h }) }));
     }
     return ids;
   }

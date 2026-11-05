@@ -86,23 +86,21 @@ const App = (() => {
   }
   // A look kept, gone as a look, with no step: what it said is the chart's now.
   const letGo = (view, ...keys) => { const c = chart.peek(), l = { ...lookOf(view, c) }; for (const k of keys) delete l[k]; putLook(c, view, l); };
-  // What a box knows, as a table's columns know its row: its kind, and each entry down from it by its path, as it reads there.
-  const KIND = '$kind';
-  function valueAt(st, id, key) {
-    if (key === KIND) return st[id]?.kind ?? null;
-    let at = id;
-    for (const e of key.split(' › ')) { at = Tree.entryAt(st, at, e); if (!at) return null; }
-    return Tree.outputText(st[at]) || null;
-  }
+  // A page's own list or rule, its Filter note (dendra.md, Views): { only }, or { filters }, worked out afresh as a box's Shown is. What a look narrows it by stands over that here.
+  const ruleOf = view => notes.value.resolve('Filter', viewTree(view))?.value ?? null;
+  const filtersOf = view => lookOf(view)?.filters ?? ruleOf(view)?.filters ?? [];
+  const offRule = (id, view, st = state.peek()) => { const rule = ruleOf(view), n = rule && notes.peek().resolve('Shown', Tree.treeOf(st, id), view); return !!rule && !(n?.note.view === view && n.note.pattern.id === id) && !Tree.onPage(st, id, rule); };
   // Each object the look keeps off the page, and each it shows, by id, as of `st` (Scene's `seen`); null where there's none.
   function seenIn(view, st) {
     if (Shell.time.value?.stood) return null;
     const l = looks.value[chart.value]?.[view];
-    if (!l || !(l.only || l.filters?.length || l.ticks)) return null;
-    const m = new Map(Object.entries(l.ticks ?? {})), recs = st ?? state.value, only = l.only && new Set(l.only);
-    if (only || l.filters?.length) for (const id in recs) {
+    if (!l || !(l.only || l.filters || l.ticks)) return null;
+    const m = new Map(Object.entries(l.ticks ?? {})), recs = st ?? state.value, only = l.only && new Set(l.only), rule = ruleOf(view);
+    if (only || l.filters) for (const id in recs) {
       if (m.has(id) || recs[id].kind === undefined || Tree.isView(recs[id])) continue;
-      if ((only && !only.has(id)) || l.filters?.some(f => !f.values.includes(valueAt(recs, id, f.key)))) m.set(id, false);
+      if (only ? !only.has(id) : !l.filters.every(f => Tree.passes(recs, id, f))) m.set(id, false);
+      // (A look wider than the page's rule shows what that keeps off, but for what the page's own notes hide besides.)
+      else if (rule && !Tree.onPage(recs, id, rule) && notes.value.resolve('Shown', Tree.treeOf(recs, id), view)?.value !== false) { m.set(id, true); m.widens = true; }
     }
     return m.size ? m : null;
   }
@@ -114,22 +112,64 @@ const App = (() => {
   }
   // The boxes alone, whatever else the look had kept off, as Show only these asks.
   const showOnly = (view, ids, say) => looking(view, { only: ids, filters: undefined, ticks: undefined }, say);
-  // What's kept by a value of what a box knows, or not by that any more.
+  // What's kept by what a box knows, or not by that any more; what says just what the page's rule says being no look.
+  const sameFilters = (a, b) => { const said = fs => JSON.stringify([...fs].sort((p, q) => (p.key < q.key ? -1 : 1))); return said(a) === said(b); };
   function filterBy(view, key, label, values) {
-    const rest = (lookOf(view)?.filters ?? []).filter(f => f.key !== key), filters = values ? [...rest, { key, label, values }] : rest;
-    looking(view, { filters: filters.length ? filters : undefined, only: undefined }, values ? `Filtered by ${label}` : `Took the filter off ${label}`);
+    const rest = filtersOf(view).filter(f => f.key !== key), filters = values ? [...rest, { key, label, values }] : rest, rule = ruleOf(view);
+    looking(view, { filters: sameFilters(filters, rule?.filters ?? []) && !rule?.only ? undefined : filters, only: undefined }, values ? `Filtered by ${label}` : `Took the filter off ${label}`);
   }
+  // Every filter off, in this window: where the page has a rule, that too till it's kept so or put back.
+  const clearFilters = view => { if (ruleOf(view)) looking(view, { filters: [], only: undefined }, 'Took the filters off'); else showAll(view); };
   // Back to what the page has, nothing that was never on it added.
   const showAll = view => looking(view, { only: undefined, filters: undefined, ticks: undefined }, 'Showed all');
-  // The look's boxes made the page's, as one change: each it keeps off hidden by its own note.
+  // The look's boxes made the page's, as one change: a list stays that list, and a filter is a rule, worked out afresh; each ticked is hidden or shown by its own note.
+  const boxesSaid = n => (n === 1 ? 'this box' : `these ${n} boxes`);
   function keepShown(view) {
-    const m = seenIn(view), name = views.peek().find(v => v.id === view)?.name;
-    if (!m) return;
+    const l = lookOf(view), st = state.peek(), name = views.peek().find(v => v.id === view)?.name, drawn = drawnPage.peek();
+    if (!l || !(l.only || l.filters || l.ticks)) return;
     // (Only what the page draws, or what's shown over what it doesn't: nothing need be said of what was never on it.)
-    const drawn = drawnPage.peek(), writes = [...m].filter(([id, on]) => state.peek()[id] && (on || drawn?.byId.has(id))), hid = writes.filter(([, on]) => !on).map(([id]) => id);
-    if (!change(tx => { for (const [id, on] of writes) tx.note('Shown', Tree.treeOf(state.peek(), id), on, { view }); }, { dated: false, say: `Hid ${hid.length === 1 ? notes.peek().nameOf(state.peek(), hid[0]) : `${hid.length} boxes`} in ${name}` })) return;
+    const ticks = Object.entries(l.ticks ?? {}).filter(([id, on]) => st[id] && (on || drawn?.byId.has(id))), hid = ticks.filter(([, on]) => !on).map(([id]) => id);
+    const rule = l.only ? { only: l.only } : l.filters?.length ? { filters: l.filters } : undefined;
+    const said = l.only ? `${name} shows only ${boxesSaid(l.only.length)}` : rule ? `${name} shows ${rule.filters.map(filterWords).join(' · ')}, whoever that comes to be` : l.filters ? `${name} has no filter now` : `Hid ${hid.length === 1 ? notes.peek().nameOf(st, hid[0]) : `${hid.length} boxes`} in ${name}`;
+    // (A page nobody has placed by hand is laid out again for what's on it now, as large as that goes; one a hand has placed stands, and Tidy is its own.)
+    const afresh = (l.only || l.filters) && !drawn?.marks.some(m => m.type === 'box' && !m.revealed && m.hand);
+    if (!change(tx => {
+      if (l.only || l.filters) tx.note('Filter', viewTree(view), rule);
+      for (const [id, on] of ticks) tx.note('Shown', Tree.treeOf(st, id), on, { view });
+      if (afresh) for (const n of [...notes.peek().notes('Position'), ...notes.peek().notes('Bend')].filter(n => n.view === view)) tx.remove(n.note);
+      if (afresh) for (const n of notes.peek().notes('Scale').filter(n => n.pattern.id === view)) tx.remove(n.note);
+      tx.says(said);
+    }, { dated: false, say: said, ...(afresh && { keep: false }) })) return;
     letGo(view, 'only', 'filters', 'ticks');
   }
+  // What can be filtered, on a page: its boxes, or with a rule of its own (which a filter may take off), all it could draw.
+  function filterable(view) {
+    const st = state.peek(), N = notes.peek(), drawn = drawnPage.peek();
+    if (drawn?.view === view && !ruleOf(view)) return drawn.marks.filter(m => m.type === 'box' && !m.revealed).map(m => m.record);
+    return Object.keys(st).filter(id => st[id].kind !== undefined && !st[id].calendar && !Tree.isView(st[id]) && N.resolve('Shown', Tree.treeOf(st, id), view)?.value !== false);
+  }
+  // What a page can be filtered by: its kind; each entry its boxes have, down from them, by its path, what's a choice or a yes-or-no first, and what most have; each relation they're in, by who's on its other side; what's only words after.
+  const FIELD_MAX = 3;
+  function filterFields(view) {
+    const st = state.peek(), N = notes.peek(), { entries, relations } = Tree.index(st), ids = filterable(view), n = new Map();
+    const rank = r => ('choice' in r ? 0 : 'tag' in r ? 1 : r.field === 'text' ? 4 : 3);
+    const walk = (id, path, depth) => { for (const e of entries.get(id) ?? []) { const r = st[e]; if (!r?.edge || r.field === 'document') continue; const p = [...path, r.edge], k = p.join(' › '), x = n.get(k) ?? { key: k, label: k, rank: rank(r) + (depth > 1 ? 5 : 0), answers: 'choice' in r || 'tag' in r, c: 0 }; x.c++; n.set(k, x); if (depth < FIELD_MAX) walk(e, p, depth + 1); } };
+    for (const id of ids) {
+      walk(id, [], 1);
+      for (const rid of relations.get(id) ?? []) {
+        const r = st[rid], t = r.args?.length === 2 && r.tag !== false && Tree.treeOf(st, rid);
+        if (!t) continue;
+        for (const mine of r.args.filter(a => a.at === id)) {
+          const other = r.args.find(a => a !== mine), word = N.name(Tree.bare(t)), list = N.listName(Tree.bare(t), other.edge), k = Tree.sideKey(mine.edge, other.edge), x = n.get(k) ?? { key: k, label: word, menu: Tree.same(word, list) ? word : `${word} › ${list}`, rank: 2, answers: true, c: 0 };
+          x.c++; n.set(k, x);
+        }
+      }
+    }
+    return [{ key: Tree.KIND, label: 'Kind', answers: true }, ...[...n.values()].sort((a, b) => a.rank - b.rank || b.c - a.c || (a.menu ?? a.label).localeCompare(b.menu ?? b.label))];
+  }
+  // A value as a filter says it: a side's by its record's name, as it's called now.
+  const answerWord = (key, v) => (v === null ? 'Blank' : Tree.isSide(key) ? (state.peek()[v] ? notes.peek().shortOf(state.peek(), v) : 'Gone') : v);
+  const filterWords = f => `${f.label}: ${f.values.map(v => answerWord(f.key, v)).join(', ')}`;
   // A table opened to read: a tab of this window, made as a view is, which Keep makes the chart's and Close takes away.
   function lookTable(name, rows, why = false) {
     const taken = new Set(views.peek().map(v => Tree.norm(v.name)));
@@ -1718,7 +1758,7 @@ const App = (() => {
       // notes in it are its records', and stay behind.
       given = p => !!p && ((p.args?.length === 2 && worked.has(sides(p))) || (p.args ?? []).some(a => given(a.loc)));
       look = style ?? Notes.houseLook(src.rows(from), like);
-      for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Changes', 'Plan', 'Scale', 'Page', ...Notes.ROOT].includes(r.label) && r.pattern.id === like) && !(['As Of', 'Changes', 'Plan', 'Scale'].includes(r.label) && pages.has(r.pattern.id)) && r.label !== 'Footer')
+      for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Changes', 'Plan', 'Scale', 'Page', ...Notes.ROOT].includes(r.label) && r.pattern.id === like) && !(['As Of', 'Changes', 'Plan', 'Scale'].includes(r.label) && pages.has(r.pattern.id)) && !(r.label === 'Filter' && (r.value.only || r.value.filters.some(f => Tree.isSide(f.key)))) && r.label !== 'Footer')
         tx.note(r.label, moved(r.pattern), r.value, { view: kept.get(r.view), param: r.param });
       // Its other pages, each what it says of what it shows, so it fills as what it shows is added, and its title, day and Key.
       for (const r of src.rows(from)) if ('shape' in r && pages.has(r.view) && (r.role === 'title' || r.role === 'date' || r.geometry === 'legend')) {
@@ -1777,6 +1817,8 @@ const App = (() => {
     if (!vs.length || typeof Scene === 'undefined' || !isDated.peek()) return kept;
     const d = [now, ...tx.added().filter(r => r.args && r.since).map(r => r.since)].sort().at(-1), after = tx.asOf(d), R = Formulas.computeState(after, definitions.peek(), namesOn(d), worked), I = Tree.index(after);
     for (const v of vs) {
+      // (A page with a list or a rule of its own says for itself what's on it.)
+      if (notes.peek().resolve('Filter', viewTree(v.id))) continue;
       const by = Scene.looks(wb, c, v.id, d, { state: R.records, computed: R }).byId;
       for (const id of ids) {
         if (!after[id]?.kind || by.get(id)?.type !== 'box') continue;
@@ -1794,7 +1836,7 @@ const App = (() => {
   // worked out. `d`, the day it's drawn as of: the day shown, or a later one a change made ahead holds from (a transfer's).
   function showMade(tx, ids, view = Shell.view.peek(), d = day.peek()) {
     const N = notes.peek();
-    if (views.peek().find(v => v.id === view)?.layout !== 'chart' || !N.notes('Shown').some(n => n.value === false && (!n.view || n.view === view))) return;
+    if (views.peek().find(v => v.id === view)?.layout !== 'chart' || !N.notes('Shown').some(n => n.value === false && (!n.view || n.view === view)) && !N.resolve('Filter', viewTree(view))) return;
     const after = tx.asOf(d), R = Formulas.computeState(after, definitions.peek(), namesOn(d), worked);
     const drawn = Scene.looks(shown.peek(), chart.peek(), view, d, { state: R.records, computed: R }).byId;
     for (const id of ids) if (after[id]?.kind && !drawn.has(id)) tx.note('Shown', { id, kind: after[id].kind }, true, { view });
@@ -1933,6 +1975,8 @@ const App = (() => {
   });
   // The chart's master being edited (dendra.md, The master): the page draws only that, till it's closed, or another page or chart is shown.
   effect(() => { Shell.view.value; chart.value; if (mastering.peek()) mastering.value = false; });
+  // (A free shape is its page's: selected, it's left behind with it, though a record selected goes on being so.)
+  effect(() => { const v = Shell.view.value, sel = Shell.selection.peek(), keep = sel.filter(id => { const r = shown.peek().item(chart.peek(), id)?.[0]; return !r || !('shape' in r) || r.view === v; }); if (keep.length !== sel.length) Shell.select(keep); });
   const pageMaster = (id, on) => change(tx => tx.note('Master', { id, kind: 'View' }, on ? undefined : false), { dated: false, keep: false, say: `${on ? 'Put the master back on' : 'Left the master off'} ${views.peek().find(v => v.id === id)?.name ?? 'this page'}` });
   const hasMaster = id => notes.peek().resolve('Master', { id, kind: 'View' })?.value !== false;
   const scene = computed(() => {
@@ -1947,7 +1991,8 @@ const App = (() => {
     const boxes = s => new Set(s.marks.filter(m => m.type === 'box' && !m.revealed).map(m => m.id)), has = boxes(p), now = boxes(sc), kept = [...now].filter(x => has.has(x)).length;
     return { kept, of: has.size, more: now.size - kept };
   }
-  const lookWordsOf = view => { const l = looks.value[chart.value]?.[view]; return [...(l?.filters ?? []).map(f => `${f.label}: ${f.values.map(v => v ?? 'Blank').join(', ')}`)]; };
+  // What a page shows, in words, in force here: a look's, or else its own rule's; a list by how many.
+  const lookWordsOf = view => { const l = looks.value[chart.value]?.[view], on = l?.only ? l : l?.filters ? l : ruleOf(view); return on?.only ? [`These ${on.only.length} boxes`] : (on?.filters ?? []).map(filterWords); };
   // The band a look on a chart says itself by, with its way back: "Showing 13 of 28", Show all, which adds nothing that was never
   // on the page, and Keep, which makes it the page's.
   function LookBand() {
@@ -1959,8 +2004,8 @@ const App = (() => {
     }
     const n = shownOf();
     if (!n) return null;
-    const can = !readOnly.value, said = lookWordsOf(v.id);
-    return html`<div class="pastband lookband" role="status"><span>Showing ${n.kept} of ${n.of}${n.more ? ` and ${n.more} more` : ''}${said.length ? ` · ${said.join(' · ')}` : ''}</span><button class="btn" onClick=${() => showAll(v.id)}>Show all</button><button class="btn" aria-disabled=${can ? null : 'true'} title=${can ? null : whyNot()} onClick=${() => (can ? keepShown(v.id) : refuse())}>Keep</button></div>`;
+    const can = !readOnly.value, l = lookOf(v.id), said = l?.filters ? (l.filters.length ? l.filters.map(filterWords) : ['Filter off']) : [];
+    return html`<div class="pastband lookband" role="status"><span>Showing ${n.kept} of ${n.of}${n.more ? ` and ${n.more} more` : ''}${said.length ? ` · ${said.join(' · ')}` : ''}</span><button class="btn" onClick=${() => showAll(v.id)}>${ruleOf(v.id) ? 'As kept' : 'Show all'}</button><button class="btn" aria-disabled=${can ? null : 'true'} title=${can ? null : whyNot()} onClick=${() => (can ? keepShown(v.id) : refuse())}>Keep</button></div>`;
   }
   // The words an exported file says what it shows in, the one place they're made: the day, or while the past is shown the
   // moment. Its name's, where that isn't today ("as of Dec 31, 2026"; "as it stood on Dec 31, 2026, 3.15 PM", a file's name
@@ -2001,32 +2046,71 @@ const App = (() => {
     if (why) tx.note('Shown', t, true, { view: id, param: 'Why' });
   }
   function addView(name, rows, from, also, blank = false, { title, then, say } = {}) {
-    const vs = views.peek().filter(v => !v.look), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length, taken = new Set(views.peek().map(v => Tree.norm(v.name)));
-    const like = from ?? (rows === undefined ? (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id : null);
-    let n = name, i = 2;
-    while (taken.has(Tree.norm(n))) n = `${name} ${i++}`;
+    const vs = views.peek().filter(v => !v.look), at = from ? vs.findIndex(v => v.id === from) + 1 : vs.length;
     let id = null;
     change(tx => {
-      id = tx.add('record', { kind: 'View' });
-      const t = viewTree(id);
-      tx.note('Name', t, n);
+      id = viewMade(tx, freeViewName(name), rows, from, { also, blank, title, then });
       [...vs.slice(0, at), { id }, ...vs.slice(at)].forEach((v, k) => tx.note('Order', viewTree(v.id), k + 1));
-      if (rows !== undefined) tx.note('Layout', t, { rows });
-      if (rows && !from && typeof Table !== 'undefined') Table.opening(tx, id, rows);
-      also?.(tx, id);
-      if (like) for (const { id: _, ...r } of book.peek().rows(chart.peek())) {
-        // (What a table's view says at itself, its Why, it says at the copy.)
-        if ('note' in r && r.view === like && (from || (r.label !== 'Position' && r.label !== 'Bend'))) { const { note, ...x } = r; tx.add('note', { ...x, ...(x.pattern.id === like && { pattern: t }), view: id }); }
-        else if (!from) continue;
-        else if ('shape' in r && r.view === from) { const { shape, ...s } = r; tx.add('shape', { ...s, view: id, ...(title && s.role === 'title' && { text: title }) }); }
-        else if ('note' in r && !r.view && r.pattern.id === from && r.label !== 'Order' && r.label !== 'Name' && r.label !== 'Plan') tx.note(r.label, t, r.value);
-      }
-      if (!from && rows === undefined) page(tx, id, book.peek().charts().find(c => c.chart === chart.peek())?.name ?? n);
-      // A blank start: every box it would draw hidden by its own note, each to tick on from its Hidden list.
-      if (blank) { const st = state.peek(), N = notes.peek(); for (const x of Object.keys(st)) if (Tree.isObject(st[x]) && !Tree.isView(st[x]) && N.value('Shown', { kind: st[x].kind }, like) !== false) tx.note('Shown', Tree.treeOf(st, x), false, { view: id }); }
-      then?.(tx, id);
     }, { dated: false, say });
     return id;
+  }
+  // A name no view of the chart has: what's asked, or that with a number after it, as a spreadsheet's next sheet has.
+  function freeViewName(name, taken = new Set(views.peek().map(v => Tree.norm(v.name)))) {
+    let n = name, i = 2;
+    while (taken.has(Tree.norm(n))) n = `${name} ${i++}`;
+    taken.add(Tree.norm(n));
+    return n;
+  }
+  // The view itself, on a change: all but where it stands among the others. (A fresh chart's page comes as the page it's like has its own: its paper, its All text, its title's look, and a date and a Key where that has them.)
+  function viewMade(tx, n, rows, from, { also, blank, title, then, like: of } = {}) {
+    const vs = views.peek().filter(v => !v.look), like = from ?? of ?? (rows === undefined ? (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id : null);
+    const id = tx.add('record', { kind: 'View' }), t = viewTree(id), all = book.peek().rows(chart.peek()), copied = new Map();
+    tx.note('Name', t, n);
+    if (rows !== undefined) tx.note('Layout', t, { rows });
+    if (rows && !from && typeof Table !== 'undefined') Table.opening(tx, id, rows);
+    also?.(tx, id);
+    if (like) for (const { id: _, ...r } of all) {
+      // (What a table's view says at itself, its Why, it says at the copy.)
+      if ('note' in r && r.view === like && (from || (r.label !== 'Position' && r.label !== 'Bend'))) { const { note, ...x } = r; tx.add('note', { ...x, ...(x.pattern.id === like && { pattern: t }), view: id }); }
+      else if ('note' in r && !r.view && r.pattern.id === like && !from && rows === undefined && (r.label === 'Page' || Notes.ROOT.includes(r.label))) tx.note(r.label, t, r.value);
+      else if (!from) continue;
+      else if ('shape' in r && r.view === from) { const { shape, ...s } = r; copied.set(shape, tx.add('shape', { ...s, view: id, ...(title && s.role === 'title' && { text: title }) })); }
+      else if ('note' in r && !r.view && r.pattern.id === from && r.label !== 'Order' && r.label !== 'Name' && r.label !== 'Plan') tx.note(r.label, t, r.value);
+    }
+    // (A frame copied holds its boxes here too, and its own copies of what's free in it.)
+    for (const r of all) if ('shape' in r && r.view === from && r.geometry === 'frame' && r.holds?.some(x => copied.has(x))) tx.update(copied.get(r.shape), { holds: r.holds.map(x => copied.get(x) ?? x) });
+    if (!from && rows === undefined) {
+      const has = test => !like || all.some(r => 'shape' in r && r.view === like && test(r));
+      page(tx, id, title ?? book.peek().charts().find(c => c.chart === chart.peek())?.name ?? n, like ? Notes.houseLook(all, like) : null, { date: has(r => r.role === 'date'), key: has(r => r.geometry === 'legend') });
+    }
+    // A blank start: every box it would draw hidden by its own note, each to tick on from its Hidden list.
+    if (blank) { const st = state.peek(), N = notes.peek(); for (const x of Object.keys(st)) if (Tree.isObject(st[x]) && !Tree.isView(st[x]) && N.value('Shown', { kind: st[x].kind }, like) !== false) tx.note('Shown', Tree.treeOf(st, x), false, { view: id }); }
+    then?.(tx, id);
+    return id;
+  }
+  // A page for each answer (dendra.md, Views): each a rule, by that answer, over whatever the page it's from filters by, titled by the answer, after that page; one change. Those it adds are shown first, so a person sees where they went.
+  // (Each who's on a relation's side, not those it reaches nobody by; a blank last, by what it lacks.)
+  function answersFor(from, field) {
+    const st = state.peek(), base = filtersOf(from), ids = filterable(from).filter(id => base.every(f => Tree.passes(st, id, f))), vals = [...new Set(ids.flatMap(id => Tree.valuesAt(st, id, field.key)))];
+    // (A yes-or-no's page by what it's the answer to.)
+    const words = v => (v === null ? `No ${field.label}` : v === 'Yes' || v === 'No' ? `${field.label}: ${v}` : answerWord(field.key, v));
+    return { base, words, answers: vals.filter(v => !Tree.isSide(field.key) || v !== null).sort((a, b) => (a === null) - (b === null) || words(a).localeCompare(words(b), 'en', { numeric: true })) };
+  }
+  function pagesFor(from, field) {
+    if (readOnly.peek()) return refuse();
+    const { base, words, answers } = answersFor(from, field);
+    if (answers.length < 2) return Shell.toast(answers.length ? `Every box here has the one ${field.label}` : `No box here has a ${field.label}`, { ms: 3000 });
+    const vs = views.peek().filter(v => !v.look), at = vs.findIndex(v => v.id === from) + 1, taken = new Set(views.peek().map(v => Tree.norm(v.name))), made = [];
+    const c = change(tx => {
+      for (const v of answers) {
+        const word = words(v), id = viewMade(tx, freeViewName(word, taken), undefined, undefined, { title: word, like: from, then: (t, x) => t.note('Filter', viewTree(x), { filters: [...base.filter(f => f.key !== field.key), { key: field.key, label: field.label, values: [v] }] }) });
+        made.push(id);
+      }
+      [...vs.slice(0, at), ...made.map(id => ({ id })), ...vs.slice(at)].forEach((v, k) => tx.note('Order', viewTree(v.id), k + 1));
+      tx.says(`Added ${made.length} pages, one for each ${field.label}`);
+    }, { dated: false, say: `Added ${made.length || answers.length} pages, one for each ${field.label}` });
+    if (c && made[0]) Shell.show(made[0]);
+    return made;
   }
   const order = ids => change(tx => ids.filter(id => !views.peek().find(v => v.id === id)?.look).forEach((id, k) => tx.note('Order', viewTree(id), k + 1)), { dated: false });
   // What a view can show, as menu items: a chart, or a table of a kind's records, a relation's, or every date or
@@ -2065,6 +2149,7 @@ const App = (() => {
         ...(v.layout === 'chart' ? ['-', { label: 'Edit master', run: () => { Shell.show(id); setTimeout(() => { mastering.value = true; }); } }, { label: 'Leave the master off', checked: !hasMaster(id), ...writes, run: () => pageMaster(id, !hasMaster(id)) }] : []),
         '-',
         ...(v.layout === 'chart' && typeof Time !== 'undefined' ? [{ label: 'Next step…', ...writes, run: () => Time.nextStep(id) }] : []),
+        ...(v.layout === 'chart' ? [{ label: 'One page for each', ...writes, items: () => { const fs = filterFields(id).filter(f => f.answers && answersFor(id, f).answers.length > 1); return fs.length ? fs.map(f => ({ label: f.menu ?? f.label, run: () => pagesFor(id, f) })) : [{ label: 'No answer differs here', disabled: true }]; } }] : []),
         { label: 'Duplicate', ...writes, run: () => { const copy = addView(v.name, undefined, id); if (copy) Shell.show(copy); } },
         { label: 'Delete', danger: true, disabled: views.peek().length < 2, ...writes, run: () => change(tx => tx.remove(id), { say: `Deleted ${v.name}`, dated: false }) },
       ];
@@ -2128,13 +2213,16 @@ const App = (() => {
   Shell.register('action', { id: 'mode.viewing', name: 'Viewing', names: ['Read only', 'Read-only', 'View only', 'Lock'], run: () => setViewing(true) });
   Shell.register('action', { id: 'mode.editing', name: 'Editing', names: ['Edit', 'Unlock'], run: () => setViewing(false) });
   Shell.register('action', { id: 'mode.opens', get name() { return opensViewing.peek() ? 'Open this chart in Editing' : 'Open this chart in Viewing'; }, run: () => setOpensViewing(!opensViewing.peek()) });
+  // A page for each answer, in Find too, by what it's asked by.
+  Shell.register('action', { id: 'view.pages', name: 'One page for each…', names: ['A page for each', 'Page per department', 'One page per', 'Split into pages', 'Split by', 'Pages by', 'Department pages'], enabled: () => views.peek().find(v => v.id === Shell.view.peek())?.layout === 'chart' && !readOnly.peek(), why: () => (readOnly.peek() ? whyNot() : 'Show a chart first'),
+    run: () => { const id = Shell.view.peek(), fs = filterFields(id).filter(f => f.answers && answersFor(id, f).answers.length > 1); Shell.menu({ x: innerWidth / 2 - 120, y: 96 }, fs.length ? fs.map(f => ({ label: f.menu ?? f.label, run: () => pagesFor(id, f) })) : [{ label: 'No answer differs here', disabled: true }]); } });
   Shell.register('action', { id: 'chart.new', name: 'New chart', get names() { return ['Template', 'Templates', 'Gallery', ...(typeof Templates === 'undefined' ? [] : Templates.list().map(t => t.name))]; }, keys: '$mod+Shift+KeyN', enabled: () => !readOnly.peek(), why: () => whyNot(), run: () => Gallery.open() });
   Shell.register('action', { id: 'file.new', name: 'New workbook', run: () => Gallery.open({ workbook: true }) });
 
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs,
-    mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, isDated, deleteLabel, mistakeLabel, bookName, lineNamed, nameLine, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
+    mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, clearFilters, filtersOf, ruleOf, offRule, filterFields, filterable, answerWord, pagesFor, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, isDated, deleteLabel, mistakeLabel, bookName, lineNamed, nameLine, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken, sandbox, sandboxBegun, unsandbox,
   };
 })();

@@ -593,9 +593,20 @@ function sinceOf(N, view, state) {
   return at > 0 ? N.value('As Of', { id: pages[at - 1], kind: 'View' }) ?? Log.today() : null;
 }
 // What the chart works out as of that day, kept with what's entered then, which stands while the log does.
-const workedThen = new WeakMap();
+const workedThen = new WeakMap(), stoodAt = new WeakMap();
+// A chart that keeps no dated record says nothing of when what's typed began, or what it replaced ended: only its log knows. So what it was as of a day is the log as it stood at that day's end (dendra.md, Changes), or for a chart begun since, once it first had a box: all that's done since is a change, a move and a hire undated among them.
+function entryThen(wb, chart, day) {
+  if (wb.notes(chart).value('Dated', { kind: 'View' }) !== false) return wb.asOf(chart, day);
+  const list = wb.changes().filter(c => c.chart === chart), first = list.find(c => c.adds.some(r => r.kind !== undefined && r.kind !== 'View' && 'record' in r && !r.calendar));
+  if (!first) return wb.asOf(chart, day);
+  const end = new Date(`${day}T23:59:59`).toISOString(), moment = end > first.when ? end : first.when, by = stoodAt.get(wb) ?? stoodAt.set(wb, new Map()).get(wb), k = `${chart}|${moment}`, was = by.get(k);
+  if (was && was.n === wb.changes().length) return was.log.asOf(chart, day);
+  const log = wb.at(moment);
+  by.set(k, { n: wb.changes().length, log });
+  return log.asOf(chart, day);
+}
 function stateThen(wb, chart, day, from) {
-  const entered = wb.asOf(chart, day);
+  const entered = entryThen(wb, chart, day);
   let R = workedThen.get(entered);
   if (!R) { const N = wb.notes(chart), S = wb.schema(chart); workedThen.set(entered, R = Formulas.computeState(entered, N.definitions(S), { relations: N.relations(S), schema: S, day, named: wb.named?.(chart) }, from)); }
   return R.records;
@@ -620,11 +631,13 @@ function comparing(wb, chart, view, day, opts) {
     const row = `${what}|${record}`;
     state[`·${row}`] = changeRows.get(row) ?? changeRows.set(row, { at: record, edge: CHANGES, choice: what }).get(row);
   };
+  const runsElsewhere = id => JSON.stringify(opts.state[id]?.args) !== JSON.stringify(then[id]?.args);
   for (const [id, m] of is) {
     const w = was.get(id);
     if (!w) { mark(m.record, 'New'); continue; }
     const had = new Map(w.texts.filter(t => !t.blank).map(t => [t.id, t])), has = new Set(m.texts.filter(t => !t.blank).map(t => t.id));
-    let differs = KEYED[m.type].some(p => JSON.stringify(m.settings[p]?.value) !== JSON.stringify(w.settings[p]?.value));
+    // (A line that runs between others now, its record the same, has changed too.)
+    let differs = KEYED[m.type].some(p => JSON.stringify(m.settings[p]?.value) !== JSON.stringify(w.settings[p]?.value)) || (m.type === 'line' && runsElsewhere(id));
     for (const t of m.texts) if (!t.blank) {
       const o = had.get(t.id);
       if (!o) differs = true;
@@ -638,6 +651,12 @@ function comparing(wb, chart, view, day, opts) {
     bring(m.record);
     m.texts.forEach(t => (t.records ?? [t.id]).forEach(bring));
     mark(m.record, 'Gone');
+  }
+  // A line that's come or gone has moved the box at its lower end, where that box stands on both days and is marked for nothing else: who moved reads as changed, not only the lines.
+  const lowerOf = (st, r) => { const t = treeOf(st, r), above = t && N.value('Above', Tree.bare(t), view), low = st[r]?.args?.find(a => above && !same(a.edge, above)); return above && above !== 'none' && above !== 'level' && st[r].args.length === 2 ? low?.at : null; };
+  for (const [id, m] of [...is, ...was]) if (m.type === 'line' && (marks.get(id) === 'New' || marks.get(id) === 'Gone' || runsElsewhere(id))) {
+    const low = lowerOf(is.has(id) ? opts.state : then, id);
+    if (low && is.has(low) && was.has(low) && !marks.has(low)) mark(low, 'Changed');
   }
   const out = { then, since, state, marks, was: said, lost };
   if (kept) kept.set(k, out);
@@ -697,7 +716,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   themed = wb.notes(chart).resolve('Theme Fonts', { kind: 'View' })?.value ?? null;
   const masterRows = view === MASTER || wb.notes(chart).resolve('Master', { id: view, kind: 'View' })?.value === false ? [] : (readRows(wb, chart, MASTER).shapes.get(MASTER) ?? []).filter(r => !r.hidden).map(r => ({ ...r, master: true }));
   const shapeRows = [...masterRows, ...read.shapes.get(view)];
-  const preview = !!(opts.keep || opts.reveal?.length || opts.seen?.size), drawnAs = `${chart}|${view}`;
+  // (A look that hides only keeps the page as it stands; one wider than the page's own rule (`seen.widens`) has more to draw than that page holds, and lays it out, as it would be if kept.)
+  const wider = !!opts.seen?.widens, preview = !wider && !!(opts.keep || opts.reveal?.length || opts.seen?.size), drawnAs = `${chart}|${view}`;
   const said = new Map(shapeRows.map(r => [r.id, r.role === 'date' && wb.moment ? Log.stoodText(wb.moment) : shapeText(r, opts.computed, day, opts.state, wb.notes(chart))]));
   // (A Key is drawn from where it's kept or held, either being one: so what its change made was laid out ahead for, and a
   // Key kept elsewhere since is drawn there, as it would be from nothing.)
@@ -706,12 +726,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // (The scale it keeps, whether a change is about to write it or has: so what its change made was laid out ahead for, too.)
   const keeps = JSON.stringify(opts.holds?.page ?? wb.notes(chart).resolve('Scale', { id: view, kind: 'View' })?.value ?? null);
   const from = [opts.state, notesAre, shapeRows.map(({ id, kept, ...r }) => JSON.stringify(r)).join(), [...said.values()].join('\n'), day, holding, keeps, changes ? JSON.stringify([changes.since, [...changes.was], [...changes.lost.keys()]]) : ''], whence = `${drawnAs}|${opts.paper ?? ''}`;
-  if (!preview && !opts.looks) {
+  if (!preview && !wider && !opts.looks) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
     // An entry the view's free text may read, or a field shown beside another record, is never inert.
     // (A design reads a relation's list too: see Group designs.)
-    const N0 = wb.notes(chart), lists = N0.notes('Design').some(n => n.view === view), reads = lists || ['Text', 'Footnote'].some(l => N0.notes(l).some(n => n.view === view)), fielded = new Set(['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param && n.view === view).map(n => Tree.norm(n.param))));
+    // (And what a page's rule reads, any entry or relation, is no more inert than what it writes.)
+    const N0 = wb.notes(chart), lists = N0.notes('Design').some(n => n.view === view) || !!N0.resolve('Filter', { id: view, kind: 'View' }), reads = lists || ['Text', 'Footnote'].some(l => N0.notes(l).some(n => n.view === view)), fielded = new Set(['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param && n.view === view).map(n => Tree.norm(n.param))));
     const formatsOf = (recs, id) => { const r = recs[id], t = treeOf(recs, id); return (r?.at && (reads || fielded.has(Tree.norm(r.edge ?? '')))) || (lists && r?.args) ? { Text: true } : t ? N0.formats(t, view) : {}; };
     const d = alike.find(d => d.from[0] === opts.state) ?? (alike[0] && unmoved(alike[0].scene, alike[0].from[0], opts.state, formatsOf) ? alike[0] : null);
     if (d) {
@@ -752,7 +773,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const ranks = new Map();
   const rankOf = (note, depth) => {
     let r = ranks.get(note);
-    if (!r) ranks.set(note, r = [note.view ? 1 : 0, idsIn(note.pattern).size ? 1 : 0, note.param ? 1 : 0, note.view ? (styleAt.get(key(bare(note.pattern))) ?? -1) : 0]);
+    // (A look of a check's No, in no view, is every view's: dendra.md, Styles.)
+    if (!r) { const here = !!note.view || N.everyPage(note); ranks.set(note, r = [here ? 1 : 0, idsIn(note.pattern).size ? 1 : 0, note.param ? 1 : 0, here ? (styleAt.get(key(bare(note.pattern))) ?? -1) : 0]); }
     return [...r, -depth];
   };
   const beats = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
@@ -845,7 +867,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   }
   // Where no note says, a box and its name are shown, and nothing else: a new chart's boxes say what they are.
   const named = m => m.type === 'text' && !m.host && isObject(state[state[m.record].at] ?? {}) && Tree.norm(state[m.record].edge ?? '') === 'name';
-  const shownAlone = m => (m.type !== 'text' ? opts.seen?.get(m.record) : undefined) ?? (m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown || named(m));
+  // A page's own list or rule (its Filter note, dendra.md, Views): what isn't on the list, or doesn't pass the rule as things stand now, is no box of this page; but a box's own Shown here, the narrowest there is, says for it.
+  const pageRule = N.resolve('Filter', { id: view, kind: 'View' })?.value ?? null, ownSaid = m => m.cand.Shown?.note.view === view && m.cand.Shown.note.pattern.id === m.record;
+  const offPage = m => !!pageRule && m.type === 'box' && !ownSaid(m) && !Tree.onPage(state, m.record, pageRule);
+  const shownAlone = m => (m.type !== 'text' ? opts.seen?.get(m.record) : undefined) ?? (offPage(m) ? false : m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown || named(m));
   // Revealed, a hidden box or line is drawn; never a text, which would change the box it's in.
   const drawnMemo = new Map();
   const drawn = m => {
@@ -1339,11 +1364,15 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // Order says one of its entries (Born) taking their turns in the order of that, earliest first.
   const acrossBy = new Map(), acrossOf = new Map(boxes.map(b => { const k = state[b.record]?.kind ?? ''; if (!acrossBy.has(k)) acrossBy.set(k, N.across(k)); const by = acrossBy.get(k), e = by && Tree.entryAt(state, b.record, by); return [b.id, e ? state[e].value ?? null : null]; }));
   const inTurn = bs => { const valued = bs.filter(b => acrossOf.get(b.id) != null); if (valued.length < 2) return bs; valued.sort((a, b) => (acrossOf.get(a.id) < acrossOf.get(b.id) ? -1 : acrossOf.get(a.id) > acrossOf.get(b.id) ? 1 : 0)); let i = 0; return bs.map(b => acrossOf.get(b.id) != null ? valued[i++] : b); };
+  // (A frame drawn on the page is a frame to the layout too, what it holds kept together, where none of it is in a frame a style draws: dendra.md, Frames.)
+  const framesHolding = onPage.filter(r => r.geometry === 'frame' && r.holds?.length).map(r => ({ id: r.shape, parent: null, members: r.holds.filter(id => drawnBoxes.has(id)), top: padOf(r).t, pad: padOf(r), solid: true })).filter(c => c.members.length && !c.members.some(id => steps.has(id)));
+  // (And what's kept clear of it where it stands now: what it holds, placed, and its margins round that.)
+  const obstacleOf = r => { if (r.geometry !== 'frame' || !r.holds?.length) return r; const bs = r.holds.map(id => drawnBoxes.get(id)).filter(b => b && positions.has(b.id)), p = padOf(r); if (!bs.length) return { ...r, x: null }; const g = bounds(bs.map(b => ({ ...positions.get(b.id), w: b.w, h: b.h }))); return { ...r, x: g.x - p.l, y: g.y - p.t, w: g.w + p.l + p.r, h: g.h + p.t + p.b }; };
   // What the layout reads: the boxes, the lines that rank them, and the frames.
   const ranked = bs => ({
     boxes: inTurn(bs).map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null, order: tidiedAs.get(b.id)?.order ?? null, around: !!tidiedAs.get(b.id)?.around })),
     links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, level: l.level, room: Math.max(roomFor.get(`${l.from}|${l.to}`) ?? 0, l.level ? 40 : 0) })),
-    clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
+    clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })).concat(framesHolding),
   });
   // (On another paper with the height to spare, a chart placed has its rows further apart: see below.)
   let further = 1;
@@ -1355,7 +1384,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const placed = Layout.arrange({
       keep: last?.at ?? null, ...ranked(boxes),
       lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
-      obstacles: obstaclesOf(onPage),
+      obstacles: obstaclesOf(onPage.map(obstacleOf)),
       entered: apart(squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, pageSizes, beside, linked)), hints, page: { ...sheet, room }, bounds: last?.page ?? null,
     });
     // A triangle placed that its texts set wider than it was placed keeps its middle where it was, as far as the room on its
@@ -1626,9 +1655,20 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     for (const it of m.texts ?? []) { for (const id of it.records ?? [it.id]) if (!byId.has(id)) byId.set(id, it); if (it.runs?.length) spansIn(it, 1 / s); }
   }
   for (const g of shapes.filter(m => m.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
+  // A frame drawn stands round what it holds (dendra.md, Frames), as far out as its margins say, wherever the page has come to place that; one within it first.
+  const framed = new Set(), goRound = f => {
+    if (framed.has(f) || !f.holds?.length) return f;
+    framed.add(f);
+    const inIt = f.holds.map(id => byId.get(id)).filter(q => q && q !== f && q.type !== 'text' && (q.geometry !== 'frame' || goRound(q)));
+    if (!inIt.length) return f;
+    const row = onPage.find(r => r.id === f.row), b = bounds(inIt), p = padOf(row), head = f.texts.length ? f.texts[0].lines.length * lineHeight(f.look) + 8 / s : 0, top = Math.max(p.t, head), at = { x: b.x - p.l, y: b.y - top, w: b.w + p.l + p.r, h: b.h + top + p.b };
+    const again = freeShape({ ...row, ...at }, said.get(row.id), 1 / s);
+    return Object.assign(f, at, { texts: again.texts });
+  };
+  for (const f of shapes.filter(m => m.geometry === 'frame')) { goRound(f); for (const it of f.texts) if (!byId.has(it.id)) byId.set(it.id, it); }
   if (footsOf.size) numberFeet([...boxes, ...lines, ...shapes], footsOf, shapes.find(m => m.role === 'footnotes'), onPage.find(r => r.role === 'footnotes'), s, state);
 
-  const laid = !preview && !opts.paper ? {
+  const laid = !preview && !wider && !opts.paper ? {
     at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])), lowered: boxes.filter(b => b.laid).map(b => [b.laid.y, b.y - page.offset.y - b.laid.y]),
     frames: new Map([...frames.values()].map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }])),
     routes: new Map(lines.map(l => [l.id, { from: l.from, to: l.to, points: l.points, labelAt: l.labelAt, down: l.down, landed: l.landed }])),
@@ -1657,7 +1697,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; delete m.base; delete m.placing; delete m.alike; delete m.stands; if (m.type !== 'shape') delete m.ends; }
   const palette = N.resolve('Palette', { kind: 'View' })?.value?.colors;
   const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, state, ms: now() - started, ...(changes && { since: changes.since }), ...(palette && { palette }), ...(themed && { themeFonts: themed }) };
-  if (!preview) drawnFrom.set(whence, [{ from, scene, laid }, ...drawnFrom.get(whence) ?? []].slice(0, 3));
+  if (!preview && !wider) drawnFrom.set(whence, [{ from, scene, laid }, ...drawnFrom.get(whence) ?? []].slice(0, 3));
   return scene;
 }
 // Footnotes numbered, by reading order on the page (down its rows, then across), one number for one text however many marks carry it. Each mark
@@ -2218,8 +2258,8 @@ function outputName(N, p) {
 // those under none after them all, so none reads as under the name before it. `only`, a set of output keys,
 // takes those outputs alone, as the Key takes what's drawn.
 // → [{ style, order, name, key, outputs: [pattern], swatch, caption, off }]
-// Whether a style's output has a row: it says a look; or it shows a field, its look being there to give, whatever's said of it yet (Departments, Names), where showing or hiding alone is a filter.
-const hasRow = o => Object.keys(o.formats).some(k => k !== 'Shown') || (o.formats.Shown === true && o.pattern.args?.length === 1 && !o.pattern.out?.tag && !('choice' in (o.pattern.out ?? {})));
+// Whether a style's output has a row: it says a look (how a relation stands, Above, is none, and gives no second row of the same name); or it shows a field, its look being there to give, whatever's said of it yet (Departments, Names), where showing or hiding alone is a filter.
+const hasRow = o => Object.keys(o.formats).some(k => k !== 'Shown' && k !== 'Above') || (o.formats.Shown === true && o.pattern.args?.length === 1 && !o.pattern.out?.tag && !('choice' in (o.pattern.out ?? {})));
 function groupsOf(N, view, only = null) {
   const out = [], own = p => { const c = N.resolve('Caption', p, view); return c && key(c.note.pattern) === key(p) ? c.value : null; };
   const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
@@ -2258,7 +2298,7 @@ function legend(N, view, marks) {
   const used = new Set();
   for (const m of marks) for (const label of KEYED[m.type] ?? []) {
     const note = m.settings?.[label]?.note;
-    if (note && note.view === view && !idsIn(note.pattern).size) used.add(key(note.pattern));
+    if (note && (note.view === view || N.everyPage(note)) && !idsIn(note.pattern).size) used.add(key(note.pattern));
   }
   return groupsOf(N, view, used).map(({ off, ...g }) => g);
 }
@@ -2299,6 +2339,8 @@ const TABLE = { Fill: 'none', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Si
 // The page's own texts: its title, its date, its footer and its number.
 const ROLES = { title: { Size: 20, Bold: true, Font: 'Heading' }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, day: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
 const TOKENED = /\{[^{}\n]+\}/;
+// How far out a frame stands from what it holds, as Insert makes one, or a hand has since (dendra.md, Frames).
+const padOf = r => r?.pad ?? { l: 14, t: 28, r: 14, b: 14 };
 function freeShape(row, text, u = 1, k = 1) {
   const { id, shape, format = {} } = row;
   const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...(row.geometry === 'table' && TABLE), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
@@ -2320,6 +2362,7 @@ function freeShape(row, text, u = 1, k = 1) {
   if (m.geometry === 'table') { tableOf(m, row, text, t, u); return m; }
   if (m.geometry === 'picture') { m.src = row.src; if (row.crop) m.crop = row.crop; }
   if (m.geometry === 'group') m.members = row.members ?? [];
+  if (m.geometry === 'frame' && row.holds) m.holds = row.holds;
   if (m.geometry === 'legend') Object.assign(m, { title: row.title ?? 'Key', columns: row.columns ?? 1, hide: row.hide ?? [], captions: row.captions ?? {}, order: row.order ?? [], auto: row.w == null });
   // A text box nobody has sized grows with its text, a line to each paragraph, as PowerPoint's does.
   if (m.geometry === 'text' && row.w == null) Object.assign(m, { auto: true, w: 120 * u, h: lineHeight(t) + 9.6 * u });
@@ -2966,7 +3009,8 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
       // Where a change kept it, on the sheet (`keptAt`), while that's clear of what the layout places and what's over it
       // there, and nothing a hand put stands on it: what a hand puts near it moves it no more than it moves anything.
       if (keptAt && !footed && !corner) {
-        const under = keptAt.y < y, k = under ? side : key, kw = k.w * s, q = { x: Math.min(keptAt.x, W - MR - kw), y: Math.min(keptAt.y, H - MB - k.h * s), w: kw, h: k.h * s };
+        // (Wrapped narrower than it need be when the page placed it, it stays as narrow.)
+        const under = keptAt.y < y, narrow = key.auto && keptAt.w != null && keptAt.w < key.w * s - 1 ? keyed(rows.find(r => r.id === key.row), keptAt.w * u) : null, k = narrow ?? (under ? side : key), kw = k.w * s, q = { x: Math.min(keptAt.x, W - MR - kw), y: Math.min(keptAt.y, H - MB - k.h * s), w: kw, h: k.h * s };
         if (fits(q) && !free.some(f => meets(f, q)) && !set(top).some(c => meets(c, q, c.hand ? 0 : 21)) && (!under || q.x >= W - MR - room - 0.5)) { places.set(key.row, q); shapes[shapes.indexOf(key)] = key = k; alongside = q; }
       }
       if (!places.has(key.row) && !footed && r.w <= room + 0.5 && fits(r) && clearOfFree(r)) {
@@ -3116,8 +3160,13 @@ function annotated(before, after) {
   const inside = (m, [x, y], pad = 0) => x >= m.x - pad && x <= m.x + m.w + pad && y >= m.y - pad && y <= m.y + m.h + pad;
   const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const moved = (a, b) => !b || Math.abs(a.x * r - b.x) > 1 || Math.abs(a.y * r - b.y) > 1 || Math.abs(a.w * r - b.w) > 1;
+  // (A frame that holds what it holds stands round it, whatever moves it; a free shape it holds goes with what else it holds, as far off that as it was.)
+  const holding = before.marks.filter(m => m.geometry === 'frame' && m.holds?.length), carried = new Map();
+  for (const f of holding) { const bs = f.holds.map(id => before.byId.get(id)).filter(b => b?.type === 'box' && box(b.id)); if (bs.length) for (const id of f.holds) { const q = before.byId.get(id); if (q?.type === 'shape') carried.set(id, { q, was: bounds(bs), now: bounds(bs.map(b => box(b.id))) }); } }
   for (const m of before.marks) {
     if (m.type !== 'shape' || m.role || m.master || ['legend', 'group'].includes(m.geometry) || m.locked) continue;
+    if (m.geometry === 'frame' && m.holds?.length) continue;
+    if (carried.has(m.id)) { const { was, now } = carried.get(m.id); if (!m.points) { rows.set(m.id, { x: half(now.x + (m.x - was.x) * r), y: half(now.y + (m.y - was.y) * r), w: half(m.w * r), h: half(m.h * r) }); continue; } }
     if (m.geometry === 'line') {
       const glue = m.ends ?? [], pts = m.points, ends = [0, pts.length - 1].map((i, k) => { if (glue[k]) return null; const b = boxes.find(q => inside(q, pts[i], 4 / (before.page.scale ?? 1))), now = b && box(b.id); return now ? { i, x: now.x + (pts[i][0] - b.x) * (now.w / (b.w || 1)), y: now.y + (pts[i][1] - b.y) * (now.h / (b.h || 1)) } : null; }).filter(Boolean);
       if (!ends.length) { if (!glue.some(Boolean)) stay.push(m); continue; }
