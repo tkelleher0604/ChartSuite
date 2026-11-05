@@ -68,7 +68,7 @@ let current = null; // { canvas, scopes, scope, marks }
 const ALL_TEXT = { key: 'all text', root: true, caption: 'all text', label: 'All text' };
 const viewSelf = sc => ({ id: sc.view, kind: 'View' });
 // The footer or its number, the chart's own: its look is in its note (dendra.md, The page).
-const isFoot = m => m.role === 'footer' || m.role === 'number';
+const isFoot = m => m.role === 'footer' || m.role === 'number' || m.role === 'day';
 const footNote = () => App.notes.peek().resolve('Footer', { kind: 'View' })?.value ?? {};
 const refoot = (tx, format) => tx.note('Footer', { kind: 'View' }, (({ format: _, ...rest }) => Object.keys(format).length ? { ...rest, format } : rest)(footNote()));
 
@@ -193,7 +193,7 @@ const kinOf = sc => App.ofScene(kins, sc, () => {
 // The selection, as a scope, by what's drawn: "This box", "These 3 boxes", "This line" (the lines drawn as one
 // included), "These 2 shapes".
 function these(ms) {
-  if (ms.every(isFoot)) return ms.length === 1 && ms[0].role === 'number' ? 'The page number' : 'The footer';
+  if (ms.every(isFoot)) return ms.length === 1 && ms[0].role === 'number' ? 'The page number' : ms.length === 1 && ms[0].role === 'day' ? 'The date' : 'The footer';
   if (ms.length === 1 && ms[0].role === 'footnotes') return 'The footnotes';
   if (ms.length === 1 && ms[0].geometry === 'table') { const c = Canvas.active.peek(), n = c?.cellsPicked?.(ms[0].id)?.length ?? 0; return !c?.cell?.(ms[0].id) ? 'This table' : n > 1 ? `These ${n} cells` : 'This cell'; }
   const noun = ms.every(m => m.type === 'box') ? 'box' : ms.every(m => m.type === 'line' || m.geometry === 'line') ? 'line' : 'shape', n = new Set(ms.map(m => m.merged ?? m.id)).size;
@@ -946,14 +946,64 @@ const inkNow = () => { const c = String(value('Outline') ?? ''); return /^#[0-9a
 const COMPOUNDS = [['single', 'Single'], ['double', 'Double'], ['thick-thin', 'Thick and thin'], ['thin-thick', 'Thin and thick'], ['triple', 'Triple']];
 function lineGradientItems() {
   const from = inkNow(), now = value('Line Gradient') ?? null, of = (to, angle) => ({ angle, stops: [[0, from], [100, to]] });
-  return looksLike('Line Gradient', [[null, 'None'], [of(shaded(from, 0.4, 0.6), 0), 'Lighter, across'], [of(shaded(from, 0.5, 0), 0), 'Darker, across'], [of(shaded(from, 0.4, 0.6), 90), 'Lighter, down'], [of('#ffffff', 0), 'To white, across']], now);
+  return [...looksLike('Line Gradient', [[null, 'None'], [of(shaded(from, 0.4, 0.6), 0), 'Lighter, across'], [of(shaded(from, 0.5, 0), 0), 'Darker, across'], [of(shaded(from, 0.4, 0.6), 90), 'Lighter, down'], [of('#ffffff', 0), 'To white, across']], now), '-', { label: 'Stops…', run: () => stopsPop('Line Gradient', 'outline', from) }];
 }
+// A color for what's set in the look: the chart's, then typed.
+function ColorRow({ label, v, put, tries }) {
+  const own = paletteOf()?.colors.slice(4, 10) ?? THEME.slice(4, 10), hex = String(v ?? '').replace('#', '').toUpperCase();
+  return html`<div class="menu-item colorrow"><span class="label">${label}</span><span class="chips" onPointerLeave=${() => tries?.(null)}>${own.map(c => html`<button type="button" aria-label=${colorName(c) ?? c} aria-pressed=${String(v).toLowerCase() === c.toLowerCase()} style=${`background:${c}`} onPointerEnter=${() => tries?.(c)} onClick=${() => put(c)} />`)}</span><span class="hex">#<input value=${hex} maxlength="7" spellcheck="false" autocomplete="off" aria-label=${label} onFocus=${e => e.currentTarget.select()} onKeyDown=${e => { e.stopPropagation(); const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { e.preventDefault(); put(c); } }} /></span></div>`;
+}
+// A gradient's stops, as PowerPoint's Format Shape: its bar, a click there a stop more, a stop dragged along it moved, off it or by Delete taken away; the one picked, its color and place; the whole, its angle. Each drawn on the chart as it's changed, one change as it's let go.
+function StopsPop({ label, from }) {
+  readNow();
+  const now = value(label), [g, setG] = useState(now?.stops?.length >= 2 ? { angle: now.angle ?? 0, stops: now.stops.map(s => [...s]) } : { angle: label === 'Line Gradient' ? 0 : 90, stops: [[0, from], [100, shaded(from, 0.4, 0.6)]] }), [at, setAt] = useState(0), bar = useRef();
+  const sorted = st => [...st].sort((a, b) => a[0] - b[0]), put = next => { setG(next); apply(label, next); };
+  const css = `linear-gradient(90deg, ${sorted(g.stops).map(([p, c]) => `${c} ${p}%`).join(', ')})`, pick = g.stops[at] ?? g.stops[0];
+  const place = e => { const b = bar.current.getBoundingClientRect(); return Math.round(Math.max(0, Math.min(100, (e.clientX - b.left) / b.width * 100))); };
+  const mix = p => { const st = sorted(g.stops), i = Math.max(0, st.findIndex(s => s[0] >= p) - 1), A = st[i], B = st[i + 1] ?? A, k = B[0] > A[0] ? Math.max(0, Math.min(1, (p - A[0]) / (B[0] - A[0]))) : 0, ch = c => [1, 3, 5].map(j => parseInt(c.slice(j, j + 2), 16)); return `#${ch(A[1]).map((v, j) => Math.round(v + (ch(B[1])[j] - v) * k).toString(16).padStart(2, '0')).join('')}`; };
+  const addAt = p => { const stops = [...g.stops, [p, mix(p)]]; setAt(stops.length - 1); put({ ...g, stops }); };
+  const out = i => { if (g.stops.length < 3) return; const stops = g.stops.filter((_, j) => j !== i); setAt(0); put({ ...g, stops }); };
+  const grab = (e, i) => {
+    e.preventDefault(); e.stopPropagation(); setAt(i);
+    let next = g, off = false;
+    const move = ev => { const b = bar.current.getBoundingClientRect(); off = g.stops.length > 2 && (ev.clientY < b.top - 28 || ev.clientY > b.bottom + 28); next = { ...g, stops: off ? g.stops.filter((_, j) => j !== i) : g.stops.map((s, j) => j === i ? [place(ev), s[1]] : s) }; setG(next); preview(label, next); };
+    const up = () => { removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); if (off) setAt(0); if (next !== g) apply(label, next); };
+    addEventListener('pointermove', move, true); addEventListener('pointerup', up, true);
+  };
+  return html`<div class="picker stops" onKeyDown=${e => { if ((e.key === 'Delete' || e.key === 'Backspace') && !e.target.matches('input')) { e.preventDefault(); out(at); } }}>
+    <div class="k">Stops</div>
+    <div class="stopbar" ref=${bar} style=${`background:${css}`} role="group" aria-label="Stops" onPointerDown=${e => { if (e.target === bar.current) addAt(place(e)); }}>${g.stops.map(([p, c], i) => html`<button type="button" class=${i === at ? 'stop on' : 'stop'} aria-label=${`Stop at ${p}%`} aria-pressed=${i === at} style=${`left:${p}%;background:${c}`} onPointerDown=${e => grab(e, i)} />`)}</div>
+    <${ColorRow} label="Color" v=${pick[1]} put=${c => put({ ...g, stops: g.stops.map((s, j) => j === at ? [s[0], c] : s) })} tries=${c => c === null ? preview() : preview(label, { ...g, stops: g.stops.map((s, j) => j === at ? [s[0], c] : s) })} />
+    <label class="menu-item"><span class="label">Place</span><${Typed} label="Place" v=${pick[0]} unit="%" max=${100} put=${x => put({ ...g, stops: g.stops.map((s, j) => j === at ? [x, s[1]] : s) })} /></label>
+    <label class="menu-item"><span class="label">Angle</span><${Typed} label="Angle" v=${g.angle} unit="°" max=${359} put=${x => put({ ...g, angle: x })} tries=${x => x === null ? preview() : preview(label, { ...g, angle: x })} /></label>
+    <div class="row"><button type="button" class="btn" onClick=${() => addAt(Math.round((pick[0] + (sorted(g.stops).find(s => s[0] > pick[0])?.[0] ?? 100)) / 2))}>Add a stop</button><button type="button" class="btn" disabled=${g.stops.length < 3} onClick=${() => out(at)}>Delete it</button></div>
+  </div>`;
+}
+const stopsPop = (label, on, from) => pop(document.querySelector(`.fb [data-fb="${on}"]`), () => html`<${StopsPop} label=${label} from=${from} />`);
 // Shape Effects, as PowerPoint's: each drawn on the chart as it's pointed at, one change as it's picked.
-function glowItems() { const c = inkNow(); return looksLike('Glow', [[null, 'None'], ...[5, 8, 11, 18].map(size => [{ size, color: c, transparency: 60 }, `${size} pt`])], value('Glow')); }
+function GlowPop() {
+  readNow();
+  const base = value('Glow') ?? { size: 8, color: inkNow(), transparency: 60 }, set = changes => apply('Glow', { ...base, ...changes }), tries = k => x => x === null ? preview() : preview('Glow', { ...base, [k]: x });
+  return html`<div class="picker"><div class="k">Glow</div>
+    <${ColorRow} label="Color" v=${base.color} put=${c => set({ color: c })} tries=${tries('color')} />
+    <label class="menu-item"><span class="label">Size</span><${Typed} label="Glow size" v=${base.size} unit="pt" max=${150} put=${x => set({ size: x })} tries=${tries('size')} /></label>
+    <label class="menu-item"><span class="label">Transparency</span><${Typed} label="Glow transparency" v=${base.transparency} unit="%" max=${100} put=${x => set({ transparency: x })} tries=${tries('transparency')} /></label></div>`;
+}
+const MATERIALS = [['matte', 'Matte'], ['warmMatte', 'Warm matte'], ['plastic', 'Plastic'], ['metal', 'Metal'], ['dkEdge', 'Dark edge'], ['softEdge', 'Soft edge'], ['flat', 'Flat'], ['softmetal', 'Soft metal'], ['clear', 'Clear'], ['powder', 'Powder']];
+function BevelPop() {
+  readNow();
+  const base = value('Bevel') ?? { type: 'circle', w: 6, h: 6 }, set = changes => apply('Bevel', { ...base, ...changes }), tries = k => x => x === null ? preview() : preview('Bevel', { ...base, [k]: x });
+  return html`<div class="picker"><div class="k">Bevel</div>
+    <label class="menu-item"><span class="label">Width</span><${Typed} label="Bevel width" v=${base.w ?? 6} unit="pt" max=${200} put=${x => set({ w: x })} tries=${tries('w')} /></label>
+    <label class="menu-item"><span class="label">Height</span><${Typed} label="Bevel height" v=${base.h ?? base.w ?? 6} unit="pt" max=${200} put=${x => set({ h: x })} tries=${tries('h')} /></label>
+    <label class="menu-item"><span class="label">Depth</span><${Typed} label="Depth" v=${base.depth ?? 0} unit="pt" max=${400} put=${x => set({ depth: x || undefined })} /></label>
+    <label class="menu-item"><span class="label">Material</span><${Shell.Pick} label="Material" value=${base.material ?? 'warmMatte'} onPick=${v => set({ material: v })} options=${MATERIALS} /></label></div>`;
+}
+function glowItems() { const c = value('Glow')?.color ?? inkNow(); return [...looksLike('Glow', [[null, 'None'], ...[5, 8, 11, 18].map(size => [{ size, color: c, transparency: value('Glow')?.transparency ?? 60 }, `${size} pt`])], value('Glow')), '-', { label: 'Color and size…', run: () => pop(document.querySelector('.fb [data-fb="effects"]'), () => html`<${GlowPop} />`) }]; }
 const softItems = () => choices('Soft Edge', [[0, 'None'], [1, '1 pt'], [2.5, '2.5 pt'], [5, '5 pt'], [10, '10 pt'], [25, '25 pt']], value('Soft Edge') ?? 0);
 const reflectionItems = () => looksLike('Reflection', [[null, 'None'], [{ size: 35, transparency: 48, distance: 0, blur: 0.5 }, 'Tight, touching'], [{ size: 55, transparency: 50, distance: 0, blur: 0.5 }, 'Half, touching'], [{ size: 90, transparency: 50, distance: 0, blur: 0.5 }, 'Full, touching'], [{ size: 35, transparency: 48, distance: 4, blur: 1 }, 'Tight, 4 pt off'], [{ size: 55, transparency: 50, distance: 4, blur: 1 }, 'Half, 4 pt off']], value('Reflection'));
 const innerItems = () => looksLike('Inner Shadow', [['none', 'None'], ...[[45, 'Inside, top left'], [135, 'Inside, top right'], [225, 'Inside, bottom right'], [315, 'Inside, bottom left'], [90, 'Inside, top'], [270, 'Inside, bottom']].map(([angle, name]) => [{ blur: 5, distance: 3, angle, color: '#000000', transparency: 50 }, name]), [{ blur: 9, distance: 0, angle: 0, color: '#000000', transparency: 50 }, 'Inside, all round']], value('Inner Shadow') ?? 'none');
-const bevelItems = () => looksLike('Bevel', [[null, 'None'], ...[['circle', 'Round'], ['relaxedInset', 'Relaxed inset'], ['coolSlant', 'Cool slant'], ['angle', 'Angle'], ['softRound', 'Soft round'], ['convex', 'Convex'], ['slope', 'Slope'], ['artDeco', 'Art deco']].map(([type, name]) => [{ type, w: 6, h: 6 }, name])], value('Bevel'));
+const bevelItems = () => { const b = value('Bevel'), keep = { w: b?.w ?? 6, h: b?.h ?? 6, ...(b?.depth && { depth: b.depth }), ...(b?.material && { material: b.material }) }; return [...looksLike('Bevel', [[null, 'None'], ...[['circle', 'Round'], ['relaxedInset', 'Relaxed inset'], ['coolSlant', 'Cool slant'], ['angle', 'Angle'], ['softRound', 'Soft round'], ['convex', 'Convex'], ['slope', 'Slope'], ['artDeco', 'Art deco']].map(([type, name]) => [{ type, ...keep }, name])], b), '-', { label: 'Depth and material…', run: () => pop(document.querySelector('.fb [data-fb="effects"]'), () => html`<${BevelPop} />`) }]; };
 const turn3dItems = () => looksLike('Turn 3D', [[null, 'None'], [{ x: 45, y: 35, z: 0 }, 'Isometric, left down'], [{ x: 315, y: 35, z: 0 }, 'Isometric, right down'], [{ x: 30, y: 0, z: 0 }, 'Turned left'], [{ x: 330, y: 0, z: 0 }, 'Turned right'], [{ x: 0, y: 30, z: 0 }, 'Tilted back'], [{ x: 0, y: 330, z: 0 }, 'Tilted forward']], value('Turn 3D'));
 const EffectRows = ({ of }) => html`<div class="menu-sep" />
   <${Sub} label="Glow" of=${of} items=${glowItems} /><${Sub} label="Soft edges" of=${of} items=${softItems} /><${Sub} label="Reflection" of=${of} items=${reflectionItems} /><${Sub} label="Inner shadow" of=${of} items=${innerItems} /><${Sub} label="Bevel" of=${of} items=${bevelItems} /><${Sub} label="3-D rotation" of=${of} items=${turn3dItems} />`;
@@ -965,7 +1015,7 @@ function gradientItems() {
   const of = (to, angle) => ({ angle, stops: [[0, from], [100, to]] }), is = g => JSON.stringify(g) === JSON.stringify(now);
   const set = g => ({ run: () => g && value('Pattern') ? applyAll([['Gradient', g], ['Pattern', null]]) : apply('Gradient', g), point: on => on ? preview('Gradient', g) : preview() });
   return [{ label: 'None', checked: !now, ...set(null) }, '-', ...ends.flatMap(([word, to]) => ways.slice(0, 2).map(([angle, way]) => ({ label: `${word}, ${way.toLowerCase()}`, checked: is(of(to, angle)), ...set(of(to, angle)) }))), '-',
-    ...ways.map(([angle, way]) => ({ label: way, disabled: !now, checked: now?.angle === angle, ...(now && set({ ...now, angle })) }))];
+    ...ways.map(([angle, way]) => ({ label: way, disabled: !now, checked: now?.angle === angle, ...(now && set({ ...now, angle })) })), '-', { label: 'Stops…', run: () => stopsPop('Gradient', 'fill', from) }];
 }
 // A pattern, as PowerPoint's: none, or one of its own, in the outline's color over the fill, which a gradient gives way to.
 function patternItems() {
@@ -1381,10 +1431,17 @@ function insertMenu(e, c) {
     ${item('Icon', () => iconPick(document.querySelector('.fb [data-fb="insert"]'), c), close)}
     ${item('Freeform', () => c.draw('freeform'), close)}
     ${item('Curve', () => c.draw('curve'), close)}
+    ${mastering ? html`<div class="menu-sep" />${[['Footer', 'text'], ['Date', 'date'], ['Page number', 'number']].map(([name, k]) => html`<button class="menu-item" role="menuitemcheckbox" aria-checked=${!!footNote()[k]} onClick=${() => { close(); masterFoot(c, k); }}><span class="label">${name}</span>${footNote()[k] ? Shell.icon('check') : null}</button>`)}` : null}
     <div class="menu-sep" />
     <div class="gallery">${Shapes.gallery().map(g => html`<div class="menu-head">${g.head}</div><div class="shapes">${g.shapes.map(([id, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); c.draw(id); }}>${shapeGlyph(id)}</button>`)}</div>`)}</div>
     ${typeof Table === 'undefined' || mastering ? null : html`<div class="menu-sep" />${item('Import…', () => Table.importFile(), close)}`}
   </div>`, { placement: 'bottom-start' });
+}
+// The master's placeholders, as PowerPoint's: its footer, typed where it stands; the day each page shows; its number. On every page, the chart's own Footer note. A placeholder that's there, taken off.
+function masterFoot(c, k) {
+  const { format, ...f } = footNote(), on = !!f[k], next = k === 'text' ? { ...f, text: on ? '' : 'Footer' } : { ...f, [k]: !on }, named = { text: 'the footer', date: 'the date', number: 'the page number' }[k];
+  App.change(tx => tx.note('Footer', { kind: 'View' }, next.text || next.number || next.date ? { ...next, ...(format && { format }) } : undefined), { dated: false, say: `${on ? 'Took' : 'Put'} ${named} ${on ? 'off the master' : 'on the master'}` });
+  if (k === 'text' && !on) setTimeout(() => c.edit(Scene.FOOTER));
 }
 // A table by its rows and columns, as PowerPoint's Insert Table: pointed at, how many; with a box selected, a table that reads one of its lists, live.
 function TablePick({ c, close }) {

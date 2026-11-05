@@ -29,12 +29,12 @@ const BLUE = '#1f5fbf', RED = '#c2372b';
 // Cells that draw no mark of their own, so nothing selects or moves them: the page, a line's label, a redline's ink.
 const UNMARKED = new Set(['page', 'label', 'ink', 'guide', 'master']);
 // The footer and its number, the chart's own and the sheet's: selected and formatted as any text is, but placed by the page.
-const footOf = m => m?.role === 'footer' || m?.role === 'number';
+const footOf = m => m?.role === 'footer' || m?.role === 'number' || m?.role === 'day';
 const footNote = () => App.notes.peek().resolve('Footer', { kind: 'View' })?.value ?? {};
 // An entry wherever it is, as a Shown or Format note at it reaches each box that has it.
 const entryAnywhere = edge => ({ args: [{ edge, loc: {} }] });
 // Taking one away: the footer's words, or the numbers; with neither left, the note and its look.
-const unfoot = (tx, m) => { const { format, ...f } = footNote(), now = m.role === 'footer' ? { ...f, text: '' } : { ...f, number: false }; tx.note('Footer', { kind: 'View' }, now.text || now.number ? { ...now, ...(format && { format }) } : undefined); };
+const unfoot = (tx, m) => { const { format, ...f } = footNote(), now = m.role === 'footer' ? { ...f, text: '' } : m.role === 'day' ? { ...f, date: false } : { ...f, number: false }; tx.note('Footer', { kind: 'View' }, now.text || now.number || now.date ? { ...now, ...(format && { format }) } : undefined); };
 // As far out as the canvas goes: a chart of hundreds of boxes still fits.
 const LEAST = 0.02;
 const ANCHOR = { left: 'start', center: 'middle', right: 'end' };
@@ -375,7 +375,7 @@ function cellsOf(scene, ink = null) {
       } else if (m.geometry === 'legend') node(m, 'shape', legendMarkup(m, s));
       else if (m.geometry === 'group') continue;
       // (The footer and its number are the sheet's, set in Page setup.)
-      else node(m, m.role === 'footer' || m.role === 'number' ? 'foot' : 'shape', shapeMarkup(m, s));
+      else node(m, footOf(m) ? 'foot' : 'shape', shapeMarkup(m, s));
     }
   }
   return cells;
@@ -1416,14 +1416,14 @@ function mount(el) {
       rect = { x: m.x + r.x + r.sw.w + 6, y: m.y + r.y, w: r.w - r.sw.w - 6, h: r.h + 2 };
       // The Key's own: no other place's word for it changes.
       save = text => App.change(tx => keyCaption(tx, m, r, text));
-    } else if (m.role === 'number') {
+    } else if (m.role === 'number' || m.role === 'day') {
       return Export.setup();
     } else if (m.role === 'footer') {
       // The chart's footer's words, on every chart view.
       it = m.texts[0];
       rect = { x: m.x, y: m.y, w: Math.max(m.w, 240), h: m.h };
       raw = footNote().text;
-      save = text => App.change(tx => { const { format, ...f } = footNote(), t = text.trim(); tx.note('Footer', { kind: 'View' }, t || f.number ? { ...f, text: t, ...(format && { format }) } : undefined); }, { dated: false, say: 'Set the footer' });
+      save = text => App.change(tx => { const { format, ...f } = footNote(), t = text.trim(); tx.note('Footer', { kind: 'View' }, t || f.number || f.date ? { ...f, text: t, ...(format && { format }) } : undefined); }, { dated: false, say: 'Set the footer' });
     } else if (m.type === 'shape' && !['line', 'picture', 'group'].includes(m.geometry)) {
       // (While a design is edited, the part its other fields go in has no words of its own to type.)
       if (rowOf(m.id)?.rest) return;
@@ -2924,7 +2924,7 @@ function mount(el) {
   // Northpine Software, LLC.
   const lineOf = id => { const N = App.notes.peek(), st = App.state.peek(); return `${N.nameOf(st, id)}: ${N.segmentOf(st, id)}`; };
   const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? lineOf(m.record) : m.type === 'frame' ? `the ${m.caption.text} frame`
-    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : m.role === 'footnotes' ? 'the footnotes' : `the ${SHAPE[m.geometry] ?? 'shape'}`;
+    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : m.role === 'day' ? 'the date' : m.role === 'footnotes' ? 'the footnotes' : `the ${SHAPE[m.geometry] ?? 'shape'}`;
   const counted = ms => ms.length === 1 ? ms[0].name : ms.every(m => m.type === 'box') ? `${ms.length} boxes` : ms.every(m => m.type === 'line') ? `${ms.length} lines` : `${ms.length} items`;
   function said(hid, gone, view) {
     const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row');

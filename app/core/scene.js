@@ -78,7 +78,7 @@ const TEXT_PROPS = Object.keys(TEXT);
 const HAS = Object.fromEntries(Object.entries(DEFAULTS).map(([k, d]) => [k, new Set(Object.keys(d))]));
 // What a note at the view itself can say of every text on the page (dendra.md, Notes); the footer and its number, the
 // chart's own (see the page); and how a box of no form is drawn, which no row of the Key is by itself.
-const ROOT = ['Font', 'Size'], FOOTER = '·footer', NUMBER = '·number', MASTER = '·master', REST = ['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'];
+const ROOT = ['Font', 'Size'], FOOTER = '·footer', NUMBER = '·number', DAY = '·day', MASTER = '·master', REST = ['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'];
 const FORMLESS = { Outline: { value: '#7f7f7f', note: null }, Dash: { value: 'square-dot', note: null } };
 // What a swatch shows: the properties of a box or line that tell marks apart, a frame's kind, or a text's
 // look. A frame's caption says on the chart what it is, so the legend leaves frames out.
@@ -1049,10 +1049,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // The footer, the chart's, at no view (dendra.md, The page), and its number, a view's place among the chart's views: the
   // sheet's own, as its title is.
   const footing = N.resolve('Footer', { id: view, kind: 'View' })?.value, footLook = footing?.format && { format: footing.format };
-  // (Its words, its position on the sheet, and with `date` the day the page shows after them, as a footer says it: each page's own.)
-  const footWords = [footing?.text, footing?.date && Tree.formatDate(day, 'short')].filter(Boolean).join('  ·  ');
-  const footRows = !footing ? [] : [...footWords ? [{ id: FOOTER, shape: FOOTER, geometry: 'text', role: 'footer', text: footWords, ...(footing.at && { at: footing.at }), ...footLook }] : [],
-    ...footing.number ? [{ id: NUMBER, shape: NUMBER, geometry: 'text', role: 'number', text: String(1 + pagesOf(N, state).indexOf(view)), ...footLook }] : []];
+  // (Its words and its position on the sheet; with `date`, the day the page shows, a mark of its own, as PowerPoint's date placeholder is; each page's own. On the master, its number stands for all of them, as PowerPoint's does.)
+  const footRows = !footing ? [] : [...footing.text ? [{ id: FOOTER, shape: FOOTER, geometry: 'text', role: 'footer', text: footing.text, ...(footing.at && { at: footing.at }), ...footLook }] : [],
+    ...footing.date ? [{ id: DAY, shape: DAY, geometry: 'text', role: 'day', text: Tree.formatDate(day, 'short'), ...footLook }] : [],
+    ...footing.number ? [{ id: NUMBER, shape: NUMBER, geometry: 'text', role: 'number', text: view === MASTER ? '‹#›' : String(1 + pagesOf(N, state).indexOf(view)), ...footLook }] : []];
   for (const r of footRows) said.set(r.id, r.text);
   // A free shape's text takes the page's Font and Size too, where its own row doesn't say.
   const pageLook = Object.fromEntries(Object.entries(ofPage).map(([l, r]) => [l, r.value]));
@@ -2158,7 +2158,7 @@ const SHAPED = new Set(['line', 'picture', 'group', 'legend', 'table', 'text', '
 // A table's: its Fill is its heading row's (none, as it comes, a rule under it instead), its Outline its rules', its Color its words'.
 const TABLE = { Fill: 'none', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Size: 10, Valign: 'middle' };
 // The page's own texts: its title, its date, its footer and its number.
-const ROLES = { title: { Size: 20, Bold: true, Font: 'Heading' }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
+const ROLES = { title: { Size: 20, Bold: true, Font: 'Heading' }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, day: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
 function freeShape(row, text, u = 1, k = 1) {
   const { id, shape, format = {} } = row;
   const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...(row.geometry === 'table' && TABLE), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
@@ -2684,6 +2684,9 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
       places.set(footer.row, { x: atFoot, y: H - MB + PAD });
     }
     if (number) places.set(number.row, { x: W - MR + INSET - number.w * s, y: H - MB + PAD });
+    // The day the page shows, at the side the footer isn't: left of a number there, or at its left margin.
+    const stamp = shapes.find(m => m.role === 'day');
+    if (stamp) { const toRight = !footer || !['right', 'center'].includes(rows.find(r => r.id === footer.row)?.at); places.set(stamp.row, { x: toRight ? W - MR + INSET - stamp.w * s - (number ? 48 : 0) : ML - INSET, y: H - MB + PAD }); }
     // Footnotes at the foot of the page, across its margins, just above its footer, which is just under the bottom margin: one a hand moved stands where it was put.
     const notes = shapes.find(m => m.role === 'footnotes');
     if (notes) {
@@ -2920,7 +2923,7 @@ function says(scene, name, paper) {
   for (const b of boxes) if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > W + 0.5 || b.y + b.h > H + 0.5) out.push(`${called(b)} runs off the page`);
     else if (b.x < edge || b.y < edge || b.x + b.w > W - edge || b.y + b.h > H - edge) out.push(`${called(b)} is nearer the edge than a printer prints`);
   const over =(a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
-  const WHAT = { legend: 'The Key', picture: 'The picture', table: 'The table', title: 'The title', date: 'The date', footer: 'The footer', number: 'The page number', footnotes: 'The footnotes block' };
+  const WHAT = { legend: 'The Key', picture: 'The picture', table: 'The table', title: 'The title', date: 'The date', day: 'The date', footer: 'The footer', number: 'The page number', footnotes: 'The footnotes block' };
   for (const m of scene.marks) if (m.type === 'shape' && !m.master && !['line', 'group', 'frame'].includes(m.geometry) && (m.look?.Layer ?? 0) >= 0)
     for (const b of boxes) if (over(m, b)) out.push(`${WHAT[m.role] ?? WHAT[m.geometry] ?? `“${m.texts[0]?.text ?? 'A shape'}”`} overlaps ${called(b)}`);
   for (const k of scene.marks) if (k.geometry === 'legend') for (const f of scene.marks) if (f.type === 'frame' && !f.lone && over(k, f)) out.push(`The Key overlaps the ${f.caption.text} frame`);
@@ -2936,7 +2939,7 @@ function says(scene, name, paper) {
 return {
   MASTER, LINK, fontName, tooDark, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   instance, swatchParts, wholeDesign, overDesign, designAtPattern, tokensIn, reader, readWords,
-  toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
+  toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, DAY, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };
 })();

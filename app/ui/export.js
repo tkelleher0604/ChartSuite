@@ -464,15 +464,19 @@ const headEnd = (tag, h) => `<a:${tag} type="${HEAD_TYPE[h.type] ?? 'triangle'}"
 const ALIGN = { left: 'l', center: 'ctr', right: 'r' };
 // The page's own texts, by the names PowerPoint's Selection Pane gives them; any other shape, as a box is, by
 // what it says.
-const ROLE = { title: 'Title', date: 'Date', footer: 'Footer', number: 'Page number', footnotes: 'Footnotes' };
+const ROLE = { title: 'Title', date: 'Date', day: 'Date', footer: 'Footer', number: 'Page number', footnotes: 'Footnotes' };
+// What each part of a design is, by the id the gallery's designs give it.
+const PART_WORD = { panel: 'panel', rule: 'rule', tear: 'rule', tag: 'tag', face: 'portrait', name: 'name', rest: 'details' };
 // The footer and its number as a deck holds them: the master's placeholders, and each slide's, which take their place and
 // look from there, so a footer changed on the master is changed on every slide; its number a field, so a slide moved
 // renumbers. A slide says its own place or look only where its sheet or the page's font makes it other than the master's.
-const FOOT = { footer: { type: 'ftr', master: 3, layout: 10 }, number: { type: 'sldNum', master: 4, layout: 11 } };
+// The day it shows too, PowerPoint's date placeholder, a fixed one: the foot's where it's there, or else the page's own as-of line under its title.
+const DATED = { type: 'dt', master: 2, layout: 12, id: 5, name: 'Date Placeholder' };
+const FOOT = { footer: { type: 'ftr', master: 3, layout: 10, id: 3, name: 'Footer Placeholder' }, number: { type: 'sldNum', master: 4, layout: 11, id: 4, name: 'Slide Number Placeholder' }, day: DATED, date: DATED };
 const NUM_FIELD = '{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}';
 const RUN_LOOK = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color'];
 function footMaster(m, r, k, level) {
-  const f = FOOT[m.role], t = m.texts[0].look, ph = `type="${f.type}" sz="quarter" idx="${level === 'master' ? f.master : f.layout}"`, id = m.role === 'footer' ? 3 : 4, name = m.role === 'footer' ? 'Footer Placeholder' : 'Slide Number Placeholder';
+  const f = FOOT[m.role], t = m.texts[0].look, ph = `type="${f.type}" sz="${f.type === 'dt' ? 'half' : 'quarter'}" idx="${level === 'master' ? f.master : f.layout}"`, id = f.id, name = f.name;
   const nv = `<p:nvSpPr><p:cNvPr id="${id}" name="${name} ${id - 1}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph ${ph}/></p:nvPr></p:nvSpPr>`;
   const run = m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum"><a:rPr lang="en-US"/><a:t>‹#›</a:t></a:fld>` : `<a:r><a:rPr lang="en-US"/><a:t>${esc(m.texts[0].text)}</a:t></a:r>`;
   if (level === 'layout') return `<p:sp>${nv}<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>${run}</a:p></p:txBody></p:sp>`;
@@ -487,7 +491,7 @@ function footSlide(id, m, r, k, master) {
   const font = esc(t.Font), rPr = same ? '<a:rPr lang="en-US" dirty="0"/>' : `<a:rPr lang="en-US" sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ' b="0"'}${t.Italic ? ' i="1"' : ' i="0"'}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"><a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${faceRef(t.Font)}"/><a:cs typeface="${faceRef(t.Font, 'cs')}"/></a:rPr>`;
   const line = l => m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum">${rPr}<a:t>${esc(l.text)}</a:t></a:fld>` : `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`;
   const ps = typed(it).map(ls => `<a:p>${ls.map(line).join(`<a:br>${rPr}</a:br>`)}</a:p>`).join('');
-  return `<p:sp><p:nvSpPr>${cNvPr(id, ROLE[m.role])}<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${f.type}" sz="quarter" idx="${f.layout}"/></p:nvPr></p:nvSpPr><p:spPr>${moved ? xfrm(E(r.x), E(r.y), E(r.w), E(r.h)) : ''}</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${ps}</p:txBody></p:sp>`;
+  return `<p:sp><p:nvSpPr>${cNvPr(id, ROLE[m.role])}<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${f.type}" sz="${f.type === 'dt' ? 'half' : 'quarter'}" idx="${f.layout}"/></p:nvPr></p:nvSpPr><p:spPr>${moved ? xfrm(E(r.x), E(r.y), E(r.w), E(r.h)) : ''}</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${ps}</p:txBody></p:sp>`;
 }
 // A shape's name, and with `descr` its alt text; with `link`, where a click on it goes (dendra.md, Links).
 const cNvPr = (id, name, descr, link = null) => `<p:cNvPr id="${id}" name="${esc(name)}"${descr ? ` descr="${esc(descr)}"` : ''}${link ? `>${hlink(link)}</p:cNvPr>` : '/>'}`;
@@ -520,7 +524,9 @@ async function pptx(scenes, title, author, say) {
   const placed = s => { const k = fit(s.page); return { k, ox: (W - s.page.w * k) / 2, oy: (H - s.page.h * k) / 2 }; };
   const footAt = (m, { k, ox, oy }) => ({ x: (ox + m.x * k) / 96, y: (oy + m.y * k) / 96, w: m.w * k / 96, h: m.h * k / 96 });
   const feet = {};
-  for (const s of scenes) for (const m of s.marks) if (FOOT[m.role] && !feet[m.role]) feet[m.role] = { m, ...placed(s), r: footAt(m, placed(s)), look: m.texts[0].look };
+  // (The one date placeholder a slide has: the foot's day where a page has one, the as-of line otherwise.)
+  const dayed = scenes.some(s => s.marks.some(m => m.role === 'day'));
+  for (const s of scenes) for (const m of s.marks) if (FOOT[m.role] && !feet[m.role] && !(m.role === 'date' && dayed)) feet[m.role] = { m, ...placed(s), r: footAt(m, placed(s)), look: m.texts[0].look };
   // The chart's master is the deck's: on its slide master, as the first page that has it draws it, so a slide takes it from there; one that leaves it off says so, and one on another sheet has it of its own.
   const masterOf = scenes.find(s => s.marks.some(m => m.master)), sameSheet = s => !!masterOf && s.marks.some(m => m.master) && s.page.sheet.w === masterOf.page.sheet.w && s.page.sheet.h === masterOf.page.sheet.h;
   const finish = scenes.map(s => slide(p, s, placed(s), (...a) => say(s, ...a), feet, { onMaster: sameSheet(s) }));
@@ -539,11 +545,11 @@ async function pptx(scenes, title, author, say) {
   // PowerPoint's own default kerns only from 12 pt.
   for (const f of ['ppt/presentation.xml', 'ppt/slideMasters/slideMaster1.xml']) await edit(f, x => x.replaceAll('kern="1200"', 'kern="100"'));
   await edit('ppt/theme/theme1.xml', x => x.replace(/<a:clrScheme[\s\S]*?<\/a:clrScheme>/, clrScheme(palette ?? undefined)));
-  const titles = slides.map(x => TITLE.exec(x)?.[0]), first = titles.find(Boolean), footed = ['footer', 'number'].filter(r => feet[r]);
+  const titles = slides.map(x => TITLE.exec(x)?.[0]), first = titles.find(Boolean), footed = ['footer', 'number', 'day', 'date'].filter(r => feet[r]);
   await edit('ppt/slideLayouts/slideLayout1.xml', x => x.replace('<p:cSld name="DEFAULT">', `<p:cSld name="${first ? 'Title Only' : 'Blank'}">`)
     .replace('</p:grpSpPr></p:spTree>', `</p:grpSpPr>${first ? layoutTitle(first) : ''}${footed.map(r => footMaster(feet[r].m, feet[r].r, feet[r].k, 'layout')).join('')}</p:spTree>`));
   if (footed.length) await edit('ppt/slideMasters/slideMaster1.xml', x => x.replace('</p:grpSpPr></p:spTree>', `</p:grpSpPr>${footed.map(r => footMaster(feet[r].m, feet[r].r, feet[r].k, 'master')).join('')}</p:spTree>`)
-    .replace(/<p:hf [^>]*\/>/, `<p:hf sldNum="${feet.number ? 1 : 0}" hdr="0" ftr="${feet.footer ? 1 : 0}" dt="0"/>`));
+    .replace(/<p:hf [^>]*\/>/, `<p:hf sldNum="${feet.number ? 1 : 0}" hdr="0" ftr="${feet.footer ? 1 : 0}" dt="${feet.day || feet.date ? 1 : 0}"/>`));
   if (masterOf) {
     const made = slide(p, masterOf, placed(masterOf), () => null, feet, { only: true });
     await edit('ppt/slideMasters/slideMaster1.xml', x => x.replace('</p:grpSpPr>', `</p:grpSpPr>${made.xml}`));
@@ -674,7 +680,7 @@ const effectXml = s => {
   const list = `${g ? `<a:glow rad="${Math.round((g.size ?? 8) * 12700)}">${colorAt(g.color ?? '#4472c4', g.transparency ?? 60)}</a:glow>` : ''}${i ? shade('innerShdw', i) : ''}${o ? shade('outerShdw', o, ' algn="tl" rotWithShape="0"') : ''}`
     + `${r ? `<a:reflection blurRad="${Math.round((r.blur ?? 0.5) * 12700)}" stA="${Math.round((100 - (r.transparency ?? 50)) * 1000)}" endA="300" endPos="${Math.round((r.size ?? 50) * 1000)}" dist="${Math.round((r.distance ?? 0) * 12700)}" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/>` : ''}${soft > 0 ? `<a:softEdge rad="${Math.round(soft * 12700)}"/>` : ''}`;
   const t = s['Turn 3D'], rot = v => Math.round((((v ?? 0) % 360) + 360) % 360 * 60000), b = s.Bevel;
-  return `${list ? `<a:effectLst>${list}</a:effectLst>` : ''}${t || b ? `<a:scene3d><a:camera prst="orthographicFront">${t ? `<a:rot lat="${rot(t.y)}" lon="${rot(t.x)}" rev="${rot(-(t.z ?? 0))}"/>` : ''}</a:camera><a:lightRig rig="threePt" dir="t"/></a:scene3d>` : ''}${b ?`<a:sp3d><a:bevelT w="${Math.round((b.w ?? 6) * 12700)}" h="${Math.round((b.h ?? b.w ?? 6) * 12700)}" prst="${b.type ?? 'circle'}"/></a:sp3d>` : ''}`;
+  return `${list ? `<a:effectLst>${list}</a:effectLst>` : ''}${t || b ? `<a:scene3d><a:camera prst="orthographicFront">${t ? `<a:rot lat="${rot(t.y)}" lon="${rot(t.x)}" rev="${rot(-(t.z ?? 0))}"/>` : ''}</a:camera><a:lightRig rig="threePt" dir="t"/></a:scene3d>` : ''}${b ? `<a:sp3d${b.depth ? ` extrusionH="${Math.round(b.depth * 12700)}"` : ''}${b.material ? ` prstMaterial="${b.material}"` : ''}><a:bevelT w="${Math.round((b.w ?? 6) * 12700)}" h="${Math.round((b.h ?? b.w ?? 6) * 12700)}" prst="${b.type ?? 'circle'}"/></a:sp3d>` : ''}`;
 };
 // The anchor of a box's text, by its Valign.
 const VALIGN = { top: 't', middle: 'ctr', bottom: 'b' };
@@ -807,8 +813,11 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
         return [rect(m), caption()];
       });
     }
+    // (A part of a design with nothing to say and nothing to draw isn't there, so no empty text box waits in each box; and one that's there is named for what it is, of whose it is.)
+    if (m.of && m.geometry === 'text' && !m.texts.some(it => it.lines?.length && !it.blank)) return [];
+    const partName = m.of ? `${scene.byId.get(m.of)?.texts.find(it => it.name)?.text ?? 'Box'} ${m.name ?? PART_WORD[m.part] ?? String(Shapes.name(m.geometry) ?? 'part').toLowerCase()}` : null;
     // A free line is a connector glued to what it's glued to, named so, and it follows that in PowerPoint; or a line.
-    if (m.geometry === 'line') return connector(m.points, s, m.ends ?? null, m.name ?? (m.ends ? 'Connector' : 'Line'), { alt: m.alt, link: m.link });
+    if (m.geometry === 'line') return connector(m.points, s, m.ends ?? null, partName ?? m.name ?? (m.ends ? 'Connector' : 'Line'), { alt: m.alt, link: m.link });
     if (m.geometry === 'picture') {
       // Cropped, as PowerPoint holds it: the whole picture's size, and the part of it shown, its frame on the slide. Named, and said to a reader, as the panel has it.
       const c = m.crop && { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = c ? L(m.w) / (1 - (c.left + c.right) / 100) : L(m.w), fh = c ? L(m.h) / (1 - (c.top + c.bottom) / 100) : L(m.h);
@@ -837,7 +846,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     if (FOOT[m.role] && feet[m.role]) { put(id => footSlide(id, m, rect(m), k, feet[m.role])); return [rect(m)]; }
     // (A part of a design keeps its margins at the chart's size, as a box does.)
     const text = m.geometry === 'text' || m.geometry === 'frame', by = m.of ? k : 1, ins = s.Inset ? { l: (s.Inset.l ?? 7.2) / 72 * by, t: (s.Inset.t ?? 3.6) / 72 * by, r: (s.Inset.r ?? 7.2) / 72 * by, b: (s.Inset.b ?? 3.6) / 72 * by } : m.of ? { l: 0.1 * k, t: 0.05 * k, r: 0.1 * k, b: 0.05 * k } : PAGE;
-    ids.set(m.id, shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.name ?? m.texts[0]?.text ?? Shapes.name(m.geometry) ?? 'Shape',
+    ids.set(m.id, shape(rect(m), text ? 'rect' : m.geometry, s, partName ?? ROLE[m.role] ?? m.name ?? m.texts[0]?.text ?? Shapes.name(m.geometry) ?? 'Shape',
       { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate, flip: m.flip, alt: m.alt, locked: m.locked, inset: ins, fit: s.Shrink ? m.shrunk ?? 1 : false, link: m.link }));
     return [rect(m)];
   };
@@ -858,9 +867,11 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
   while (unwritten.size) { const next = [...unwritten].find(b => bands.get(b).every(l => [...under.get(l)].every(x => !unwritten.has(bandOf(x)) || bandOf(x) === b))) ?? unwritten.values().next().value; inOrder.push(...bands.get(next)); unwritten.delete(next); }
   const behind = scene.marks.filter(m => m.type === 'shape' && (m.look?.Layer ?? 0) < 0 && !none(m.look?.Fill));
   const overBehind = l => behind.some(r => l.points.some(([x, y]) => x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h) || legsOf(l).some(([a, b]) => Math.max(a[0], b[0]) > r.x && Math.min(a[0], b[0]) < r.x + r.w && Math.max(a[1], b[1]) > r.y && Math.min(a[1], b[1]) < r.y + r.h));
+  // (A band with a crossing is one group, its casings under its lines, named for them: so nothing white and wide lies loose on the slide for a hand to catch, and a click takes the line.)
   const cased = new Set();
-  const casings = l => { const b = bandOf(l); if (cased.has(b)) return; cased.add(b);
-    for (const o of bands.get(b)) if (under.get(o).size && !overBehind(o)) connector(o.points, { ...look(o), Outline: '#ffffff', Dash: 'solid', Arrow: 'none', Arrowhead: null, Weight: 6 / (scene.page.scale ?? 1) }, [o.from, o.to], `Gap: ${say([o.record]) ?? 'Line'}`); };
+  const casingsOf = b => bands.get(b).filter(o => under.get(o).size && !overBehind(o));
+  const crossing = (l, written) => { const b = bandOf(l), lines = bands.get(b); cased.add(b); lines.forEach(o => written.add(o.id));
+    group(say(lines.map(o => o.record)) ?? 'Line', () => [...casingsOf(b).flatMap(o => connector(o.points, { ...look(o), Outline: '#ffffff', Dash: 'solid', Arrow: 'none', Arrowhead: null, Weight: 6 / (scene.page.scale ?? 1) }, [o.from, o.to], 'Crossing')), ...lines.flatMap(write)]); };
   const written = new Set();
   let nextLine = 0;
   for (const mark of reading(scene.marks)) {
@@ -868,7 +879,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     if (only ? !mark.master : mark.master && onMaster) continue;
     const m = flat.includes(mark) ? inOrder[nextLine++] : mark;
     if (written.has(m.id)) continue;
-    if (flat.includes(m)) casings(m);
+    if (flat.includes(m) && !cased.has(bandOf(m)) && casingsOf(bandOf(m)).length) { crossing(m, written); continue; }
     const g = inGroup.get(m.id), of = g ? g.members.map(id => scene.byId.get(id)).filter(Boolean) : [];
     if (of.length < 2) { write(m); continue; }
     of.forEach(x => written.add(x.id));
