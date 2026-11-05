@@ -3381,6 +3381,10 @@ async function designing(st) {
   check('… a style gives its heading the color, words white on it', /^#/.test(ofTable().table.rows[0].cells[0].fill) && ofTable().table.rows[0].cells[0].it.look.Color === '#ffffff' && ofTable().table.rows[1].cells[0].fill === 'none');
   cv().readsFrom(tid, 'halvard'); await tick(200);
   check('a table told to read a record reads it, not typed over what’s there', App.shown.peek().item(App.chart.peek(), tid).at(-1).table.of === 'halvard');
+  { const t = App.shown.peek().item(App.chart.peek(), tid).at(-1).table; App.change(tx => tx.update(tid, { table: { ...t, of: undefined, rows: t.rows.map(r => ({ cells: r.cells.map(() => ({ text: '' })) })) } }), { dated: false }); await tick(150);
+    cv().readsFrom(tid, 'halvard'); await tick(250);
+    const m = ofTable(), over = sc().marks.filter(k => k.type === 'box' && m.x < k.x + k.w && m.x + m.w > k.x && m.y < k.y + k.h && m.y + m.h > k.y);
+    check('… one that’s blank shows it, a row for each of what it has, placed clear of what’s drawn, or saying it can’t be', m.table.rows.length > 2 && (!over.length || $$('.toast').some(e => /no free room/.test(txt(e)))), `${m.table.rows.length} rows, over ${over.map(k => k.id).join()}`); }
   cv().edit(tid); await tick(100);
   { const ed = $('.dc-edit'); ed.textContent = '{'; getSelection().selectAllChildren(ed); getSelection().collapseToEnd(); ed.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(80); const kin = Scene.readable(App.state.peek(), App.notes.peek(), App.schema.peek(), 'halvard').find(l => l.of)?.label; check('… and a cell offers what’s there as { is typed, as a box’s words do: its entries, then what’s over it', $$('.dc-complete .menu-item').some(o => txt(o) === 'Name') && !!kin && $$('.dc-complete .menu-item').some(o => txt(o) === kin), `${kin}: ${$$('.dc-complete .menu-item').map(txt).join()}`); ed.textContent = 'Plain'; ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(100); }
   // A word's link, as it's typed.

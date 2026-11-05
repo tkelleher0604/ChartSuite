@@ -3717,7 +3717,7 @@ function mount(el) {
       hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
-  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected, connect, wordsOf });
+  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected, connect, wordsOf, freeSpot });
   active.value = canvas;
   return canvas;
 }

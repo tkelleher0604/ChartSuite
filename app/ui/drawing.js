@@ -468,7 +468,7 @@ function attach(x) {
   let cellNow = null;
   const tableOfRow = id => x.rowOf(id)?.table;
   const blank = n => Array.from({ length: n }, () => ({ text: '' }));
-  const putTable = (id, table, say, more = {}) => App.change(tx => tx.update(id, { table, ...more }), { dated: false, keep: false, say });
+  const putTable = (id, table, say, more = {}) => App.change(tx => { tx.update(id, { table, ...more }); if (say) tx.says(say); }, { dated: false, keep: false, say });
   const cellAt = t => { const v = t?.closest?.('[data-tcell]')?.getAttribute('data-tcell'); return v ? v.split(',').map(Number) : null; };
   // The cell a point falls in, as drawn, a joined one by its first row and column; held to the table, for a drag that's left it.
   function cellOver(m, p) {
@@ -617,8 +617,11 @@ function attach(x) {
     if (!of) return putTable(id, { ...t, of: undefined }, 'The table reads nothing now');
     const name = N.nameOf(st, of), blankNow = t.rows.every(r => r.cells.every(k => !String(k.text ?? '').trim())), said = (Tree.index(st).entries.get(of) ?? []).map(e => st[e].edge), list = [...new Set(said)];
     if (!blankNow || t.cols.length < 2 || !list.length) return putTable(id, { ...t, of }, `Made the table read ${name}`);
-    const rows = [...(t.header === false ? [] : [{ cells: t.cols.map((_, j) => ({ text: j === 0 ? name : '' })) }]), ...list.map(e => ({ cells: t.cols.map((_, j) => ({ text: j === 0 ? e : j === 1 ? `{${e}}` : '' })) }))];
-    putTable(id, { ...t, of, rows }, `Made the table read ${name}`, { h: round(m.h * rows.length / m.table.rows.length) });
+    const rows = [...(t.header === false ? [] : [{ cells: t.cols.map((_, j) => ({ text: j === 0 ? name : '' })) }]), ...list.map(e => ({ cells: t.cols.map((_, j) => ({ text: j === 0 ? e : j === 1 ? `{${e}}` : '' })) }))], table = { ...t, of, rows }, h = round(m.h * rows.length / m.table.rows.length), s = scene();
+    // (It's as much taller as what it now says, so it's placed again, clear of what's drawn, as it was inserted; where the page has no room, it stays, and that's said.)
+    const tall = Scene.shapeOf({ ...x.rowOf(id), table, h, text: Scene.reader(st, N, App.computed.peek(), App.day.peek()).table({ table }, of) }, s).h, p = x.freeSpot({ page: s.page, marks: s.marks.filter(k => k !== m) }, m.w, tall, { x: m.x + m.w / 2, y: m.y + tall / 2 });
+    putTable(id, table, `Made the table read ${name}`, { h, ...(p && { x: round(p.x), y: round(p.y) }) });
+    if (!p) Shell.toast('The page has no free room: the table is over what’s drawn', { ms: 3500 });
   }
   // A table's look, as PowerPoint's Table Styles: what its heading, rules and bands are, from the chart's colors.
   const HAIR = '#a6a6a6';
