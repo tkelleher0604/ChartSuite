@@ -1587,6 +1587,15 @@ async function reloaded() {
   const n00 = App.wb.changes().length;
   cv().tidy(); await tick(150);
   check('… with nothing more to tidy it’s never grey: it says so, and writes nothing', !$('[data-fb="tidy"]').disabled && App.wb.changes().length === n00 && txt($$('.toast').at(-1)).startsWith('Already tidy'), txt($$('.toast').at(-1)));
+  // Bigger text keeps the same tidy chart: All text's size, with nothing selected, stepped from what names print at, laid out with the change.
+  {
+    Shell.select([]); await tick(120);
+    const rowsOf = s => { const bs = s.marks.filter(m => m.type === 'box'), ys = [...new Set(bs.map(b => Math.round(b.y)))].sort((a, b) => a - b); return JSON.stringify(bs.map(b => [b.id, ys.indexOf(Math.round(b.y))])); }, rows0 = rowsOf(App.scene.peek()), printed = () => { const s = App.scene.peek(); return s.marks.find(m => m.type === 'box').texts[0].look.Size * s.page.scale; }, at0 = printed(), n1 = App.wb.changes().length;
+    FormatBar.resize(1); await tick(500);
+    const s1 = App.scene.peek(), bs = s1.marks.filter(m => m.type === 'box'), clash = bs.some((a, i) => bs.slice(i + 1).some(b => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1));
+    check('Bigger text keeps the same tidy chart: All text steps up, one change, its rows the same, no box over another', printed() > at0 && App.wb.changes().length === n1 + 1 && rowsOf(s1) === rows0 && !clash, JSON.stringify([at0, printed(), App.wb.changes().length - n1, clash]));
+    Shell.parts.peek().undo.undo(); await tick(300);
+  }
   const off0 = await sameAsFresh();
   check('after Tidy, each day draws what a page opened on the same log draws', !off0.length, off0.join());
 
@@ -2461,7 +2470,7 @@ async function format() {
   const allAct = acts().find(a => a.id === 'format.alltext');
   check('Find reaches it by All text and Theme, with nothing selected', !!allAct && allAct.name.startsWith('All text') && allAct.names.includes('Theme') && acts().find(a => a.id === 'format.font').enabled(), allAct?.name);
   FormatBar.apply('Size', 9); await tick(600);
-  check('… its size too, each text printing at what was typed', rootOf(stE.id, 'Size') === 9 && Math.abs(sc().marks.find(m => m.role === 'title').texts[0].look.Size * sc().page.scale - 9) < 0.01 && $('[data-fb="size"]').value === '9', $('[data-fb="size"]').value);
+  check('… its size too, names printing at what was typed, what’s beside them under it, the sheet’s own title as it was', rootOf(stE.id, 'Size') === 9 && Math.abs(sc().marks.find(m => m.type === 'box').texts[0].look.Size * sc().page.scale - 9) < 0.01 && Math.abs(sc().marks.find(m => m.role === 'title').texts[0].look.Size * sc().page.scale - 9) > 1 && $('[data-fb="size"]').value === '9', $('[data-fb="size"]').value);
   Shell.parts.peek().undo.undo(); await tick(400);
   // A narrower note keeps its own, said, with a way to make it all that font.
   App.change(tx => tx.note('Font', { args: [{ edge: 'Name', loc: {} }] }, 'Garamond', { view: stE.id }), { dated: false }); await tick(300);

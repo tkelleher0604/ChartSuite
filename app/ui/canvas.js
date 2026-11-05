@@ -1303,6 +1303,8 @@ function mount(el) {
           if (!e) continue;
           e.setSource({ x: ps[0][0], y: ps[0][1] }); e.setTarget({ x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] });
           e.setVertices(ps.slice(1, -1).map(([x, y]) => ({ x, y })));
+          // (Whole as it moves: its breaks and what it leaves to a line alike are for where it stands.)
+          if (e.getConnector()?.name === 'runs') e.setConnector({ name: 'normal' });
           astray(l.id);
           const lab = graph.getCellById(`${l.id}·label`);
           if (lab && l.labelAt) { lab.setPosition(l.labelAt.x, l.labelAt.y); astray(lab.id); }
@@ -3165,20 +3167,25 @@ function mount(el) {
     settle();
   }
   // Text made larger or wider keeps the same tidy chart (dendra.md, The layout): the change, given as `wb`, the workbook as it will leave it, is laid out as Tidy lays out,
-  // each box keeping where it stands across, where the layout placed them, or where what a hand placed would come to overlap, or the page can't hold it as it stands. → { write(tx), after } or null, where the
-  // page is composed as it's drawn anyway, or what a hand placed still stands clear.
+  // each box keeping where it stands across, where the layout placed them, or, in a chart whose lines say no figure, where what a hand placed would come to overlap or the page can't hold it as it stands.
+  // → { write(tx), after } or null: the page is composed as it's drawn anyway; what a hand placed still stands clear, or is a structure chart's composition, which stands; or no layout holds it, whose
+  // words at that size are more than its page, so what stands stays, and the page says what it can't hold.
+  // (A triangle by the middle half of it, as its corners are off its neighbours' though its frame isn't.)
+  const boxesAt = sc => sc.marks.filter(m => m.type === 'box' && !m.revealed).map(m => m.shape === 'triangle' ? { ...m, x: m.x + m.w / 4, w: m.w / 2 } : m), boxesMeet = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
+  const holdsIt = sc => { const bs = boxesAt(sc); return !sc.page.short?.length && bs.every(b => b.x >= -0.5 && b.y >= -0.5 && b.x + b.w <= sc.page.w + 0.5 && b.y + b.h <= sc.page.h + 0.5) && !bs.some((a, i) => bs.slice(i + 1).some(b => boxesMeet(a, b))); };
   function relaid(wb) {
     const base = App.scene.peek(), view = viewOf();
     if (!base || base.view !== view || base.page.composed || still() || tidyBoxes().length) return null;
-    if (base.marks.some(m => m.type === 'box' && !m.revealed && m.hand)) {
-      // (A triangle by the middle half of it, as its corners are off its neighbours' though its frame isn't.)
-      const boxesOf = sc => sc.marks.filter(m => m.type === 'box' && !m.revealed).map(m => m.shape === 'triangle' ? { ...m, x: m.x + m.w / 4, w: m.w / 2 } : m), over = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
-      const was = new Set(), bs = boxesOf(base);
-      bs.forEach((a, i) => bs.slice(i + 1).forEach(b => { if (over(a, b)) was.add(`${a.id}|${b.id}`); }));
-      const as = Scene.of(wb, App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true, holds: holdsOf(base) }), now = boxesOf(as);
-      if (!as.page.short?.length && !now.some((a, i) => now.slice(i + 1).some(b => over(a, b) && !was.has(`${a.id}|${b.id}`) && !was.has(`${b.id}|${a.id}`)))) return null;
+    const hands = base.marks.some(m => m.type === 'box' && !m.revealed && m.hand);
+    if (hands) {
+      if (!base.page.plain) return null;
+      const was = new Set(), bs = boxesAt(base);
+      bs.forEach((a, i) => bs.slice(i + 1).forEach(b => { if (boxesMeet(a, b)) was.add(`${a.id}|${b.id}`); }));
+      const as = Scene.of(wb, App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true, holds: holdsOf(base) }), now = boxesAt(as);
+      if (!as.page.short?.length && !now.some((a, i) => now.slice(i + 1).some(b => boxesMeet(a, b) && !was.has(`${a.id}|${b.id}`) && !was.has(`${b.id}|${a.id}`)))) return null;
     }
-    return tidyWrites(null, wb);
+    const plan = tidyWrites(null, wb);
+    return holdsIt(plan.after) ? { ...plan, hands } : null;
   }
   // (Its preview, as making it will draw it.)
   const relaidLook = wb => relaid(wb) ? { ...tidied(null, true, wb), tidy: null, afresh: true } : wb;

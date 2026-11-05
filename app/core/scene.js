@@ -1532,7 +1532,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // hold it (see furnish).
   if (at.dx || at.dy) for (const m of [...boxes, ...frames.values(), ...lines]) move(m, at.dx, at.dy);
   const offset = last ? last.page.offset : { x: at.dx, y: at.dy }, placed = last ? last.page.placed : !!at.placed;
-  const page = { size: sheet.size, w: sheet.w / s, h: sheet.h / s, scale: s, margin: Math.min(ML, MR, MT, MB) / s, margins: { left: ML / s, right: MR / s, top: MT / s, bottom: MB / s }, offset, placed, sheet: { w: sheet.w, h: sheet.h }, short: [], look: pageLook, formless, ...(composed && { composed: true }), ...(onPaper && { paper: true }), ...(sheet.portrait && { portrait: true }) };
+  const page = { size: sheet.size, w: sheet.w / s, h: sheet.h / s, scale: s, margin: Math.min(ML, MR, MT, MB) / s, margins: { left: ML / s, right: MR / s, top: MT / s, bottom: MB / s }, offset, placed, sheet: { w: sheet.w, h: sheet.h }, short: [], look: pageLook, formless, ...(composed && { composed: true }), ...(plain && { plain: true }), ...(onPaper && { paper: true }), ...(sheet.portrait && { portrait: true }) };
 
   // Arrow Auto: an arrowhead where the line doesn't run down from its Above side.
   for (const l of lines) if (l.settings.Arrow.value === 'auto') l.settings.Arrow = { value: l.down ? 'none' : 'end', note: l.settings.Arrow.note };
@@ -2168,6 +2168,8 @@ function outputName(N, p) {
 // those under none after them all, so none reads as under the name before it. `only`, a set of output keys,
 // takes those outputs alone, as the Key takes what's drawn.
 // → [{ style, order, name, key, outputs: [pattern], swatch, caption, off }]
+// Whether a style's output has a row: it says a look; or it shows a field, its look being there to give, whatever's said of it yet (Departments, Names), where showing or hiding alone is a filter.
+const hasRow = o => Object.keys(o.formats).some(k => k !== 'Shown') || (o.formats.Shown === true && o.pattern.args?.length === 1 && !o.pattern.out?.tag && !('choice' in (o.pattern.out ?? {})));
 function groupsOf(N, view, only = null) {
   const out = [], own = p => { const c = N.resolve('Caption', p, view); return c && key(c.note.pattern) === key(p) ? c.value : null; };
   const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
@@ -2178,9 +2180,7 @@ function groupsOf(N, view, only = null) {
   // (A text's swatch is in the page's own font and size, where its output doesn't say.)
   const ofPage = ROOT.map(l => [l, N.value(l, { id: view, kind: 'View' })]).filter(([, v]) => v !== undefined);
   N.styles(view).forEach((s, order) => {
-    // (A field shown has its row, its look being there to give, whatever's said of it yet: Departments, Names.)
-    const fieldShown = o => o.formats.Shown === true && o.pattern.args?.length === 1 && !o.pattern.out?.tag && !('choice' in (o.pattern.out ?? {}));
-    const looks = new Map(), keyed = s.outputs.filter(o => Object.keys(o.formats).some(k => k !== 'Shown') || fieldShown(o)), name = styleName(N, s.pattern);
+    const looks = new Map(), keyed = s.outputs.filter(hasRow), name = styleName(N, s.pattern);
     const alone = keyed.length === 1 && same(outputName(N, keyed[0].pattern), name) && same(own(keyed[0].pattern) ?? name, name);
     for (const o of keyed) {
       if (only && !only.has(key(o.pattern))) continue;
@@ -3024,7 +3024,7 @@ function says(scene, name, paper) {
 }
 
 return {
-  MASTER, fontName, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  MASTER, hasRow, fontName, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   instance, swatchParts, wholeDesign, overDesign, designAtPattern, tokensIn, reader, readWords,
   toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),

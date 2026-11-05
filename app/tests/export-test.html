@@ -976,6 +976,16 @@ async function run() {
     await cancel(opening);
     S.parts.peek().undo.undo(); await tick(200); S.parts.peek().undo.undo(); await tick(200);
     S.select([]); await tick(60);
+    // Fit to page goes up as well as down: as large as it holds, in the middle of its room; and with that done, it says so.
+    {
+      const was = A.scene.peek(), n0 = A.wb.changes().length, boxesOf = sc => sc.marks.filter(m => m.type === 'box'), onSheet = sc => { const bs = boxesOf(sc), s = sc.page.scale; return { left: Math.min(...bs.map(b => b.x * s)), right: Math.max(...bs.map(b => (b.x + b.w) * s)), W: sc.page.sheet.w }; };
+      X.fit(); await tick(500);
+      const up = A.scene.peek(), o = onSheet(up);
+      check('Fit to page holds the chart as large as it holds, up as well as down, in the middle of its room, one change', up.page.scale >= was.page.scale && Math.abs(o.left - (o.W - o.right)) < 3 && A.wb.changes().length === n0 + 1, j([was.page.scale, up.page.scale, o]));
+      X.fit(); await tick(300);
+      check('… and asked again, it says it already fills its page, and writes nothing', A.wb.changes().length === n0 + 1 && /already fills its page/.test([...document.querySelectorAll('.toast')].at(-1)?.textContent ?? ''), [...document.querySelectorAll('.toast')].at(-1)?.textContent);
+      S.parts.peek().undo.undo(); await tick(300);
+    }
     f.remove();
   }
 }

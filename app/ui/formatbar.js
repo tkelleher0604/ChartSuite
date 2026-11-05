@@ -590,6 +590,7 @@ function apply(label, value) {
   const reach = firstReach(c, scope, label, value), just = reach && (() => { Shell.parts.peek().undo?.undo(); const s = scopesOf(c); penTo(c, s, s.scopes.find(x => x.own)); apply(label, value); Shell.toast(label === 'Fill' && value !== 'none' ? `Filled just ${reach.own}` : Time.looked(label, value, `just ${reach.own}`), { undo: () => Shell.parts.peek().undo?.undo() }); });
   // (Bigger text keeps the same tidy chart: laid out with the change, one change.)
   const relay = laysOut(c, label) ? c.relaid(trying(c, label, value)) : null;
+  if (relay?.hands) says.push('laid out again, so no box is over another');
   App.change(tx => { write(tx, c, label, value); relay?.write(tx); if (ofDesign) tx.says(ofDesign); else if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: reach ? [ofDesign || reach.said, ...says].join('; ') : ofDesign || (says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null),
     ...(relay && { keep: false }),
     go: () => first.also ? [first.offer, () => App.change(first.also, { dated: false, say: first.done })] : under?.clear ?? (just && reach.own ? [`Just ${reach.own}`, just] : null) });

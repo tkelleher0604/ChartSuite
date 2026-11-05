@@ -618,6 +618,18 @@ function run() {
       edit(w4, (tx, N) => { note(tx, N, 'Size', { args: [{ edge: 'Jurisdiction', loc: {} }] }, MAIN, 6.5); tx.set('feeder_name', { ...w4.asOf(C, DAY).feeder_name, value: 'Calder Ridge Capital Partners III (Cayman), L.P., a Cayman Islands exempted limited partnership acting by its general partner Calder Ridge Capital GP III (Cayman), Ltd., a Cayman Islands exempted company, and another clause to make it run longer still' }); });
       const longer = scene(w4), jr = longer.byId.get('fund').texts.find(x => x.id === 'fund_juris');
       check('a longer name on a box the layout placed, kept where it stands, makes the scale fall as far as holds it, a typed size printing as typed', same.page.scale === s5.page.scale && longer.page.scale < s5.page.scale && Math.abs(jr.look.Size * longer.page.scale - 6.5) < 1e-9, j([s5.page.scale, longer.page.scale]));
+      // The Key never covers a box: a holding added beside it moves it, or the chart makes room. A footnote added lays nothing out again.
+      const w6 = fresh(), s6 = scene(w6), meets = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+      edit(w6, tx => { tx.note('Scale', { id: MAIN, kind: 'View' }, { scale: s6.page.scale, x: 0, y: 0 }); const e = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: e, edge: 'Name', field: 'text', value: 'Calder Ridge III Acquisition Sub, LLC' }); const o = tx.add('record', { args: [{ edge: 'Owner', at: 'fund' }, { edge: 'Owned', at: e }], tag: true }); tx.add('record', { at: o, edge: 'Percentage', field: 'percent', value: 1 }); });
+      const s7 = scene(w6), key7 = s7.marks.find(m => m.geometry === 'legend');
+      check('the Key never covers a box: a holding added under the chart moves it, or the chart makes room', !s7.marks.some(m => m.type === 'box' && meets(m, key7)) && !Scene.says(s7).some(t => t.startsWith('The Key overlaps')), j(Scene.says(s7)));
+      const w8 = fresh(), s8 = scene(w8);
+      edit(w8, tx => { tx.note('Scale', { id: MAIN, kind: 'View' }, { scale: s8.page.scale, x: 0, y: 0 }); tx.add('shape', { view: MAIN, geometry: 'text', role: 'footnotes', name: 'Footnotes', text: '' }); tx.note('Footnote', Tree.treeOf(computed(w8).records, 'fund'), { text: 'Side letter dated June 5, 2018.' }, { view: MAIN, param: 'a' }); });
+      const s9 = scene(w8);
+      check('a footnote added on a chart placed lays nothing out again: it goes where it’s clear', s9.page.scale === s8.page.scale && j(boxesOf(s9)) === j(boxesOf(s8)) && !!s9.marks.find(m => m.role === 'footnotes')?.texts.length, j([s8.page.scale, s9.page.scale]));
+      // Lines alike that run over one another are one stroke: no stretch is drawn twice.
+      const lookOf = l => j(['Outline', 'Weight', 'Dash'].map(k => l.settings[k].value)), drawnTwice = s6.marks.filter(m => m.type === 'line').flatMap((a, i, ls) => ls.slice(i + 1).filter(b => lookOf(a) === lookOf(b)).flatMap(b => (a.strokes ?? a.runs ?? [a.points]).flatMap(ra => ra.slice(1).flatMap((p, k) => (b.strokes ?? b.runs ?? [b.points]).flatMap(rb => rb.slice(1).filter((q, n) => { const [a0, a1, b0, b1] = [ra[k], p, rb[n], q], up = Math.abs(a0[0] - a1[0]) < 0.01 && Math.abs(b0[0] - b1[0]) < 0.01 && Math.abs(a0[0] - b0[0]) < 0.5, flat = Math.abs(a0[1] - a1[1]) < 0.01 && Math.abs(b0[1] - b1[1]) < 0.01 && Math.abs(a0[1] - b0[1]) < 0.5, c = up ? 1 : 0; return (up || flat) && Math.min(Math.max(a0[c], a1[c]), Math.max(b0[c], b1[c])) - Math.max(Math.min(a0[c], a1[c]), Math.min(b0[c], b1[c])) > 1; }).map(() => `${a.id} ${b.id}`))))));
+      check('lines alike over one another are one stroke, on the page and in the PDF, each its own line still', !drawnTwice.length && s6.marks.some(m => m.type === 'line' && m.strokes) && s6.marks.filter(m => m.type === 'line').every(l => l.points.length > 1), drawnTwice.slice(0, 3).join('; '));
     }
 
     const placed = sc.map(s => { const f = furniture(s), t = sheetOf(s, f.title), d = sheetOf(s, f.date), chart = s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m));
@@ -1649,6 +1661,10 @@ function aboutAnything() {
   const three = chart('org-chart', tx => orgOf(3, tx)), tb = sheetBox(three.s);
   check('a small chart nobody has arranged is drawn large, its names at 18 pt: not three boxes over a white field', three.s.page.scale === 1.8 && three.s.page.composed === true, three.s.page.scale);
   check('… and set as a group in the middle of its room, across and down', Math.abs(tb.left - (tb.W - tb.right)) < 2 && Math.abs((tb.top - tb.dateFoot) - (tb.H - 48 - tb.foot)) < 34, j(tb));
+  {
+    const N = Notes.index([{ note: 'a', label: 'Shown', pattern: { args: [{ edge: 'Department', loc: { kind: 'Person' } }] }, value: true, view: 'v' }, { note: 'b', label: 'Shown', pattern: { kind: 'Person' }, value: true, view: 'v', param: 'Location' }]);
+    check('a field shown has its row in Styles, whatever’s yet said of it, either way it’s shown', Scene.groupsOf(N, 'v').map(g => g.caption).join() === 'Departments,Locations', Scene.groupsOf(N, 'v').map(g => g.caption).join());
+  }
   const quarter = chart('org-chart', tx => orgOf(25, tx));
   check('a 25-person org on a slide prints its names at 11 pt at the least, where they took 7', quarter.s.page.scale >= 1.1 && quarter.s.marks.filter(m => m.type === 'box').every(b => b.named || b.texts?.length), quarter.s.page.scale);
   { const bs = quarter.s.marks.filter(m => m.type === 'box'); check('… no two boxes over each other', !bs.some((a, i) => bs.slice(i + 1).some(b => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 0.5 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 0.5))); }
