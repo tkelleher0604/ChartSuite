@@ -2876,8 +2876,7 @@ function mount(el) {
   const firstTidy = () => !tidyBoxes().length && !placedHere().some(n => n.label === 'Position' && (Number.isFinite(n.value?.order) || (Number.isFinite(n.value?.x) && !n.value?.kept)));
   // (`only`: one box of its own, as its Reset is.)
   function tidying(only) {
-    // (What's pinned stands, and the rest goes around it: dendra.md, Measured and pinned.)
-    const base = App.scene.peek(), pins = pinnedHere(), some = only ? [base.byId.get(only)].filter(Boolean) : tidyBoxes().length ? tidyBoxes() : pins.size ? base.marks.filter(m => m.type === 'box' && !m.revealed && !pins.has(m.record)) : [], writes = new Map();
+    const base = App.scene.peek(), some = only ? [base.byId.get(only)].filter(Boolean) : tidyBoxes(), writes = new Map();
     for (const m of some.length ? some : base.marks.filter(m => m.type === 'box' && !m.revealed)) writes.set(m.record, { order: round(m.x), ...(some.length && { around: true }) });
     if (some.length) for (const [id, p] of holdsOf(base)) if (!writes.has(id) && treeOf(id)) writes.set(id, p);
     const ws = [...writes].map(([id, value]) => ({ id, t: treeOf(id), value })).filter(w => w.t), keys = new Set(ws.map(w => Tree.key(w.t)));
@@ -2910,7 +2909,10 @@ function mount(el) {
     // (What its preview draws, entered: the place of each box it lays out, in a place's terms, and the Key where it set it.)
     const after = Scene.of(tidied(o?.only, true), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true }), laid = holdsOf(after), keyId = !n && base.marks.find(m => m.geometry === 'legend' && (m.byPage || freed))?.id;
     const first = !o?.only && firstTidy();
-    const entered = w => { if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value, ...(first && { order: p.x }) }; };
+    // What's pinned stands where it stood on the sheet, the rest laid out as ever (dendra.md, Measured and pinned): the chart is laid out whole, and it's put back.
+    const pins = !o?.only && !tidyBoxes().length ? pinnedHere() : new Set(), oAfter = after.page.placed ? after.page.offset : { x: 0, y: 0 }, k = base.page.scale / after.page.scale;
+    const pinnedAt = id => { const m = base.marks.find(q => q.type === 'box' && q.record === id); return m && { x: round(m.x * k - oAfter.x), y: round(m.y * k - oAfter.y), w: round(m.w * k), h: round(m.h * k) }; };
+    const entered = w => { if (pins.has(w.id)) return pinnedAt(w.id) ?? w.value; if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value, ...(pins.size ? { order: undefined } : {}), ...(first && !pins.size && { order: p.x }) }; };
     // What's laid over a box goes with it; what's tied to nothing stays, which is said.
     const ann = Scene.annotated(base, after), stays = n || !ann.stay.length ? '' : `; ${ann.stay.length === 1 ? `${called(ann.stay[0])} stays where it was: it’s on no box` : `${ann.stay.length} shapes stay where they were: they’re on no box`}`;
     if (!App.change(tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null, ...(freed && { x: null, y: null }) }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); for (const [id, c] of ann.rows) tx.update(id, c); }, { say: o?.say ?? `${n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'}${stays}`, keep: false, dated: false })) return;

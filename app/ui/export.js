@@ -747,7 +747,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
   const write = m => {
     const s = look(m);
     if (m.type === 'box') {
-      const box = () => { ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : VALIGN[s.Valign] ?? 'ctr', inset: CHART, wrap: wrapsAt(m) })); return [rect(m)]; };
+      const box = () => { ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : VALIGN[s.Valign] ?? 'ctr', inset: CHART, wrap: wrapsAt(m), alt: s['Alt Text'] })); return [rect(m)]; };
       const own = carried.get(m.id);
       return own ? group(m.texts[0]?.text ?? 'Shape', () => [...box(), ...own.map(l => textBox(l.texts, l.labelAt.x, l.labelAt.y, CHART))]) : box();
     }
@@ -785,7 +785,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
       return [rect(m)];
     }
     if (m.geometry === 'legend') return group(m.title || 'Legend', () => {
-      shape(rect(m), 'rect', { ...s, Dash: 'solid' }, m.title || 'Legend');
+      shape(rect(m), 'rect', { ...s, Dash: 'solid' }, m.title || 'Legend', { alt: m.alt });
       if (m.texts.length) textBox(m.texts, m.x, m.y, PAGE);
       // Each row a swatch and its caption, both named as the row is.
       for (const r of m.rows) {
@@ -838,7 +838,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     if (of.length < 2) { write(m); continue; }
     of.forEach(x => written.add(x.id));
     const names = of.map(x => x.texts?.[0]?.text ?? x.title ?? 'Shape');
-    group(names.length < 3 ? names.join(' and ') : `${names[0]} and ${names.length - 1} more`, () => of.flatMap(write));
+    group(g.name ?? (names.length < 3 ? names.join(' and ') : `${names[0]} and ${names.length - 1} more`), () => of.flatMap(write), g.alt);
   }
   if (only) { relsNow = rels; return { xml: inOrder_.map(([id, j]) => parts[j](id)).join(''), rels }; }
   const finished = xml => { relsNow = rels; return xml.replace(/<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·(\d+)·">[\s\S]*?<\/p:sp>/g, (_, id, j) => parts[j](+id)); };

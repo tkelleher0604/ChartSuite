@@ -869,6 +869,12 @@ function attach(x) {
   graph.on('node:mouseenter', ({ node }) => { const l = scene().byId.get(node.id)?.link; if (l) root.title = `Ctrl+click: ${l.url ?? App.views.peek().find(v => v.id === l.view)?.name ?? ''}`; });
   graph.on('node:mouseleave', () => { root.title = ''; });
 
+  // A box's alt text: what a reader's told of it in the deck, as a free shape's is; a note at its own tree, so it can be said of a group too.
+  async function boxAlt(m) {
+    const t = x.treeOf(m.record), now = { v: App.notes.peek().resolve('Alt Text', t, x.viewOf())?.value ?? '' };
+    const go = await Shell.dialog({ title: 'Alt text', width: 420, body: () => html`<div class="ex palette-def"><label class="row"><span class="k">Says</span><input class="cell" type="text" autofocus value=${now.v} aria-label="Alt text" onInput=${e => { now.v = e.currentTarget.value; }} /></label></div>`, actions: [{ label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }] });
+    if (go) App.change(tx => tx.note('Alt Text', t, Tree.clean(now.v) || undefined, { view: x.viewOf() }), { dated: false, say: `Set the alt text of ${x.called(m)}` });
+  }
   // A picture off the clipboard, as Insert's picture is.
   function pastePicture(file) {
     const r = new FileReader();
@@ -885,6 +891,7 @@ function attach(x) {
       ...(mergeable() ? [{ label: 'Merge shapes', disabled: ro, items: MERGES.map(([k, label]) => ({ label, run: () => merge(k) })) }] : []),
       ...(one?.type === 'shape' && !one.role ? [{ label: 'Link…', disabled: ro, run: () => setLink(one.id) }] : []),
       ...(boxes.length ? [{ label: boxes.every(m => pinned(m.record)) ? 'Unpin' : 'Pin', disabled: ro, run: () => setPinned(boxes, !boxes.every(m => pinned(m.record))) }] : []),
+      ...(one?.type === 'box' ? [{ label: 'Alt text…', disabled: ro, run: () => boxAlt(one) }] : []),
     ];
   }
 

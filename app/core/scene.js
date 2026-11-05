@@ -65,7 +65,7 @@ const INK = '#1c2733', RULE = '#3a4653';
 const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: INK, 'Text Gradient': null, 'Text Outline': null, Align: 'center', Spacing: 1, Format: 'value' }, BESIDE_NAME = 8;
 const CORNER = 16.667;
 // What a box's or a shape's body can have beyond its fill and its outline (dendra.md, Effects): none of it, by default.
-const BODY = { Picture: null, 'Line Transparency': 0, 'Line Gradient': null, Compound: 'single', Glow: null, 'Soft Edge': 0, Reflection: null, 'Inner Shadow': 'none', Bevel: null, 'Turn 3D': null };
+const BODY = { 'Alt Text': null, Picture: null, 'Line Transparency': 0, 'Line Gradient': null, Compound: 'single', Glow: null, 'Soft Edge': 0, Reflection: null, 'Inner Shadow': 'none', Bevel: null, 'Turn 3D': null };
 const DEFAULTS = {
   box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Gradient: null, Pattern: null, Transparency: 0, Outline: RULE, Weight: 0.5, Dash: 'solid', Shadow: 'none', Corner: CORNER, Tail: null, Valign: 'middle',
     Frame: 'none', Layer: 0, Points: null, ...BODY, ...TEXT },
@@ -80,7 +80,7 @@ const ROOT = ['Font', 'Size'], FOOTER = '·footer', NUMBER = '·number', MASTER 
 const FORMLESS = { Outline: { value: '#7f7f7f', note: null }, Dash: { value: 'square-dot', note: null } };
 // What a swatch shows: the properties of a box or line that tell marks apart, a frame's kind, or a text's
 // look. A frame's caption says on the chart what it is, so the legend leaves frames out.
-const KEYED = { box: ['Shape', 'Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner', 'Points', ...Object.keys(BODY)], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead', 'Line Transparency', 'Line Gradient', 'Compound'], frame: ['Frame'],
+const KEYED = { box: ['Shape', 'Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner', 'Points', ...Object.keys(BODY).filter(l => l !== 'Alt Text')], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead', 'Line Transparency', 'Line Gradient', 'Compound'], frame: ['Frame'],
   text: ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color'] };
 // A swatch: a box, line, frame or text in the defaults, with what an output's formats give it.
 function swatch(kind, f) {
@@ -2082,6 +2082,7 @@ function freeShape(row, text, u = 1, k = 1) {
         let at = 0;
         l.tabs = l.text.split('\t').map((part, i) => { if (i) { const next = stops.find(s => s > at + 0.5) ?? (Math.floor(at / inch) + 1) * inch; at = next; } const seg = { text: part, at }; at += measure(part, look); return seg; });
         l.w = at;
+        if (m.auto) m.w = Math.max(m.w, Math.ceil(at + ins.l + ins.r + ind + 1));
       }
     }
     if (sideways) it.turn = t.Direction === 'down' ? `rotate(90) translate(0 ${-m.w})` : `rotate(-90) translate(${-m.h} 0)`;
