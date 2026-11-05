@@ -314,14 +314,16 @@ function leave(keep) {
   if (keep && b) {
     const rows = App.shown.peek().rows(App.chart.peek()), mine = new Map(rows.filter(r => 'shape' in r && r.view === e.view && !e.rows0.has(r.shape)).map(r => [r.shape, r]));
     const parts = [], same = (a, c) => a && Math.abs(a.x - c.x) < 0.01 && Math.abs(a.y - c.y) < 0.01 && Math.abs(a.w - c.w) < 0.01 && Math.abs(a.h - c.h) < 0.01 && JSON.stringify(a.points ?? null) === JSON.stringify(c.points ?? null);
-    const resized = Math.abs(b.w - e.W) > 0.5 || Math.abs(b.h - e.H) > 0.5;
+    // (Words that have run on past the box's foot take the box with them: it holds what's in it.)
+    const foot = Math.max(b.y + b.h, ...sc.marks.filter(q => mine.has(q.id) && q.geometry === 'text' && q.x < b.x + b.w && q.x + q.w > b.x && q.y < b.y + b.h).map(q => q.y + q.h)), held = { ...b, h: foot - b.y };
+    const resized = Math.abs(held.w - e.W) > 0.5 || Math.abs(held.h - e.H) > 0.5;
     // (In the order they're drawn in; a group's own row isn't a part, its shapes are. One no hand has moved keeps the share it had, and the box no hand has sized the size the design said.)
-    for (const q of sc.marks) { const r = mine.get(q.id); if (r && q.geometry !== 'group') { const was = !resized && r.part && same(e.stands.get(r.part), r) && e.d.parts?.find(p => p.id === r.part), part = partFrom(r, q, b); parts.push(was ? { ...part, x: was.x, y: was.y, w: was.w, h: was.h, ...(was.points && { points: was.points }) } : part); } }
+    for (const q of sc.marks) { const r = mine.get(q.id); if (r && q.geometry !== 'group') { const was = !resized && r.part && same(e.stands.get(r.part), r) && e.d.parts?.find(p => p.id === r.part), part = partFrom(r, q, held); parts.push(was ? { ...part, x: was.x, y: was.y, w: was.w, h: was.h, ...(was.points && { points: was.points }) } : part); } }
     // (What's given the box itself since it began: what it had of its own before stays its own.)
     looks = Object.fromEntries(ownLooks(rows, e.view, e.record).filter(r => e.own.get(r.label) !== JSON.stringify(r.value)).map(r => [r.label, r.value]));
     const { Shape, Corner, ...others } = looks;
     looks = others;
-    d = { ...e.d, name: Tree.clean(e.called.value) || e.d.name, ...(resized || e.d.w == null ? { w: round(b.w), h: round(b.h) } : {}), base: { ...e.d.base, ...(Shape && { Shape }), ...(Corner !== undefined && { Corner }) }, parts };
+    d = { ...e.d, name: Tree.clean(e.called.value) || e.d.name, ...(resized || e.d.w == null ? { w: round(held.w), h: round(held.h) } : {}), base: { ...e.d.base, ...(Shape && { Shape }), ...(Corner !== undefined && { Corner }) }, parts };
     delete d.editing; delete d.strip; delete d.over;
     if (!e.wasId) d.id = Log.newId();
     // (As it was, it's nothing to write.)
@@ -344,14 +346,28 @@ function leave(keep) {
 }
 // The parts stood on the page, as the scene draws them, the topmost first.
 const partsNow = (sc, e) => sc.marks.filter(q => q.type === 'shape' && q.geometry !== 'group' && !q.role && !q.master && !e.rows0.has(q.id));
-// The band of a box new words go in: the free one they were dropped at, or else its largest, as wide as the box, so they fit the space.
-function freeBand(sc, e, b, at) {
-  const taken = partsNow(sc, e).filter(p => p.texts?.some(t => t.lines?.length)).map(p => { const ls = p.texts[0].lines, lh = Scene.lineHeight(p.texts[0].look), ys = ls.map(l => l.y - Scene.baseline(p.texts[0].look)); return [p.y + Math.min(...ys), p.y + Math.max(...ys) + lh]; }).sort((m, n) => m[0] - n[0]), gaps = [];
+// New words on a box being edited, so they fit: in the column the other fields stand in, or else the box's, aligned with them; in the free band they were dropped at, or else its largest; where none holds them, the box grows to, under the last words; and any frame they'd stand in stops above them, so what's in it pushes them down as it runs on. On tx. → the new part's id.
+function addPart(tx, sc, e, b, at, text) {
+  const shown = App.shown.peek(), chart = App.chart.peek(), rowOf = id => shown.item(chart, id).at(-1), parts = partsNow(sc, e), rest = parts.find(q => rowOf(q.id)?.rest), col = rest ?? b, inCol = p => p.x < col.x + col.w && p.x + p.w > col.x;
+  const taken = parts.filter(p => inCol(p) && p.texts?.some(t => t.lines?.length)).map(p => { const t = p.texts[0], ys = t.lines.map(l => l.y - Scene.baseline(t.look)); return [p.y + Math.min(...ys), p.y + Math.max(...ys) + Scene.lineHeight(t.look)]; }).sort((m, n) => m[0] - n[0]), gaps = [];
   let from = b.y;
   for (const [top, foot] of taken) { if (top > from) gaps.push([from, top]); from = Math.max(from, foot); }
   if (b.y + b.h > from) gaps.push([from, b.y + b.h]);
-  const y0 = at?.y, best = (y0 != null && gaps.find(([u, v]) => y0 >= u && y0 <= v && v - u >= 8)) || gaps.sort((m, n) => (n[1] - n[0]) - (m[1] - m[0]))[0] || [b.y + b.h * 0.7, b.y + b.h];
-  return { view: e.view, geometry: 'text', part: Log.newId(), x: round(b.x), y: round(best[0]), w: round(b.w), h: round(Math.max(8, best[1] - best[0])), format: { Align: 'center', Valign: 'middle', Inset: { l: 2, r: 2, t: 0, b: 0 } } };
+  // (Its height by what it reads at this box, at the size the page gives what's beside a name.)
+  const read = text ? Scene.readWords(text, e.record, Scene.reader(App.state.peek(), App.notes.peek(), App.computed.peek(), App.day.peek())) : '', look = { ...Scene.DEFAULTS.text, Size: 8 }, need = Math.ceil(Scene.measure(read || 'M', look) / Math.max(1, col.w - 20)) * Scene.lineHeight(look) + 10, y0 = at?.y;
+  const fit = gaps.filter(([u, v]) => v - u >= need), band = (y0 != null && fit.find(([u, v]) => y0 >= u && y0 <= v)) || fit.sort((m, n) => (n[1] - n[0]) - (m[1] - m[0]))[0] || [from, from + need];
+  if (band[1] > b.y + b.h) { const v = App.notes.peek().resolve('Position', treeOf(e.record), e.view)?.value; if (v) tx.note('Position', treeOf(e.record), { ...v, h: round(b.h + band[1] - (b.y + b.h)) }, { view: e.view }); }
+  for (const p of parts) { const r = rowOf(p.id); if (r?.geometry === 'text' && inCol(p) && p.y < band[0] && p.y + p.h > band[0]) tx.update(p.id, { h: round(band[0] - p.y) }); }
+  const inset = rest && rowOf(rest.id)?.format?.Inset;
+  return tx.add('shape', { view: e.view, geometry: 'text', part: Log.newId(), x: round(col.x), y: round(band[0]), w: round(col.w), h: round(Math.max(need, band[1] - band[0])), text, format: { Align: rest?.look.Align ?? 'center', Valign: 'top', ...(inset && { Inset: inset }) } });
+}
+// Words typed in a part: the box being edited taller where they'd run on past its foot, in the same change, so it holds what's in it. On tx.
+function holdWords(tx, id, text) {
+  const e = editing.peek(), sc = canvas()?.scene(), b = sc?.byId.get(e?.box), q = sc?.byId.get(id);
+  if (!b || q?.geometry !== 'text' || q.y >= b.y + b.h) return;
+  const look = q.texts?.[0]?.look ?? { ...Scene.DEFAULTS.text, Size: 8 }, read = /^\s*=/.test(text ?? '') ? '' : Scene.readWords(text ?? '', e.record, Scene.reader(App.state.peek(), App.notes.peek(), App.computed.peek(), App.day.peek()));
+  const foot = q.y + Math.ceil(Scene.measure(read || 'M', look) / Math.max(1, q.w - 20)) * Scene.lineHeight(look) + 10, v = App.notes.peek().resolve('Position', treeOf(e.record), e.view)?.value;
+  if (foot > b.y + b.h && v) tx.note('Position', treeOf(e.record), { ...v, h: round(foot - b.y) }, { view: e.view });
 }
 // A row dropped on what's being edited: on a part, its token; on the box, a new text part, at the size the page gives that field.
 function dropped(q, edge, at) {
@@ -360,14 +376,14 @@ function dropped(q, edge, at) {
   const token = `{${edge}}`, row = App.shown.peek().item(App.chart.peek(), q.id)[0];
   if (q.type === 'shape' && row && !row.rest) return App.change(tx => tx.update(q.id, { text: row.text ? `${row.text}\n${token}` : token }), { dated: false, say: `Put ${edge} in the part` });
   const sc = canvas().scene(), b = sc.byId.get(e.box);
-  return App.change(tx => tx.add('shape', { ...freeBand(sc, e, b, at), text: token }), { dated: false, say: `Put ${edge} in the design` });
+  return App.change(tx => { addPart(tx, sc, e, b, at, token); }, { dated: false, say: `Put ${edge} in the design` });
 }
-// Words begun on the box being edited (Text in this box, its right-click, a double-click in its room): one more part, typed straight in; left empty, it goes.
+// Words begun on the box being edited (Text in this box, its right-click, a double-click in its room, Insert's text box): one more part, typed straight in; left empty, it goes.
 function addWords() {
   const e = editing.peek(), c = canvas(), sc = c?.scene(), b = sc?.byId.get(e?.box);
   if (!b) return null;
   let id = null;
-  if (!App.change(tx => { id = tx.add('shape', { ...freeBand(sc, e, b, null), text: '' }); }, { dated: false })) return null;
+  if (!App.change(tx => { id = addPart(tx, sc, e, b, null, ''); }, { dated: false })) return null;
   Shell.select([id]);
   return c.edit(id);
 }
@@ -488,9 +504,7 @@ function saveToHouse(d) {
 function items(ms, ro) {
   if (editing.peek()) return [];
   const one = ms.length === 1 && ms[0].type === 'box' ? ms[0] : null, overs = !!one?.design?.overs.length;
-  // (Where there's more than editing it, one row, so the box's menu fits the window it opens in.)
-  const rows = one ? [{ label: 'Edit design', disabled: ro, run: () => edit(one) }, ...(overs ? [{ label: 'Reset to design', disabled: ro, run: () => reset(one) }] : []), ...(one.design ? [{ label: 'Save to house style…', run: () => saveToHouse(one.design.value) }] : [])] : [];
-  return rows.length > 1 ? [{ label: 'Design', items: rows }] : rows;
+  return one ? [{ label: 'Edit design', disabled: ro, run: () => edit(one) }, ...(overs ? [{ label: 'Reset to design', disabled: ro, run: () => reset(one) }] : []), ...(one.design ? [{ label: 'Save to house style…', run: () => saveToHouse(one.design.value) }] : [])] : [];
 }
 // What a selection of shapes or a group offers beside its Format: to be made a design, where it can be one.
 const makes = (ms, ro) => !editing.peek() && makeable(ms) ? [{ label: 'Make a design…', disabled: ro, run: () => make(ms) }] : [];
@@ -512,5 +526,5 @@ for (const [id, name, names, run, enabled, why] of [
   ['design.discard', 'Discard the changes to the design', ['Cancel the design'], () => leave(false), () => !!editing.peek(), () => 'No design is being edited'],
 ]) Shell.register('action', { id, name, names, run, enabled, why });
 
-return { open, say, atPen, tokenIn, reset, edit, make, items, makes, dropped, addWords, editRow, editing, leave, forRecord, Parts, Words, Holds, nameOf: row => { const e = editing.peek(), b = e && canvas()?.scene()?.byId.get(e.box); return nameOf(row, b); } };
+return { open, say, atPen, tokenIn, reset, edit, make, items, makes, dropped, addWords, holdWords, editRow, editing, leave, forRecord, Parts, Words, Holds, nameOf: row => { const e = editing.peek(), b = e && canvas()?.scene()?.byId.get(e.box); return nameOf(row, b); } };
 })();

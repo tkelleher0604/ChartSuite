@@ -1458,7 +1458,7 @@ function mount(el) {
       if (designing && typed === undefined && /\{[^{}\n]+\}/.test(raw ?? '')) { Shell.select([m.id]); return setTimeout(() => document.querySelector('.part-words .words-in')?.focus(), 30); }
       // A text box left empty goes, however it's left, as PowerPoint's does.
       const gone = tx => tx.remove(m.id);
-      save = (text, keys, runs) => { const said = App.change(tx => m.geometry === 'text' && !text.trim() && !row?.rest ? gone(tx) : tx.update(m.id, legend ? { title: text } : { text, runs: runs?.length ? runs : undefined })); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, text); };
+      save = (text, keys, runs) => { const said = App.change(tx => { if (m.geometry === 'text' && !text.trim() && !row?.rest) return gone(tx); tx.update(m.id, legend ? { title: text } : { text, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, text); }); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, text); };
       if (m.geometry === 'text' && !raw?.trim() && !row?.rest) escaped = () => App.change(gone);
     }
     if (!it) return;
@@ -2902,6 +2902,8 @@ function mount(el) {
     return { ...spot(s, w, h, near), w, h };
   }
   function insert(geometry, opts = {}) {
+    // (While a design is edited, a text box is words begun on its box: a part, in the free band of it.)
+    if (geometry === 'text' && designing && opts.x === undefined) return Designs.addWords();
     const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2), sel0 = placeable(), stands = opts.x !== undefined;
     let row = { view, geometry, ...opts }, besideIt = null;
     if (geometry === 'arrow-line') row = { ...row, geometry: 'line', format: { Arrow: 'end', ...opts.format } };
