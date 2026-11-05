@@ -62,23 +62,25 @@ const printed = (it, s) => (it.typedAt === s ? it.look.Size : half(it.look.Size,
 // below and to the right; and its Corner, a rounded rectangle's, is the radius of its corners as a percentage of
 // its shorter side, up to 50, PowerPoint's adjustment of the shape.
 const INK = '#1c2733', RULE = '#3a4653';
-const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: INK, Align: 'center', Spacing: 1, Format: 'value' }, BESIDE_NAME = 8;
+const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: INK, 'Text Gradient': null, 'Text Outline': null, Align: 'center', Spacing: 1, Format: 'value' }, BESIDE_NAME = 8;
 const CORNER = 16.667;
+// What a box's or a shape's body can have beyond its fill and its outline (dendra.md, Effects): none of it, by default.
+const BODY = { 'Alt Text': null, Picture: null, 'Line Transparency': 0, 'Line Gradient': null, Compound: 'single', Glow: null, 'Soft Edge': 0, Reflection: null, 'Inner Shadow': 'none', Bevel: null, 'Turn 3D': null };
 const DEFAULTS = {
   box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Gradient: null, Pattern: null, Transparency: 0, Outline: RULE, Weight: 0.5, Dash: 'solid', Shadow: 'none', Corner: CORNER, Tail: null, Valign: 'middle',
-    Frame: 'none', Layer: 0, ...TEXT },
-  line: { Shown: false, Outline: RULE, Weight: 0.75, Dash: 'solid', Arrow: 'none', Arrowhead: null, Connector: 'elbow', Above: null, Layer: 0, ...TEXT, Size: 9 },
+    Frame: 'none', Layer: 0, Points: null, ...BODY, ...TEXT },
+  line: { Shown: false, Outline: RULE, Weight: 0.75, Dash: 'solid', Arrow: 'none', Arrowhead: null, Connector: 'elbow', Above: null, Layer: 0, 'Line Transparency': 0, 'Line Gradient': null, Compound: 'single', ...TEXT, Size: 9 },
   text: { Shown: false, ...TEXT },
 };
 const TEXT_PROPS = Object.keys(TEXT);
 const HAS = Object.fromEntries(Object.entries(DEFAULTS).map(([k, d]) => [k, new Set(Object.keys(d))]));
 // What a note at the view itself can say of every text on the page (dendra.md, Notes); the footer and its number, the
 // chart's own (see the page); and how a box of no form is drawn, which no row of the Key is by itself.
-const ROOT = ['Font', 'Size'], FOOTER = '·footer', NUMBER = '·number', REST = ['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'];
+const ROOT = ['Font', 'Size'], FOOTER = '·footer', NUMBER = '·number', MASTER = '·master', REST = ['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'];
 const FORMLESS = { Outline: { value: '#7f7f7f', note: null }, Dash: { value: 'square-dot', note: null } };
 // What a swatch shows: the properties of a box or line that tell marks apart, a frame's kind, or a text's
 // look. A frame's caption says on the chart what it is, so the legend leaves frames out.
-const KEYED = { box: ['Shape', 'Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'], frame: ['Frame'],
+const KEYED = { box: ['Shape', 'Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner', 'Points', ...Object.keys(BODY).filter(l => l !== 'Alt Text')], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead', 'Line Transparency', 'Line Gradient', 'Compound'], frame: ['Frame'],
   text: ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color'] };
 // A swatch: a box, line, frame or text in the defaults, with what an output's formats give it.
 function swatch(kind, f) {
@@ -137,8 +139,11 @@ const FONTS = {
   'Lucida Console': ['mono', "'Lucida Console', Monaco, monospace"],
   Menlo: ['mono', "Menlo, Monaco, Consolas, monospace"],
 };
-const fontClass = f => FONTS[f]?.[0] ?? (/mono|courier|consol|code/i.test(f) ? 'mono' : /serif|roman|times|garamond|georgia|book|old style/i.test(f) && !/sans/i.test(f) ? 'serif' : 'sans');
-const fontFamily = f => FONTS[f]?.[1] ?? `'${String(f).replace(/['\\]/g, '')}', ${{ sans: 'sans-serif', serif: 'serif', mono: 'monospace' }[fontClass(f)]}`;
+// A chart's theme fonts (dendra.md, The master): Heading and Body are fonts by reference, what its Theme Fonts note says each is, so a text that says one follows it.
+let themed = null;
+const fontName = f => f === 'Heading' ? themed?.heading ?? 'Arial' : f === 'Body' ? themed?.body ?? 'Arial' : f;
+const fontClass = f0 => { const f = fontName(f0); return FONTS[f]?.[0] ?? (/mono|courier|consol|code/i.test(f) ? 'mono' : /serif|roman|times|garamond|georgia|book|old style/i.test(f) && !/sans/i.test(f) ? 'serif' : 'sans'); };
+const fontFamily = f0 => { const f = fontName(f0); return FONTS[f]?.[1] ?? `'${String(f).replace(/['\\]/g, '')}', ${{ sans: 'sans-serif', serif: 'serif', mono: 'monospace' }[fontClass(f)]}`; };
 const groupBy = (list, f) => list.reduce((m, x) => { const k = f(x); (m.get(k) ?? m.set(k, []).get(k)).push(x); return m; }, new Map());
 const none = c => !c || c === 'none';
 // Ink on a fill (dendra.md, Settings). A color's luminance, as WCAG works it out, or null for what isn't one; a fill
@@ -161,6 +166,8 @@ function inkOn(b) {
 // ---- Geometry: PowerPoint's preset shapes, one table of them, in Shapes ----
 
 const GEOMETRIES = Shapes.ids, path = (shape, w, h, corner = CORNER, tail) => Shapes.path(shape, w, h, corner, tail), textRect = Shapes.textRect, textArea = Shapes.textArea;
+// A body's outline as its look says: a freeform's by its Points, a rounded rectangle's corners, a callout's tip.
+const outlineOf = (shape, w, h, s) => Shapes.path(shape, w, h, s.Corner ?? CORNER, shape === 'freeform' ? s.Points : s.Tail);
 const INSET = 9.6, PAD = 4.8, BASE = 7 * PT;
 // A box's width where none is entered: about 100 pt, so that a chart's names wrap rather than its page
 // widens; a triangle's a little more, its text sitting in its lower half.
@@ -665,9 +672,12 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   if (!opts.looks && !opts.compared) { const c = comparing(wb, chart, view, day, opts); if (c) opts = { ...opts, state: c.state, compared: c }; }
   const changes = opts.compared?.marks ? opts.compared : null;
   const rows = wb.rows(chart), read = readRows(wb, chart, view), notesAre = `${view}|${read.notes}`;
-  const shapeRows = read.shapes.get(view);
+  // (The chart's master, what every page draws under its own, unless it's said to leave it off: dendra.md, The master.)
+  themed = wb.notes(chart).resolve('Theme Fonts', { kind: 'View' })?.value ?? null;
+  const masterRows = view === MASTER || wb.notes(chart).resolve('Master', { id: view, kind: 'View' })?.value === false ? [] : (readRows(wb, chart, MASTER).shapes.get(MASTER) ?? []).filter(r => !r.hidden).map(r => ({ ...r, master: true }));
+  const shapeRows = [...masterRows, ...read.shapes.get(view)];
   const preview = !!(opts.keep || opts.reveal?.length || opts.seen?.size), drawnAs = `${chart}|${view}`;
-  const said = new Map(shapeRows.map(r => [r.id, r.role === 'date' && wb.moment ? Log.stoodText(wb.moment) : shapeText(r, opts.computed, day)]));
+  const said = new Map(shapeRows.map(r => [r.id, r.role === 'date' && wb.moment ? Log.stoodText(wb.moment) : shapeText(r, opts.computed, day, opts.state, wb.notes(chart))]));
   // (A Key is drawn from where it's kept or held, either being one: so what its change made was laid out ahead for, and a
   // Key kept elsewhere since is drawn there, as it would be from nothing.)
   const boxesHeld = opts.holds?.size ? [...opts.holds].filter(([id]) => !shapeRows.some(r => r.shape === id)) : [];
@@ -1018,7 +1028,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const r of footRows) said.set(r.id, r.text);
   // A free shape's text takes the page's Font and Size too, where its own row doesn't say.
   const pageLook = Object.fromEntries(Object.entries(ofPage).map(([l, r]) => [l, r.value]));
-  const onPage = [...shapeRows.filter(r => !r.hidden && (r.geometry !== 'legend' || legendRows.length) && (r.role !== 'footnotes' || footsOf.size)), ...footRows].map(r => ofPage.Font || ofPage.Size ? { ...r, format: { ...pageLook, ...r.format } } : r);
+  const onPage = [...shapeRows.filter(r => !r.hidden && (r.geometry !== 'legend' || legendRows.length) && (r.role !== 'footnotes' || footsOf.size)), ...footRows].map(r => !r.master && (ofPage.Font || ofPage.Size) ? { ...r, format: { ...pageLook, ...r.format } } : r);
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
   // order gives, where no note says. Its label is its own text, then the texts drawn on it; a line revealed
@@ -1078,7 +1088,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const givesWay = b => [...ranking.get(b.id) ?? []].some(id => { const p = placeOf.get(id); return !p?.pos.loose || p.at < placeOf.get(b.id).at; });
   // (One that gives way goes beside its relatives on the side it was made on: its place is the layout's `hint`.)
   const positions = new Map(), hints = new Map();
-  const sheet = pageOf(N, view, opts.paper), ownSheet = pageOf(N, view), onPaper = !!opts.paper && (sheet.w !== ownSheet.w || sheet.h !== ownSheet.h);
+  // (The master's own page is on the paper of the chart's first; so what's on it keeps its corner on a page of any other.)
+  const masterSheet = masterRows.length ? pageOf(N, pagesOf(N, state)[0] ?? view) : null, onView = view === MASTER ? opts.masterOf ?? view : view;
+  const sheet = pageOf(N, onView, opts.paper), ownSheet = pageOf(N, onView), onPaper = !!opts.paper && (sheet.w !== ownSheet.w || sheet.h !== ownSheet.h);
   for (const b of boxes) {
     const p = placeOf.get(b.id);
     b.pos = p && !(p.pos.loose && givesWay(b)) ? p.pos : null;
@@ -1318,7 +1330,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     yield;
     if (last) still(last, boxes, lines, frames);
-    const furnished = () => furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? keyRow.kept ?? null, ceil, held, own: ownPage });
+    const furnished = () => furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? keyRow.kept ?? null, ceil, held, own: ownPage, masterSheet });
     let laid = furnished();
     // The Key, wherever it stands, by a hand or the page's where the page has no other room for it: no line runs under it where the router has another way.
     const dropped = !last && laid.shapes.find(m => m.geometry === 'legend');
@@ -1499,7 +1511,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   if (laid && !opts.ahead) laidOut.set(drawnAs, laid);
 
   // One order over everything drawn: by Layer, and within a layer frames under lines under boxes under free shapes.
-  const layer = m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
+  const layer = m => m.master ? -1e9 : m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
   // (What's gone under what's still there, and what's new or changed over it, where they share a run.)
   const changeRank = l => l.change === 'Gone' ? 0 : l.change ? 2 : 1;
   const marksInOrder = [
@@ -1513,13 +1525,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const ls of groupBy(lines.filter(l => l.placing?.kin != null), l => l.placing.kin).values()) for (const l of ls) if (ls.length > 1 && l.labelAt) l.kin = ls.map(o => o.id);
   for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; delete m.base; delete m.placing; delete m.alike; delete m.stands; if (m.type !== 'shape') delete m.ends; }
   const palette = N.resolve('Palette', { kind: 'View' })?.value?.colors;
-  const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, state, ms: now() - started, ...(changes && { since: changes.since }), ...(palette && { palette }) };
+  const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, state, ms: now() - started, ...(changes && { since: changes.since }), ...(palette && { palette }), ...(themed && { themeFonts: themed }) };
   if (!preview) drawnFrom.set(whence, [{ from, scene, laid }, ...drawnFrom.get(whence) ?? []].slice(0, 3));
   return scene;
 }
 // Footnotes numbered, by reading order on the page (down its rows, then across), one number for one text however many marks carry it. Each mark
 // says what it carries, `feet`, and gets its marker, a superscript after its first line, or after the field it was added to; the shape gets its lines, each
-// number a superscript run of its text, so the canvas, the PDF and the deck each draw them as they draw any part of a text. Set in `columns`, where its row says.
+// number a superscript run of its text, so the canvas, the PDF and the deck each draw them as they draw any part of a text. In columns, by its Columns, as any shape's are.
 function numberFeet(marks, foots, shape, row, s, state) {
   const u = 1 / s, numbers = new Map(), at = m => m.type === 'line' ? m.labelAt ?? { x: m.x ?? 0, y: m.y ?? 0 } : m, read = marks.filter(m => foots.has(m.id) && (m.type !== 'line' || (m.labelAt && !m.merged)));
   read.sort((a, b) => Math.round(at(a).y * s / 12) - Math.round(at(b).y * s / 12) || at(a).x - at(b).x);
@@ -1541,19 +1553,16 @@ function numberFeet(marks, foots, shape, row, s, state) {
   const list = [...numbers.values()], rows = list.map(f => `${f.n} ${f.text}`), runs = [];
   let from = 0;
   for (const f of list) { const d = String(f.n).length; runs.push({ from, to: from + d, Base: 'up' }); from += `${f.n} ${f.text}`.length + 1; }
-  // (Each footnote its own paragraph; in columns, set to a column's width and shared out, each column about as long.)
-  const cols = Math.max(1, Math.min(4, row?.columns ?? 1)), gap = 12 * u, made = freeShape({ ...row, x: shape.x, y: shape.y, w: shape.w, runs }, rows.join('\n'), u), it = made.texts[0];
+  // (Each footnote its own paragraph. In columns, by Columns as any shape's are, just tall enough that they come out about as long.)
+  const text = rows.join('\n'), cols = Math.max(1, Math.round(row?.format?.Columns?.n ?? 1)), lay = (w, o = {}) => freeShape({ ...row, x: shape.x, y: shape.y, w, runs, ...o }, text, u);
+  let made = lay(shape.w);
   if (cols > 1) {
-    const lh = lineHeight(it.look), left = it.lines[0].x, top = Math.min(...it.lines.map(l => l.y)), cw = ((made.column?.width ?? shape.w) - gap * (cols - 1)) / cols, parts = rows.map(t => breakLines(t, it.look, cw, false));
-    const per = Math.ceil(parts.reduce((n, p) => n + p.length, 0) / cols), lines = [];
-    let c = 0, y = 0, most = 0;
-    for (const p of parts) { if (y && y + p.length > per && c < cols - 1) { c++; y = 0; } for (const l of p) { lines.push({ ...l, x: left + c * (cw + gap), y: top + y * lh }); y++; most = Math.max(most, y); } }
-    const h = shape.h - (it.lines.length - most) * lh;
+    const h = Math.ceil(made.texts[0].lines.length / cols) * lineHeight(made.texts[0].look) + 10 * u;
+    made = lay(shape.w, { h });
     if (shape.byPage) shape.y += shape.h - h;
-    it.lines = lines;
     shape.h = h;
-    shape.columns = cols;
   }
+  const it = made.texts[0];
   spansIn(it, u);
   Object.assign(shape, { texts: [it], feet: list.map(f => ({ n: f.n, text: f.text, from: f.from.map(x => ({ note: x.note?.note ?? null, pattern: x.note?.pattern ?? null, value: x.value, key: x.param, shape: x.shape ?? null })) })) });
   // Placed by the page, over a chart that stands where it was placed: as far down and left as it's clear of what's drawn, as wide as its words, or across the foot where it can't be.
@@ -1561,14 +1570,13 @@ function numberFeet(marks, foots, shape, row, s, state) {
     const gap = 3 * u, taken = marks.filter(m => m !== shape && m.geometry !== 'group' && !m.merged).flatMap(m => m.points ? [...m.points.slice(1).map((p, i) => ({ x: Math.min(p[0], m.points[i][0]), y: Math.min(p[1], m.points[i][1]), w: Math.abs(p[0] - m.points[i][0]), h: Math.abs(p[1] - m.points[i][1]) })), ...(m.labelAt && m.label ? [{ ...m.labelAt, w: m.label.w, h: m.label.h }] : [])] : [m]);
     const hits = (x, y, w, h) => taken.some(r => x < r.x + r.w + gap && r.x < x + w + gap && y < r.y + r.h + gap && r.y < y + h + gap);
     if (hits(shape.x, shape.y, shape.w, shape.h)) {
-      const whole = shape.w, x0 = shape.x, foot = shape.y + shape.h, inset = whole - (shape.column?.width ?? whole), step = 6 * u, lh = lineHeight(it.look), lay = w => freeShape({ ...row, x: x0, y: 0, w, runs }, rows.join('\n'), u), natural = Math.min(whole, widest(lay(whole).texts) + inset + 2 * u);
-      // (As wide as its words, or else wrapped narrower, in one column, to go where there's room.)
+      const whole = shape.w, x0 = shape.x, foot = shape.y + shape.h, inset = whole - (shape.column?.width ?? whole), step = 6 * u, lh = lineHeight(it.look), one = w => lay(w, { format: { ...row.format, Columns: null } }), natural = Math.min(whole, widest(one(whole).texts) + inset + 2 * u);
+      // (As wide as its words, or else wrapped narrower, in one column, to go where there's room. What's clear of it includes the master's foot.)
       search: for (const w of [natural, whole * 0.6, whole * 0.45, whole * 0.33, whole * 0.25, whole * 0.2].filter(x => x <= natural)) {
-        const set = lay(w), h = set.h, right = x0 + whole - w;
+        const set = one(w), h = set.h, right = x0 + whole - w;
         for (let y = foot - h; y >= foot - h - 6 * lh; y -= lh) for (let x = x0; x <= right; x += step) if (!hits(x, y, w, h)) {
           spansIn(set.texts[0], u);
-          Object.assign(shape, { x, y, w, h, texts: set.texts });
-          delete shape.columns;
+          Object.assign(shape, { x, y, w, h, texts: set.texts, look: set.look, settings: set.settings });
           break search;
         }
       }
@@ -2076,26 +2084,32 @@ function keyedEver(N, view, rows) {
 // the sheet's, `u` pixels of the page to one of the sheet: a text box's 12 pt, a title's 20, a date's 11 and a Key's 8
 // are those on the slide, however much the chart is drawn smaller; a Key's, `k` times that. A size or weight its row
 // gives is printed as given.
-const SHAPE_DEFAULTS = { Fill: '#ffffff', Gradient: null, Pattern: null, Tail: null, Bullet: 'none', Indent: null, Inset: null, Shrink: false, Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Arrowhead: null, Layer: 0, ...TEXT };
+const SHAPE_DEFAULTS = { Fill: '#ffffff', Gradient: null, Pattern: null, Tail: null, Bullet: 'none', Indent: null, 'First Line': null, Tabs: null, Columns: null, Direction: 'across', Inset: null, Shrink: false, Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Arrowhead: null, Layer: 0, Points: null, ...BODY, ...TEXT };
 const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12, Valign: 'top' };
+const SHAPED = new Set(['line', 'picture', 'group', 'legend', 'table', 'text', 'frame']);
+// A table's: its Fill is its heading row's, its Outline its rules', its Color its words'.
+const TABLE = { Fill: '#44546a', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Size: 10, Valign: 'middle' };
 // The page's own texts: its title, its date, its footer and its number.
 const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
 function freeShape(row, text, u = 1, k = 1) {
   const { id, shape, format = {} } = row;
-  const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
+  const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...(row.geometry === 'table' && TABLE), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
     ...(row.geometry === 'frame' && { Fill: 'none', Outline: '#595959', Dash: 'dashed', Size: 9, Italic: true, Align: 'left', Valign: 'top' }),
     ...(row.geometry === 'line' && { Arrow: 'none' }) };
   const t = { ...base, ...format, Size: (format.Size ?? base.Size) * u, Weight: (format.Weight ?? base.Weight) * u };
   if (format.Size == null) t.Size = half(t.Size, 1 / u, k < 1);
   if (format.Color == null && tooDark(t) && unread(t.Color, t.Fill)) t.Color = WHITE;
-  const m = { id: shape, type: 'shape', row: id, geometry: row.geometry ?? 'rect', x: row.x ?? 0, y: row.y ?? 0, w: row.w ?? 200 * u, h: row.h ?? 52 * u,
+  // (Another shape picked for it, or its own points, stands in its geometry; a line, a picture, a table and the like is what it is.)
+  const named = row.geometry ?? 'rect', drawnAs = format.Shape && !SHAPED.has(named) ? format.Shape : named;
+  const m = { id: shape, type: 'shape', row: id, geometry: drawnAs, x: row.x ?? 0, y: row.y ?? 0, w: row.w ?? 200 * u, h: row.h ?? 52 * u,
     look: t, settings: Object.fromEntries(Object.entries(t).map(([k, v]) => [k, { value: v, note: null }])), texts: [], ...(row.role && { role: row.role }), ...(row.rotate && { rotate: row.rotate }),
-    ...(row.flip && { flip: row.flip }), ...(row.alt && { alt: row.alt }), ...(row.name && { name: row.name }), ...(row.locked && { locked: true }) };
+    ...(row.flip && { flip: row.flip }), ...(row.alt && { alt: row.alt }), ...(row.name && { name: row.name }), ...(row.locked && { locked: true }), ...(row.master && { master: true }), ...(row.link && { link: row.link }) };
   if (m.geometry === 'line') {
     m.points = (row.points ?? [[m.x, m.y], [m.x + m.w, m.y]]).map(p => [...p]);
     if (row.ends?.some(Boolean)) m.ends = row.ends;
     Object.assign(m, bounds(m.points.map(([x, y]) => ({ x, y, w: 0, h: 0 }))));
   }
+  if (m.geometry === 'table') { tableOf(m, row, text, t, u); return m; }
   if (m.geometry === 'picture') { m.src = row.src; if (row.crop) m.crop = row.crop; }
   if (m.geometry === 'group') m.members = row.members ?? [];
   if (m.geometry === 'legend') Object.assign(m, { title: row.title ?? 'Key', columns: row.columns ?? 1, hide: row.hide ?? [], captions: row.captions ?? {}, order: row.order ?? [], auto: row.w == null });
@@ -2105,7 +2119,9 @@ function freeShape(row, text, u = 1, k = 1) {
     // In from its edges as its Inner margins say (points, as printed), or PowerPoint's own 0.1 in and 0.05 in; in from those as its
     // Indent says; bulleted or numbered, each paragraph's first line starts with its mark, the rest under its words.
     const by = pts => pts * PT * u, ins = t.Inset ? { l: by(t.Inset.l ?? 7.2), r: by(t.Inset.r ?? 7.2), t: by(t.Inset.t ?? 3.6), b: by(t.Inset.b ?? 3.6) } : { l: 9.6 * u, r: 9.6 * u, t: 4.8 * u, b: 4.8 * u }, marked = t.Bullet && t.Bullet !== 'none';
-    const share = textArea(m.geometry), runs = row.runs?.length ? row.runs : null, room = () => Math.max(16 * u, m.w * share - ins.l - ins.r);
+    // Set down or up its side, as PowerPoint's Text Direction: what's across its words is its height, what's down them its width (dendra.md, Words, part by part). In columns, each its share of what's across, and a gap between.
+    const sideways = t.Direction === 'down' || t.Direction === 'up', across = () => sideways ? m.h : m.w, downIt = () => sideways ? m.w : m.h, cols = Math.max(1, Math.round(t.Columns?.n ?? 1)), gap = by(t.Columns?.gap ?? 7.2);
+    const share = textArea(m.geometry), runs = row.runs?.length ? row.runs : null, room = () => Math.max(16 * u, (across() * share - ins.l - ins.r - gap * (cols - 1)) / cols);
     const indentOf = look => t.Indent != null ? by(t.Indent) : marked ? look.Size * PT * 1.5 : 0;
     const lay = look => {
       const width = (m.auto ? Infinity : room()) - indentOf(look), as = widestLook({ runs, look });
@@ -2116,26 +2132,116 @@ function freeShape(row, text, u = 1, k = 1) {
     let look = t, lines = lay(t);
     if (m.auto) m.w = Math.ceil(widest([{ lines }]) + ins.l + ins.r + indentOf(t) + 1);
     // Set in as PowerPoint sets in its text rect (see Shapes).
-    const r = textRect(m.geometry, m.w, m.h, t.Corner), avail = Math.max(16 * u, m.w * share - ins.l - ins.r) - 2 * r.x, tall = m.h - r.top - r.bottom - ins.t - ins.b;
+    const r = textRect(m.geometry, across(), downIt(), t.Corner), wholeWidth = Math.max(16 * u, across() * share - ins.l - ins.r) - 2 * r.x, avail = cols > 1 ? (wholeWidth - gap * (cols - 1)) / cols : wholeWidth, tall = downIt() - r.top - r.bottom - ins.t - ins.b;
     // Shrink on overflow, PowerPoint's: smaller by its steps until it holds, no less than a quarter of its size.
-    if (t.Shrink && !m.auto) for (const f of [0.925, 0.85, 0.775, 0.7, 0.625, 0.55, 0.475, 0.4, 0.325, 0.25]) { if (lines.length * lineHeight(look) <= tall + 0.5) break; look = { ...t, Size: t.Size * f }; lines = lay(look); m.shrunk = f; }
+    if (t.Shrink && !m.auto) for (const f of [0.925, 0.85, 0.775, 0.7, 0.625, 0.55, 0.475, 0.4, 0.325, 0.25]) { if (Math.ceil(lines.length / cols) * lineHeight(look) <= tall + 0.5) break; look = { ...t, Size: t.Size * f }; lines = lay(look); m.shrunk = f; }
     const it = { id: shape, type: 'text', look, settings: m.settings, text, lines, ...(runs && { runs }) };
-    const tb = blockHeight([it]), ind = indentOf(look);
-    if (m.geometry === 'text' && !t.Shrink) m.h = m.auto ? tb + ins.t + ins.b : Math.max(m.h, tb + ins.t + ins.b);
-    else if (tb > tall + 0.5) m.spills = true;
+    const perCol = cols > 1 ? Math.max(1, Math.floor((tall + 0.5) / lineHeight(look))) : Infinity, tb = cols > 1 ? Math.min(perCol, lines.length) * lineHeight(look) : blockHeight([it]), ind = indentOf(look);
+    if (sideways && m.auto) { m.h = tb ? widest([{ lines }]) + ins.l + ins.r + 1 : m.h; m.w = tb + ins.t + ins.b; }
+    else if (m.geometry === 'text' && !t.Shrink && cols === 1) { if (!sideways) m.h = m.auto ? tb + ins.t + ins.b : Math.max(m.h, tb + ins.t + ins.b); else m.w = Math.max(m.w, tb + ins.t + ins.b); }
+    else if (cols > 1 ? lines.length > perCol * cols : tb > tall + 0.5) m.spills = true;
     // At its top, middle or bottom, its margin in from its edge (a frame's caption at its top, 5 pt in).
-    const x0 = (m.w - avail) / 2 + (r.shift ?? 0) + (ins.l - ins.r) / 2;
-    stack(it, x0, avail, m.geometry === 'frame' && look.Valign === 'top' ? 5 * u : valigned(look.Valign, r.top + ins.t - 4.8 * u, m.h - r.bottom - ins.b + 4.8 * u, tb, 4.8 * u));
+    const x0 = (across() - wholeWidth) / 2 + (r.shift ?? 0) + (ins.l - ins.r) / 2;
+    stack(it, x0, avail, m.geometry === 'frame' && look.Valign === 'top' ? 5 * u : valigned(look.Valign, r.top + ins.t - 4.8 * u, downIt() - r.bottom - ins.b + 4.8 * u, tb, 4.8 * u));
     if (ind) { it.indent = ind; for (const l of it.lines) { if (look.Align === 'left') l.x += ind; if (l.bullet) l.bulletAt = look.Align === 'left' ? l.x - ind : (look.Align === 'right' ? l.x - l.w : l.x - l.w / 2) - ind * 0.75; } }
+    // A hanging or a first line: each paragraph's first line out from, or in from, the rest, where it's set from its left.
+    if (t['First Line'] && look.Align === 'left') { let at = 0; const paras = text.split('\n'), ink = s => s.replace(/\s/g, '').length; for (const p of paras) { let need = ink(p), first = true; while (at < it.lines.length && (need > 0 || first)) { const l = it.lines[at++]; if (first) { l.x += by(t['First Line']); first = false; } need -= ink(l.text); } } it.first = by(t['First Line']); }
+    // Lines by the column they fall in, one after another, as PowerPoint runs them on.
+    if (cols > 1) { it.lines.forEach((l, i) => { const c = Math.min(cols - 1, Math.floor(i / perCol)); if (c) { l.x += c * (avail + gap); l.y -= c * perCol * lineHeight(look); } }); it.columns = { n: cols, gap, width: avail }; }
+    // What's after a tab stands at the next stop: those it says, then every inch, as PowerPoint's defaults are.
+    if (text.includes('\t')) {
+      const stops = (t.Tabs ?? []).map(by), inch = by(72);
+      for (const l of it.lines) if (l.text.includes('\t')) {
+        let at = 0;
+        l.tabs = l.text.split('\t').map((part, i) => { if (i) { const next = stops.find(s => s > at + 0.5) ?? (Math.floor(at / inch) + 1) * inch; at = next; } const seg = { text: part, at }; at += measure(part, look); return seg; });
+        l.w = at;
+        if (m.auto) m.w = Math.max(m.w, Math.ceil(at + ins.l + ins.r + ind + 1));
+      }
+    }
+    if (sideways) it.turn = t.Direction === 'down' ? `rotate(90) translate(0 ${-m.w})` : `rotate(-90) translate(${-m.h} 0)`;
     m.texts.push(it);
     m.column = { x: x0, width: avail };
   }
   return m;
 }
-// A free shape's text: what its row says, or a formula's value, @AsOf being the view's day.
-function shapeText(row, computed, day) {
+// A free shape's text: what its row says, or a formula's value, @AsOf being the view's day. A table's, each cell's as it reads, as one string, so a scene is drawn again as what it reads changes.
+function shapeText(row, computed, day, state, N) {
+  if (row.geometry === 'table') return JSON.stringify(tableRead(row, computed, day, state, N));
   const text = row.text ?? '';
   return /^\s*=/.test(text) && computed ? Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } })) : text;
+}
+
+// ---- A table on the page (dendra.md, A table on the page) ----
+
+// What a record's lists hold, by the names its panel gives them: for each relation at it, the record at its other side. → [{ name, edge, items: [{ rid, obj }] }]
+function listsAt(state, N, at) {
+  const lists = new Map();
+  for (const rid of Tree.index(state).relations.get(at) ?? []) {
+    const rel = state[rid], t = treeOf(state, rid), mine = rel?.args?.find(a => a.at === at);
+    if (!t || !mine || rel.tag === false) continue;
+    const other = N.edges(t).filter(e => !Tree.same(e, mine.edge)).map(e => rel.args.find(a => a !== mine && Tree.same(a.edge, e)))[0];
+    if (!other) continue;
+    const name = N.listName(t, other.edge);
+    (lists.get(name) ?? lists.set(name, { name, edge: other.edge, items: [] }).get(name)).items.push({ rid, obj: other.at });
+  }
+  for (const l of lists.values()) { l.items.sort((a, b) => N.nameOf(state, a.obj).localeCompare(N.nameOf(state, b.obj))); l.worked = l.items.every(it => state[it.rid].computed); }
+  // (What's entered first, what a formula gives after it.)
+  return [...lists.values()].sort((a, b) => a.worked - b.worked || a.name.localeCompare(b.name));
+}
+// An {Entry} of a record, as a text in its box reads it: a relation's side by the name of what's there; an entry at any depth; nothing where it has none.
+function entryOf(state, N, at, label) {
+  const r = state[at], k = Tree.norm(label);
+  if (!r) return '';
+  const side = r.args?.find(a => Tree.norm(a.edge) === k);
+  if (side) return N.nameOf(state, side.at);
+  const entries = Tree.index(state).entries;
+  for (let todo = [at], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { if (Tree.norm(state[e].edge) === k) return textOf(state[e], 'value', state[e].edge); todo.push(e); }
+  return '';
+}
+// What SUM(ABOVE) adds up: the figures over it in its column, a percentage's sign kept, as Word's table says it.
+const figure = s => { const m = /^\s*\$?(-?[\d,]*\.?\d+)\s*%?\s*$/.exec(s ?? ''); return m ? +m[1].replace(/,/g, '') : null; };
+// A table's cells as they read: each row of the table's, or for one that says `each`, one row for each relative in that list, its {Entry} read at the relation, what's beside a {Name} at the relative; a formula worked out at its row's record, or the table's. → [{ src, of, cells: [text] }]
+function tableRead(row, computed, day, state = {}, N = null) {
+  const t = row.table ?? { rows: [] }, out = [], names = { '@AsOf': { t: 'date', iso: day } };
+  const read = (text, at, up) => {
+    const s = String(text ?? '');
+    if (/^\s*=\s*SUM\(\s*ABOVE\s*\)\s*$/i.test(s)) { const vs = up.filter(x => figure(x) !== null), n = vs.reduce((a, x) => a + figure(x), 0); return vs.length ? `${+n.toFixed(4)}${vs.some(x => /%/.test(x)) ? '%' : ''}` : ''; }
+    if (/^\s*=/.test(s)) return computed ? Formulas.text(computed, Formulas.evaluateAt(computed, s, at ?? t.of ?? null, names)) : s;
+    return N ? s.replace(/\{([^{}\n]+)\}/g, (_, l) => entryOf(state, N, at ?? t.of, l)) : s;
+  };
+  const push = (r, src, of) => { const i = out.length, cells = (r.cells ?? []).map((c, k) => read(c?.text, of ?? r.of, out.slice(t.header === false ? 0 : 1, i).map(x => x.cells[k]))); out.push({ src, ...(of && { of }), cells }); };
+  (t.rows ?? []).forEach((r, src) => {
+    if (!r.each) return push(r, src);
+    const l = N && listsAt(state, N, r.each.of).find(x => Tree.same(x.name, r.each.list));
+    for (const it of l?.items ?? []) push(r, src, it.rid);
+  });
+  return out;
+}
+// A table's place on its page: its columns by their shares of its width, each row as tall as its share of its height or as its words need; its words each cell's own, set in its cell. Rows that a list gives repeat the look of the row they come from.
+function tableOf(m, row, text, t, u) {
+  const tb = row.table ?? { cols: [1], rows: [] }, read = (() => { try { return JSON.parse(text || '[]'); } catch { return []; } })();
+  const shares = tb.cols?.length ? tb.cols : [1], sum = shares.reduce((a, b) => a + b, 0), cols = shares.map(s => s / sum * m.w), xs = cols.map((_, i) => cols.slice(0, i).reduce((a, b) => a + b, 0));
+  const inX = 7.2 * PT * u, inY = 3.6 * PT * u, header = tb.header !== false, banded = tb.banded !== false, dark = tooDark({ Fill: t.Fill, Transparency: t.Transparency });
+  const band = none(t.Fill) || !/^#[0-9a-f]{6}$/i.test(t.Fill) ? '#f2f2f2' : Shapes.shaded(t.Fill, 0.1, 0.9), n = Math.max(1, read.length), wish = m.h / n;
+  const rows = read.map((r, i) => {
+    const src = tb.rows?.[r.src] ?? {}, head = header && i === 0;
+    const cells = cols.map((w, c) => {
+      const f = src.cells?.[c]?.format ?? {}, look = { ...t, Color: row.format?.Color ?? TEXT.Color, ...(head && { Bold: true, ...(dark && !row.format?.Color && { Color: WHITE }) }), ...f, Size: f.Size != null ? f.Size * u : t.Size };
+      const fill = f.Fill ?? (head ? t.Fill : banded && i % 2 === (header ? 0 : 1) ? band : WHITE);
+      const said = r.cells[c] ?? '', it = { id: `${m.id}·${i}·${c}`, type: 'text', look, settings: m.settings, text: said, lines: said ? breakLines(said, look, Math.max(4 * u, w - 2 * inX), false) : [], cell: [r.src, c] };
+      return { c, x: xs[c], w, fill, it };
+    });
+    return { i, src: r.src, of: r.of, cells, need: Math.max(...cells.map(k => blockHeight([k.it]))) + 2 * inY };
+  });
+  let y = 0;
+  for (const r of rows) {
+    r.y = y; r.h = Math.max(r.need, wish);
+    for (const k of r.cells) stack(k.it, k.x + inX, k.w - 2 * inX, valigned(k.it.look.Valign, y, y + r.h, blockHeight([k.it]), inY));
+    y += r.h;
+  }
+  m.h = Math.max(1, y);
+  m.table = { cols, xs, rows, header, banded, inX, inY };
+  m.texts = rows.flatMap(r => r.cells.map(k => k.it)).filter(it => it.lines.length);
 }
 
 // A legend's rows laid out in its columns under its title, `sheet` pixels of the page to the sheet's. A row
@@ -2229,7 +2335,7 @@ const obstaclesOf = rows => rows.filter(r => r.x != null && r.y != null && !['li
 // margins, a line to one a hand put and a frame round one stay there, over the margin or off the sheet, and neither move
 // nor rescale the chart, and the Key goes over them rather than rescale it. A preview keeps the page as it was.
 // → { s, dx, dy, shapes, places: rowId → { x, y }, placed }, in the page's pixels.
-function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placed = false, keptAt = null, ceil = 1, held = null, own: ownPage = null }) {
+function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placed = false, keptAt = null, ceil = 1, held = null, own: ownPage = null, masterSheet = sheet }) {
   const W = sheet.w, H = sheet.h, { left: ML, right: MR, top: MT, bottom: MB } = sheet.margins, hands = new Set(boxes.filter(b => b.hand).map(b => b.id));
   // What the chart draws, each as a rect, those of what a hand put `hand`: a box, and a line bent or to one it put.
   const handIn = f => inFrame(frames, f).some(id => hands.has(id));
@@ -2257,9 +2363,11 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     const keyed = (r, w) => { const m = freeShape(w == null ? r : { ...r, w }, said.get(r.id), u, k(r)); layoutLegend(m, legendRows, u, k(r)); return m; };
     // (On another paper, one a hand put as large as it printed on its own page, and as far from the nearest corner.)
     const shapeOn = r => {
-      if (!ownPage || placedBy(r)) return r.geometry === 'legend' ? keyed(r) : freeShape(r, said.get(r.id), u);
-      const f = ownPage.scale / s, row = { ...r, x: r.x * f, y: r.y * f, ...(r.w != null && { w: r.w * f }), ...(r.h != null && { h: r.h * f }), ...(r.points && { points: r.points.map(([x, y]) => [x * f, y * f]) }) };
-      const m = r.geometry === 'legend' ? keyed(row) : freeShape(row, said.get(r.id), u), mw = m.w * s, mh = m.h * s, ox = m.x * s, oy = m.y * s, right = ownPage.sheet.w - ox - mw, foot = ownPage.sheet.h - oy - mh;
+      // (What's on the chart's master, as large as it was drawn there, and as far from the sheet's nearest corner as it stands on the master's sheet, whatever scale this page is at.)
+      const own = r.master ? { scale: 1, sheet: masterSheet } : ownPage;
+      if (!own || placedBy(r)) return r.geometry === 'legend' ? keyed(r) : freeShape(r, said.get(r.id), u);
+      const f = own.scale / s, row = { ...r, x: r.x * f, y: r.y * f, ...(r.w != null && { w: r.w * f }), ...(r.h != null && { h: r.h * f }), ...(r.points && { points: r.points.map(([x, y]) => [x * f, y * f]) }) };
+      const m = r.geometry === 'legend' ? keyed(row) : freeShape(row, said.get(r.id), u), mw = m.w * s, mh = m.h * s, ox = m.x * s, oy = m.y * s, right = own.sheet.w - ox - mw, foot = own.sheet.h - oy - mh;
       move(m, (right < ox ? W - right - mw - ox : 0) / s, (foot < oy ? H - foot - mh - oy : 0) / s);
       return m;
     };
@@ -2478,7 +2586,7 @@ function annotated(before, after) {
   const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const moved = (a, b) => !b || Math.abs(a.x * r - b.x) > 1 || Math.abs(a.y * r - b.y) > 1 || Math.abs(a.w * r - b.w) > 1;
   for (const m of before.marks) {
-    if (m.type !== 'shape' || m.role || ['legend', 'group'].includes(m.geometry) || m.locked) continue;
+    if (m.type !== 'shape' || m.role || m.master || ['legend', 'group'].includes(m.geometry) || m.locked) continue;
     if (m.geometry === 'line') {
       const glue = m.ends ?? [], pts = m.points, ends = [0, pts.length - 1].map((i, k) => { if (glue[k]) return null; const b = boxes.find(q => inside(q, pts[i], 4 / (before.page.scale ?? 1))), now = b && box(b.id); return now ? { i, x: now.x + (pts[i][0] - b.x) * (now.w / (b.w || 1)), y: now.y + (pts[i][1] - b.y) * (now.h / (b.h || 1)) } : null; }).filter(Boolean);
       if (!ends.length) { if (!glue.some(Boolean)) stay.push(m); continue; }
@@ -2523,8 +2631,8 @@ function says(scene, name, paper) {
   for (const b of boxes) if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > W + 0.5 || b.y + b.h > H + 0.5) out.push(`${called(b)} runs off the page`);
     else if (b.x < edge || b.y < edge || b.x + b.w > W - edge || b.y + b.h > H - edge) out.push(`${called(b)} is nearer the edge than a printer prints`);
   const over =(a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
-  const WHAT = { legend: 'The Key', picture: 'The picture', title: 'The title', date: 'The date', footer: 'The footer', number: 'The page number', footnotes: 'The footnotes block' };
-  for (const m of scene.marks) if (m.type === 'shape' && !['line', 'group', 'frame'].includes(m.geometry) && (m.look?.Layer ?? 0) >= 0)
+  const WHAT = { legend: 'The Key', picture: 'The picture', table: 'The table', title: 'The title', date: 'The date', footer: 'The footer', number: 'The page number', footnotes: 'The footnotes block' };
+  for (const m of scene.marks) if (m.type === 'shape' && !m.master && !['line', 'group', 'frame'].includes(m.geometry) && (m.look?.Layer ?? 0) >= 0)
     for (const b of boxes) if (over(m, b)) out.push(`${WHAT[m.role] ?? WHAT[m.geometry] ?? `“${m.texts[0]?.text ?? 'A shape'}”`} overlaps ${called(b)}`);
   for (const k of scene.marks) if (k.geometry === 'legend') for (const f of scene.marks) if (f.type === 'frame' && !f.lone && over(k, f)) out.push(`The Key overlaps the ${f.caption.text} frame`);
   // What's too small for its text says so, never broken mid-word for it.
@@ -2537,7 +2645,7 @@ function says(scene, name, paper) {
 }
 
 return {
-  of, looks, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  MASTER, fontName, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };

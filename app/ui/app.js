@@ -1781,12 +1781,18 @@ const App = (() => {
   const lastView = new Map();
   effect(() => { const c = chart.value, v = Shell.view.value; if (c && views.value.some(x => x.id === v)) lastView.set(c, v); });
   // The view shown, drawn: what the canvas, the format bar and the inspector's Look read.
+  const mastering = signal(false), NOTHING_DRAWN = {};
   const drawnPage = computed(() => {
     // It reads the workbook's notes and shapes as well as the state (Scene keeps what's drawn from the same).
     version.value;
     const v = views.value.find(x => x.id === Shell.view.value);
+    if (v?.layout === 'chart' && mastering.value && typeof Scene !== 'undefined') return Scene.of(shown.value, chart.value, Scene.MASTER, day.value, { state: NOTHING_DRAWN, computed: null, masterOf: views.value.find(x => x.layout === 'chart')?.id });
     return v?.layout !== 'chart' || typeof Scene === 'undefined' ? null : Scene.of(shown.value, chart.value, v.id, day.value, { state: state.value, computed: result.value });
   });
+  // The chart's master being edited (dendra.md, The master): the page draws only that, till it's closed, or another page or chart is shown.
+  effect(() => { Shell.view.value; chart.value; if (mastering.peek()) mastering.value = false; });
+  const pageMaster = (id, on) => change(tx => tx.note('Master', { id, kind: 'View' }, on ? undefined : false), { dated: false, keep: false, say: `${on ? 'Put the master back on' : 'Left the master off'} ${views.peek().find(v => v.id === id)?.name ?? 'this page'}` });
+  const hasMaster = id => notes.peek().resolve('Master', { id, kind: 'View' })?.value !== false;
   const scene = computed(() => {
     const drawn = drawnPage.value, kept = drawn && seenIn(drawn.view);
     return kept?.size ? Scene.of(shown.value, chart.value, drawn.view, day.value, { state: state.value, computed: result.value, seen: kept }) : drawn;
@@ -1912,6 +1918,7 @@ const App = (() => {
       return [
         { label: 'Show', ...writes, items: shows((_, rows) => change(tx => tx.note('Layout', viewTree(id), rows && { rows }), { dated: false }), v) },
         ...(v.layout === 'chart' && typeof FormatBar !== 'undefined' ? ['-', ...FormatBar.lookMenu(id)] : []),
+        ...(v.layout === 'chart' ? ['-', { label: 'Edit master', run: () => { Shell.show(id); setTimeout(() => { mastering.value = true; }); } }, { label: 'Leave the master off', checked: !hasMaster(id), ...writes, run: () => pageMaster(id, !hasMaster(id)) }] : []),
         '-',
         ...(v.layout === 'chart' && typeof Time !== 'undefined' ? [{ label: 'Next step…', ...writes, run: () => Time.nextStep(id) }] : []),
         { label: 'Duplicate', ...writes, run: () => { const copy = addView(v.name, undefined, id); if (copy) Shell.show(copy); } },
@@ -1980,7 +1987,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs,
-    readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, interposable, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
+    mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, interposable, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken,
   };
 })();
