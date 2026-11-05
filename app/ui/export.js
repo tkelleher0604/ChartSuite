@@ -362,8 +362,8 @@ function markSvg(m, pdf) {
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
   // A table: its cells' fills, its rules and its words.
-  if (m.geometry === 'table') { const t = m.table, rules = [...t.rows.map(r => `M0,${n(r.y)} H${n(m.w)}`), `M0,${n(m.h)} H${n(m.w)}`, ...t.xs.map(x => `M${n(x)},0 V${n(m.h)}`), `M${n(m.w)},0 V${n(m.h)}`].join(' ');
-    return g(m.x, m.y, t.rows.flatMap(r => r.cells.filter(k => !none(k.fill)).map(k => `<rect x="${n(k.x)}" y="${n(r.y)}" width="${n(k.w)}" height="${n(r.h)}" fill="${k.fill}"/>`)).join('') + `<path d="${rules}" fill="none" ${stroke(s)}/>` + texts(m.texts, pdf)); }
+  if (m.geometry === 'table') { const t = m.table;
+    return g(m.x, m.y, t.rows.flatMap(r => r.cells.filter(k => !k.covered && !none(k.fill)).map(k => `<rect x="${n(k.x)}" y="${n(r.y)}" width="${n(k.w)}" height="${n(k.h)}" fill="${k.fill}"/>`)).join('') + (t.rules ? `<path d="${t.rules}" fill="none" ${stroke(s)}/>` : '') + (t.headRule ? `<path d="${t.headRule.d}" fill="none" ${stroke({ Outline: t.headRule.color }, t.headRule.weight)}/>` : '') + texts(m.texts, pdf)); }
   // (A free shape turned, about its middle.)
   const turned = inner => m.rotate ? `<g transform="rotate(${n(m.rotate)} ${n(m.x + m.w / 2)} ${n(m.y + m.h / 2)})">${inner}</g>` : inner;
   if (m.geometry === 'picture') {
@@ -444,7 +444,7 @@ const clr = (c, alpha = '') => {
 };
 // The file's own theme: the chart's ten colors, or Office's.
 const clrScheme = (colors = Shapes.OFFICE) => { const [bg1, tx1, bg2, tx2, ...accents] = colors, slot = (tag, c) => `<a:${tag}><a:srgbClr val="${hex(c)}"/></a:${tag}>`; return `<a:clrScheme name="Chart">${slot('dk1', tx1)}${slot('lt1', bg1)}${slot('dk2', tx2)}${slot('lt2', bg2)}${accents.slice(0, 6).map((c, i) => slot(`accent${i + 1}`, c)).join('')}${slot('hlink', '#0563c1')}${slot('folHlink', '#954f72')}</a:clrScheme>`; };
-const siteOf = b => Shapes.sites(b?.shape ?? (['text', 'frame', 'picture'].includes(b?.geometry) ? 'rect' : b?.geometry));
+const siteOf = b => Shapes.sites(b?.shape ?? (['text', 'frame', 'picture', 'table'].includes(b?.geometry) ? 'rect' : b?.geometry));
 const DASH = { solid: 'solid', dashed: 'dash', dotted: 'sysDot', 'square-dot': 'sysDash', 'dash-dot': 'dashDot', 'long-dash': 'lgDash', 'long-dash-dot': 'lgDashDot', 'long-dash-dot-dot': 'lgDashDotDot' };
 // A line's end as PowerPoint holds it, by its Arrowhead's style and size.
 const HEAD_TYPE = { triangle: 'triangle', stealth: 'stealth', open: 'arrow', oval: 'oval', diamond: 'diamond' }, HEAD_SIZE = { small: 'sm', medium: 'med', large: 'lg' };
@@ -821,7 +821,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     });
     if (m.geometry === 'group') return [];
     // A table is PowerPoint's own, its words in its cells, each a text to edit there.
-    if (m.geometry === 'table') { const r = rect(m); put(id => tableFrame(id, m, r, s, k, L)); return [r]; }
+    if (m.geometry === 'table') { const r = rect(m); ids.set(m.id, put(id => tableFrame(id, m, r, s, k, L))); return [r]; }
     if (FOOT[m.role] && feet[m.role]) { put(id => footSlide(id, m, rect(m), k, feet[m.role])); return [rect(m)]; }
     // (A part of a design keeps its margins at the chart's size, as a box does.)
     const text = m.geometry === 'text' || m.geometry === 'frame', by = m.of ? k : 1, ins = s.Inset ? { l: (s.Inset.l ?? 7.2) / 72 * by, t: (s.Inset.t ?? 3.6) / 72 * by, r: (s.Inset.r ?? 7.2) / 72 * by, b: (s.Inset.b ?? 3.6) / 72 * by } : m.of ? { l: 0.1 * k, t: 0.05 * k, r: 0.1 * k, b: 0.05 * k } : PAGE;
@@ -869,13 +869,22 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
   return finished;
 }
 
-// A table as PowerPoint holds one: its columns, its rows each as tall as the scene sets it, each cell its words, which wrap there as a table's do; its fill, its margins, and a rule each side.
+// A table as PowerPoint holds one: its columns, its rows each as tall as the scene sets it, each cell its words, which wrap there as a table's do; its fill, its margins, and a rule each side the page draws, a heading's its own; what's joined as PowerPoint's own. In PowerPoint's No Style, No Grid, as a table's look is said cell by cell: a table style of a file's own PowerPoint names but won't draw.
+const NO_STYLE = '{2D5ABB26-0587-4C30-8999-92F81FD0307C}';
 function tableFrame(id, m, r, s, k, L) {
-  const t = m.table, rule = tag => none(s.Outline) ? `<a:${tag} w="0"><a:noFill/></a:${tag}>` : `<a:${tag} w="${Math.round(s.Weight * k * 12700)}" cap="flat" cmpd="sng" algn="ctr">${paint(s.Outline)}<a:prstDash val="${DASH[s.Dash] ?? 'solid'}"/></a:${tag}>`;
-  const cell = c => `<a:tc>${txBody(c.it.lines.length ? [c.it] : [], k, 'ctr', null, { cell: c.it.look, wrap: 0 })}<a:tcPr marL="${E(L(t.inX))}" marR="${E(L(t.inX))}" marT="${E(L(t.inY))}" marB="${E(L(t.inY))}" anchor="${VALIGN[c.it.look.Valign] ?? 'ctr'}">${['lnL', 'lnR', 'lnT', 'lnB'].map(rule).join('')}${none(c.fill) ? '<a:noFill/>' : paint(c.fill)}</a:tcPr></a:tc>`;
-  return `<p:graphicFrame><p:nvGraphicFramePr>${cNvPr(id, m.name ?? 'Table', m.alt)}<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>`
-    + `<p:xfrm><a:off x="${E(r.x)}" y="${E(r.y)}"/><a:ext cx="${E(r.w)}" cy="${E(r.h)}"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr${t.header ? ' firstRow="1"' : ''}${t.banded ? ' bandRow="1"' : ''}/>`
-    + `<a:tblGrid>${t.cols.map(w => `<a:gridCol w="${E(L(w))}"/>`).join('')}</a:tblGrid>${t.rows.map(row => `<a:tr h="${E(L(row.h))}">${row.cells.map(cell).join('')}</a:tr>`).join('')}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+  const t = m.table, across = t.ruled !== 'none', grid = t.ruled === 'grid', edge = (tag, on, w = s.Weight, c = s.Outline) => on && !none(c) ? `<a:${tag} w="${Math.round(w * k * 12700)}" cap="flat" cmpd="sng" algn="ctr">${paint(c)}<a:prstDash val="${DASH[s.Dash] ?? 'solid'}"/></a:${tag}>` : `<a:${tag} w="0"><a:noFill/></a:${tag}>`;
+  const under = i => t.headRule && i === 0, over = i => t.headRule && i === 1, rules = (row, c) => edge('lnL', grid) + edge('lnR', grid) + (over(row.i) ? edge('lnT', true, t.headRule.weight, t.headRule.color) : edge('lnT', across)) + (under(row.i) && !c.down ? edge('lnB', true, t.headRule.weight, t.headRule.color) : edge('lnB', across));
+  const spansOf = (row, c) => {
+    if (!c.covered) return `${c.across ? ` gridSpan="${c.across}"` : ''}${c.down ? ` rowSpan="${c.down}"` : ''}`;
+    // (What covers it stands above it, beside it, or both.)
+    const over = t.rows.slice(0, row.i + 1).some(x => x.cells.some(h => !h.covered && (h.down ?? 1) > 1 && x.i < row.i && x.i + h.down > row.i && h.c <= c.c && h.c + (h.across ?? 1) > c.c));
+    const beside = row.cells.some(h => !h.covered && h.c < c.c && h.c + (h.across ?? 1) > c.c) || t.rows.some(x => x.i < row.i && x.cells.some(h => !h.covered && h.c < c.c && h.c + (h.across ?? 1) > c.c && x.i + (h.down ?? 1) > row.i));
+    return `${beside ? ' hMerge="1"' : ''}${over ? ' vMerge="1"' : ''}`;
+  };
+  const cell = (row, c) => `<a:tc${spansOf(row, c)}>${txBody(c.it.lines.length ? [c.it] : [], k, 'ctr', null, { cell: c.it.look, wrap: 0 })}<a:tcPr marL="${E(L(t.inX))}" marR="${E(L(t.inX))}" marT="${E(L(t.inY))}" marB="${E(L(t.inY))}" anchor="${VALIGN[c.it.look.Valign] ?? 'ctr'}">${rules(row, c)}${none(c.fill) ? '<a:noFill/>' : paint(c.fill)}</a:tcPr></a:tc>`;
+  return `<p:graphicFrame><p:nvGraphicFramePr>${cNvPr(id, m.name ?? 'Table', m.alt, m.link)}<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>`
+    + `<p:xfrm><a:off x="${E(r.x)}" y="${E(r.y)}"/><a:ext cx="${E(r.w)}" cy="${E(r.h)}"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr${t.header ? ' firstRow="1"' : ''}${t.banded ? ' bandRow="1"' : ''}><a:tableStyleId>${NO_STYLE}</a:tableStyleId></a:tblPr>`
+    + `<a:tblGrid>${t.cols.map(w => `<a:gridCol w="${E(L(w))}"/>`).join('')}</a:tblGrid>${t.rows.map(row => `<a:tr h="${E(L(row.h))}">${row.cells.map(c => cell(row, c)).join('')}</a:tr>`).join('')}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
 }
 // The start of a PowerPoint group, framed round rects (in inches on the slide).
 function grouped(id, name, rects, alt) {

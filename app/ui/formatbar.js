@@ -195,7 +195,7 @@ const kinOf = sc => App.ofScene(kins, sc, () => {
 function these(ms) {
   if (ms.every(isFoot)) return ms.length === 1 && ms[0].role === 'number' ? 'The page number' : 'The footer';
   if (ms.length === 1 && ms[0].role === 'footnotes') return 'The footnotes';
-  if (ms.length === 1 && ms[0].geometry === 'table') return Canvas.active.peek()?.cell?.(ms[0].id) ? 'This cell' : 'This table';
+  if (ms.length === 1 && ms[0].geometry === 'table') { const c = Canvas.active.peek(), n = c?.cellsPicked?.(ms[0].id)?.length ?? 0; return !c?.cell?.(ms[0].id) ? 'This table' : n > 1 ? `These ${n} cells` : 'This cell'; }
   const noun = ms.every(m => m.type === 'box') ? 'box' : ms.every(m => m.type === 'line' || m.geometry === 'line') ? 'line' : 'shape', n = new Set(ms.map(m => m.merged ?? m.id)).size;
   return n === 1 ? `This ${noun}` : `These ${n} ${noun === 'box' ? 'boxes' : `${noun}s`}`;
 }
@@ -492,11 +492,11 @@ function write(tx, c, label, value) {
   const scope = label === 'Design' || part ? boxScope(c, s) : scopeOf(scopes);
   if (!scope) return;
   if (scope.root) return tx.note(label, viewSelf(c.scene()), value);
-  // (A cell of a table picked: that cell's, kept with the words it's written at.)
+  // (Cells of a table picked: theirs, each kept with the words it's written at.)
   const cell = marks.length === 1 && marks[0].geometry === 'table' && c.cell?.(marks[0].id);
   if (cell) {
-    const row = tx.item?.(marks[0].id)?.at(-1) ?? App.shown.peek().item(App.chart.peek(), marks[0].id)[0], src = marks[0].table.rows[cell.r]?.src;
-    return tx.update(marks[0].id, { table: { ...row.table, rows: row.table.rows.map((r, i) => i !== src ? r : { ...r, cells: r.cells.map((k, j) => j !== cell.c ? k : { ...k, format: { ...k.format, [label]: value } }) }) } });
+    const row = tx.item?.(marks[0].id)?.at(-1) ?? App.shown.peek().item(App.chart.peek(), marks[0].id)[0], on = c.cellsPicked(marks[0].id);
+    return tx.update(marks[0].id, { table: { ...row.table, rows: row.table.rows.map((r, i) => ({ ...r, cells: r.cells.map((k, j) => !on.some(q => q.r.src === i && q.k.c === j) ? k : { ...k, format: { ...k.format, [label]: value } }) })) } });
   }
   // (Everything else's words are All text's: a box's look is its own.)
   if (scope.rest && TEXT_LABELS.has(label)) return tx.note(label, viewSelf(c.scene()), value);
@@ -520,9 +520,11 @@ function write(tx, c, label, value) {
     }
     else if (isFoot(m)) refoot(tx, { ...footNote().format, [label]: value });
     // (As the change has left it so far: several settings at once are one change, a line's arrow and its head, and none takes back the other.)
-    else if (m.type === 'shape') tx.update(m.id, { format: { ...(tx.item?.(m.id)?.at(-1) ?? App.shown.peek().item(App.chart.peek(), m.id)[0])?.format, [label]: value } });
+    else if (m.type === 'shape') { const row = tx.item?.(m.id)?.at(-1) ?? App.shown.peek().item(App.chart.peek(), m.id)[0]; tx.update(m.id, { format: { ...row?.format, [label]: value }, ...(m.geometry === 'table' && TEXT_LABELS.has(label) && { table: wholeTable(row.table, label) }) }); }
   }
 }
+// A text's look given a whole table reaches every cell: what a cell kept of its own of it goes.
+const wholeTable = (t, label) => ({ ...t, rows: t.rows.map(r => ({ ...r, cells: r.cells.map(k => { if (k.format?.[label] === undefined) return k; const { [label]: _, ...f } = k.format, { format: _f, ...rest } = k; return Object.keys(f).length ? { ...rest, format: f } : rest; }) })) });
 // A field's own label, where a text is a field; its own look of a label, given by its entry's style or beside a group, as
 // against one it takes from the box it's in.
 const fieldEdge = it => !it.free && !it.blank ? App.state.peek()[it.id]?.edge ?? null : null;
@@ -607,7 +609,7 @@ function firstReach(c, scope, label, value) {
   const all = allOf(scope, n), said = all[0].toLowerCase() + all.slice(1), own = scopesOf(c).scopes.find(x => x.own)?.label;
   return { said: label === 'Fill' && value !== 'none' ? `Filled ${said}` : Time.looked(label, value, said), own: own && own[0].toLowerCase() + own.slice(1) };
 }
-const freeSaid = (marks, label, value) => !!marks.length && marks.every(m => m.type === 'shape') && Time.looked(label, value, marks.length > 1 ? `these ${marks.length} shapes` : marks[0].geometry === 'line' ? 'the line' : marks[0].geometry === 'text' ? 'the text box' : marks[0].geometry === 'table' ? 'the table' : 'the shape');
+const freeSaid = (marks, label, value) => !!marks.length && marks.every(m => m.type === 'shape') && Time.looked(label, value, marks.length > 1 ? `these ${marks.length} shapes` : marks[0].geometry === 'line' ? 'the line' : marks[0].geometry === 'text' ? 'the text box' : marks[0].geometry === 'table' ? these(marks).replace(/^This/, 'the').replace(/^These/, 'these') : 'the shape');
 // A choice pointed at, drawn on the chart as it would be: the change written, uncommitted, on the chart's
 // rows, and the canvas asked to draw from them; for a size, laid out afresh, as the page may grow for it, and for
 // Tidy, the chart laid out with nothing entered. With nothing, the chart is drawn as it is again. Each note tried
@@ -728,7 +730,7 @@ const cellOf = m => { const at = current?.canvas?.cell?.(m.id); return at ? m.ta
 function scopeTexts() {
   if (current.texts) return current.texts;
   const picked = current.marks.length === 1 && current.marks[0].geometry === 'table' ? cellOf(current.marks[0]) : null;
-  if (picked) return current.texts = [picked.it];
+  if (picked) return current.texts = current.canvas.cellsPicked(current.marks[0].id).map(q => q.k.it);
   const f = current.field, scope = current.scope, st = App.state.peek(), only = scope?.swatch?.kind === 'text' ? scope.outputs : null;
   return current.texts = scopeMarks().flatMap(m => m.texts ?? (m.caption ? [m.caption] : []))
     .filter(it => !it.blank && (f ? it === f.it || (!f.it.free && edgeOf(it) === edgeOf(f.it)) : !only || only.some(p => Tree.fits(st, it.id, p))));
@@ -1437,7 +1439,8 @@ const opener = {
     <${Sub} label="Text outline" of=${of} items=${() => { const c = inkNow(); return looksLike('Text Outline', [[null, 'None'], ...[0.25, 0.5, 0.75, 1, 1.5].map(weight => [{ color: c, weight }, `${weight} pt`])], value('Text Outline')); }} /></${Palette}>`),
   font: at => pop(at, close => html`<${Fonts} close=${close} />`),
   shape: at => pop(at, (close, of) => html`<${ShapePop} close=${close} of=${of} />`),
-  design: at => pop(at, close => Designs.open(at, close)),
+  // (A table's is its style's gallery; anything else's, the designs.)
+  design: at => { const c = Canvas.active.peek(), t = c?.selected?.().find(m => m.geometry === 'table'); return pop(at, close => t ? html`<${c.StyleGallery} id=${t.id} close=${close} />` : Designs.open(at, close)); },
   effects: at => pop(at, (close, of) => html`<${EffectsPop} of=${of} />`),
   paragraph: at => pop(at, () => html`<${ParagraphPop} />`),
 };
@@ -1790,7 +1793,7 @@ function Bar() {
     <button class="btn dd" aria-label="Paragraph" data-fb="paragraph" ...${writes('Alignment and spacing', !texty)} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
     <span class="sep" />
     <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
-    <button class="btn dd" aria-label="Design" data-fb="design" ...${writes('Design', !s.marks.some(m => m.type === 'box' || m.type === 'line'))} onClick=${e => opener.design(e.currentTarget)}>${Shell.icon('LayoutTemplate')}</button>
+    <button class="btn dd" aria-label="Design" data-fb="design" ...${writes('Design', !s.marks.some(m => m.type === 'box' || m.type === 'line' || m.geometry === 'table'))} onClick=${e => opener.design(e.currentTarget)}>${Shell.icon('LayoutTemplate')}</button>
     <button class="btn dd" aria-label="Effects" data-fb="effects" ...${writes('Shadow, glow, reflection and more', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.effects(e.currentTarget)}>${Shell.icon('Sparkles')}</button>
     <button class="btn dd" aria-label="Fill" data-fb="fill" ...${writes('Fill', !boxy)} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-fb="outline" ...${writes('Outline', none || textStyle || footOnly)} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle && !footOnly ? value('Outline') : 'none')}</button>
@@ -1952,7 +1955,7 @@ function open(what, at) {
 }
 
 Shell.register('formatbar', { mount, relist: () => listHouses() });
-return { defineFonts, applyPairs: applyAll, apply, preview, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
+return { defineFonts, applyPairs: applyAll, apply, preview, value, colorName, paletteOf, themeOf, chartAccents: () => { const chroma = c => { const v = [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)); return Math.max(...v) - Math.min(...v); }; return chartColors().filter(c => chroma(c) > 24).sort((a, b) => chroma(b) - chroma(a)); }, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
   copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim: g => (g ? aim(g) : void pen.home()), aimedAt, lit, litOn, selectDiffers,
   reachOf: reachOfRow, pen };
 })();

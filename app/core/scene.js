@@ -2153,8 +2153,8 @@ function keyedEver(N, view, rows) {
 const SHAPE_DEFAULTS = { Fill: '#ffffff', Gradient: null, Pattern: null, Tail: null, Bullet: 'none', Indent: null, 'First Line': null, Tabs: null, Columns: null, Direction: 'across', Inset: null, Shrink: false, Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Arrowhead: null, Layer: 0, Points: null, ...BODY, ...TEXT };
 const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12, Valign: 'top' };
 const SHAPED = new Set(['line', 'picture', 'group', 'legend', 'table', 'text', 'frame']);
-// A table's: its Fill is its heading row's, its Outline its rules', its Color its words'.
-const TABLE = { Fill: '#44546a', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Size: 10, Valign: 'middle' };
+// A table's: its Fill is its heading row's (none, as it comes, a rule under it instead), its Outline its rules', its Color its words'.
+const TABLE = { Fill: 'none', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Size: 10, Valign: 'middle' };
 // The page's own texts: its title, its date, its footer and its number.
 const ROLES = { title: { Size: 20, Bold: true, Font: 'Heading' }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
 function freeShape(row, text, u = 1, k = 1) {
@@ -2474,30 +2474,60 @@ function tableRead(row, computed, day, state = {}, N = null) {
   });
   return out;
 }
-// A table's place on its page: its columns by their shares of its width, each row as tall as its share of its height or as its words need; its words each cell's own, set in its cell. Rows that a list gives repeat the look of the row they come from.
+// A table's place on its page: its columns by their shares of its width, none narrower than its longest word, so words stay apart, what one needs coming from those with room and the table growing only where none has; each row as tall as its share of its height or as its words need. A cell's `across` and `down` join the cells they cover, which hold nothing and aren't drawn (a row a list repeats is joined across, never down). Its `rules` say which it draws: `across` (the default, hairlines between its rows, and a heading with no fill its rule under that), `grid`, or `none`; that heading rule's color is `headRule`, or else its words'. Rows that a list gives repeat the look of the row they come from.
 function tableOf(m, row, text, t, u) {
   const tb = row.table ?? { cols: [1], rows: [] }, read = (() => { try { return JSON.parse(text || '[]'); } catch { return []; } })();
-  const shares = tb.cols?.length ? tb.cols : [1], sum = shares.reduce((a, b) => a + b, 0), cols = shares.map(s => s / sum * m.w), xs = cols.map((_, i) => cols.slice(0, i).reduce((a, b) => a + b, 0));
-  const inX = 7.2 * PT * u, inY = 3.6 * PT * u, header = tb.header !== false, banded = tb.banded !== false, dark = tooDark({ Fill: t.Fill, Transparency: t.Transparency });
-  const band = none(t.Fill) || !/^#[0-9a-f]{6}$/i.test(t.Fill) ? '#f2f2f2' : Shapes.shaded(t.Fill, 0.1, 0.9), n = Math.max(1, read.length), wish = m.h / n;
+  const shares = tb.cols?.length ? tb.cols : [1], sum = shares.reduce((a, b) => a + b, 0), inX = 7.2 * PT * u, inY = 3.6 * PT * u, header = tb.header !== false, banded = tb.banded !== false, ruled = tb.rules ?? 'across', dark = tooDark({ Fill: t.Fill, Transparency: t.Transparency });
+  const band = none(t.Fill) || !/^#[0-9a-f]{6}$/i.test(t.Fill) ? '#f2f2f2' : Shapes.shaded(t.Fill, 0.1, 0.9), n = Math.max(1, read.length), wish = m.h / n, C = shares.length;
+  // What's covered by a cell joined over it, by its row as drawn and its column.
+  const covered = new Set(), srcOf = r => tb.rows?.[r.src] ?? {}, acrossOf = (r, c) => Math.max(1, Math.min(srcOf(r).cells?.[c]?.across ?? 1, C - c)), downOf = (i, c) => read[i].of || srcOf(read[i]).each ? 1 : Math.max(1, Math.min(srcOf(read[i]).cells?.[c]?.down ?? 1, n - i));
+  read.forEach((r, i) => { for (let c = 0; c < C; c++) { if (covered.has(`${i},${c}`)) continue; const a = acrossOf(r, c), d = downOf(i, c); for (let y = 0; y < d; y++) for (let x = 0; x < a; x++) if (x || y) covered.add(`${i + y},${c + x}`); } });
+  const lookOf = (src, c, i) => { const f = src.cells?.[c]?.format ?? {}, head = header && i === 0; return { ...t, Color: row.format?.Color ?? TEXT.Color, ...(head && { Bold: true, ...(dark && !row.format?.Color && { Color: WHITE }) }), ...f, Size: f.Size != null ? f.Size * u : t.Size }; };
+  // Each column at least as wide as its longest word and its margins.
+  let cols = shares.map(s => s / sum * m.w);
+  const least = cols.map(() => 0);
+  const wordOf = (r, c, i) => { const look = lookOf(srcOf(r), c, i); return Math.max(0, ...String(r.cells[c] ?? '').split(/\s+/).filter(Boolean).map(w => measure(w, look) + 2 * inX + 2 * u)); };
+  read.forEach((r, i) => cols.forEach((_, c) => { if (!covered.has(`${i},${c}`) && acrossOf(r, c) === 1) least[c] = Math.max(least[c], wordOf(r, c, i)); }));
+  // (What's joined across asks what those it covers don't give it of the last of them.)
+  read.forEach((r, i) => cols.forEach((_, c) => { const a = covered.has(`${i},${c}`) ? 1 : acrossOf(r, c); if (a > 1) least[c + a - 1] += Math.max(0, wordOf(r, c, i) - least.slice(c, c + a).reduce((x, y) => x + y, 0)); }));
+  const short = cols.reduce((a, w, c) => a + Math.max(0, least[c] - w), 0);
+  if (short > 0) {
+    const spare = cols.map((w, c) => Math.max(0, w - least[c])), room = spare.reduce((a, b) => a + b, 0);
+    cols = room >= short ? cols.map((w, c) => w < least[c] ? least[c] : w - spare[c] * short / room) : cols.map((w, c) => Math.max(w, least[c]));
+    m.w = cols.reduce((a, b) => a + b, 0);
+  }
+  const xs = cols.map((_, i) => cols.slice(0, i).reduce((a, b) => a + b, 0)), runsOf = (src, c, said) => { const k = src.cells?.[c]; return !k?.runs?.length ? null : said === k.text ? k.runs : runsAfter(String(k.text ?? ''), said, k.runs); };
   const rows = read.map((r, i) => {
-    const src = tb.rows?.[r.src] ?? {}, head = header && i === 0;
+    const src = srcOf(r), head = header && i === 0;
     const cells = cols.map((w, c) => {
-      const f = src.cells?.[c]?.format ?? {}, look = { ...t, Color: row.format?.Color ?? TEXT.Color, ...(head && { Bold: true, ...(dark && !row.format?.Color && { Color: WHITE }) }), ...f, Size: f.Size != null ? f.Size * u : t.Size };
-      const fill = f.Fill ?? (head ? t.Fill : banded && i % 2 === (header ? 0 : 1) ? band : WHITE);
-      const said = r.cells[c] ?? '', it = { id: `${m.id}·${i}·${c}`, type: 'text', look, settings: m.settings, text: said, lines: said ? breakLines(said, look, Math.max(4 * u, w - 2 * inX), false) : [], cell: [r.src, c] };
-      return { c, x: xs[c], w, fill, it };
+      const over = covered.has(`${i},${c}`), f = src.cells?.[c]?.format ?? {}, look = lookOf(src, c, i), a = over ? 1 : acrossOf(r, c), wide = cols.slice(c, c + a).reduce((x, y) => x + y, 0);
+      const fill = over ? 'none' : f.Fill ?? (head ? t.Fill : banded && i % 2 === (header ? 1 : 0) ? band : 'none'), said = over ? '' : r.cells[c] ?? '', runs = said ? runsOf(src, c, said) : null;
+      const it = { id: `${m.id}·${i}·${c}`, type: 'text', look, settings: m.settings, text: said, lines: said ? breakLines(said, runs?.some(x => x.Bold) && !look.Bold ? { ...look, Bold: true } : look, Math.max(4 * u, wide - 2 * inX), false) : [], cell: [r.src, c], ...(runs?.length && { runs }) };
+      return { c, x: xs[c], w: wide, fill, it, ...(over && { covered: true }), ...(a > 1 && { across: a }), ...(Object.keys(f).length && { own: f }) };
     });
-    return { i, src: r.src, of: r.of, cells, need: Math.max(...cells.map(k => blockHeight([k.it]))) + 2 * inY };
+    return { i, src: r.src, of: r.of, cells };
   });
+  // Each row as its words need; a cell joined down asks what it still lacks of the last row it covers.
+  const downs = (r, k) => k.covered ? 1 : downOf(r.i, k.c);
+  for (const r of rows) { r.need = Math.max(0, ...r.cells.filter(k => downs(r, k) === 1).map(k => blockHeight([k.it]))) + 2 * inY; r.h = Math.max(r.need, wish); }
+  for (const r of rows) for (const k of r.cells) { const d = downs(r, k); if (d > 1) { const under = rows.slice(r.i, r.i + d), have = under.reduce((a, x) => a + x.h, 0), need = blockHeight([k.it]) + 2 * inY; if (need > have) under.at(-1).h += need - have; } }
   let y = 0;
-  for (const r of rows) {
-    r.y = y; r.h = Math.max(r.need, wish);
-    for (const k of r.cells) stack(k.it, k.x + inX, k.w - 2 * inX, valigned(k.it.look.Valign, y, y + r.h, blockHeight([k.it]), inY));
-    y += r.h;
+  for (const r of rows) { r.y = y; y += r.h; }
+  for (const r of rows) for (const k of r.cells) {
+    const d = downs(r, k);
+    k.h = rows.slice(r.i, r.i + d).reduce((a, x) => a + x.h, 0);
+    if (d > 1) k.down = d;
+    stack(k.it, k.x + inX, k.w - 2 * inX, valigned(k.it.look.Valign, r.y, r.y + k.h, blockHeight([k.it]), inY));
   }
   m.h = Math.max(1, y);
-  m.table = { cols, xs, rows, header, banded, inX, inY };
+  // What's ruled, each edge once, round what's drawn: on the page and in a PDF one path; in a deck, by PowerPoint's own table style.
+  const edges = new Set();
+  if (ruled !== 'none') for (const r of rows) for (const k of r.cells) if (!k.covered) {
+    edges.add(`M${k.x},${r.y} H${k.x + k.w}`); edges.add(`M${k.x},${r.y + k.h} H${k.x + k.w}`);
+    if (ruled === 'grid') { edges.add(`M${k.x},${r.y} V${r.y + k.h}`); edges.add(`M${k.x + k.w},${r.y} V${r.y + k.h}`); }
+  }
+  const headRule = ruled !== 'none' && header && rows[0] && none(t.Fill) ? { d: rows[0].cells.filter(k => !k.covered && !k.down).map(k => `M${k.x},${rows[0].y + k.h} H${k.x + k.w}`).join(' '), color: tb.headRule ?? row.format?.Color ?? TEXT.Color, weight: Math.max(t.Weight * 2, u) } : null;
+  m.table = { cols, xs, rows, header, banded, inX, inY, least, ruled, rules: [...edges].join(' '), ...(headRule && { headRule }) };
   m.texts = rows.flatMap(r => r.cells.map(k => k.it)).filter(it => it.lines.length);
 }
 
@@ -2902,7 +2932,7 @@ function says(scene, name, paper) {
 }
 
 return {
-  MASTER, fontName, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  MASTER, fontName, tooDark, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   instance, swatchParts, wholeDesign, overDesign, designAtPattern, tokensIn, reader, readWords,
   toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),

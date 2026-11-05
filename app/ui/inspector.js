@@ -1765,7 +1765,8 @@ function TableRows({ id, row, m, still }) {
     ${number('Rows', n, rowsTo)}${number('Columns', cols, colsTo)}
     <label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${t.header !== false} disabled=${still} onChange=${e => set({ ...t, header: e.target.checked }, e.target.checked ? 'Gave the table a heading row' : 'Took the heading row off')} />Heading row</span></label>
     <label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${t.banded !== false} disabled=${still} onChange=${e => set({ ...t, banded: e.target.checked }, e.target.checked ? 'Banded the table' : 'Took the bands off')} />Banded rows</span></label>
-    <div class="row" data-row="of"><div class="k">Reads</div><div class="v ctl"><${Choice} fixed label="Reads" r=${{ choice: t.of ? N().nameOf(st, t.of) : 'Nothing' }} options=${['Nothing', ...names.keys()]} put=${out => { const of = names.get(out?.choice); set({ ...t, of: of ?? undefined }, of ? `Made the table read ${out.choice}` : 'The table reads nothing now'); }} /></div></div>
+    <div class="row" data-row="of"><div class="k">Reads</div><div class="v ctl"><${Choice} fixed label="Reads" r=${{ choice: t.of ? N().nameOf(st, t.of) : 'Nothing' }} options=${['Nothing', ...names.keys()]} put=${out => { Shell.parts.peek().canvas?.active?.()?.readsFrom(id, names.get(out?.choice) ?? null); }} /></div></div>
+    <div class="row" data-row="style"><div class="k">Style</div><div class="v ctl"><button type="button" class="btn dd" aria-label="Table style" disabled=${still} onClick=${e => Shell.parts.peek().canvas?.active?.()?.styleGallery(e.currentTarget, id)}>Choose…</button></div></div>
   </div>`;
 }
 function ShapeView({ id, part }) {

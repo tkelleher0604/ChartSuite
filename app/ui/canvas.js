@@ -411,11 +411,12 @@ function partMarkup(p, at, textOf, ox = at.x, oy = at.y) {
 
 // A table: each cell's fill, its rules, its words; each cell knows where it is, for a click, and each rule between columns, for a drag.
 function tableMarkup(m, s) {
-  const t = m.table, W = px(s.Weight), rules = paint(s.Outline) === 'none' ? '' : [...t.rows.map(r => `M0,${r.y} H${m.w}`), `M0,${m.h} H${m.w}`, ...t.xs.map(x => `M${x},0 V${m.h}`), `M${m.w},0 V${m.h}`].join(' ');
+  const t = m.table, W = px(s.Weight), rules = paint(s.Outline) === 'none' ? '' : t.rules;
   return [
     { tagName: 'rect', selector: 'body', attrs: { width: m.w, height: m.h, fill: 'transparent' } },
-    ...t.rows.flatMap(r => r.cells.map(k => ({ tagName: 'rect', attrs: { x: k.x, y: r.y, width: k.w, height: r.h, fill: paint(k.fill) === 'none' ? 'transparent' : k.fill, 'data-tcell': `${r.i},${k.c}` } }))),
+    ...t.rows.flatMap(r => r.cells.filter(k => !k.covered).map(k => ({ tagName: 'rect', attrs: { class: 'dc-tbox', x: k.x, y: r.y, width: k.w, height: k.h, fill: paint(k.fill) === 'none' ? 'transparent' : k.fill, 'data-tcell': `${r.i},${k.c}` } }))),
     { tagName: 'path', attrs: { d: rules, fill: 'none', stroke: paint(s.Outline), 'stroke-width': W, class: crisp(W), 'pointer-events': 'none', 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) } },
+    ...(t.headRule ? [{ tagName: 'path', attrs: { d: t.headRule.d, fill: 'none', stroke: t.headRule.color, 'stroke-width': px(t.headRule.weight), class: crisp(px(t.headRule.weight)), 'pointer-events': 'none' } }] : []),
     ...t.rows.flatMap(r => r.cells.filter(k => k.it.lines.length).map(k => ({ ...textMarkup(k.it), attrs: { ...textMarkup(k.it).attrs, 'pointer-events': 'none' } }))),
     ...t.xs.slice(1).map((x, i) => ({ tagName: 'rect', attrs: { class: 'dc-tcol', x: x - 3, y: 0, width: 6, height: m.h, fill: 'transparent', 'data-tcol': i } })),
   ];
@@ -499,7 +500,8 @@ function mount(el) {
     interacting: view => {
       const k = view.cell.getData()?.kind, held = !!scene?.byId.get(view.cell.id)?.locked;
       if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still() && !held, edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
-      return { nodeMovable: !pointing && !still() && !rowDrag && !held && k !== 'foot' && (!UNMARKED.has(k) || k === 'label') && view.cell.id !== designing?.box };
+      // (A press in a table is for its cells: it's moved by its grip or its edge, Drawing's.)
+      return { nodeMovable: !pointing && !still() && !rowDrag && !held && k !== 'foot' && (!UNMARKED.has(k) || k === 'label') && view.cell.id !== designing?.box && scene?.byId.get(view.cell.id)?.geometry !== 'table' };
     },
   });
   // What a hand draws, aims and copies (see Drawing), once all it's given is made.
@@ -2366,7 +2368,7 @@ function mount(el) {
       ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
       ...(bound.length ? ['-'] : []),
       // (On the Key, what it deletes, the row selected or the Key, in its own label.)
-      { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
+      { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : one?.geometry === 'table' ? 'Delete table' : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
       // What the word for an act hides, offered plainly: a mistake is taken back as never held.
       ...(bound.length && bound.some(m => App.endOf(m.record) !== false) ? [{ label: 'Delete as a mistake…', danger: true, disabled: !App.canAsk(), run: () => { remove(true); App.neverHeld(); } }] : []),
     ];
@@ -2827,7 +2829,8 @@ function mount(el) {
       const [w, h] = drawn ? [drawn.w, drawn.h] : [opts.w, opts.h].every(Number.isFinite) ? [opts.w, opts.h] : SIZE[geometry] ?? [140, 70];
       // With something selected, a note is about it: the free room nearest beside it, first on its right, on its level.
       if (geometry === 'text' && sel0.length) { const b = sel0.reduce((r, m) => ({ x: Math.max(r.x, m.x + m.w), y: Math.min(r.y, m.y) }), { x: -Infinity, y: Infinity }), ofIt = sel0.find(m => m.y === b.y); besideIt = { left: b.x + 8, y: ofIt.y + ofIt.h / 2 }; }
-      const p = spot(s, geometry === 'text' && !row.text && !besideIt ? Math.max(w, ROOM) : w, h, besideIt ? { x: besideIt.left + w / 2, y: besideIt.y } : geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, !besideIt && ['text', 'legend', 'frame'].includes(geometry), !!besideIt);
+      // (A table stands well clear of what's drawn, where there's room.)
+      const p = (geometry === 'table' && freeSpot(s, w, h, mid, { gap: 32 })) || spot(s, geometry === 'text' && !row.text && !besideIt ? Math.max(w, ROOM) : w, h, besideIt ? { x: besideIt.left + w / 2, y: besideIt.y } : geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, !besideIt && ['text', 'legend', 'frame'].includes(geometry), !!besideIt);
       if (geometry === 'table' && !freeSpot(s, w, h, mid)) Shell.toast('The page has no free room: the table is over what’s drawn', { ms: 3500 });
       Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
       if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
@@ -3504,7 +3507,7 @@ function mount(el) {
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
-    table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), link: id => hand.setLink(id), pastePicture: f => hand.pastePicture(f), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
+    table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), cellsPicked: id => hand.cellsPicked(id), readsFrom: (id, of) => hand.readsFrom(id, of), styleGallery: (at, id) => hand.styleGallery(at, id), get StyleGallery() { return hand.StyleGallery; }, link: id => hand.setLink(id), pastePicture: f => hand.pastePicture(f), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
     // What's being typed part by part takes a look (Bold, a color, a size) in place of the mark it's in. → whether it did.
     richSet: (label, v) => !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); }, footnote: id => footnote(id ? marked(id) : undefined),
@@ -3520,7 +3523,7 @@ function mount(el) {
       hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
-  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected, connect });
+  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected, connect, entriesOf });
   active.value = canvas;
   return canvas;
 }

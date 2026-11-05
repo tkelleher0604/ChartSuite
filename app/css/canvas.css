@@ -383,7 +383,21 @@ text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-seri
 .fonts > button.menu-item:hover, .fonts > button.menu-item:focus-visible { background: var(--hover); }
 /* A table on the page: the cell picked; the rule between two columns, to drag; Insert's grid of rows and columns. */
 .dc-tcell { fill: none; stroke: var(--accent); vector-effect: non-scaling-stroke; pointer-events: none; }
+.dc-tcell.range { fill: var(--accent); fill-opacity: 0.12; }
+.dc-tbox { cursor: cell; }
 .dc-tcol { cursor: col-resize; }
+/* The table's grip and edges, to move it by; its styles' gallery. */
+.dc-tmove { cursor: move; pointer-events: all; }
+.dc-tgrip rect { fill: var(--surface); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.dc-tgrip path { fill: none; stroke: var(--accent); stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.pop:has(> .tstyles) { padding: 8px; }
+.tstyles .tcolors { display: flex; gap: 6px; padding: 0 0 8px; }
+.tstyles .tcolors button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--rule-2); border-radius: 50%; cursor: pointer; }
+.tstyles .tcolors button.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tstyles .ttiles { display: grid; grid-template-columns: repeat(4, 62px); gap: 4px; }
+.tstyles .ttiles button { width: 62px; height: 44px; padding: 3px; display: grid; place-items: center; background: #fff; border: 1px solid var(--rule-2); border-radius: 2px; cursor: pointer; }
+.tstyles .ttiles button:hover, .tstyles .ttiles button:focus-visible { border-color: var(--accent); }
+.tstyles .ttiles button.on { outline: 2px solid var(--accent); outline-offset: -1px; }
 .pop:has(> .iconpick) { padding: 6px; }
 .iconpick { width: 320px; }
 .iconpick .find { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
