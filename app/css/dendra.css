@@ -20,6 +20,9 @@
   --t13: 13px/20px var(--sans);
   --t15: 600 15px/20px var(--sans);
   --t22: 600 22px/28px var(--sans);
+  /* One heading scale, in the panel: a section's, above its rows; under it, what's within it (a style's name, where a look comes from); rows are 13 regular, so a heading always outranks them. */
+  --th: 600 13px/20px var(--sans);
+  --th2: 500 13px/20px var(--sans);
   --row: 28px;              /* every control and row */
   --bar: 40px;              /* the title bar */
   --foot: 32px;             /* the sheet tabs and the status bar */
@@ -321,9 +324,9 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .row.in > .k { padding-left: 16px; }
 .row:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
 .row[aria-selected="true"] { background: var(--selected); }
-.sect { display: flex; align-items: baseline; justify-content: space-between; padding: 16px 20px 4px; font: 500 var(--t12); color: var(--ink-3); border-top: 1px solid var(--rule); }
+.sect { display: flex; align-items: baseline; justify-content: space-between; padding: 16px 20px 4px; font: var(--th); color: var(--ink); border-top: 1px solid var(--rule); }
 .sect:first-child { border-top: 0; }
-.sect > .n { font-weight: 400; color: var(--ink-3); }
+.sect > .n { font: var(--t12); color: var(--ink-3); }
 .path { display: flex; flex-wrap: wrap; gap: 0 4px; font: var(--t12); color: var(--ink-3); }
 .path > :not(:last-child)::after { content: "›"; margin-left: 4px; }
 /* The kind, a dropdown, drawn as one: it says so where it's read, not only on hover. */
@@ -510,8 +513,8 @@ html[data-splash]::after { content: ""; position: fixed; inset: 0; z-index: 2147
 html[data-splash][data-theme="dark"]::after { background: #111315; }
 
 /* ---- The tour: the app under a scrim, cut out around the one thing to do ---- */
-.tour-hole { position: fixed; border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), 0 0 0 100vmax var(--scrim); pointer-events: none; z-index: 40; }
-.tour-hole.none { box-shadow: 0 0 0 100vmax var(--scrim); }
+.tour-hole { position: fixed; border-radius: var(--r); box-shadow: 0 0 0 1px var(--accent), 0 0 0 200vmax var(--scrim); pointer-events: none; z-index: 40; }
+.tour-hole.none { box-shadow: 0 0 0 200vmax var(--scrim); }
 .tour-card { position: fixed; z-index: 41; width: 280px; padding: 16px; border: 1px solid var(--rule-2); border-radius: var(--r-pop); background: var(--surface); box-shadow: var(--shadow-pop); }
 .tour-hole.glide { transition: left var(--calm) var(--ease), top var(--calm) var(--ease), width var(--calm) var(--ease), height var(--calm) var(--ease); }
 .tour-card.glide { transition: left var(--calm) var(--ease), top var(--calm) var(--ease); }

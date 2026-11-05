@@ -301,7 +301,9 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 /* The Export dialog: what's exported, and the file's pages in a well, each fitted, or one at full size. More
    than one go two across, two rows of them in view, each page as large as that allows (--a its width over its
    height). */
-.ex { display: flex; flex-direction: column; gap: 12px; height: min(calc(100vh - 32px - 118px), calc(56vh + 144px), 664px); min-height: 280px; overflow: hidden; }
+.ex { display: flex; flex-direction: column; gap: 12px; height: min(calc(100vh - 32px - 118px), 800px); min-height: 280px; overflow: hidden; }
+/* The file's pages are what's looked at here: the dialog as large as they need, but a table's file, which says what it is in a line or two. */
+dialog.dlg:has(.ex:not(:has(> .ex-well))) { width: min(720px, calc(100vw - 32px)) !important; }
 /* (With no pages to show, a table's file, it's as tall as what it says.) */
 .ex:not(:has(> .ex-well)) { height: auto; min-height: 0; }
 .ex > * { flex-shrink: 0; }
@@ -325,8 +327,11 @@ dialog.dlg:has(.ex)[open] { animation: none; }
 .ex-well.full { grid-template-columns: max-content; }
 .ex-well.many { grid-template-columns: repeat(2, minmax(0, 1fr)); container-type: size; }
 .ex-well.many .ex-page { width: min(100%, max(280px, (50cqh - 44px) * var(--a))); justify-self: center; }
+/* (Two pages have the whole height to themselves.) */
+.ex-well.many:has(> .ex-page:nth-child(2):last-child) .ex-page { width: min(100%, (100cqh - 60px) * var(--a)); }
 .ex-page { margin: 0; display: grid; gap: 4px; }
 .ex-page > button { display: block; padding: 0; border: 0; border-radius: 0; background: #fff; box-shadow: 0 0 0 1px var(--rule-2); cursor: zoom-in; }
+.ex-page > button:hover { box-shadow: 0 0 0 1px var(--accent); }
 /* The file's own vectors, on the page, not a picture of them: its text set by the same type engine as the chart's, its strokes of the screen's width however small the page is shown. */
 .ex-drawn { display: block; }
 .ex-drawn > svg { display: block; width: 100%; height: auto; }
@@ -374,10 +379,11 @@ text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-seri
 .dc-tcell { fill: none; stroke: var(--accent); vector-effect: non-scaling-stroke; pointer-events: none; }
 .dc-tcol { cursor: col-resize; }
 .pop:has(> .iconpick) { padding: 6px; }
-.iconpick { width: 320px; }
+/* (A whole number of rows, so none is cut at its foot; what's found past them scrolls a row at a time.) */
+.iconpick { width: 324px; }
 .iconpick .find { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
-.iconpick .grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; max-height: 280px; overflow-y: auto; }
-.iconpick .grid button { aspect-ratio: 1; padding: 4px; border: 0; background: transparent; border-radius: var(--r); cursor: pointer; color: var(--ink); }
+.iconpick .grid { display: grid; grid-template-columns: repeat(8, 36px); grid-auto-rows: 36px; gap: 2px; max-height: calc(6 * 36px + 5 * 2px); overflow-y: auto; scroll-snap-type: y mandatory; scrollbar-gutter: stable; }
+.iconpick .grid button { padding: 6px; border: 0; background: transparent; border-radius: var(--r); cursor: default; color: var(--ink); scroll-snap-align: start; }
 .iconpick .grid button:hover, .iconpick .grid button:focus-visible { background: var(--hover); outline: none; }
 .iconpick .grid svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .iconpick .menu-none { grid-column: 1 / -1; }

@@ -1247,7 +1247,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const kept = (was.views ?? []).filter(id => list.some(v => v.id === id)), on = list.some(v => v.id === shown) ? shown : null;
     const views0 = on ? (kept.includes(on) ? kept : [on]) : kept.length ? kept : here ? [here.id] : [], onPages = new Set(views0.map(id => pageNow(id).paper));
     const choice = { format: first, views: views0, all: !!was.all, paper: onPages.size === 1 && [...onPages][0] ? [...onPages][0] : list.length ? OWN : 'slide' };
-    const go = await Shell.dialog({ title: 'Export', width: 720, body: settle => html`<${Choice} choice=${choice} here=${here} others=${others} close=${settle} />`,
+    const go = await Shell.dialog({ title: 'Export', width: 1180, body: settle => html`<${Choice} choice=${choice} here=${here} others=${others} close=${settle} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'Export', value: true, primary: true }] });
     if (!go) return;
     const x = choice.format.startsWith('x') ? others[+choice.format.slice(1)] : null;

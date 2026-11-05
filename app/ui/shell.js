@@ -240,7 +240,7 @@ const Shell = (() => {
   let keyed = false;
   const hand = on => { if (keyed === on) return; keyed = on; usingKeys.value = on; document.documentElement.dataset.hand = on ? 'keys' : 'mouse'; };
   document.documentElement.dataset.hand = 'mouse';
-  const takesThem = e => /^(Tab|Home$|End$|Page|F(1|6|8|10)$|Delete$|ContextMenu$|\?$)/.test(e.key) || (e.key.startsWith('Arrow') && (((e.ctrlKey || e.metaKey) && e.altKey) || !e.target.closest?.('.dc'))) || ((e.ctrlKey || e.metaKey) && /^[kK/-]$/.test(e.key));
+  const takesThem = e => /^(Tab|Home$|End$|Page|F(1|6|8|10)$|ContextMenu$|\?$)/.test(e.key) || (e.key === 'Delete' && !e.target.closest?.('.dc')) || (e.key.startsWith('Arrow') && (((e.ctrlKey || e.metaKey) && e.altKey) || !e.target.closest?.('.dc'))) || ((e.ctrlKey || e.metaKey) && /^[kK/-]$/.test(e.key));
   addEventListener('keydown', e => {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     if (takesThem(e)) hand(true);
@@ -748,23 +748,16 @@ const Shell = (() => {
     t.arm();
     return dismiss;
   }
-  // A toast never covers what's being worked on: the field being typed in, the cell or box selected, or the pointer.
-  // It stands at the foot of the view, in its middle; where that covers one of them, at its foot's left, its right,
-  // or its top, the first that's clear. It's placed as it comes and again as the selection or the keys move, never
-  // as the pointer does, so its Undo stays where it was seen; and in each place it takes no click for a moment, so a
-  // click meant for what was there goes there.
-  let pointer = null;
-  addEventListener('pointermove', e => { pointer = { x: e.clientX, y: e.clientY }; }, { capture: true, passive: true });
-  const busy = () => {
+  // A toast has one home: the foot of the view, in its middle, wherever the pointer or the selection is. Only a field being typed in, which it mustn't hide,
+  // sends it up, just clear of that field, for as long as that's so. It's placed as it comes and again as the keys move, never as the pointer does, so its
+  // Undo stays where it was seen; and just placed it takes no click for a moment, so a click meant for what was there goes there.
+  const typedIn = () => {
     const out = [], add = el => { const r = el?.getBoundingClientRect?.(); if (r && r.width + r.height > 0) out.push(r); };
     const a = document.activeElement;
     if (a && a !== document.body && a.matches?.(TYPED) && !a.closest('.toasts')) add(a);
-    document.querySelectorAll('#view .tabulator-range-cell-active, #view .tabulator-editing, #view .dc-edit').forEach(add);
-    for (const k of selection.peek().slice(0, 40)) { const id = String(k).split('@')[0]; document.querySelectorAll(`#view [data-cell-id="${CSS.escape(id)}"]`).forEach(add); }
-    if (pointer) out.push(new DOMRect(pointer.x - 12, pointer.y - 12, 24, 24));
+    document.querySelectorAll('#view .tabulator-editing, #view .dc-edit').forEach(add);
     return out;
   };
-  const overlap = (a, b, pad = 8) => Math.max(0, Math.min(a.right + pad, b.right) - Math.max(a.left - pad, b.left)) * Math.max(0, Math.min(a.bottom + pad, b.bottom) - Math.max(a.top - pad, b.top));
   let settling = 0;
   function placeToasts(fresh = false) {
     const el = document.querySelector('.toasts'), view = document.getElementById('view')?.getBoundingClientRect();
@@ -773,17 +766,13 @@ const Shell = (() => {
     if (!fresh && el.matches(':hover')) return;
     const was = el.style.translate;
     el.style.translate = '';
-    // (And clear of what's drawn on a chart, at the page's foot or what was just made, where it can be.)
-    const r = el.getBoundingClientRect(), hit = [...busy(), ...[...document.querySelectorAll('#view .x6-node')].filter(n => n.getAttribute('data-cell-id') !== '·page').map(n => n.getBoundingClientRect())], gap = 16;
-    const at = [[0, 0], [view.left + gap - r.left, 0], [view.right - gap - r.right, 0], [0, view.top + gap - r.top]];
-    const cost = ([dx, dy]) => hit.reduce((s, b) => s + overlap(new DOMRect(r.left + dx, r.top + dy, r.width, r.height), b), 0);
-    const [dx, dy] = at.find(p => !cost(p)) ?? at.reduce((x, p) => cost(p) < cost(x) ? p : x);
-    const now = dx || dy ? `${Math.round(dx)}px ${Math.round(dy)}px` : '';
+    el.style.left = `${Math.round(view.left + view.width / 2)}px`;
+    const r = el.getBoundingClientRect(), under = typedIn().filter(b => b.left < r.right + 8 && b.right > r.left - 8 && b.top < r.bottom + 8 && b.bottom > r.top - 8);
+    const now = under.length ? `0 ${Math.round(Math.min(...under.map(b => b.top)) - 8 - r.bottom)}px` : '';
     el.style.translate = now;
     if (fresh || now !== was) { el.classList.add('settling'); clearTimeout(settling); settling = setTimeout(() => el.classList.remove('settling'), 400); }
   }
   const replace = () => requestAnimationFrame(() => placeToasts());
-  on('select', replace);
   document.addEventListener('focusin', replace);
   document.addEventListener('keyup', e => { if (/^(Arrow|Tab|Enter|Page|Home|End)/.test(e.key)) replace(); });
   function Toasts() {

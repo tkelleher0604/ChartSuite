@@ -2333,46 +2333,52 @@ function mount(el) {
     const text = one?.type === 'shape' && !['line', 'picture', 'group'].includes(one.geometry), fielded = bound.length && bound.length === ms.length;
     const worded = one && (one.type === 'box' || (one.type === 'line' && one.texts?.some(isField)));
     const free = ms.filter(m => m.type === 'shape' && m.geometry !== 'legend' && !m.role), pictured = one?.geometry === 'picture';
-    // In one order: what it says; what it's made of and related to; the clipboard; how it looks and stands on the page; what's shown of it; and what takes it away, last, so nothing goes by a slip.
+    // About a dozen rows, in one order on everything: what it says; what it's made of and related to; the clipboard; how it looks, and all else (More); and what takes it away, last, so nothing goes by a slip. A row that isn't for this thing isn't there; the rest keep their order.
+    // (What a structure chart is made of: its owner and its holding, or what else its first lists call them, as a list's + asks; many, one row.)
+    const adds = one?.type === 'box' && !ro ? addsOf(one) : [];
+    // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line.
+    const deals = one?.type === 'box' ? [...(App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []), ...stakeItems(one)] : [];
+    const more = [
+      ...(placeable().length ? [{ label: ms.every(m => m.type === 'box') ? 'Duplicate as a new box…' : 'Duplicate', keys: '$mod+KeyD', disabled: ro, run: duplicate }] : []),
+      ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
+      '-',
+      { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
+      ...(free.some(m => m.geometry !== 'table') || ms.some(m => m.geometry === 'group') ? [{ label: 'Flip and turn', disabled: ro, items: FLIPS() }] : []),
+      ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
+        : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
+      ...hand.shapeItems(ms, one, ro),
+      ...(pictured ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }] : []),
+      ...(free.length && !ms.some(m => m.type === 'box') && !pictured && !one?.geometry?.startsWith?.('group') ? [...(one?.geometry === 'table' ? [] : [{ label: 'Set as default', disabled: ro || !one, run: () => hand.setDefault() }]), ...(one ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }] : [])] : []),
+      ...(deals.length ? [{ label: 'Transactions', items: deals }] : []),
+      '-',
+      // Their own History; what's shown of them.
+      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }] : []),
+      ...(bound.length ? [{ label: 'Hide in this view', disabled: ro && !App.seeing(), run: () => App.seeing() ? App.see(viewOf(), bound.map(m => m.record), false) : remove() }] : []),
+      ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
+      // What the word for an act hides, offered plainly: a mistake is taken back as never held.
+      ...(bound.length && bound.some(m => App.endOf(m.record) !== false) ? ['-', { label: 'Delete as a mistake…', danger: true, disabled: !App.canAsk(), run: () => { remove(true); App.neverHeld(); } }] : []),
+    ].filter((it, i, all) => it !== '-' || (i && all[i - 1] !== '-' && i < all.length - 1));
     return [
-      ...(one?.geometry === 'table' ? hand.tableItems(one, ro) : text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []), ...inCorner,
+      ...(one?.geometry === 'table' ? hand.tableItems(one, ro) : text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, ...(one.geometry !== 'line' && scene.view !== Scene.MASTER && free.length ? [{ label: 'Add footnote', keys: '$mod+Alt+KeyF', run: () => footnote(one) }] : []), '-'] : []), ...inCorner,
       ...(fielded ? [...(worded ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => f ? editField(f.m, f.it) : edit(one.id) }] : []),
         ...(f ? [{ label: fieldName(f.it), items: fieldRows(f) }] : []),
         { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }, { label: 'Add footnote', keys: '$mod+Alt+KeyF', disabled: ro, run: () => footnote(one) }] : []), '-'] : []),
-      ...(pictured ? [{ label: 'Crop', disabled: ro, run: () => hand.crop(one.id) }, { label: 'Change picture…', disabled: ro, run: () => hand.changePicture(one.id) }, { label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }, '-'] : []),
-      ...(free.length && !ms.some(m => m.type === 'box') && !pictured && !one?.geometry?.startsWith?.('group') ? [...(one?.geometry === 'table' ? [] : [{ label: 'Set as default', disabled: ro || !one, run: () => hand.setDefault() }]), ...(one ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }, ...(one.geometry !== 'line' && one.geometry !== 'table' && scene.view !== Scene.MASTER ? [{ label: 'Add footnote', keys: '$mod+Alt+KeyF', disabled: ro, run: () => footnote(one) }] : [])] : []), '-'] : []),
-      // What a structure chart is made of: its owner and its holding (or what else its first lists call them), as a list's + asks.
-      ...(one?.type === 'box' && !ro ? addsOf(one) : []),
+      ...(pictured ? [{ label: 'Crop', disabled: ro, run: () => hand.crop(one.id) }, { label: 'Change picture…', disabled: ro, run: () => hand.changePicture(one.id) }, '-'] : []),
+      ...(adds.length > 3 ? [{ label: 'Add', items: adds }] : adds),
       // What's between it and another box: asked for, a tick in the two's panel relates them; Viewing, it reads what's there, and makes nothing.
       ...(one?.type === 'box' ? [{ label: ro ? 'With…' : 'Relate…', run: () => relating(one, undefined, null, ro) }] : []),
       // A relation recorded, as its panel's ⋯ has it: renamed where it's seen; given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
       ...(one?.type === 'line' && !ro ? [{ label: `Rename ${App.notes.peek().nameOf(App.state.peek(), one.record)}…`, run: () => Shell.parts.peek().inspector?.renameLine?.(one.record) }] : []),
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: App.interposeWord(one.record), disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
-      // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line. (One row, so the menu fits the window it opens in.)
-      ...(one?.type === 'box' ? (deals => deals.length ? [{ label: 'Transactions', items: deals }] : [])([...(App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []), ...stakeItems(one)]) : []),
       ...(one?.type === 'box' || one?.type === 'line' ? ['-'] : []),
       { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !(clip?.items.length || clip?.field || clip?.free !== undefined), run: () => paste() },
-      ...(placeable().length ? [{ label: ms.every(m => m.type === 'box') ? 'Duplicate as a new box…' : 'Duplicate', keys: '$mod+KeyD', disabled: ro, run: duplicate }] : []),
       '-',
       ...formatItems(ms, ro),
-      ...(typeof Designs === 'undefined' ? [] : Designs.items(ms, ro)),
-      ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
-      { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
-      ...(free.some(m => m.geometry !== 'table') || ms.some(m => m.geometry === 'group') ? [{ label: 'Flip and turn', disabled: ro, items: FLIPS() }] : []),
-      ...hand.shapeItems(ms, one, ro),
-      ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
-        : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
+      { label: 'More', items: more },
       '-',
-      // Their own History.
-      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }] : []),
-      ...(bound.length ? [{ label: 'Hide in this view', disabled: ro && !App.seeing(), run: () => App.seeing() ? App.see(viewOf(), bound.map(m => m.record), false) : remove() }] : []),
-      ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
-      ...(bound.length ? ['-'] : []),
       // (On the Key, what it deletes, the row selected or the Key, in its own label.)
       { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
-      // What the word for an act hides, offered plainly: a mistake is taken back as never held.
-      ...(bound.length && bound.some(m => App.endOf(m.record) !== false) ? [{ label: 'Delete as a mistake…', danger: true, disabled: !App.canAsk(), run: () => { remove(true); App.neverHeld(); } }] : []),
     ];
   }
   // Flip and turn: as PowerPoint's Rotate list. On what can't, it says why as it's asked.
@@ -2399,7 +2405,9 @@ function mount(el) {
     if (!ms.length) return [];
     const bar = typeof FormatBar !== 'undefined' ? FormatBar : {}, open = what => () => bar.open ? bar.open(what) : document.querySelector(`.fb [data-fb="${what}"]`)?.click();
     const boxy = ms.some(m => m.type === 'box' || (m.type === 'shape' && m.geometry !== 'line'));
-    return [{ label: 'Format', items: [...(ms.some(m => m.type === 'box') ? [{ label: 'Design…', disabled: ro, run: open('design') }] : []), ...(boxy ? [{ label: 'Fill…', disabled: ro, run: open('fill') }] : []), { label: 'Outline…', disabled: ro, run: open('outline') }, { label: 'Font…', disabled: ro, run: open('font') },
+    const designs = typeof Designs === 'undefined' ? [] : Designs.items(ms, ro);
+    return [{ label: 'Format', items: [...(ms.some(m => m.type === 'box') ? [{ label: 'Design…', disabled: ro, run: open('design') }, ...designs, '-'] : []), ...(boxy ? [{ label: 'Fill…', disabled: ro, run: open('fill') }] : []), { label: 'Outline…', disabled: ro, run: open('outline') }, ...(boxy ? [{ label: 'Effects…', disabled: ro, run: open('effects') }] : []), { label: 'Font…', disabled: ro, run: open('font') },
+      ...(!ms.some(m => m.type === 'box') && designs.length ? ['-', ...designs] : []),
       ...(bar.copyLook ? ['-', { label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : [])] }];
   }
   // The group whose note decides a field, where it's a group's: one beside an output, or at the entry wherever it is,
@@ -2449,12 +2457,12 @@ function mount(el) {
     { label: 'New text box', disabled: still(), run: () => insert('text', { x: round(p.x), y: round(p.y) }) },
     { label: 'New line', disabled: still(), run: () => insert('line', { points: [[round(p.x), round(p.y)], [round(p.x + 96 / pageScale()), round(p.y)]] }) },
     { label: 'New arrow', disabled: still(), run: () => insert('arrow-line', { points: [[round(p.x), round(p.y)], [round(p.x + 96 / pageScale()), round(p.y)]] }) }, '-',
-    { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() }, '-',
-    { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, { label: 'Selection pane', keys: 'Alt+F10', run: () => hand.pane(true) }, '-',
-    { label: 'Page setup…', disabled: still(), run: () => Export.setup() }, { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
-    ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-',
-    aidsRow(), '-',
+    { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() },
+    { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, '-',
     { label: 'Tidy', disabled: still(), run: tidy },
+    { label: 'Page setup…', disabled: still(), run: () => Export.setup() },
+    { label: 'More', items: [{ label: 'Selection pane', keys: 'Alt+F10', run: () => hand.pane(true) }, { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
+      ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-', aidsRow()] },
   ];
   const placedAt = (p, w, h) => ({ x: round(clamp(p.x - w / 2, 0, scene.page.w - w)), y: round(clamp(p.y - h / 2, 0, scene.page.h - h)), w, h });
   let pageAt = {};
