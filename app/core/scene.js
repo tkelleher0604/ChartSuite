@@ -2676,10 +2676,10 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     for (const m of [title, date].filter(Boolean)) { places.set(m.row, { x: ML - INSET, y }); y += m.h * s; }
     // The footer in the margin at the sheet's foot, on one line where it fits, and its number at the right, each as the
     // title's text sits on its margin.
-    const number = shapes.find(m => m.role === 'number');
+    const number = shapes.find(m => m.role === 'number'), stamp = shapes.find(m => m.role === 'day');
     let footer = shapes.find(m => m.role === 'footer');
     if (footer) {
-      const most = W - ML - MR + 2 * INSET - (number ? 48 : 0), row = rows.find(r => r.id === footer.row);
+      const most = W - ML - MR + 2 * INSET - (number ? 48 : 0) - (stamp ? stamp.w * s + 12 : 0), row = rows.find(r => r.id === footer.row);
       if (footer.w * s > most) shapes[shapes.indexOf(footer)] = footer = freeShape({ ...row, w: most * u }, said.get(row.id), u);
       // At its left margin, the middle of the sheet, or its right, by the note's `at`, as far short of a number there as it needs.
       const fw = footer.w * s, atFoot = row.at === 'center' ? (W - fw) / 2 : row.at === 'right' ? W - MR + INSET - fw - (number ? 48 : 0) : ML - INSET;
@@ -2687,7 +2687,6 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     }
     if (number) places.set(number.row, { x: W - MR + INSET - number.w * s, y: H - MB + PAD });
     // The day the page shows, at the side the footer isn't: left of a number there, or at its left margin.
-    const stamp = shapes.find(m => m.role === 'day');
     if (stamp) { const toRight = !footer || !['right', 'center'].includes(rows.find(r => r.id === footer.row)?.at); places.set(stamp.row, { x: toRight ? W - MR + INSET - stamp.w * s - (number ? 48 : 0) : ML - INSET, y: H - MB + PAD }); }
     // Footnotes at the foot of the page, across its margins, just above its footer, which is just under the bottom margin: one a hand moved stands where it was put.
     const notes = shapes.find(m => m.role === 'footnotes');

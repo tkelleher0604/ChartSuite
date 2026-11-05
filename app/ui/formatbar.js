@@ -986,7 +986,7 @@ function StopsPop({ label }) {
     addEventListener('pointermove', move, true); addEventListener('pointerup', up, true);
   };
   return html`<div class="picker stops" onKeyDown=${e => { if ((e.key === 'Delete' || e.key === 'Backspace') && !e.target.matches('input')) { e.preventDefault(); out(at); } }}>
-    <div class="k">Stops</div>
+    <div class="menu-head">Stops</div>
     <div class="stopbar" ref=${bar} style=${`background:${css}`} role="group" aria-label="Stops" onPointerDown=${e => { if (e.target === bar.current) addAt(place(e)); }}>${g.stops.map(([p, c], i) => html`<button type="button" class=${i === at ? 'stop on' : 'stop'} aria-label=${`Stop at ${p}%`} aria-pressed=${i === at} style=${`left:${p}%;background:${c}`} onPointerDown=${e => grab(e, i)} />`)}</div>
     <${ColorRow} label="Color" v=${pick[1]} put=${c => put({ ...g, stops: g.stops.map((s, j) => j === at ? [s[0], c] : s) })} tries=${c => c === null ? preview() : preview(label, said({ ...g, stops: g.stops.map((s, j) => j === at ? [s[0], c] : s) }))} />
     <label class="menu-item"><span class="label">Place</span><${Typed} label="Place" v=${pick[0]} unit="%" max=${100} put=${x => put({ ...g, stops: g.stops.map((s, j) => j === at ? [x, s[1]] : s) })} /></label>
@@ -998,7 +998,7 @@ function StopsPop({ label }) {
 function GlowPop() {
   readNow();
   const base = value('Glow') ?? { size: 8, color: inkNow(), transparency: 60 }, set = changes => apply('Glow', { ...base, ...changes }), tries = k => x => x === null ? preview() : preview('Glow', { ...base, [k]: x });
-  return html`<div class="picker"><div class="k">Glow</div>
+  return html`<div class="picker"><div class="menu-head">Glow</div>
     <${ColorRow} label="Color" v=${base.color} put=${c => set({ color: c })} tries=${tries('color')} />
     <label class="menu-item"><span class="label">Size</span><${Typed} label="Glow size" v=${base.size} unit="pt" max=${150} put=${x => set({ size: x })} tries=${tries('size')} /></label>
     <label class="menu-item"><span class="label">Transparency</span><${Typed} label="Glow transparency" v=${base.transparency} unit="%" max=${100} put=${x => set({ transparency: x })} tries=${tries('transparency')} /></label></div>`;
@@ -1007,7 +1007,7 @@ const MATERIALS = [['matte', 'Matte'], ['warmMatte', 'Warm matte'], ['plastic', 
 function BevelPop() {
   readNow();
   const base = value('Bevel') ?? { type: 'circle', w: 6, h: 6 }, set = changes => apply('Bevel', { ...base, ...changes }), tries = k => x => x === null ? preview() : preview('Bevel', { ...base, [k]: x });
-  return html`<div class="picker"><div class="k">Bevel</div>
+  return html`<div class="picker"><div class="menu-head">Bevel</div>
     <label class="menu-item"><span class="label">Width</span><${Typed} label="Bevel width" v=${base.w ?? 6} unit="pt" max=${200} put=${x => set({ w: x })} tries=${tries('w')} /></label>
     <label class="menu-item"><span class="label">Height</span><${Typed} label="Bevel height" v=${base.h ?? base.w ?? 6} unit="pt" max=${200} put=${x => set({ h: x })} tries=${tries('h')} /></label>
     <label class="menu-item"><span class="label">Depth</span><${Typed} label="Depth" v=${base.depth ?? 0} unit="pt" max=${400} put=${x => set({ depth: x || undefined })} /></label>
