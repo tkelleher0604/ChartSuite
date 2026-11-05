@@ -352,12 +352,14 @@ function swatch(sw, { x, y, w, h }) {
   if (sw.kind === 'frame') return g(x, y, body('rect', w, h, { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }));
   return g(x, y, body(sw.Shape ?? 'rect', w, h, sw)) + Scene.swatchParts(sw, { x, y, w, h }).map(p => markSvg(p)).join('');
 }
+// A line's label, drawn with its line; or, where it stands on a box, over everything (see svg).
+const labelSvg = (m, pdf) => m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, (m.chip ? g(-4, -1, body(m.chip.Shape ?? 'rect', m.label.w + 8, m.label.h + 2, m.chip)) : '') + texts(m.texts, pdf)) : '';
 function markSvg(m, pdf) {
   const s = look(m), deep = inner => { const t = s['Turn 3D']; return t ? `<g transform="translate(${n(m.x)} ${n(m.y)}) ${Shapes.turned3d(t, m.w, m.h)} translate(${n(-m.x)} ${n(-m.y)})">${inner}</g>` : inner; };
   // (A box of a design: its body, its parts, each as a free shape's drawn, then what's in no part: dendra.md, Group designs.)
   if (m.type === 'box' && m.parts?.length) return deep(g(m.x, m.y, body(m.shape, m.w, m.h, s, null, m)) + m.parts.map(p => markSvg(p, pdf)).join('') + g(m.x, m.y, texts(m.texts.filter(it => !it.part), pdf)));
   if (m.type === 'box') return deep(g(m.x, m.y, body(m.shape, m.w, m.h, s, null, m) + texts(m.texts, pdf)));
-  if (m.type === 'line') return route(m.points, s, m.strokes ?? m.runs) + (m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, (m.chip ? g(-4, -1, body(m.chip.Shape ?? 'rect', m.label.w + 8, m.label.h + 2, m.chip)) : '') + texts(m.texts, pdf)) : '');
+  if (m.type === 'line') return route(m.points, s, m.strokes ?? m.runs) + (m.onBox ? '' : labelSvg(m, pdf));
   if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, look(m).Weight)}/>`) + texts([m.caption], pdf));
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
@@ -391,7 +393,7 @@ function svg(scene, { pdf = false, frame = scene.page.sheet } = {}) {
   at = scene.page.scale ?? 1;
   picturesNow = pdf ? picturesDrawn : null; viewNow = scene.view;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${n(fw)}" height="${n(fh)}" viewBox="${n(x)} ${n(y)} ${n(fw)} ${n(fh)}">`
-    + `<rect x="${n(x)}" y="${n(y)}" width="${n(fw)}" height="${n(fh)}" fill="#ffffff"/>${reading(scene.marks).map(m => markSvg(m, pdf)).join('')}</svg>`;
+    + `<rect x="${n(x)}" y="${n(y)}" width="${n(fw)}" height="${n(fh)}" fill="#ffffff"/>${reading(scene.marks).map(m => markSvg(m, pdf)).join('')}${scene.marks.filter(m => m.onBox).map(m => labelSvg(m, pdf)).join('')}</svg>`;
 }
 
 // A scene's boxes and lines, furniture aside, as a small drawing of what it is: the New chart gallery's cards.
@@ -779,7 +781,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
       // Lines said as one are one group, named for them all and described so, each line in it named for its own
       // relation; a line alone is named for its relation. Each is described with what its label says.
       if (done.has(m.id)) return [];
-      const ls = fellows.get(m.id), drawn = ls.filter(l => !l.merged), lab = drawn.find(l => l.labelAt && l.texts.length), label = lab ? [lab.texts, lab.labelAt, lab] : null;
+      const ls = fellows.get(m.id), drawn = ls.filter(l => !l.merged), lab = drawn.find(l => l.labelAt && l.texts.length), label = lab && !lab.onBox ? [lab.texts, lab.labelAt, lab] : null;
       drawn.forEach(l => done.add(l.id));
       const rels = ls.map(l => l.record), caption = scene.byId.get(m.landed)?.caption.text, said = say(rels, caption), name = said ?? (lab ?? m).texts[0]?.text ?? 'Line';
       const alt = said && say(rels, caption, ls.flatMap(l => l.texts.map(it => it.id)));
@@ -865,6 +867,8 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     const names = of.map(x => x.texts?.[0]?.text ?? x.title ?? 'Shape');
     group(g.name ?? (names.length < 3 ? names.join(' and ') : `${names[0]} and ${names.length - 1} more`), () => of.flatMap(write), g.alt);
   }
+  // (A label on a box stands over it, as on the page, where it isn't already written over it, in that box's own group.)
+  if (!only) for (const l of new Set(scene.byId.values())) if (l.type === 'line' && l.onBox && !l.merged && !carried.get(l.to)?.includes(l)) textBox(l.texts, l.labelAt.x, l.labelAt.y, CHART, l);
   if (only) { relsNow = rels; return { xml: inOrder_.map(([id, j]) => parts[j](id)).join(''), rels }; }
   const finished = xml => { relsNow = rels; return xml.replace(/<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·(\d+)·">[\s\S]*?<\/p:sp>/g, (_, id, j) => parts[j](+id)); };
   finished.rels = rels;

@@ -359,7 +359,7 @@ function cellsOf(scene, ink = null) {
           strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight), ps.slice(-2), Scene.headOf(s, 'end')),
           sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2), Scene.headOf(s, 'start')), ...(r ? null : lineLook(ps, s)), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: short ? 14 : 10, ...(short && { strokeLinecap: 'square' }) } } });
       if (m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
-        zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: [...(m.chip ? [(({ selector, ...body }) => body)(bodyMarkup(m.chip.Shape ?? 'rect', m.label.w + 8, m.label.h + 2, m.chip, null, { transform: 'translate(-4 -1)' }))] : []), ...textsOf(m).map(it => textMarkup(it, r))] });
+        zIndex: m.onBox ? scene.marks.length * 2 + z.get(m.id) : z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: [...(m.chip ? [(({ selector, ...body }) => body)(bodyMarkup(m.chip.Shape ?? 'rect', m.label.w + 8, m.label.h + 2, m.chip, null, { transform: 'translate(-4 -1)' }))] : []), ...textsOf(m).map(it => textMarkup(it, r))] });
     } else if (m.type === 'frame') {
       const d = m.lone ? '' : m.kind === 'bracket' ? `M0.5,${m.h} V${m.h - 5} H${m.w - 0.5} V${m.h}` : `M0,0 H${m.w} V${m.h} H0 Z`;
       node(m, 'frame', [{ tagName: 'path', selector: 'body', attrs: { d, fill: 'none', stroke: '#595959', 'stroke-width': px(m.settings.Weight.value), 'pointer-events': 'visibleStroke',

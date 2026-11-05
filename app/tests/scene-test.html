@@ -1531,6 +1531,15 @@ function groupDesigns() {
   const computed = w => { const N = w.notes(C), S = w.schema(C); return Formulas.computeState(w.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); };
   const scene = (w, o = {}) => { const R = computed(w); return Scene.of(w, C, MAIN, DAY, { state: R.records, computed: R, ...o }); }, edit = (w, f) => { const tx = w.edit({ chart: C, who: WHO }); const r = f(tx); const c = tx.commit(); if (typeof c === 'string') throw new Error(c); return r; };
   const preset = id => Shapes.DESIGNS.find(d => d.id === id), wb = Log.open(SAMPLE), plain = scene(wb), LLC = { out: { choice: 'Limited Liability Company' }, args: [{ edge: 'Entity Type', loc: {} }] };
+  check('a label in the corner of a triangle’s frame isn’t on the triangle: nothing’s said of it, and it isn’t set for that fill', !Scene.says(plain).some(t => /stands on/.test(t)) && !plain.marks.some(m => m.onBox), j(Scene.says(plain)));
+  // A box its design grows past the foot of a page that keeps its scale: the page holds it, as it would a box the layout moved there.
+  {
+    const w = Log.open(SAMPLE), o = plain.page.offset;
+    edit(w, tx => { tx.note('Scale', { id: MAIN, kind: 'View' }, { scale: plain.page.scale, x: o.x, y: o.y }); tx.note('Design', { out: { choice: 'Portfolio Company' }, args: [{ edge: 'Vehicle Type', loc: {} }] }, preset('tiers'), { view: MAIN }); });
+    const s = scene(w), foot = Math.max(...s.marks.filter(m => m.type === 'box').map(b => b.y + b.h)), right = Math.max(...s.marks.filter(m => m.type === 'box').map(b => b.x + b.w));
+    check('boxes a design grows past the foot of a kept page are held by it: the chart falls, no further than it takes', foot <= s.page.h - s.page.margins.bottom + 0.5 && right <= s.page.w - s.page.margins.right + 0.5 && s.page.scale < plain.page.scale && s.page.scale >= plain.page.scale - 0.1 - 1e-9, j([foot, s.page.h - s.page.margins.bottom, s.page.scale, plain.page.scale]));
+    check('… and draws them at their design’s size, the chart’s rows as they were', new Set(s.marks.filter(m => m.type === 'box').map(b => Math.round(b.y))).size === new Set(plain.marks.filter(m => m.type === 'box').map(b => Math.round(b.y))).size, s.page.scale);
+  }
   check('about twelve designs, each plain data a template can hold', Shapes.DESIGNS.length >= 12 && Shapes.DESIGNS.every(d => d.id && d.name && JSON.stringify(JSON.parse(JSON.stringify(d))) === JSON.stringify(d)));
   check('a chart with no design draws none', plain.marks.every(m => !m.parts?.length && !m.design));
   const ofKind = (s, r) => s.marks.filter(m => m.type === 'box' && m.settings.Shape.value !== 'triangle' && m.record === r)[0], R0 = computed(wb).records;
@@ -1732,6 +1741,11 @@ function aboutAnything() {
     check('… where its line lands, and its percentage stands clear of it', line.points.at(-1)[1] === B.y && (!line.labelAt || line.labelAt.y + line.label.h <= B.y + 0.5) && !Scene.says(sc).some(t => /stands on/.test(t)), j([line.points, line.labelAt, Scene.says(sc)]));
     const on = { ...sc, marks: sc.marks.map(m => m.type === 'line' && m.labelAt ? { ...m, labelAt: { x: B.x + 2, y: B.y + 2 } } : m) };
     check('… and Export says of any line’s words on a box that they do', Scene.says(on).some(t => /“100%” stands on /.test(t)), j(Scene.says(on)));
+    // What a hand puts on a box stands over it and reads on it.
+    const put = wb.edit({ chart: c, who: WHO }); put.note('Position', Tree.treeOf(R.records, line.record), Layout.pin(line.points, { x: A.x + 8, y: A.y + 8, w: line.label.w, h: line.label.h }), { view: vw }); put.note('Fill', { id: a, kind: 'Entity' }, '#1f3a5f', { view: vw }); put.commit();
+    const Rp = Formulas.computeState(wb.asOf(c, DAY2), wb.notes(c).definitions(wb.schema(c)), { relations: wb.notes(c).relations(wb.schema(c)) }), sp = Scene.of(wb, c, vw, DAY2, { state: Rp.records, computed: Rp }), lp = sp.marks.find(m => m.type === 'line');
+    check('a line’s words a hand puts on a box stand over it and read on it', !!lp.onBox && lp.texts[0].look.Color === '#ffffff' && Scene.says(sp).some(t => /stands on /.test(t)), j([lp.onBox, lp.labelAt, lp.texts[0].look.Color, sp.byId.get(a).x, sp.byId.get(a).y]));
+    const unput = wb.edit({ chart: c, who: WHO }); unput.note('Position', Tree.treeOf(R.records, line.record), undefined, { view: vw }); unput.note('Fill', { id: a, kind: 'Entity' }, undefined, { view: vw }); unput.commit();
     // A connector meets a box turned in depth where it's drawn.
     const t3 = wb.edit({ chart: c, who: WHO }); t3.note('Design', { kind: 'Entity' }, undefined, { view: vw }); t3.note('Turn 3D', { id: b, kind: 'Entity' }, { x: 45, y: 35, z: 0 }, { view: vw }); t3.commit();
     const R3 = Formulas.computeState(wb.asOf(c, DAY2), wb.notes(c).definitions(wb.schema(c)), { relations: wb.notes(c).relations(wb.schema(c)) }), s3 = Scene.of(wb, c, vw, DAY2, { state: R3.records, computed: R3 }), box3 = s3.byId.get(b), end = s3.marks.find(m => m.type === 'line').points.at(-1);

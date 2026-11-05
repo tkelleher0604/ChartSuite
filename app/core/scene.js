@@ -160,6 +160,17 @@ const unread = (color, fill) => { const a = luminance(color), b = luminance(fill
 // Whether one colour is lost on another: too near to tell apart as a shape.
 const unlike = (color, fill) => { const a = luminance(color), b = luminance(fill); return a !== null && b !== null && (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) < 1.6; };
 const WHITE = '#ffffff';
+// The box a line's label stands on, of `boxes`: where they meet, a triangle by its own slopes, not the corners of its frame.
+function labelOn(l, boxes) {
+  const r = { ...l.labelAt, w: l.label.w, h: l.label.h };
+  return boxes.find(b => {
+    const foot = Math.min(r.y + r.h, b.y + b.h);
+    if (Math.min(r.x + r.w, b.x + b.w) - Math.max(r.x, b.x) <= 1 || foot - Math.max(r.y, b.y) <= 1) return false;
+    if (b.shape !== 'triangle') return true;
+    const across = (foot - b.y) / b.h * b.w / 2, mid = b.x + b.w / 2;
+    return r.x < mid + across - 1 && r.x + r.w > mid - across + 1;
+  });
+}
 function inkOn(b) {
   const fill = b.settings.Fill?.value;
   if (!tooDark({ Fill: fill, Transparency: b.settings.Transparency?.value })) return;
@@ -1384,9 +1395,12 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     frameBounds(frames, boxes);
     // (A place kept where it's beyond the margins was put there, a box moved to make room for one inserted, as a hand puts one:
     // it stays, and the page says so. One the layout has moved beyond them from a place within them holds the page.)
-    if (held && !held.fit) for (const b of boxes) if (b.entered && !b.hand) {
-      const x = (b.pos.x + (held.x ?? 0)) * ceil, y = (b.pos.y + (held.y ?? 0)) * ceil, w = (b.pos.w ?? b.w) * ceil, h = (b.pos.h ?? b.h) * ceil;
-      b.hand = x < ML - 0.5 || y < MT - 0.5 || x + w > sheet.w - MR + 0.5 || y + h > sheet.h - MB + 0.5;
+    if (held && !held.fit) {
+      const beyond = (b, w, h) => { const x = (b.pos.x + (held.x ?? 0)) * ceil, y = (b.pos.y + (held.y ?? 0)) * ceil; return x < ML - 0.5 || y < MT - 0.5 || x + w * ceil > sheet.w - MR + 0.5 || y + h * ceil > sheet.h - MB + 0.5; };
+      const within = b => b.entered && !b.exact && !beyond(b, 0, 0);
+      // (And a box its design has grown past them, from a place within them, was put where it stands at its design's size, which is its size: all of the chart that isn't where a hand put it exactly holds the page, as far as that takes, as it would have on a page that kept no scale.)
+      const grown = boxes.some(b => b.design && within(b) && beyond(b, b.w, b.h));
+      for (const b of boxes) if (grown && within(b)) b.hand = false; else if (b.entered && !b.hand) b.hand = beyond(b, b.pos.w ?? b.w, b.pos.h ?? b.h);
     }
     // (Sizes typed, and the boxes alone too big for the scale they're laid out for: no need to route them to know.)
     if (typedTexts.length && !last && !whole) {
@@ -1619,8 +1633,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   } : null;
   if (laid && !opts.ahead) laidOut.set(drawnAs, laid);
 
+  // A line's label on a box, where a hand has put it, stands over the box and reads on it, on the page, in the PDF and in the deck alike.
+  for (const l of lines) if (l.labelAt && l.label && !l.merged && l.texts.length) {
+    const on = labelOn(l, boxes.filter(b => !b.revealed));
+    if (on) { l.onBox = true; inkOn({ texts: l.texts.filter(it => it.settings), settings: on.settings }); }
+  }
   // One order over everything drawn: by Layer, and within a layer frames under lines under boxes under free shapes.
-  const layer = m => m.master ? -1e9 : m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
+  const layer = m =>m.master ? -1e9 : m.settings?.Layer?.value ?? m.look?.Layer ?? 0;
   // (What's gone under what's still there, and what's new or changed over it, where they share a run.)
   const changeRank = l => l.change === 'Gone' ? 0 : l.change ? 2 : 1;
   const marksInOrder = [
@@ -3115,8 +3134,8 @@ function says(scene, name, paper) {
   // What's too small for its text says so, never broken mid-word for it.
   for (const b of boxes) if (b.spills) out.push(`${called(b)}: its text runs out of its box`);
   for (const m of scene.marks) for (const q of m.type === 'shape' ? [m] : m.parts ?? []) if (q.spills) out.push(`“${q.texts[0]?.text?.split('\n')[0] ?? 'A shape'}” runs out of its shape`);
-  // A line's words on a box can't be read there, on the page or in the deck.
-  for (const l of scene.marks) if (l.type === 'line' && l.labelAt && l.label && !l.merged) { const r = { x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h }, on = boxes.find(b => over(r, b)); if (on) out.push(`“${l.label.text.split('\n')[0]}” stands on ${called(on)}`); }
+  // A line's words on a box stand over what it says.
+  for (const l of scene.marks) if (l.type === 'line' && l.labelAt && l.label && !l.merged) { const on = labelOn(l, boxes); if (on) out.push(`“${l.label.text.split('\n')[0]}” stands on ${called(on)}`); }
   for (const m of scene.marks) if (m.type === 'shape' && m.texts?.[0]?.blank?.reads) out.push(`A text box asks for ${m.texts[0].text.split('\n')[0]}, and stands on no box: it won’t print`);
   // A box given by hand the very look a Key row says means something else makes the Key lie: said by what it reads as.
   for (const { b, row } of keyLies(scene)) out.push(`${called(b)} looks like ${row.caption} in the Key, but isn't`);
