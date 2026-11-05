@@ -1346,7 +1346,7 @@ function mount(el) {
     if (it.of || (it.part && !it.blank && st()[it.id]?.edge === undefined)) {
       const part = partOf(m, it), raw = m.design.value.parts.find(p => p.id === part?.part)?.text ?? '';
       if (!part || !part.texts.length) return Designs.edit(m);
-      return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? raw, text => App.change(tx => Designs.say(tx, m, part.part, { text: text.trim() }, scopeNow(canvas)), { dated: false, say: `Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}` }), { multiline: true, selectAll: typed === undefined, complete: entriesOf(m), kept: true });
+      return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? raw, text => saidOfPart(`Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}`, tx => Designs.say(tx, m, part.part, { text: text.trim() }, scopeNow(canvas))), { multiline: true, selectAll: typed === undefined, complete: entriesOf(m), kept: true });
     }
     const st = App.state.peek(), r = it.blank ? null : st[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
     if (!kind || kind.type === 'object' || (r && r.args)) return;
@@ -2017,7 +2017,9 @@ function mount(el) {
   // a blank where it's shown at a scope; hiding it is the eye's, or its menu's. Only what's entered clears.
   const clears = f => !!f?.it && (!!f.it.free || (!f.it.blank && f.it.id in App.entered.peek()));
   // A part taken away at the pen, the design standing: Reset to design brings it back.
-  const hidePart = (f, s = scopeNow(canvas)) => { field = null; return App.change(tx => Designs.say(tx, f.m, partOf(f.m, f.it).part, { hidden: true }, s), { dated: false, say: `Took a part of the design away from ${whereSaid([f.m], s)}` }); };
+  // (What's said of a part is said in words, History having none for it.)
+  const saidOfPart = (said, f) => App.change(tx => { f(tx); tx.says(said); }, { dated: false, say: said });
+  const hidePart = (f, s = scopeNow(canvas)) => { field = null; return saidOfPart(`Took a part of the design away from ${whereSaid([f.m], s)}`, tx => Designs.say(tx, f.m, partOf(f.m, f.it).part, { hidden: true }, s)); };
   function clearField(f = fieldNow()) {
     if (!f?.it) return;
     if (still()) return Shell.toast(App.whyNot());
@@ -3438,7 +3440,7 @@ function mount(el) {
       if (m && designing) return Designs.dropped(m, edge, at);
       // (Onto a part of a design: its token there, at the pen, the design standing. Onto the rest of the box, shown as ever.)
       const part = m && at && [...m.parts ?? []].reverse().find(q => q.geometry !== 'line' && at.x >= q.x && at.x <= q.x + q.w && at.y >= q.y && at.y <= q.y + q.h);
-      if (part && !m.design.value.parts.find(p => p.id === part.part)?.rest) return App.change(tx => Designs.say(tx, m, part.part, { text: Designs.tokenIn(m, part.part, edge) }, scoped(m)), { dated: false, say: `Put ${edge} in a part of ${whereSaid([m], scoped(m))}` });
+      if (part && !m.design.value.parts.find(p => p.id === part.part)?.rest) return saidOfPart(`Put ${edge} in a part of ${whereSaid([m], scoped(m))}`, tx => Designs.say(tx, m, part.part, { text: Designs.tokenIn(m, part.part, edge) }, scoped(m)));
       return m && setField([m], edge, true, scoped(m));
     },
     clip: (edge, text) => { clip = { items: [], text, field: edge }; },

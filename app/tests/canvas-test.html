@@ -2909,13 +2909,12 @@ async function designing(st) {
   $('[data-fb="design"]').click(); await tick(300);
   const tiles = $$('.float .tile');
   check('the Design control opens a gallery of about twelve, each a real thumbnail', tiles.length >= 12 && tiles.every(t => t.querySelector('.art svg')) && $('.float .tile .art')?.textContent.includes('Northpine'), tiles.length);
-  const was = changes(), at = tiles.find(t => t.getAttribute('aria-label') === 'Header band'), w0 = box('northpine').w;
+  const was = changes(), at = tiles.find(t => t.getAttribute('aria-label') === 'Header band'), w0 = box('northpine').w, pen = FormatBar.scope(true);
   at.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false })); await tick(300);
   check('pointed at, it’s drawn on the chart, and nothing’s written', cv().graph.getCellById('northpine') && !!cv().root.querySelector('[data-cell-id="northpine"] [data-part]') && changes() === was);
   at.click(); await tick(400);
   check('clicked, it’s applied at the scope, one change, and the box has its parts', changes() === was + 1 && box('northpine').parts?.length === 2 && !!cv().root.querySelector('[data-cell-id="northpine"] [data-part="rest"]'));
-  Shell.select(['northpine']); await tick(120);
-  check('the format bar’s scope is this box, so only it took it', sc().marks.filter(m => m.parts?.length).length === 1);
+  check('it went where the pen stands, and nowhere else', sc().marks.filter(m => m.parts?.length).length === (pen.own ? 1 : pen.marks.size), `${pen.own ? 'own' : pen.marks.size}`);
   undo(); await tick(400);
   check('Undo takes it back whole, at the size it was', !box('northpine').parts && Math.abs(box('northpine').w - w0) < 0.6 && changes() === was + 2);
   // A name picked: a design is the box's, and goes where the pen stands for the box, never to every name; a part picked, what's given goes to the part, there too.

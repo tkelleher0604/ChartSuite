@@ -121,7 +121,8 @@ function reset(m, s = Canvas.scope()) {
   const v = view(), overs = m?.design?.overs ?? [];
   if (!overs.length) return;
   const here = new Set((s.own ? [treeOf(m.record)] : s.outputs).map(p => Tree.key(p))), mine = overs.filter(n => here.has(Tree.key(n.pattern))), these = mine.length ? mine : overs;
-  App.change(tx => { for (const n of these) { if (Scene.wholeDesign(n.value)) { const { over, ...whole } = n.value; tx.note('Design', n.pattern, whole, { view: v }); } else tx.note('Design', n.pattern, undefined, { view: v }); } }, { dated: false, say: `Reset ${App.notes.peek().nameOf(App.state.peek(), m.record)} to its design` });
+  const said = `Reset ${App.notes.peek().nameOf(App.state.peek(), m.record)} to its design`;
+  App.change(tx => { for (const n of these) { if (Scene.wholeDesign(n.value)) { const { over, ...whole } = n.value; tx.note('Design', n.pattern, whole, { view: v }); } else tx.note('Design', n.pattern, undefined, { view: v }); } tx.says(said); }, { dated: false, say: said });
 }
 
 // ---- Parts from shapes: a free shape on the page as a part of a design over box b ----
