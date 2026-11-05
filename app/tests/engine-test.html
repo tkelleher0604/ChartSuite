@@ -68,15 +68,15 @@ const rebuttal = { x_rebut: { args: [{ edge: 'Controller', at: 'okafor' }, { edg
 function theSample() {
   const R = workOut();
   const { definitions } = SAMPLE_INPUTS;
-  check('Notes gives the sample’s 32 definitions, each with what it covers and its rows', definitions.length === 32 && definitions.every(d => d.covers.length && d.rows.length && d.type));
+  check('Notes gives the sample’s 37 definitions, each with what it covers and its rows', definitions.length === 37 && definitions.every(d => d.covers.length && d.rows.length && d.type));
   check('…and none has a problem', !Object.keys(R.defErrors).length, JSON.stringify(R.defErrors));
   const problems = definitions.flatMap(d => d.rows.flatMap(r => Formulas.check(r.formula, { computed: R, def: d.id }).problems.map(p => `${d.id}: ${p.message}`)));
   check('…nor any of their rows, names included', !problems.length, problems.slice(0, 3).join(' | '));
   const counts = {};
   for (const c of Object.values(R.computed)) counts[c.def] = (counts[c.def] ?? 0) + 1;
   const total = Object.keys(R.computed).length;
-  check(`The sample works out 610 computed records, with no errors: the 577 before, the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate}), and each private fund’s Benefit Plan Percentage and ERISA Plan Assets`,
-    total === 610 && !R.errors.length && counts.def_bdc_affiliate === 23 && counts.def_benefit_plan === 5 && counts.def_erisa === 5 && total - counts.def_bdc_affiliate - counts.def_benefit_plan - counts.def_erisa === 577, `${total} computed, ${R.errors.length} errors`);
+  check(`The sample works out 631 computed records, with no errors: the 577 before, the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate}), each private fund’s Benefit Plan Percentage and ERISA Plan Assets, and each entity’s Ours to Track and each year’s Year`,
+    total === 631 && !R.errors.length && counts.def_bdc_affiliate === 23 && counts.def_benefit_plan === 5 && counts.def_erisa === 5 && total - counts.def_bdc_affiliate - counts.def_benefit_plan - counts.def_erisa - counts.def_ours - counts.def_year === 577, `${total} computed, ${R.errors.length} errors`);
   // Control 66 → 51: the feeder, the Cayman GP and the holding company no longer control the fund and what it
   // controls (15), since a limited partnership interest carries no vote. 3(c)(1) Count 5 → 0: every fund is 3(c)(7).
   // The Delaware tax 7 → 10: the AIV owes tax years 2025 and 2026, and the two blockers their franchise tax for
@@ -88,7 +88,7 @@ function theSample() {
   const want = { def_control: 51, def_affiliated: 289, def_close: 21, def_remote: 22, def_look_through: 51, def_adds_up: 11, def_tax: 6,
     def_private_fund: 5, def_investment_company: 1, def_annual_tax: 10, def_annual_tax_amount: 22, def_annual_tax_owed: 10, def_annual_return: 2,
     def_form_adv: 1, def_form_pf: 1, def_cima_fee: 1, def_cima_accounts: 1, def_crs: 1, def_fatca: 1, def_form_d: 2, def_cftc: 3, def_lei: 4,
-    def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13, def_benefit_plan: 5, def_erisa: 5 };
+    def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13, def_benefit_plan: 5, def_erisa: 5, def_ours: 17, def_year: 4 };
   const off = Object.keys({ ...want, ...counts }).filter(d => want[d] !== counts[d]);
   check('…by definition: Control 51, Affiliated Person 289, Close Affiliate 21, Remote Affiliate 22, Look-Through Ownership 51, and the rest', !off.length,
     off.map(d => `${d} ${counts[d]} (want ${want[d]})`).join(', '));
@@ -254,12 +254,51 @@ function theSample() {
   const typed = (vehicle, more = {}) => withRecords({ x_n: { kind: 'Entity' }, x_n_type: { at: 'x_n', edge: 'Entity Type', choice: 'Limited Liability Company' },
     x_n_juris: { at: 'x_n', edge: 'Jurisdiction', choice: 'Delaware' }, x_n_formed: { at: 'x_n', edge: 'Formation Date', field: 'date', value: '2025-03-01' },
     ...(vehicle ? { x_n_vehicle: { at: 'x_n', edge: 'Vehicle Type', choice: vehicle } } : {}), ...more });
-  const owesYears = X => rowsOf(X, 'def_annual_tax_owed').filter(r => objOf(X, r.args.find(a => a.edge === 'Taxpayer').at) === 'x_n').length;
+  const owesYears = X => rowsOf(X, 'def_annual_tax_owed').filter(r => !r.error && objOf(X, r.args.find(a => a.edge === 'Taxpayer').at) === 'x_n').length;
   const docsChecked = X => ['def_formation_on_file', 'def_governing_on_file'].map(d => entryRow(X, d, 'x_n')?.value);
   const needed = X => Formulas.attention(X, WB.notes(CHART), DAY).filter(a => a.id === 'x_n' || objOf(X, a.id) === 'x_n').map(a => `${a.kind} ${a.edge ?? ''}`.trim());
   const untyped = typed(null, { x_n_lei: { at: 'x_n', edge: 'LEI Registered', tag: true }, x_n_lei_on: { at: 'x_n_lei', edge: 'Registered On', field: 'date', value: '2025-03-01' } });
-  check('Ours to track: a Delaware LLC formed in 2025 with no Vehicle Type, as Northwind was, owes no tax year, has no renewal due and fails no document check: its one item is its Vehicle Type, blank',
-    !owesYears(untyped) && docsChecked(untyped).every(v => v === undefined) && !entryRow(untyped, 'def_lei', 'x_n') && needed(untyped).join() === 'blank Vehicle Type', needed(untyped).join());
+  const waits = (X, d) => entryRow(X, d, 'x_n')?.error?.code === '#N/A' && entryRow(X, d, 'x_n').error.blanks.some(b => b.name === 'Vehicle Type' && b.at === 'x_n');
+  check('Ours to track: a Delaware LLC formed in 2025 with no Vehicle Type, as Northwind was, fails nothing and owes no year: what rests on what it is can’t say, for want of it, and its one item is its Vehicle Type, blank',
+    !owesYears(untyped) && ['def_ours', 'def_formation_on_file', 'def_governing_on_file', 'def_lei'].every(d => waits(untyped, d)) && needed(untyped).join() === 'blank Vehicle Type', JSON.stringify(['def_ours', 'def_formation_on_file', 'def_governing_on_file', 'def_lei'].map(d => entryRow(untyped, d, 'x_n')?.error)));
+  const heldAt = pct => typed('Portfolio Company', { x_n_own: { args: [{ edge: 'Owner', at: 'blocker' }, { edge: 'Owned', at: 'x_n' }], tag: true }, x_n_own_p: { at: 'x_n_own', edge: 'Percentage', field: 'percent', value: pct } });
+  check('…and one guess doesn’t lose it what’s owed: a portfolio company held whole by those on the chart is ours, one with other holders isn’t, each by its row’s own words',
+    owesYears(heldAt(1)) === 2 && docsChecked(heldAt(1)).every(v => v === false) && !owesYears(heldAt(0.8))     && entryRow(heldAt(0.8), 'def_ours', 'x_n').label === 'A portfolio company with other holders isn’t' && entryRow(heldAt(1), 'def_ours', 'x_n').label === 'A portfolio company held whole by those on this chart is', JSON.stringify([owesYears(heldAt(1)), entryRow(heldAt(0.8), 'def_ours', 'x_n')?.label]));
+  check('…and Acquisition Vehicle is a vehicle of the family', owesYears(typed('Acquisition Vehicle')) === 2 && docsChecked(typed('Acquisition Vehicle')).every(v => v === false));
+  // What a kind's asked for (dendra.md, Notes: Required, its `when`): counted blank of what's ours, and of no one else.
+  const asks = X => needed(X).filter(x => x.startsWith('blank')).join();
+  check('An empty record isn’t clean: a new fund entity counts its EIN, Good Standing, File Number, and, being a fund, its Investment Company Status and whether it’s a Regulation D Offering, blank; a general partner neither of those; one not ours nothing',
+    asks(typed('Main Fund')) === 'blank EIN,blank Good Standing,blank Investment Company Status,blank Regulation D Offering,blank File Number' && asks(typed('General Partner')) === 'blank EIN,blank Good Standing,blank File Number' && asks(typed('Third Party')) === '' && asks(typed('Portfolio Company')) === '', asks(typed('Main Fund')));
+  check('The sample’s own entities are asked nothing more: its one blank is still the email’s', Formulas.attention(R, WB.notes(CHART), DAY).filter(a => a.kind === 'blank').map(a => a.edge).join() === 'Document Date', Formulas.attention(R, WB.notes(CHART), DAY).filter(a => a.kind === 'blank').map(a => a.edge).join());
+  // The 3(c)(1) limit (15 U.S.C. § 80a-3(c)(1)): not more than 100 persons, 250 for a qualifying venture capital fund; what's looked through asked, not assumed.
+  const usOwners = Object.keys(SAMPLE_INPUTS.recs).find(id => SAMPLE_INPUTS.recs[id].at === 'inv_us' && SAMPLE_INPUTS.recs[id].edge === 'Beneficial Owners');
+  const limited = (n, more = {}) => workOut(Object.fromEntries(Object.entries({ ...SAMPLE_INPUTS.recs, fund_ics: { ...SAMPLE_INPUTS.recs.fund_ics, choice: "3(c)(1) Fund" }, [usOwners]: { ...SAMPLE_INPUTS.recs[usOwners], value: n }, ...more }).filter(([, r]) => r)));
+  const passes = X => rowsOf(X, 'def_limited')[0]?.value, countOf = X => entryRow(X, 'def_3c1', 'fund')?.value;
+  check('A check on the 3(c)(1) limit: the fund as a 3(c)(1) fund, with 86 and the feeder’s 41 holders, 127, is over 100, an error', countOf(limited(86)) === 127 && passes(limited(86)) === false && Formulas.attention(limited(86), WB.notes(CHART), DAY).some(a => a.kind === 'error' && limited(86).records[a.id]?.edge === 'Within 3(c)(1) Limit'), `${countOf(limited(86))} ${passes(limited(86))}`);
+  check('…59 and 41 is 100, within it', countOf(limited(59)) === 100 && passes(limited(59)) === true, `${countOf(limited(59))} ${passes(limited(59))}`);
+  check('…101 is over it', countOf(limited(60)) === 101 && passes(limited(60)) === false, `${countOf(limited(60))} ${passes(limited(60))}`);
+  const statusOf = rowsOf(limited(86), 'def_limited')[0]?.at;
+  check('…and a qualifying venture capital fund’s limit is 250', passes(limited(86, { x_qvc: { at: 'fund_ics', edge: 'Qualifying Venture Capital Fund', tag: true } })) === true && passes(limited(230, { x_qvc: { at: 'fund_ics', edge: 'Qualifying Venture Capital Fund', tag: true } })) === false, statusOf);
+  const unsaid = limited(40, { feeder_ics: undefined });
+  check('A company holding 10% or more whose status isn’t said is asked, not assumed: Looked Through can’t say, nor the count, and the one thing to fill in is its Investment Company Status',
+    rowsOf(unsaid, 'def_looked').find(r => r.error)?.error.blanks.some(b => b.name === 'Investment Company Status' && b.at === 'feeder') && entryRow(unsaid, 'def_3c1', 'fund')?.error?.code === '#N/A'
+    && Formulas.attention(unsaid, WB.notes(CHART), DAY).some(a => a.kind === 'blank' && a.id === 'feeder' && a.edge === 'Investment Company Status'), JSON.stringify(rowsOf(unsaid, 'def_looked').map(r => r.error?.msg)));
+  check('…though past the limit whatever it’s answered, the check fails now', rowsOf(limited(120, { feeder_ics: undefined }), 'def_limited')[0]?.value === false);
+  check('…and said not to be an investment company, it’s one person', countOf(limited(40, { feeder_ics: { ...SAMPLE_INPUTS.recs.feeder_ics, choice: 'Not an Investment Company' } })) === 41);
+  check('…as a company under 10% is, asked nothing', countOf(limited(40, { own_fdr_fund_pct: { ...SAMPLE_INPUTS.recs.own_fdr_fund_pct, value: 0.05 } })) === 41);
+  // The first Form D (17 C.F.R. § 230.503(a)(1)): 15 calendar days after the first sale, the first business day following a weekend; then the anniversary, on or before.
+  const formD = (first, filed, open) => withRecords({ x_n: { kind: 'Entity' }, x_n_vehicle: { at: 'x_n', edge: 'Vehicle Type', choice: 'Main Fund' }, x_d: { at: 'x_n', edge: 'Regulation D Offering', tag: true },
+    ...(first && { x_d_first: { at: 'x_d', edge: 'First Sale', field: 'date', value: first } }), ...(filed && { x_d_filed: { at: 'x_d', edge: 'Last Filed', field: 'date', value: filed } }), ...(open && { x_d_open: { at: 'x_d', edge: 'Offering Open', tag: true } }) });
+  const dueD = X => rowsOf(X, 'def_form_d').find(r => r.at === 'x_d')?.value?.iso;
+  check('The initial Form D: 15 days after a first sale of Oct 20, 2036 is Nov 4, 2036', dueD(formD('2036-10-20')) === '2036-11-04', dueD(formD('2036-10-20')));
+  check("…one falling on a weekend goes to the first business day following: Oct 17, 2036 + 15 is Saturday Nov 1, Oct 18 + 15 Sunday Nov 2, each Monday Nov 3", dueD(formD("2036-10-17")) === "2036-11-03" && dueD(formD("2036-10-18")) === "2036-11-03", `${dueD(formD("2036-10-17"))} ${dueD(formD("2036-10-18"))}`);
+  check('…once filed, the anniversary while it’s open, on or before, the business day before a weekend; and none when it’s closed', dueD(formD('2036-10-20', '2036-11-01', true)) === '2037-10-30' && !dueD(formD('2036-10-20', '2036-11-01', false)), dueD(formD('2036-10-20', '2036-11-01', true)));
+  check('…no first sale yet: no date, and First Sale is asked for', !dueD(formD(null)) && Formulas.attention(formD(null), WB.notes(CHART), DAY).some(a => a.kind === 'blank' && a.id === 'x_d' && a.edge === 'First Sale'));
+  // Paid late says so: a rule, read from the day it was paid and the day it fell due.
+  const paidOn = day => { const X = withRecords({ x_tax: { args: [{ edge: 'Taxpayer', at: 'aiv_juris' }, { edge: 'Tax Year', at: '·2025' }], tag: true }, x_tax_paid: { at: 'x_tax', edge: 'Annual Tax Paid', field: 'date', value: day } }); return rowsOf(X, 'def_paid_late').find(r => r.at === 'x_tax')?.value; };
+  check('Paid Late: AIV-1’s 2025 tax paid after June 1, 2026 is late; paid on it, not', paidOn('2026-11-04') === true && !paidOn('2026-06-01'), `${paidOn('2026-11-04')} ${paidOn('2026-06-01')}`);
+  // More than all of it is wrong wherever it is.
+  check('Ownership Adds Up rules out more than all of a portfolio company, as it doesn’t less', (() => { const X = withRecords({ x_own: { args: [{ edge: 'Owner', at: 'blocker' }, { edge: 'Owned', at: 'northpine' }], tag: true }, x_own_p: { at: 'x_own', edge: 'Percentage', field: 'percent', value: 0.5 } }); return entryRow(X, 'def_adds_up', 'northpine')?.value === false; })());
   const asFund = typed('Main Fund');
   check('…given Main Fund, it owes 2025 and 2026, and its documents are checked, neither on file', owesYears(asFund) === 2 && docsChecked(asFund).every(v => v === false)
     && needed(asFund).filter(x => x === 'error').length === 2 && !needed(asFund).includes('blank Vehicle Type'), needed(asFund).join());

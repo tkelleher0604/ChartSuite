@@ -1207,6 +1207,12 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     frames.get(parent).members.push(bid);
   }
+  // A box the page's frames go by an entry of, that hasn't one, stands in no frame: which is said (dendra.md, Frames).
+  const framingBy = [...new Set(N.notes('Frame').filter(n => n.view === view && n.pattern.out && n.pattern.args?.length === 1 && n.value !== 'none').map(n => n.pattern.args[0].edge))], unframed = [];
+  if (framingBy.length) for (const b of boxes) if (!b.revealed && !steps.has(b.id)) for (const edge of framingBy) {
+    const kind = state[b.record]?.kind, lacks = !(Tree.index(state).entries.get(b.record) ?? []).some(e => same(state[e].edge ?? '', edge));
+    if (lacks && Object.values(wb.schema(chart)).some(s => s.args?.length === 1 && same(s.args[0].edge, edge) && s.args[0].loc.kind === kind)) { unframed.push({ record: b.record, what: edge }); break; }
+  }
   // A frame's caption heads a group of names, so it's set as they are, bold and dark grey, at its top left (a
   // bracket's over its middle). A frame round one box alone would outline it twice: it's `lone`, its caption
   // alone.
@@ -1531,7 +1537,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // hold it (see furnish).
   if (at.dx || at.dy) for (const m of [...boxes, ...frames.values(), ...lines]) move(m, at.dx, at.dy);
   const offset = last ? last.page.offset : { x: at.dx, y: at.dy }, placed = last ? last.page.placed : !!at.placed;
-  const page = { size: sheet.size, w: sheet.w / s, h: sheet.h / s, scale: s, margin: Math.min(ML, MR, MT, MB) / s, margins: { left: ML / s, right: MR / s, top: MT / s, bottom: MB / s }, offset, placed, sheet: { w: sheet.w, h: sheet.h }, short: [], look: pageLook, formless, ...(onPaper && { paper: true }), ...(sheet.portrait && { portrait: true }) };
+  const page = { size: sheet.size, w: sheet.w / s, h: sheet.h / s, scale: s, margin: Math.min(ML, MR, MT, MB) / s, margins: { left: ML / s, right: MR / s, top: MT / s, bottom: MB / s }, offset, placed, sheet: { w: sheet.w, h: sheet.h }, short: [], look: pageLook, formless, unframed, ...(onPaper && { paper: true }), ...(sheet.portrait && { portrait: true }) };
 
   // Arrow Auto: an arrowhead where the line doesn't run down from its Above side.
   for (const l of lines) if (l.settings.Arrow.value === 'auto') l.settings.Arrow = { value: l.down ? 'none' : 'end', note: l.settings.Arrow.note };
@@ -1609,7 +1615,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   return scene;
 }
 // Footnotes numbered, by reading order on the page (down its rows, then across), one number for one text however many marks carry it. Each mark
-// says what it carries, `feet`, and gets its marker, a superscript after its first line, or after the field it was added to; the shape gets its lines, each
+// says what it carries, `feet`, and gets its marker, a superscript at the end of its first text, or of the field it was added to; the shape gets its lines, each
 // number a superscript run of its text, so the canvas, the PDF and the deck each draw them as they draw any part of a text. In columns, by its Columns, as any shape's are.
 function numberFeet(marks, foots, shape, row, s, state) {
   const u = 1 / s, numbers = new Map(), at = m => m.type === 'line' ? m.labelAt ?? { x: m.x ?? 0, y: m.y ?? 0 } : m, read = marks.filter(m => foots.has(m.id) && (m.type !== 'line' || (m.labelAt && !m.merged)));
@@ -1620,10 +1626,10 @@ function numberFeet(marks, foots, shape, row, s, state) {
     for (const f of fs) { if (!numbers.has(f.text)) numbers.set(f.text, { n: numbers.size + 1, text: f.text, from: [] }); numbers.get(f.text).from.push(f); const it = onto(f.field); (by.get(it) ?? by.set(it, []).get(it)).push(numbers.get(f.text).n); }
     m.feet = fs.map(f => ({ n: numbers.get(f.text).n, text: f.text, key: f.param }));
     for (const [it, ns] of by) {
-      if (!it?.lines?.[0]) continue;
+      if (!it?.lines?.length) continue;
       const look = spanLook(it.look, { Base: 'up' }, u), text = ns.sort((a, b) => a - b).join(',');
       // (A field in a part of a design: the box's copy says where it is, and the part's own is what's drawn.)
-      for (const l of [it.lines[0], it.drawn?.lines[0]].filter(Boolean)) {
+      for (const l of [it.lines.at(-1), it.drawn?.lines.at(-1)].filter(Boolean)) {
         l.spans = [...(l.spans ?? [{ text: l.text, look: it.look, own: false }]), { text, look, base: 'up', own: true, foot: true }];
         l.footW = measure(text, look);
         l.w += l.footW;
@@ -2032,7 +2038,8 @@ function frameBounds(frames, boxes) {
   const fit = f => {
     if (done.has(f.id)) return f;
     done.add(f.id);
-    const inner = [...f.members.map(id => byId.get(id)), ...f.frames.map(id => fit(frames.get(id)))];
+    // (A lone frame inside it is its caption alone: its box is in this one all the same.)
+    const inner = [...f.members.map(id => byId.get(id)), ...f.frames.flatMap(id => { const c = fit(frames.get(id)); return c.lone ? [c, byId.get(c.members[0])] : [c]; })];
     const b = bounds(inner), pad = 10;
     if (f.kind === 'bracket') Object.assign(f, { x: b.x, y: b.y - f.label - 12, w: b.w, h: f.label + 6 });
     else if (f.lone) Object.assign(f, { x: b.x, y: b.y - f.label - 5.3, w: b.w, h: f.label + 5.3 });
@@ -2973,6 +2980,7 @@ function says(scene, name, paper) {
   const p = scene.page, boxes = scene.marks.filter(m => m.type === 'box' && !m.revealed), called = b => name?.(b) ?? b.texts[0]?.text ?? 'A box', out = [], W = p.w, H = p.h;
   for (const f of p.short ?? []) out.push(`${f.what} print at ${+f.printed.toFixed(2)} pt${paper ? ` on ${paper}` : ''}: the chart doesn't fit at ${f.typed}`);
   for (const f of p.formless ?? []) { const b = scene.byId.get(f.record); if (b) out.push(`${called(b)} has no ${f.what}`); }
+  for (const f of p.unframed ?? []) { const b = scene.byId.get(f.record); if (b) out.push(`${called(b)} is in no frame: it has no ${f.what}`); }
   // (A quarter inch all round is what a printer leaves unprinted.)
   const edge = fromSlide(p, 18 * PT);
   for (const b of boxes) if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > W + 0.5 || b.y + b.h > H + 0.5) out.push(`${called(b)} runs off the page`);

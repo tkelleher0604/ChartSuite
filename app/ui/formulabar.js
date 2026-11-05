@@ -1929,11 +1929,14 @@ const FormulaBar = (() => {
   const wordOf = (recs, s, start) => typeof s === 'string' ? (start ? upper(s) : s)
     : s.name ? (start ? N().shortOf(recs, s.name) : N().shortOf(recs, s.name).replace(/^The\b/, 'the')) : start ? upper(s.term) : s.term;
   // Why, as plain text: the sentence's runs, its citations in parentheses, and a full stop.
-  function plain(recs, runs) {
+  function unstopped(recs, runs) {
     let first = true;
     const seg = s => { const w = wordOf(recs, s, first); first = false; return w; };
-    return runs.map(r => r.text ? seg(r.text) : r.cite ? ` (${r.cite})` : r.segs.map(seg).join('')).join('') + '.';
+    return runs.map(r => r.text ? seg(r.text) : r.cite ? ` (${r.cite})` : r.segs.map(seg).join('')).join('');
   }
+  // (A sentence ending on a name's own full stop, "L.P.", has no other.)
+  const plainEnd = (recs, runs) => (unstopped(recs, runs).endsWith('.') ? '' : '.');
+  const plain = (recs, runs) => unstopped(recs, runs) + plainEnd(recs, runs);
 
   // Why, said: each fact a quiet button (a span, so that it wraps as words do), its point in weight and in the
   // hue its records are outlined in on the chart. Hovered, its records pulse there; clicked, it steps down into
@@ -1952,7 +1955,7 @@ const FormulaBar = (() => {
     return html`<span class=${cls} onClick=${onClick}>${runs.map((r, i) => r.text ? seg(r.text)
       : r.cite ? html`<span class="fx-cite"> (${r.cite})</span>`
       : r.self ? html`<span class="fx-fact">${r.segs.map(seg)}</span>`
-      : html`<${Fact} key=${i + ':' + r.fact.ids.join()} fact=${r.fact}>${r.segs.map(seg)}</${Fact}>`)}.</span>`;
+      : html`<${Fact} key=${i + ':' + r.fact.ids.join()} fact=${r.fact}>${r.segs.map(seg)}</${Fact}>`)}${plainEnd(recs, runs)}</span>`;
   }
   // A fact that steps down: hovered, its records pulse on the chart, until the pointer leaves it or it goes.
   function Fact({ fact, children }) {

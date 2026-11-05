@@ -155,13 +155,16 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .btn[aria-pressed="true"] { background-color: var(--selected); background-image: none; color: var(--accent-ink); }
 /* The scope: two parts, the selection and all like it, the one a change goes to on in the selection's tint, the caret that chooses the group joined to its part. It keeps one width, selected or not, so
    nothing after it in the bar moves as what it names changes; a name too long for it is cut short, and shown whole on hover. It takes what the bar has left, up to its most, before the font's list. */
-.fb .scope { display: inline-flex; flex: 1 1 0; min-width: 96px; max-width: 360px; height: 28px; border-radius: var(--r); overflow: hidden; }
+.fb .scope { display: inline-flex; flex: 1 1 0; min-width: 176px; max-width: 420px; height: 28px; border-radius: var(--r); overflow: hidden; }
 .fb .scope.off > button { color: var(--off); }
 .fb .scope > button { height: 28px; padding: 0 8px; border: 0; background: transparent; color: var(--ink-2); display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; cursor: default; }
 .fb .scope > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.fb .scope > [data-fb="own"] { flex: none; }
+.fb .scope > [data-fb="own"] { flex: 0 1 auto; }
 .fb .scope > :only-child { flex: 1 1 auto; }
-.fb .scope > [data-fb="like"] { flex: 1 1 auto; min-width: 0; }
+.fb .scope > [data-fb="like"] { flex: 1 1 auto; }
+/* Short of room, what the pen isn't at gives way first, and never to a letter. */
+.fb .scope > [data-fb="own"], .fb .scope > [data-fb="like"] { min-width: 54px; }
+.fb .scope > [aria-pressed="false"] { flex-shrink: 20; }
 .fb .scope > button:hover { background-image: linear-gradient(var(--hover), var(--hover)); color: var(--ink); }
 .fb .scope > button[aria-pressed="true"] { background-color: var(--selected); color: var(--accent-ink); font-weight: 500; }
 /* With nothing selected, it's a dropdown like any: All text, or a Styles row aimed at from its list. */
@@ -186,12 +189,13 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* Where the bar is narrower than its full width, Align, Order, Group and Tidy are one Arrange menu. */
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
-@container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb > .sep { margin: 0 6px; } .fb .font { width: 104px; } }
-/* (Where the scope has no room to say what's alike but a letter or two, it says All, and what on hover.) */
-@container (max-width: 1310px) { .fb > .sep { margin: 0 5px; } .fb .font { width: 92px; } .fb .scope > [data-fb="own"] + [data-fb="like"] > span { display: none; } .fb .scope > [data-fb="own"] + [data-fb="like"]::before { content: "All"; } }
-@container (max-width: 1230px) { .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb .arrange > span { display: none; } .fb .arrange > svg { display: block; } }
-@container (max-width: 1010px) { .fb > .sep { margin: 0 2px; } .fb .font { width: 72px; } .fb [data-fb="underline"], .fb [data-fb="strike"], .fb [data-fb="paragraph"] { display: none; } }
-@container (max-width: 880px) { .fb [data-fb="painter"], .fb [data-fb="clear"], .fb [data-fb="shape"] { display: none; } .fb .font { width: 56px; } }
+@container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb > .sep { margin: 0 4px; } .fb .font { width: 104px; } }
+/* The scope has the room to say what it reaches: the font list gives way first, then what has a key or a place in Find. */
+@container (max-width: 1480px) { .fb .font { width: 72px; } .fb .arrange > span { display: none; } .fb .arrange > svg { display: block; } }
+@container (max-width: 1310px) { .fb > .sep { margin: 0 3px; } .fb [data-fb="grow"], .fb [data-fb="shrink"] { display: none; } }
+@container (max-width: 1130px) { .fb .font { width: 64px; } .fb [data-fb="underline"], .fb [data-fb="strike"], .fb [data-fb="paragraph"] { display: none; } }
+@container (max-width: 1010px) { .fb > .sep { margin: 0 2px; } .fb [data-fb="painter"], .fb [data-fb="clear"], .fb [data-fb="shape"] { display: none; } }
+@container (max-width: 880px) { .fb .font { width: 56px; } }
 /* A color's bar under its glyph: the paint bucket's, the pen's; the A's is its own baseline, in the color. */
 .fb .well { display: inline-grid; grid-template-rows: 15px 4px; justify-items: center; width: 16px; height: 20px; }
 .fb .well > svg { width: 15px; height: 15px; }

@@ -351,15 +351,15 @@ function Pen({ w, row, host }) {
   if (!c?.scene()) return null;
   App.scene.value; Shell.selection.value; p.level.value; p.aimed.value; Canvas.fieldPicked.value;
   if (host && !p.on(host)) return null;
-  const here = p.row() === row, go = () => { p.put(w); };
+  const here = p.row() === row, go = at => { p.click(w, at); };
   const say = e => { const n = p.next(w); e.currentTarget.dataset.tip = n?.said ?? ''; };
   const walk = e => {
-    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); go(); }
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); go(e.currentTarget); }
     else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { const all = [...(e.currentTarget.closest('.insp')?.querySelectorAll('.pen') ?? [])], to = all[all.indexOf(e.currentTarget) + (e.key === 'ArrowDown' ? 1 : -1)]; if (to) { e.preventDefault(); e.stopPropagation(); to.focus(); } }
   };
   return html`<button type="button" class=${'pen' + (here ? ' here' : '')} tabindex=${here ? 0 : -1} aria-pressed=${here} aria-label="Put the pen here" data-tip=""
     onPointerEnter=${e => { say(e); p.point(w, true); }} onPointerLeave=${() => p.point(w, false)} onFocus=${e => { say(e); if (e.currentTarget.matches(':focus-visible')) p.point(w, true); }} onBlur=${() => p.point(w, false)}
-    onPointerDown=${e => e.stopPropagation()} onClick=${e => { e.stopPropagation(); go(); say(e); p.point(w, false); }} onKeyDown=${walk}>${Shell.icon('Pen')}</button>`;
+    onPointerDown=${e => e.stopPropagation()} onClick=${e => { e.stopPropagation(); p.point(w, false); go(e.currentTarget); say(e); }} onKeyDown=${walk}>${Shell.icon('Pen')}</button>`;
 }
 
 // Drags a row among its siblings (those with the same data-drag); a click without moving is a click.
@@ -571,11 +571,13 @@ function Filing({ due, slot, close }) {
   };
   useLayoutEffect(() => { FormulaBar.preview(rec ? App.would(write, { dated: value }) : null); }, [value]);
   const was = recs()[due], p = FormulaBar.pending.value, next = p ? nextDue(p.R2.records, due) : undefined;
+  // What a filing after its day says, in its toast and beside it in History: the day it was due, of the year it settles. Nothing's worked out but the words.
+  const dueOn = () => { let y = null; Formulas.pay?.({ R: App.computed.peek(), due, day: value, add: r => { y = r.at; } }); return (y && recs()[T.entryAt(recs(), y, was.edge)]?.value) || was.value; };
   const keep = () => {
     if (!rec) return;
     close();
-    const sel = Shell.selection.peek(), at = was.at;
-    if (!App.change(write, { dated: value, say: c => Time.describe(c) })) return;
+    const sel = Shell.selection.peek(), at = was.at, owed = dueOn(), late = T.firstDay(value) > T.firstDay(owed) ? `Late: it was due ${short(owed)}` : null;
+    if (!App.change(write, { dated: value, note: late, say: c => `${Time.describe(c)}${late ? `, late: it was due ${short(owed)}` : ''}` })) return;
     const where = recs()[made]?.at, to = [...new Set(sel.map(k => recs()[k] ? k : k === at && where ? where : made))];
     aim.value = made;
     select(to);
@@ -643,6 +645,8 @@ function entryMenu(anchor, id) {
   menu(anchor, [
     ...(f ? [{ label: 'Why', keys: 'F1', run: () => { emit('why-open', id); FormulaBar.open.value = true; FormulaBar.into(); } }] : []),
     { label: 'Rule', run: () => select([general(patternOf(id))]) },
+    // A choice or a tag is how a chart styles by an answer (dendra.md, The pen).
+    ...(typeof FormatBar !== 'undefined' && charted() && !App.readOnly.peek() && FormatBar.answersOf?.(id) ? [{ label: 'A look for each', run: () => FormatBar.lookForEach(id) }] : []),
     // What a formula gives is overridden only by saying so (App.overriding), as its reason in the formula bar offers it; and what's typed over one goes back the same way.
     ...(f && 'tag' in r && !App.readOnly.peek() ? [{ label: 'Override…', run: () => App.overriding(id) }] : []),
     ...(!f && over(id) && !App.readOnly.peek() ? [{ label: 'Back to the rule…', run: () => App.backToRule(id) }] : []),
@@ -812,14 +816,14 @@ const lit = (it, at) => {
 const fields = () => charted() ? Canvas.active.peek()?.fields : null;
 // Show on chart: at the row's end, shown in this box a quiet eye, pointed at a way to show or hide it there, at the
 // format bar's scope; the tooltip says where.
-// At a group scope it's on only where every mark the group reaches shows the field, so with one of five showing it it says
-// "Show in all 5 limited partnerships", and its click shows it in the other four; the scope is asked again as it's
+// At a group scope it's on where every box that has the entry shows it, those that have none not counting against it, so with one of five showing it it says
+// "Show in all 5 limited partnerships", and its click shows it in the other four, and with it on it flips to Hide; the scope is asked again as it's
 // pointed at and clicked, as it may have been chosen since.
 function OnChart({ it, at }) {
   const c = charted() ? Canvas.active.value : null, host = c && hostIn(at), [pointed, setPointed] = useState(null);
   if (!host || !c || App.readOnly.value || it.error || it.na) return null;
   App.scene.value; Shell.selection.value;
-  const state = () => { const s = c.fields.scope(it.edge); return { s, on: s.own ? c.fields.shown(host, it.edge, at) : [...s.marks].every(id => { const x = alikeIn(host, at, id); return !!x && c.fields.shown(id, it.edge, x); }) }; };
+  const state = () => { const s = c.fields.scope(it.edge), have = s.own ? [] : [...s.marks].map(id => [id, alikeIn(host, at, id)]).filter(([, x]) => x && c.fields.could(x, it.edge)); return { s, on: s.own ? c.fields.shown(host, it.edge, at) : !!have.length && have.every(([id, x]) => c.fields.shown(id, it.edge, x)) }; };
   const { s, on } = pointed ?? state();
   const say = ({ s, on }) => `${on ? 'Hide from' : 'Show in'} ${s.own ? (recs()[host]?.args ? 'this line' : 'this box') : Canvas.named(s)}`;
   // Its right-click: here, or in every box that has it, kept true as more get it; and with its name, so "High" says what it is.
@@ -899,7 +903,7 @@ function Entry({ it, at, depth }) {
     if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); }
     else if (under && e.target === e.currentTarget && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); foldRow(it.id, e.key === 'ArrowLeft'); }
     // P on a row moves the pen there.
-    else if (r && e.target === e.currentTarget && (e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey && !e.altKey && typeof FormatBar !== 'undefined') { e.preventDefault(); e.stopPropagation(); FormatBar.pen?.put({ entry: it.id }); }
+    else if (r && e.target === e.currentTarget && (e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey && !e.altKey && typeof FormatBar !== 'undefined') { e.preventDefault(); e.stopPropagation(); FormatBar.pen?.click({ entry: it.id }, e.currentTarget.querySelector('.pen') ?? e.currentTarget); }
   };
   // A press on its label takes the keys to the row, so Ctrl+C copies it, and may drag it: among its siblings, or onto the chart.
   const press = e => { if (e.target.closest('input, textarea, button')) return; const row = e.currentTarget.closest('.row'); row.tabIndex = -1; row.focus({ preventScroll: true }); const chart = carry(e, it); if (r) drag(e, (from, i) => { if (!chart()) reorder(at, moved(sibs(), from, i)); }); };
@@ -1359,7 +1363,7 @@ function Look({ id }) {
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
   const resetPlace = !App.readOnly.value && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ only: id, say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
   // (Its position before its look, so a row or a section the look gains moves no field under the pointer.)
-  return html`${drawn ? html`<${Place} at=${drawn} put=${(k, x) => cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}
+  return html`${drawn ? html`<${Place} at=${drawn} put=${(k, x) => k === 'w' || k === 'h' ? cv?.sizeAtPen(id, { [k]: x }) : cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}
     <${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />`;
 }
 
@@ -1691,7 +1695,7 @@ function Styles({ v, only }) {
     const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]), on = reached.get(g) ?? { own: 0, masked: [] };
     // What doesn't read as this row: those of its marks with a look of their own, and what another style decides of them all.
     const notes = [...on.own ? [`${on.own} ${on.own === 1 ? 'keeps its' : 'keep their'} own`] : [], ...on.masked.map(([l, by]) => `${l} decided by ${by}`)], whose = on.ownNames?.length ? on.ownNames.join(', ') : null;
-    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onPointerDown=${alone ? press(alone) : null} onClick=${e => { if (!e.target.closest('.pen, .cellbox, input, .lk')) aimAt(g); }}><${Pen} w=${{ style: g }} row=${`row:${g.style}|${T.key(g.outputs[0])}`} /><div class="k" onDblClick=${() => Designs.editRow(g)} onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
+    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onPointerDown=${alone ? press(alone) : null} onClick=${e => { if (!e.target.closest('.pen, .cellbox, input, .lk')) aimAt(g, e); }}><${Pen} w=${{ style: g }} row=${`row:${g.style}|${T.key(g.outputs[0])}`} /><div class="k" onDblClick=${() => Designs.editRow(g)} onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
       <div class="v" title=${said && names.length === 1 ? names[0] : null}><span class="capline"><${Caption} g=${keyWord(g) ? { ...g, caption: keyWord(g) } : g} label=${names.join(', ')} put=${out => cap(g, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
         ${notes.length ? html`<span class="onote" title=${whose ?? notes.join(', ')}>${on.own && fb ? html`<button type="button" class="lk" data-tip=${whose} onClick=${() => fb.selectDiffers()}>${notes[0]}</button>` : notes[0]}${notes.length > 1 ? `, ${notes.slice(1).join(', ')}` : ''}</span>` : null}</span>
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
@@ -1718,7 +1722,7 @@ function AllText({ v }) {
 }
 
 // A Styles row aimed at: the ribbon's scope, what it reaches lit on the chart (the format bar's aim), till it's clicked again.
-const aimAt = g => { if (typeof FormatBar !== 'undefined') FormatBar.aimedAt?.(g) ? FormatBar.pen?.home() : FormatBar.aim?.(g); };
+const aimAt = (g, e) => { if (typeof FormatBar === 'undefined') return; if (e?.ctrlKey || e?.metaKey) return FormatBar.aimAlso?.(g); FormatBar.aimedAt?.(g) ? FormatBar.pen?.home() : FormatBar.aim?.(g); };
 // What a Styles row's right-click offers, as they apply: Rename; a step up or down; Copy look and Paste look; Delete, which
 // takes away what it gives the view.
 function styleMenu(e, g, v, moves, rename) {
@@ -2272,10 +2276,10 @@ function GeneralView({ p, style }) {
         return html`<div class="row" key="stands"><div class="k">Stands</div><div class="v ctl">${still ? said(now) : html`<button class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, [...es, 'level', 'none'].map(s => ({ label: said(s), checked: T.same(s, now), run: () => !T.same(s, now) && setIt(s) })))}><span>${said(now)}</span></button>`}</div></div>`; })() : null}
       ${kind && below.some(s => s.out?.field === 'date' || s.out?.field === 'number') ? (() => { const by = n.across(p.kind), said = by ?? 'As they were made', take = e => App.change(tx => tx.note('Order', p, e ? { by: e } : undefined), { dated: false, say: e ? `Stood each ${lower(p.kind)} in the order of ${e}` : `Stood each ${lower(p.kind)} as they were made` });
         return html`<div class="row" key="across"><div class="k">Across, in order of</div><div class="v ctl">${still ? said : html`<button class="sel dd" aria-haspopup="menu" aria-label="Across, in order of" onClick=${e => menu(e.currentTarget, [{ label: 'As they were made', checked: !by, run: () => by && take(null) }, ...below.filter(s => s.out?.field === 'date' || s.out?.field === 'number').map(s => ({ label: s.args[0].edge, checked: T.same(by ?? '', s.args[0].edge), run: () => !T.same(by ?? '', s.args[0].edge) && take(s.args[0].edge) }))])}><span>${said}</span></button>`}</div></div>`; })() : null}
-      ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('A blank needs filling in', n.required(p), on => flag('Required', p, on))}
-      ${type === 'tag' ? checkRow('A no needs attention', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
+      ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('Required', n.required(p), on => flag('Required', p, on))}
+      ${type === 'tag' ? checkRow('Count a No as an error', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
       ${kind || rel || def || writing || (dated && (n.isStart(dp) || n.isEnd(dp))) ? null : checkRow('Changes over time', dated ? n.changing(p) : !n.fixed(p), on => flag('Fixed', p, dated ? (on ? false : undefined) : (on ? undefined : true)))}
-      ${dated ? ['Start', 'End'].map(l => checkRow(l, l === 'Start' ? n.isStart(dp) : n.isEnd(dp), on => flag(l, dp, on))) : null}
+      ${dated ? ['Start', 'End'].map(l => checkRow(l === 'Start' ? 'The day it starts' : 'The day it ends', l === 'Start' ? n.isStart(dp) : n.isEnd(dp), on => flag(l, dp, on))) : null}
       ${adds.length ? html`<${AddRow} items=${() => adds} />` : null}
     </div>
     ${type === 'choice' ? html`<${Section} title="Options" n=${options.length}>
@@ -2665,6 +2669,7 @@ document.addEventListener('paste', e => {
   link(id, text);
 });
 
-// What settles a deadline, as a menu item, for the Dates table's right-click (settling); and a style's swatch, for the format bar's list of what a house style holds.
-return { settling, Swatch };
+// What settles a deadline, as a menu item, for the Dates table's right-click (settling); a style's swatch, for the format bar's list of what a house style holds; and a record's row brought to, its keys in it.
+const aimRow = (id, edge) => { Shell.showPanel?.(); aim.value = `${id}|${edge}`; select([id]); };
+return { settling, Swatch, aimRow };
 })();
