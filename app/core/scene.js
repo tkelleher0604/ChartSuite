@@ -1144,7 +1144,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // one set of places with: what a change kept of it, its places and its scale, says nothing, and it's composed afresh as it's drawn. (Past a size to lay out as it's worked on, what's kept stands.)
   const byRecord = new Map(boxes.map(b => [b.record, b])), arrangedBy = n => { const v = n.value; if (Number.isFinite(v?.along)) return true; if (!Number.isFinite(v?.x) || v.kept) return false; const b = v.loose && byRecord.get(n.pattern.id); return !b || !givesWay(b); };
   const composed = !opts.holds?.size && boxes.length + lines.length <= Layout.BIG && N.value('Plan', { id: view, kind: 'View' }) == null && !shapeRows.some(r => !r.master && !r.role && r.geometry !== 'legend') && !N.notes('Bend').some(n => n.view === view) && !N.notes('Position').some(n => n.view === view && arrangedBy(n));
-  if (composed) for (const [id, p] of placeOf) if (p?.pos.kept) placeOf.set(id, null);  // (One that gives way goes beside its relatives on the side it was made on: its place is the layout's `hint`.)
+  if (composed) for (const [id, p] of placeOf) if (p?.pos.kept) placeOf.set(id, null);
+  // (One that gives way goes beside its relatives on the side it was made on: its place is the layout's `hint`.)
   const positions = new Map(), hints = new Map();
   // (The master's own page is on the paper of the chart's first; so what's on it keeps its corner on a page of any other.)
   const masterSheet = masterRows.length ? pageOf(N, pagesOf(N, state)[0] ?? view) : null, onView = view === MASTER ? opts.masterOf ?? view : view;
@@ -1396,7 +1397,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     yield;
     if (last) still(last, boxes, lines, frames);
-    const furnished = () => furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? (composed ? null : keyRow.kept) ?? null, ceil, held, own: ownPage, masterSheet });
+    const furnished = () => furnish({ sheet, boxes, lines, frames, shapes: onPage, said, legend: legendRows, last, placedBy, placed: positions.size > 0 && !onPaper, keptAt: onPaper || !keyRow ? null : opts.holds?.get(keyRow.shape) ?? (composed ? null : keyRow.kept) ?? null, ceil, held, own: ownPage, masterSheet, typed: typedTexts.length > 0 });
     let laid = furnished();
     // The Key, wherever it stands, by a hand or the page's where the page has no other room for it: no line runs under it where the router has another way.
     const dropped = !last && laid.shapes.find(m => m.geometry === 'legend');
@@ -2697,7 +2698,7 @@ const obstaclesOf = rows => rows.filter(r => r.x != null && r.y != null && !['li
 // margins, a line to one a hand put and a frame round one stay there, over the margin or off the sheet, and neither move
 // nor rescale the chart, and the Key goes over them rather than rescale it. A preview keeps the page as it was.
 // → { s, dx, dy, shapes, places: rowId → { x, y }, placed }, in the page's pixels.
-function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placed = false, keptAt = null, ceil = 1, held = null, own: ownPage = null, masterSheet = sheet }) {
+function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: legendRows, last, placedBy, placed = false, keptAt = null, ceil = 1, held = null, own: ownPage = null, masterSheet = sheet, typed = false }) {
   const W = sheet.w, H = sheet.h, { left: ML, right: MR, top: MT, bottom: MB } = sheet.margins, hands = new Set(boxes.filter(b => b.hand).map(b => b.id));
   // What the chart draws, each as a rect, those of what a hand put `hand`: a box, and a line bent or to one it put; and of those, `exact`, what a hand put exactly there, which the Key alone goes over.
   const handIn = f => inFrame(frames, f).some(id => hands.has(id)), exacts = new Set(boxes.filter(b => b.exact).map(b => b.id));
@@ -2773,7 +2774,8 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     // The chart as rects on the sheet: placed, where it stands, moved right as far as keeps it off the left margin; else
     // across the middle. A shape placed by hand is the page's, where it was put (see Free shapes): no part of the chart,
     // which it never moves, but what the Key keeps clear of, on the sheet.
-    const drawn = over ? rects.filter(r => !r.exact) : rects, free = shapes.filter(m => !byPage(m) && m.geometry !== 'group').map(m => ({ x: m.x * s, y: m.y * s, w: m.w * s, h: m.h * s }));
+    // (As a chart falls with sizes typed, its words only grow on it: it can't make room so, and the Key goes over what's placed.)
+    const drawn = over ? (typed ? mine : rects.filter(r => !r.exact)) : rects, free = shapes.filter(m => !byPage(m) && m.geometry !== 'group').map(m => ({ x: m.x * s, y: m.y * s, w: m.w * s, h: m.h * s }));
     let dx = !boxes.length ? 0 : fresh ? (ML + (W - ML - MR - E.w * s) / 2) / s - E.x : some ? Math.max(hx, ML / s - E.x) : hx;
     if (!fresh && boxes.length) top = some ? Math.max(top, (E.y + hy) * s) : hy * s;
     const set = t => drawn.map(r => ({ x: (r.x + dx) * s, y: (r.y + t / s - E.y) * s, w: r.w * s, h: r.h * s, hand: r.hand }));

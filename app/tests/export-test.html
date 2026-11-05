@@ -983,7 +983,7 @@ async function run() {
       const up = A.scene.peek(), o = onSheet(up);
       check('Fit to page holds the chart as large as it holds, up as well as down, in the middle of its room, one change', up.page.scale >= was.page.scale && Math.abs(o.left - (o.W - o.right)) < 3 && A.wb.changes().length === n0 + 1, j([was.page.scale, up.page.scale, o]));
       X.fit(); await tick(300);
-      check('… and asked again, it says it already fills its page, and writes nothing', A.wb.changes().length === n0 + 1 && /already fills its page/.test([...document.querySelectorAll('.toast')].at(-1)?.textContent ?? ''), [...document.querySelectorAll('.toast')].at(-1)?.textContent);
+      check('… and asked again, it says it already fills its page, and writes nothing', A.wb.changes().length === n0 + 1 && /already fills its page/.test([...f.contentDocument.querySelectorAll('.toast')].at(-1)?.textContent ?? ''), [...f.contentDocument.querySelectorAll('.toast')].at(-1)?.textContent);
       S.parts.peek().undo.undo(); await tick(300);
     }
     f.remove();
