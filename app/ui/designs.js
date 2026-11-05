@@ -487,11 +487,13 @@ function saveToHouse(d) {
 // ---- What a box's right-click offers ----
 function items(ms, ro) {
   if (editing.peek()) return [];
-  const can = makeable(ms), one = ms.length === 1 && ms[0].type === 'box' ? ms[0] : null, overs = !!one?.design?.overs.length;
+  const one = ms.length === 1 && ms[0].type === 'box' ? ms[0] : null, overs = !!one?.design?.overs.length;
   // (Where there's more than editing it, one row, so the box's menu fits the window it opens in.)
   const rows = one ? [{ label: 'Edit design', disabled: ro, run: () => edit(one) }, ...(overs ? [{ label: 'Reset to design', disabled: ro, run: () => reset(one) }] : []), ...(one.design ? [{ label: 'Save to house style…', run: () => saveToHouse(one.design.value) }] : [])] : [];
-  return [...(can ? [{ label: 'Make a design…', disabled: ro, run: () => make(ms) }] : []), ...(rows.length > 1 ? [{ label: 'Design', items: rows }] : rows)];
+  return rows.length > 1 ? [{ label: 'Design', items: rows }] : rows;
 }
+// What a selection of shapes or a group offers beside its Format: to be made a design, where it can be one.
+const makes = (ms, ro) => !editing.peek() && makeable(ms) ? [{ label: 'Make a design…', disabled: ro, run: () => make(ms) }] : [];
 // A row of Styles or the Key double-clicked, by its outputs: the design of the first box it reaches.
 function editRow(g) {
   const sc = canvas()?.scene(), m = sc && sc.marks.find(b => b.type === 'box' && b.settings.Design?.value && g.outputs.some(p => b.design && Tree.key(p) === Tree.key(b.design.note.pattern)));
@@ -510,5 +512,5 @@ for (const [id, name, names, run, enabled, why] of [
   ['design.discard', 'Discard the changes to the design', ['Cancel the design'], () => leave(false), () => !!editing.peek(), () => 'No design is being edited'],
 ]) Shell.register('action', { id, name, names, run, enabled, why });
 
-return { open, say, atPen, tokenIn, reset, edit, make, items, dropped, addWords, editRow, editing, leave, forRecord, Parts, Words, Holds, nameOf: row => { const e = editing.peek(), b = e && canvas()?.scene()?.byId.get(e.box); return nameOf(row, b); } };
+return { open, say, atPen, tokenIn, reset, edit, make, items, makes, dropped, addWords, editRow, editing, leave, forRecord, Parts, Words, Holds, nameOf: row => { const e = editing.peek(), b = e && canvas()?.scene()?.byId.get(e.box); return nameOf(row, b); } };
 })();

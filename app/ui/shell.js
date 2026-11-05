@@ -77,7 +77,7 @@
 // iconMarkup(name), the same as HTML;
 // store.get/set, this browser's settings; widen() and narrow(), and gliding, a signal true while the inspector
 // glides in or out, so the view's slot has settled once it's false again; theme. A menu item is '-', { head }, or
-// { label, detail?, keys?, checked?, disabled?, tip?, danger?, run?, items?, point?, icon?, glyph?, font? }, an icon by Shell.icon's name or a
+// { label, detail?, keys?, checked?, disabled?, tip?, danger?, run?, items?, point?, icon?, glyph?, font?, art? }, a tile where it has `art` (a drawing as markup, its label said on hover), an icon by Shell.icon's name or a
 // glyph drawn before its label, its label in a font where `font` (a CSS family) says; one without run or items is
 // shown, not chosen, and one with point(on) shows what it would do while it's pointed at or reached by the keys; `tip`, its
 // tooltip, says why one is disabled.
@@ -90,7 +90,7 @@ const Shell = (() => {
   const { h, render } = preact;
   const { useEffect, useLayoutEffect, useRef, useState } = preactHooks;
   const { signal, computed, effect, batch } = preactSignals;
-  const { computePosition, autoUpdate, offset, flip, shift } = FloatingUIDOM;
+  const { computePosition, autoUpdate, offset, flip, shift, size } = FloatingUIDOM;
   const html = htm.bind(h);
   const store = {
     get: k => { try { return localStorage.getItem('dendra.' + k); } catch { return null; } },
@@ -240,7 +240,7 @@ const Shell = (() => {
   let keyed = false;
   const hand = on => { if (keyed === on) return; keyed = on; usingKeys.value = on; document.documentElement.dataset.hand = on ? 'keys' : 'mouse'; };
   document.documentElement.dataset.hand = 'mouse';
-  const takesThem = e => /^(Tab|Home$|End$|Page|F(1|6|8|10)$|Delete$|ContextMenu$|\?$)/.test(e.key) || (e.key.startsWith('Arrow') && (((e.ctrlKey || e.metaKey) && e.altKey) || !e.target.closest?.('.dc'))) || ((e.ctrlKey || e.metaKey) && /^[kK/-]$/.test(e.key));
+  const takesThem = e => /^(Tab|Home$|End$|Page|F(1|6|8|10)$|ContextMenu$|\?$)/.test(e.key) || (e.key === 'Delete' && !e.target.closest?.('.dc')) || (e.key.startsWith('Arrow') && (((e.ctrlKey || e.metaKey) && e.altKey) || !e.target.closest?.('.dc'))) || ((e.ctrlKey || e.metaKey) && /^[kK/-]$/.test(e.key));
   addEventListener('keydown', e => {
     if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return;
     if (takesThem(e)) hand(true);
@@ -442,9 +442,12 @@ const Shell = (() => {
   const popover = (anchor, draw, o = {}) => openFloat({ kind: 'pop', anchor, draw, ...o });
   const closeAll = () => floats.peek().forEach(x => x.close());
   const virtual = p => ({ getBoundingClientRect: () => ({ x: p.x, y: p.y, left: p.x, top: p.y, right: p.x, bottom: p.y, width: 0, height: 0 }) });
+  // A layer hangs from what opened it, never over it: too tall for the room, it scrolls inside (--room, what its .menu or .pop may take). A
+  // flyout, or a menu at the pointer, has no trigger to hang from, and slides along it to fit the window.
   function place(anchor, el, placement, gap = 4) {
-    const ref = anchor instanceof Element ? anchor : virtual(anchor);
-    const update = () => computePosition(ref, el, { strategy: 'fixed', placement, middleware: [offset(gap), flip({ padding: 8 }), shift({ padding: 8, crossAxis: true })] })
+    const ref = anchor instanceof Element ? anchor : virtual(anchor), hangs = anchor instanceof Element && /^(top|bottom)/.test(placement);
+    const room = hangs ? [size({ padding: 8, apply: ({ availableHeight }) => el.style.setProperty('--room', `${Math.max(120, Math.floor(availableHeight))}px`) })] : [];
+    const update = () => computePosition(ref, el, { strategy: 'fixed', placement, middleware: [offset(gap), flip({ padding: 8 }), ...room, shift({ padding: 8, crossAxis: !hangs })] })
       .then(({ x, y }) => { el.style.left = x + 'px'; el.style.top = y + 'px'; });
     if (!(anchor instanceof Element)) { update(); return () => {}; }
     return autoUpdate(ref, el, update);
@@ -454,12 +457,14 @@ const Shell = (() => {
     useLayoutEffect(() => {
       const el = ref.current;
       el.showPopover?.();
-      const stop = place(f.anchor, el, f.placement || 'bottom-start', f.gap);
+      const stop = place(f.anchor, el, f.placement || 'bottom-start', f.gap), owner = f.anchor instanceof Element && !f.parent ? f.anchor : null;
       // A menu takes the keys; a popover, the control it marks autofocus, or else its first, unless what it
       // draws took focus itself.
       if (f.kind === 'menu') (el.querySelector('.menu-find') || el.querySelector('.menu'))?.focus({ preventScroll: true });
       else if (!el.contains(document.activeElement)) (el.querySelector('[autofocus]') ?? tabbables(el)[0])?.focus({ preventScroll: true });
-      return stop;
+      // What opened it says so, while it's open.
+      owner?.setAttribute('data-open', '');
+      return () => { stop(); owner?.removeAttribute('data-open'); };
     }, []);
     return html`<div class="float in" popover="manual" ref=${ref}>
       ${f.kind === 'menu' ? html`<${Menu} f=${f} />` : html`<div class="pop" role="dialog">${f.draw(f.close, f.id)}</div>`}</div>`;
@@ -572,10 +577,13 @@ const Shell = (() => {
       const k = live.indexOf(active);
       setAct(live[k < 0 ? (d > 0 ? 0 : live.length - 1) : (k + d + live.length) % live.length]);
     };
+    // A menu of tiles is one to look at: drawings across, the arrows going across and down them as they're drawn.
+    const tiled = items.some(it => it?.art), across = tiled ? 3 : 1;
     const onKey = e => {
       const it = items[active];
-      if (e.key === 'ArrowDown') move(1);
-      else if (e.key === 'ArrowUp') move(-1);
+      if (it?.art && (e.key === 'ArrowRight' || (e.key === 'ArrowLeft' && !(f.parent && live.indexOf(active) % across === 0)))) move(e.key === 'ArrowRight' ? 1 : -1);
+      else if (e.key === 'ArrowDown') move(it?.art ? Math.min(across, live.length - 1 - live.indexOf(active)) || 1 : 1);
+      else if (e.key === 'ArrowUp') move(it?.art ? -Math.min(across, live.indexOf(active)) || -1 : -1);
       else if (e.key === 'Home' && !f.search) setAct(live[0]);
       else if (e.key === 'End' && !f.search) setAct(live[live.length - 1]);
       else if (it?.seg && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { const n = it.seg[it.seg.findIndex(s => s.pressed) + (e.key === 'ArrowRight' ? 1 : -1)]; if (n && !n.pressed) n.run(); }
@@ -598,17 +606,18 @@ const Shell = (() => {
     useEffect(() => { if (!pointed) return; pointed(true); return () => pointed(false); }, [pointed]);
     // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
     const at = active >= 0 && items[active] ? mi(active) : null;
-    return html`<div class=${'menu' + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${f.search ? null : at} onKeyDown=${onKey}>
+    return html`<div class=${'menu' + (tiled ? ' tiled' : '') + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${f.search ? null : at} onKeyDown=${onKey}>
       ${f.search ? html`<${Field} q=${q} at=${at} onQuery=${t => { setQ(t); setAct(-1); }} />` : null}
       ${items.map((it, i) => it === '-' ? html`<div class="menu-sep" role="separator" />`
         : it.head ? html`<div class="menu-head" role="presentation">${it.head}</div>`
         : it.seg ? html`<div class=${'menu-seg' + (i === active ? ' on' : '')} id=${mi(i)} role="radiogroup">${it.seg.map(s => html`<button tabindex="-1" role="radio" aria-checked=${!!s.pressed} aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
         : html`<div role=${it.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked=${it.checked === undefined ? null : !!it.checked} id=${mi(i)}
-            aria-disabled=${it.disabled ? 'true' : null} aria-haspopup=${it.items ? 'menu' : null} data-tip=${it.tip ?? null} aria-description=${it.tip ?? null}
-            class=${'menu-item' + (i === active || it.lit ? ' on' : '') + (it.items ? ' sub' : '') + (it.danger ? ' danger' : '') + (selectable(it) || it.disabled ? '' : ' said')}
+            aria-disabled=${it.disabled ? 'true' : null} aria-haspopup=${it.items ? 'menu' : null} data-tip=${it.tip ?? (it.art ? it.label : null)} aria-description=${it.tip ?? null}
+            class=${'menu-item' + (it.art ? ' tile' : '') + (i === active || it.lit ? ' on' : '') + (it.items ? ' sub' : '') + (it.danger ? ' danger' : '') + (selectable(it) || it.disabled ? '' : ' said')}
             onPointerMove=${() => { if (i !== act && selectable(it)) { setAct(i); if (it.items) openSub(it, el(i)); else floats.peek().filter(x => x.parent === f.id).forEach(x => x.close()); } }}
             onClick=${() => selectable(it) && run(it)}>
-            ${checks ? html`<span class="check">${it.checked ? icon('check') : null}</span>` : null}
+            ${checks && !it.art ? html`<span class="check">${it.checked ? icon('check') : null}</span>` : null}
+            ${it.art ? html`<span class="art" dangerouslySetInnerHTML=${{ __html: it.art }} />` : null}
             ${it.icon || it.glyph ? html`<span class="glyph">${it.glyph ?? icon(it.icon)}</span>` : null}
             <span class="label" style=${it.font ? `font-family:${it.font}` : null}>${marked(it.label, it.ranges)}</span>
             ${it.detail ? html`<span class="detail">${it.detail}</span>` : null}
@@ -739,23 +748,16 @@ const Shell = (() => {
     t.arm();
     return dismiss;
   }
-  // A toast never covers what's being worked on: the field being typed in, the cell or box selected, or the pointer.
-  // It stands at the foot of the view, in its middle; where that covers one of them, at its foot's left, its right,
-  // or its top, the first that's clear. It's placed as it comes and again as the selection or the keys move, never
-  // as the pointer does, so its Undo stays where it was seen; and in each place it takes no click for a moment, so a
-  // click meant for what was there goes there.
-  let pointer = null;
-  addEventListener('pointermove', e => { pointer = { x: e.clientX, y: e.clientY }; }, { capture: true, passive: true });
-  const busy = () => {
+  // A toast has one home: the foot of the view, in its middle, wherever the pointer or the selection is. Only a field being typed in, which it mustn't hide,
+  // sends it up, just clear of that field, for as long as that's so. It's placed as it comes and again as the keys move, never as the pointer does, so its
+  // Undo stays where it was seen; and just placed it takes no click for a moment, so a click meant for what was there goes there.
+  const typedIn = () => {
     const out = [], add = el => { const r = el?.getBoundingClientRect?.(); if (r && r.width + r.height > 0) out.push(r); };
     const a = document.activeElement;
     if (a && a !== document.body && a.matches?.(TYPED) && !a.closest('.toasts')) add(a);
-    document.querySelectorAll('#view .tabulator-range-cell-active, #view .tabulator-editing, #view .dc-edit').forEach(add);
-    for (const k of selection.peek().slice(0, 40)) { const id = String(k).split('@')[0]; document.querySelectorAll(`#view [data-cell-id="${CSS.escape(id)}"]`).forEach(add); }
-    if (pointer) out.push(new DOMRect(pointer.x - 12, pointer.y - 12, 24, 24));
+    document.querySelectorAll('#view .tabulator-editing, #view .dc-edit').forEach(add);
     return out;
   };
-  const overlap = (a, b, pad = 8) => Math.max(0, Math.min(a.right + pad, b.right) - Math.max(a.left - pad, b.left)) * Math.max(0, Math.min(a.bottom + pad, b.bottom) - Math.max(a.top - pad, b.top));
   let settling = 0;
   function placeToasts(fresh = false) {
     const el = document.querySelector('.toasts'), view = document.getElementById('view')?.getBoundingClientRect();
@@ -764,17 +766,13 @@ const Shell = (() => {
     if (!fresh && el.matches(':hover')) return;
     const was = el.style.translate;
     el.style.translate = '';
-    // (And clear of what's drawn on a chart, at the page's foot or what was just made, where it can be.)
-    const r = el.getBoundingClientRect(), hit = [...busy(), ...[...document.querySelectorAll('#view .x6-node')].filter(n => n.getAttribute('data-cell-id') !== '·page').map(n => n.getBoundingClientRect())], gap = 16;
-    const at = [[0, 0], [view.left + gap - r.left, 0], [view.right - gap - r.right, 0], [0, view.top + gap - r.top]];
-    const cost = ([dx, dy]) => hit.reduce((s, b) => s + overlap(new DOMRect(r.left + dx, r.top + dy, r.width, r.height), b), 0);
-    const [dx, dy] = at.find(p => !cost(p)) ?? at.reduce((x, p) => cost(p) < cost(x) ? p : x);
-    const now = dx || dy ? `${Math.round(dx)}px ${Math.round(dy)}px` : '';
+    el.style.left = `${Math.round(view.left + view.width / 2)}px`;
+    const r = el.getBoundingClientRect(), under = typedIn().filter(b => b.left < r.right + 8 && b.right > r.left - 8 && b.top < r.bottom + 8 && b.bottom > r.top - 8);
+    const now = under.length ? `0 ${Math.round(Math.min(...under.map(b => b.top)) - 8 - r.bottom)}px` : '';
     el.style.translate = now;
     if (fresh || now !== was) { el.classList.add('settling'); clearTimeout(settling); settling = setTimeout(() => el.classList.remove('settling'), 400); }
   }
   const replace = () => requestAnimationFrame(() => placeToasts());
-  on('select', replace);
   document.addEventListener('focusin', replace);
   document.addEventListener('keyup', e => { if (/^(Arrow|Tab|Enter|Page|Home|End)/.test(e.key)) replace(); });
   function Toasts() {
