@@ -1178,9 +1178,13 @@ const App = (() => {
   }
   // Inserting one between (dendra.md, Time): a stake that a record of the kinds can stand in the middle of. A relation's
   // amount is a percentage of what it holds, so the new one's 100% of that, the old holder's, says the same.
+  // In a chart that says no figures, any relation that ranks its boxes takes one between: a manager's manager.
   function interposable(rid, recs = entered.peek()) {
     const tr = recs[rid] && transferable(rid, recs);
-    return !!tr?.amount && recs[tr.amount].field === 'percent' && takers(rid, '').kinds.some(k => fitsBetween(rid, recs, tr, { kind: k }));
+    if (!tr) return false;
+    const figured = Object.values(schema.peek()).some(s => s.args?.length === 1 && s.out?.field === 'percent' && s.args[0].loc.args);
+    const ranks = () => { const a = notes.peek().value('Above', Tree.bare(Tree.treeOf(recs, rid)), Shell.view.peek()); return a !== 'none' && a !== 'level'; };
+    return (tr.amount ? recs[tr.amount].field === 'percent' : !figured && ranks()) && takers(rid, '').kinds.some(k => fitsBetween(rid, recs, tr, { kind: k }));
   }
   // The word for it, by the kind that would stand between them: Insert an entity between…
   function interposeWord(rid, recs = entered.peek()) {
@@ -1194,7 +1198,7 @@ const App = (() => {
     const up = tx.add('record', { args: [{ edge: tr.first.edge, at: tr.first.at }, { edge: tr.rest[0].edge, at: mid }], ...('choice' in r ? { choice: r.choice } : { tag: true }) }, o.up ?? undefined);
     const start = startOf(tx.asOf(d)[up], tx.asOf(d));
     if (start) tx.add('record', { at: up, edge: start, field: 'date', value: d }, o.keepUp?.(start));
-    for (const x of entries) if (at[x].field === amt.field && at[x].value === amt.value) tx.add('record', { at: up, edge: at[x].edge, field: at[x].field, value: 1 }, o.keepUp?.(at[x].edge));
+    if (amt) for (const x of entries) if (at[x].field === amt.field && at[x].value === amt.value) tx.add('record', { at: up, edge: at[x].edge, field: at[x].field, value: 1 }, o.keepUp?.(at[x].edge));
     return { up, mid };
   }
   // Insert an entity between…: begun as a transfer is, asking whom (a new one named as it's typed, or one the chart has that

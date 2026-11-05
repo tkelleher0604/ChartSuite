@@ -1217,7 +1217,7 @@ async function run() {
     // style of a relation a formula gives. (40 Act, its filter and its affiliates' styles and all, put first for this.)
     Shell.parts.peek().views.move(act.id, 0); await tick(150);
     await show(main);
-    items().find(x => x.label === 'New chart').run(); await tick(400);
+    App.newChart(); await tick(400);
     const fresh = App.chart.peek(), N = App.notes.peek(), v0 = App.views.peek().find(v => v.layout === 'chart')?.id, at = n => n.view === v0;
     $('.chartmenu.naming input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(80);
     check('a new chart takes the house look, the first chart view’s: its looks and frames, the kinds it keeps off the page, no filter, no affiliates’ style',
@@ -2901,6 +2901,7 @@ async function format() {
 }
 
 // New charts: the gallery and the templates, on the sample as it opens.
+const j2 = x => JSON.stringify(x);
 async function templates() {
   await until(() => App.views.peek().length && sc(), 15000);
   const sample = App.chart.peek(), wb = () => App.wb;
@@ -2981,6 +2982,20 @@ async function templates() {
   check('a person’s end is End…', App.deleteVerb([boss]) === 'End', App.deleteVerb([boss]));
   check('… as a fund’s is Dissolve', (() => { const t = Templates.of('fund-structure'); return t.rows.some(r => r.label === 'End' && r.pattern.args[0].edge === 'Dissolution Date') && App.actOf('Dissolution Date')?.[0] === 'Dissolve'; })());
   check('its Title shows blank on its box, to type into', sc().byId.get(boss)?.texts.some(it => it.blank?.edge === 'Title'), sc().byId.get(boss)?.texts.map(i => i.text).join());
+  let rep, line; App.change(tx => { rep = tx.add('record', { kind: 'Person' }); tx.add('record', { at: rep, edge: 'Name', field: 'text', value: 'Mo Haddad' }); line = tx.add('record', { args: [{ edge: 'Manager', at: boss }, { edge: 'Report', at: rep }], tag: true }); }); await tick(200);
+  check('in a chart that says no figures, a line takes one between, by its kind’s word', App.interposable(line) && App.interposeWord(line) === 'Insert a person between…', App.interposeWord(line));
+  check('… as a fund’s still takes an entity', (() => { const t = Templates.of('fund-structure'); return t.rows.some(r => r.tree?.out?.field === 'percent' && r.tree.args?.[0]?.edge === 'Percentage'); })());
+  // A couple's child, begun from one of them.
+  App.begin({ template: 'family-tree', name: 'Pair' }); await tick(400);
+  let he, she; App.change(tx => { he = tx.add('record', { kind: 'Person' }); tx.add('record', { at: he, edge: 'Name', field: 'text', value: 'Tom Hale' }); she = tx.add('record', { kind: 'Person' }); tx.add('record', { at: she, edge: 'Name', field: 'text', value: 'Rose Hale' }); tx.add('record', { args: [{ edge: 'Spouse', at: she }, { edge: 'Partner', at: he }], tag: true }); }); await tick(300);
+  check('a box’s right-click on a family tree adds what the tree draws', Shell.parts.peek().inspector.adds(she).map(x => x.label).join() === 'Add parent…,Add child…,Add spouse…', Shell.parts.peek().inspector.adds(she).map(x => x.label).join());
+  Shell.select([she]); await tick(150);
+  Shell.parts.peek().inspector.adds(she).find(x => x.label === 'Add child…').run({ x: 300, y: 300 }); await tick(150);
+  const find = $('.float .menu input'); find.value = 'Ada Hale'; find.dispatchEvent(new Event('input', { bubbles: true })); await tick(80);
+  check('a child of one of a couple is offered as of both first', menuItems()[0] === 'New Person: Ada Hale, with Tom Hale' && menuItems()[1] === 'New Person: Ada Hale', menuItems().join(' | '));
+  $$('.float .menu-item')[0].click(); await tick(150); App.commit(); await tick(350);
+  const ada = Object.keys(App.state.peek()).find(id => App.notes.peek().nameOf(App.state.peek(), id) === 'Ada Hale' && App.state.peek()[id].kind), fromBoth = [she, he].map(p => sc().marks.find(m => m.type === 'line' && m.from === p && m.to === ada));
+  check('… one change, a line from each, drawn as one', fromBoth.every(Boolean) && j2(fromBoth[0].points.slice(1)) === j2(fromBoth[1].points.slice(1)), j2(fromBoth.map(l => l?.points)));
   const kept = wb().charts().find(c => c.chart === blankChart);
   check('the chart it was begun from stands as it was', !!kept && wb().asOf(sample, App.day.peek())['fund']?.kind === 'Entity');
 }

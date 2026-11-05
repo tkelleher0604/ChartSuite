@@ -24,7 +24,7 @@ Templates.register({
     t.ends('End Date', role);
 
     t.page('structure', 'Structure', 1, { title: { format: { Font: 'Georgia', Bold: false, Color: '#1f3a5f' } }, date: { format: { Size: 10, Color: '#5f6b78' } }, key: { format: { Outline: 'none' } } });
-    t.shown('structure', field('Name'), { Color: '#1c2733' });
+    t.shown('structure', field('Name'));
     t.shown('structure', t.entry('Jurisdiction', {}), { Color: '#5f6b78', Format: 'paren' });
     t.style('structure', individual, 'Individual', { Shape: 'oval' });
     t.style('structure', type('Corporation'), 'Corporation', { Shape: 'rect', Fill: '#eef2f7' });

@@ -9,7 +9,7 @@ Templates.register({
     t.starts('Start Date', person);
     t.ends('End Date', person);
     const reports = t.relation('Reports To', ['Manager', 'Report'], { kinds: [['Person', 'Person']], lists: { Manager: 'Manager', Report: 'Reports' } });
-    const dotted = t.relation('Dotted Line To', ['Dotted Line Manager', 'Dotted Line Report'], { kinds: [['Person', 'Person']], lists: { 'Dotted Line Manager': 'Dotted Line Managers', 'Dotted Line Report': 'Dotted Line Reports' }, above: 'none' });
+    const dotted = t.relation('Dotted Line To', ['Dotted Line Manager', 'Dotted Line Report'], { kinds: [['Person', 'Person']], lists: { 'Dotted Line Manager': 'Dotted Line Managers', 'Dotted Line Report': 'Dotted Line Manager Of' }, above: 'none' });
     t.rule('Direct Reports', { at: person, type: 'number', rows: [['', '= COUNT(Reports)']], about: 'How many people report to this person.' });
     t.rule('Span', { at: person, type: 'number', rows: [['Reports, and all under them', '= COUNT(Reports) + SUM(EACH(Reports, @.Span))']], about: 'How many people are under this person, at every level.' });
     t.rule('Has A Manager', { at: person, check: true, about: 'Everyone reports to someone but the person at the top, who has people reporting to them.', rows: [
@@ -23,7 +23,7 @@ Templates.register({
     t.style('org', { out: { tag: true }, ...reports }, 'Reports to', { Outline: '#3a4653', Weight: 1 });
     t.note('Shown', { out: { tag: true }, ...reports }, true, { view: 'org' });
     t.note('Format', { out: { tag: true }, ...reports }, 'none', { view: 'org' });
-    t.style('org', { out: { tag: true }, ...dotted }, 'Dotted line', { Outline: '#3a4653', Weight: 1, Dash: 'dotted' });
+    t.style('org', { out: { tag: true }, ...dotted }, 'Dotted line', { Outline: '#3a4653', Weight: 1, Dash: 'dashed' });
     t.note('Shown', { out: { tag: true }, ...dotted }, true, { view: 'org' });
     t.note('Format', { out: { tag: true }, ...dotted }, 'none', { view: 'org' });
     t.table('people', 'People', 2, person);

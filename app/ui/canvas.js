@@ -1491,6 +1491,8 @@ function mount(el) {
     const keep = e => e.preventDefault();
     const set = i => { at = (i + ks.length) % ks.length; label.textContent = ks[at]; ed.dataset.ph = `New ${lowered(ks[at])}`; chip.setAttribute('aria-label', `Kind: ${ks[at]}`); pick(ks[at]); };
     const shut = () => { const was = pane; pane = null; was?.remove(); chip.setAttribute('aria-expanded', 'false'); };
+    // (The keys back in the name, after what's been typed of it.)
+    const toName = () => { ed.focus(); const r = document.createRange(), s = getSelection(); r.selectNodeContents(ed); r.collapse(false); s.removeAllRanges(); s.addRange(r); };
     const open = () => {
       pane = document.createElement('div');
       pane.className = 'menu dc-kinds';
@@ -1502,7 +1504,7 @@ function mount(el) {
         o.setAttribute('aria-selected', String(i === at));
         o.innerHTML = `<span class="check">${i === at ? Shell.iconMarkup('check') : ''}</span><span class="label"></span>`;
         o.lastChild.textContent = k;
-        o.addEventListener('pointerdown', e => { keep(e); set(i); shut(); });
+        o.addEventListener('pointerdown', e => { keep(e); const away = pane.contains(document.activeElement); set(i); shut(); if (away) toName(); });
         return o;
       }));
       // A kind of a new name, typed under them: the keys go to it for as long as that takes, and back to the name.
@@ -1515,8 +1517,8 @@ function mount(el) {
           e.preventDefault();
           const name = Tree.clean(typed.value), had = ks.findIndex(k => Tree.same(k, name));
           if (name) { if (had < 0) ks.push(name); set(had < 0 ? ks.length - 1 : had); }
-          shut(); ed.focus();
-        } else if (e.key === 'Escape') { e.preventDefault(); shut(); ed.focus(); }
+          shut(); toName();
+        } else if (e.key === 'Escape') { e.preventDefault(); shut(); toName(); }
       });
       typed.addEventListener('blur', e => { if (pane && e.relatedTarget !== ed) leave(); });
       pane.append(typed);
@@ -1525,7 +1527,7 @@ function mount(el) {
       Object.assign(pane.style, { left: `${chip.offsetLeft}px`, top: `${chip.offsetTop + chip.offsetHeight + 4}px` });
       chip.setAttribute('aria-expanded', 'true');
     };
-    chip.addEventListener('pointerdown', e => { keep(e); if (e.button === 0) pane ? shut() : open(); });
+    chip.addEventListener('pointerdown', e => { keep(e); if (e.button === 0) { if (pane) { const away = pane.contains(document.activeElement); shut(); if (away) toName(); } else open(); } });
     set(at);
     // At the name's right, level with it; or at its left, where the right runs off the view.
     const x = ed.offsetLeft + ed.offsetWidth + 6;

@@ -68,12 +68,12 @@ const Gallery = (() => {
     </div>`;
   }
   // Begins what's chosen. `workbook`, in a workbook of its own. → the change, or nothing where it's left.
-  async function open({ workbook = false, then = null } = {}) {
+  async function open({ workbook = false, then = null, title = workbook ? 'New workbook' : 'New chart' } = {}) {
     if (!workbook && App.readOnly.peek()) return Shell.toast(App.whyNot());
     const shown = !!App.chart.peek();
     const cards = [...Templates.list().map(t => ({ id: t.id, name: t.name, draw: () => drawingOf(t) })), ...(shown ? [{ id: LIKE, name: 'Like this chart', draw: drawingOfShown }] : [])];
     const last = Shell.store.get('template'), choice = { at: cards.some(c => c.id === last) ? last : cards[0].id, name: '', style: null };
-    const go = await Shell.dialog({ title: workbook ? 'New workbook' : 'New chart', width: 880, actions: [{ label: 'Cancel', value: false }, { label: 'Begin', value: true, primary: true }],
+    const go = await Shell.dialog({ title, width: 880, actions: [{ label: 'Cancel', value: false }, { label: 'Begin', value: true, primary: true }],
       body: settle => html`<${Body} cards=${cards} choice=${choice} begin=${() => settle(true)} />` });
     if (!go) return;
     Shell.store.set('template', choice.at);

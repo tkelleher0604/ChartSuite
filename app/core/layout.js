@@ -780,7 +780,8 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
     // row's boxes sliding apart by the least that's needed, in their order (see roomBeside); what's dropped or tidied around
     // what stands moves nothing. Only where the row is full, on a page that stays as it is, is it put in a row of its own.
     if (sib && inRow.length) {
-      const y = Math.max(m / 2, sib.y), toward = hint ? Math.sign(x0 + b.w / 2 - cx) || 1 : -1;
+      // (Where nothing says which side, in a chart whose lines say no figure the next of them goes after the last, reading across.)
+      const y = Math.max(m / 2, sib.y), toward = hint ? Math.sign(x0 + b.w / 2 - cx) || 1 : page.room?.plain ? 1 : -1;
       let found = null;
       for (let i = 0; i < 600 && !found; i++) for (const dir of i ? [toward, -toward] : [toward]) {
         const q = { x: Math.max(m / 2, from + dir * i * 8), y, w: b.w, h: b.h };

@@ -43,8 +43,8 @@ const Templates = (() => {
     return ids;
   }
 
-  // The rows of a template written by hand: `write` is given a pen with what a template says, in the terms of the rest of
-  // the design, and the rows are what it wrote. (The fund template's are generated from the sample, as they stand.)
+  // The rows of a template written by hand: `write` is given what a template says, in the terms of the rest of the design,
+  // and the rows are what it wrote. (The fund template's are generated from the sample, as they stand.)
   function rows(write) {
     const out = [], entry = (edge, loc) => ({ args: [{ edge, loc }] }), output = type => type === 'tag' ? { tag: true } : { field: type };
     const note = (label, pattern, value, o = {}) => { out.push({ label, pattern, value, ...o }); };
@@ -57,14 +57,14 @@ const Templates = (() => {
       });
     };
     const sidesOf = sides => ({ args: sides.map(edge => ({ edge, loc: {} })) });
-    const pen = {
+    const says = {
       note,
       entries,
       entry,
       kind: (kind, list) => { out.push({ tree: { kind } }); entries({ kind }, list); },
       // A relation of two sides: its name, its sides (the first drawn on top, unless it says `above`), the kinds at each,
-      // its lists' names, and what's entered at it; `out`, its output where it isn't a tag: a list of roles (Director,
-      // Officer), or a datatype. → its pattern.
+      // its lists' names, what's entered at it (`at`), and `roles`, its options where it isn't a yes-or-no (Director, Officer).
+      // → its pattern.
       relation(name, sides, { kinds, lists = {}, at, roles, above } = {}) {
         const p = sidesOf(sides), outs = roles ? roles.map(choice => ({ choice })) : [{ tag: true }];
         for (const pair of kinds ?? [[]]) for (const o of outs) {
@@ -117,7 +117,7 @@ const Templates = (() => {
         for (const [label, value] of Object.entries(looks)) note(label, pattern, value, { view });
       },
     };
-    write(pen);
+    write(says);
     return out;
   }
   return { register, list, of, begin, exampleOf, rows };

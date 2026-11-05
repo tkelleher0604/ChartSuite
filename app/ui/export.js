@@ -1063,6 +1063,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const [format, setFormat] = useState(choice.format), [ids, setIds] = useState(choice.views), [paper, setPaper] = useState(choice.paper);
     const [all, setAll] = useState(choice.all), [full, setFull] = useState(null), [fits, setFits] = useState(0);
     const drawn = format === 'pptx' || format === 'pdf', table = format.startsWith('x') ? others[+format.slice(1)] : null;
+    // (A chart with no date to put on one offers no calendar.)
+    const dated = useMemo(() => dates(App.computed.peek(), App.notes.peek(), App.day.peek()).length > 0, []);
     const scenes = useMemo(() => drawn ? views(paper) : [], [drawn, paper, fits]);
     const chosen = scenes.filter(s => ids.includes(s.view));
     Object.assign(choice, { format, views: ids, paper, all, scenes: chosen });
@@ -1078,7 +1080,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const open = Shell.problems().filter(c => c.kind !== 'soon'), broke = FormulaBar.brokenSaid();
     return html`<div class="ex">
       <div class="ex-pick">
-        <${Shell.Pick} label="Format" value=${format} onPick=${v => { setFull(null); setFormat(v); }} options=${[...FORMATS.filter(([f]) => here || f === 'ics').map(([f, name]) => [f, name]), ...others.map((x, i) => [`x${i}`, x.name])]} />
+        <${Shell.Pick} label="Format" value=${format} onPick=${v => { setFull(null); setFormat(v); }} options=${[...FORMATS.filter(([f]) => f === 'ics' ? format === 'ics' || dated : here).map(([f, name]) => [f, name]), ...others.map((x, i) => [`x${i}`, x.name])]} />
         ${drawn ? html`<${Shell.Pick} label="Page size" value=${paper} onPick=${v => { setFull(null); setPaper(v); }} options=${[...differ ? [[OWN, 'Each view’s page']] : [], ...Object.entries(PAPERS)]} />` : null}
         ${table?.says ? html`<div class="menu-seg ex-rows" role="group" aria-label="Rows">${[[false, 'As shown'], [true, 'Every row']].map(([v, label]) => html`
           <button type="button" aria-pressed=${all === v} onClick=${() => setAll(v)}>${label}</button>`)}</div>` : null}

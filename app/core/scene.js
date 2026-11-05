@@ -1211,7 +1211,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   }
   // The order boxes are given to the layout in, which it keeps among what's beside each other where it can: the order they were made in, those of a kind whose
   // Order says one of its entries (Born) taking their turns in the order of that, earliest first.
-  const acrossOf = new Map(boxes.map(b => { const by = N.across(state[b.record]?.kind ?? ''), e = by && Tree.entryAt(state, b.record, by); return [b.id, e ? state[e].value ?? null : null]; }));
+  const acrossBy = new Map(), acrossOf = new Map(boxes.map(b => { const k = state[b.record]?.kind ?? ''; if (!acrossBy.has(k)) acrossBy.set(k, N.across(k)); const by = acrossBy.get(k), e = by && Tree.entryAt(state, b.record, by); return [b.id, e ? state[e].value ?? null : null]; }));
   const inTurn = bs => { const valued = bs.filter(b => acrossOf.get(b.id) != null); if (valued.length < 2) return bs; valued.sort((a, b) => (acrossOf.get(a.id) < acrossOf.get(b.id) ? -1 : acrossOf.get(a.id) > acrossOf.get(b.id) ? 1 : 0)); let i = 0; return bs.map(b => acrossOf.get(b.id) != null ? valued[i++] : b); };
   // What the layout reads: the boxes, the lines that rank them, and the frames.
   const ranked = bs => ({

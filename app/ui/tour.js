@@ -167,7 +167,7 @@ const Tour = (() => {
       return () => { clearTimeout(still); clearInterval(timer); removeEventListener('resize', tick); };
     }, [i]);
     if (i < 0) return null;
-    const finish = fresh => { if (name.trim()) store.set('name', name.trim()); end(); if (fresh) Gallery.open({ workbook: true, then: made => { if (made && typeof made !== 'string') Shell.toast('The sample is kept: chart menu, Workbooks', { ms: 9000 }); } }); };
+    const finish = fresh => { if (name.trim()) store.set('name', name.trim()); end(); if (fresh) Gallery.open({ workbook: true, title: 'New chart', then: made => { if (made && typeof made !== 'string') Shell.toast('The sample is kept: chart menu, Workbooks', { ms: 9000 }); } }); };
     // A step is said, and leaves focus in the window to do it; the last card is a dialog, which keeps it.
     const keysNow = Shell.usingKeys.value, act = keysNow && step?.keys ? (typeof step.keys === 'function' ? step.keys() : step.keys) : step?.act;
     return html`

@@ -63,7 +63,7 @@
 // App.deleting(ids, what) or App.transferring(id) (where App.transferable(id)), made by App.commit() and dropped by
 // App.discard(), which says so, with Redo; App.Pending, its bar, the window's one and its one home, which the shell shows
 // under whichever view is shown; App.LookBand, what a look says of itself over it; App.workOn(day), another day's working-out,
-// as showing it would work it out; App.addView; App.who(); App.blank(); App.showMade(tx, ids, view), boxes a change makes
+// as showing it would work it out; App.addView; App.who(); App.begin({ template, style, name, workbook }), a new chart, as the New chart gallery begins it; App.showMade(tx, ids, view), boxes a change makes
 // on a chart shown there by it, where the view would hide them; App.put(id, slot, out, { auto }), a value typed, made at
 // once or asking from when (App.asksFrom), App.held(id), what's pending of it, and App.overriding(id), a computed tag's
 // Rule out… or Attest…; App.interposing(id) (where App.interposable(id)) and App.merging(id); App.spanOf(id), when a record
