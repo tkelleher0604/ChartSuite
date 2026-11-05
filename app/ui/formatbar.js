@@ -245,12 +245,12 @@ function calledBy(s, n) {
   // (A date isn't a counted noun: "12 with Born".)
   if (ps.length && ps.every(p => p.out?.field === 'date')) return `${n} with ${caption}`;
   // A relation's, as its lines: "24 ownership lines".
-  if (ps.length && ps.every(p => p.args?.length > 1 && !Tree.idsIn(p).size)) return `${n} ${caption[0].toLowerCase()}${caption.slice(1)} line${n === 1 ? '' : 's'}`;
+  if (ps.length && ps.every(p => p.args?.length > 1 && !Tree.idsIn(p).size)) return `${n} ${caption.replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase())} line${n === 1 ? '' : 's'}`;
   // What's changed is said as a state: "3 new or changed", "1 gone".
   if (ps.length && ps.every(Scene.isChange)) return `${n} ${caption[0].toLowerCase()}${caption.slice(1)}`;
   // An option named as it is (Delaware) or a tag goes by its entry: "with Jurisdiction Delaware".
   const option = ps.length && ps.every(p => p.out?.choice !== undefined && p.out.choice === caption && p.args?.length === 1);
-  if (option) return `${n} with ${ps[0].args[0].edge} ${caption}`;
+  if (option) return `${n} with ${caption.toLowerCase().startsWith(ps[0].args[0].edge.toLowerCase()) ? caption : `${ps[0].args[0].edge} ${caption}`}`;
   if (caption.includes(':') || (ps.length && ps.every(p => p.out?.tag === true))) return `${n} with ${caption.replace(/:\s*/, ' ')}`;
   // Said in sentence case ("Limited partnership", "Funds", "Not in good standing") or a kind: a common noun, lowered.
   const kind = ps.length && ps.every(p => p.kind && !p.args && !p.out), common = kind || words.slice(1).every(w => !/^[A-Z]/.test(w));
@@ -1109,7 +1109,28 @@ const litOn = (g, page) => (g.style ? marksOf(page, g) : g.marks);
 // ---- The popovers ----
 
 // Fill: the palette, then how transparent it is.
-const FillPop = ({ close, of }) => html`<${Palette} label="Fill" none close=${close} of=${of}>
+// What the page can be coloured by, first in Fill's menu, each by its answers: every choice its boxes have, and every yes-or-no typed by hand (the selected box's first), one click from A look for each.
+function answerable() {
+  const c = Canvas.active.peek(), sc = c?.scene();
+  if (!sc || App.readOnly.peek()) return [];
+  const st = App.state.peek(), R = App.computed.peek(), I = Tree.index(st), seen = new Map();
+  for (const b of [...scopesOf(c).marks.filter(m => m.type === 'box'), ...sc.marks.filter(m => m.type === 'box' && !m.revealed)]) for (const x of I.entries.get(b.record) ?? []) {
+    const r = st[x], k = Tree.norm(r.edge ?? '');
+    if (seen.has(k) || !(Tree.isChoice(r) || (Tree.isTag(r) && !R.computed[x]))) continue;
+    const found = answersOf(x);
+    if (found) seen.set(k, { id: x, name: found.name, says: found.answers.filter(a => 'choice' in a.out).map(a => a.out.choice) });
+  }
+  return [...seen.values()];
+}
+// (Each choice, a row; yes-or-noes where they're few, or else a row of their own, so a chart with a dozen keeps its palette in reach.)
+const ByAnswer = ({ close, of }) => {
+  const list = answerable(), choices = list.filter(x => x.says.length), tags = list.filter(x => !x.says.length), rows = tags.length > 2 ? choices : list, take = x => { close?.(); lookForEach(x.id); };
+  return list.length ? html`<div class="more by-answer"><div class="menu-head">Color by</div>${rows.map(x => html`<button class="menu-item" key=${x.id} onClick=${() => take(x)}><span class="label">${x.name}</span></button>`)}
+    ${tags.length > 2 ? html`<${Sub} label="Yes or no" of=${of} items=${() => tags.map(x => ({ label: x.name, run: () => take(x) }))} />` : null}</div>` : null;
+};
+// (And by the words for it, from Find.)
+Shell.register('find', { items: () => (App.readOnly.peek() ? [] : answerable().map(x => ({ label: `Color by ${x.name}`, detail: 'Action', names: ['Colour by', 'A look for each', `Fill by ${x.name}`], run: () => lookForEach(x.id) }))) });
+const FillPop = ({ close, of }) => html`<${ByAnswer} close=${close} of=${of} /><${Palette} label="Fill" none close=${close} of=${of}>
   <${Sub} label="Gradient" of=${of} items=${gradientItems} />
   <${Sub} label="Gradient options" of=${of} pane=${() => html`<${StopsPop} label="Gradient" />`} />
   <${Sub} label="Pattern" of=${of} items=${patternItems} />
@@ -1547,7 +1568,8 @@ function pasteLook(look = copied?.look) {
       else if (m.type === 'shape') tx.update(m.id, { format: { ...App.shown.peek().item(App.chart.peek(), m.id)[0]?.format, ...Object.fromEntries([...markLabels(m), ...textLabels].map(l => [l, look[l]])) } });
       else give(tx, Tree.treeOf(st, m.record), [m]);
     }
-  }, { say: said });
+    // (Reaching more than what was clicked, it says so and offers that alone, as a fill does.)
+  }, { say: said, go: () => (scope.own || scope.root || s.marks.length !== 1 || !s.marks[0].record ? null : [`Just ${App.notes.peek().nameOf(st, s.marks[0].record)}`, () => { Shell.parts.peek().undo?.undo(); const s2 = scopesOf(c); penTo(c, s2, s2.scopes.find(x => x.own)); pasteLook(look); }]) });
   // A look that makes the Key say what isn't so, said at once: it's still what was asked for.
   sayLies(sc);
   return true;
@@ -2086,7 +2108,7 @@ function Bar() {
     <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none || ro, items: aligns }, { label: 'Flip and turn', disabled: !free || ro, items: flips }, { label: 'Merge shapes', disabled: !c.mergeable?.() || ro, items: [['union', 'Union'], ['combine', 'Combine'], ['fragment', 'Fragment'], ['intersect', 'Intersect'], ['subtract', 'Subtract']].map(([k, label]) => ({ label, run: () => c.merge(k) })) }, { label: 'Order', disabled: !layered || ro, items: orders }, { ...grouping, icon: null }, { label: 'Selection pane', keys: 'Alt+F10', run: () => c.pane() }, '-', tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, { label: 'Filter…', disabled: !App.canAsk(), run: () => c.filter() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', Canvas.aidsRow()])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
     <button class="btn" data-fb="tidy" ...${writes(tidy.label === 'Tidy' ? null : tidy.label, tidy.disabled)} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label.replace(/ \D+$/, '')}<span class="wide">${tidy.label.match(/ \D+$/)?.[0]}</span></button>
-    <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
+    <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: '$mod+Alt+Digit0', run: () => c.zoom('fit') }, '-',
       // (The zoom it's at among them, ticked, wherever it is.)
       ...[...new Set([50, 75, 100, 150, 200, zoom])].sort((a, b) => a - b).map(z => ({ label: `${z}%`, checked: z === zoom, run: () => c.zoom(z / 100) }))], { placement: 'bottom-end' })}>${zoom}%</button>
   </div>`;
@@ -2236,7 +2258,7 @@ function describe(forBox = false) {
 // What marks are, in the plural, by their kind: "people", "entities"; or boxes, or lines.
 function marksNoun(ms) {
   const st = App.state.peek(), kinds = new Set(ms.map(m => st[m.record]?.kind)), one = kinds.size === 1 ? [...kinds][0] : null;
-  const word = n => one ? (n === 1 ? one : Tree.plural(one)).toLowerCase() : ms.every(m => m.type === 'line') ? (n === 1 ? 'line' : 'lines') : (n === 1 ? 'box' : 'boxes');
+  const word = n => one ? (n === 1 ? one : Tree.texts(one)).toLowerCase() : ms.every(m => m.type === 'line') ? (n === 1 ? 'line' : 'lines') : (n === 1 ? 'box' : 'boxes');
   return n => `${n} ${word(n)}`;
 }
 function scoped(tx, label, v) { const c = Canvas.active.peek(); if (c?.scene()) write(tx, c, label, v); }

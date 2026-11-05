@@ -2023,7 +2023,7 @@ function reflow(scene, rects) {
 // is left behind. Lines may land on frames (Layout.route says when), and keep clear of frames' captions. Where
 // boxes `stand` where they were put, no gap deepens for a lane to keep out of a box's shade.
 function routes(boxes, lines, frames = new Map(), stand = true, aside = [], under = []) {
-  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, bend: l.bend, label: l.label, arrow: l.settings?.Arrow?.value, level: l.level }));
+  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, bend: l.bend, label: l.label, arrow: l.settings?.Arrow?.value, level: l.level, dashed: !!l.level && !!l.settings?.Dash?.value && l.settings.Dash.value !== 'solid' }));
   const fs = [...frames.values()].map(f => ({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, members: inFrame(frames, f), depth: depthOf(frames, f) }));
   Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: [...captions(frames), ...under], stand, aside });
   return copies.map(c => ({ points: c.points, labelAt: c.labelAt, down: c.down, landed: c.landed, around: c.around, astray: c.astray, strained: c.strained, blocked: c.blocked, crowded: c.crowded,

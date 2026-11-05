@@ -1175,6 +1175,26 @@ async function run() {
       && App.pending.peek()?.verb === "Add" && App.pending.peek()?.asks === "from" && $$(".grid .tabulator-row.red-add").length === 1 && N() === n2, `${asked} ${asked2} ${said} ${App.pending.peek()?.what} ${App.pending.peek()?.asks} ${$$(".grid .tabulator-row.red-add").length} ${N() - n2}`);
     press('Escape', $('.pendbar .from input') ?? document.body); await tick(150);
     check('… and Esc leaves it unmade', !App.pending.peek() && N() === n2 && !$$('.grid .tabulator-row.red-add').length);
+    // Enter takes a name typed whole, or the one that has what's typed; of two near ones, neither. Its figure's asked, with the keys, and stays.
+    $('.newslot .nr-go').click(); await tick(80);
+    const typed = async q => { const f = $('.float .menu-find'); f.textContent = q; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60); };
+    await typed('Calder Ridge Capital Partners');
+    check('Of several near names nothing’s lit, so Enter takes none', !$('.float .menu-item.on') && $$('.float .menu-item').length > 2, $('.float .menu-item.on')?.textContent);
+    press('Enter', $('.float .menu')); await tick(60);
+    check('… it lights the first, and asks on', !!$('.float .menu-item.on') && $('.float .menu-head')?.textContent === 'Owner', $('.float .menu-head')?.textContent);
+    await typed('U.S. Investors');
+    check('A name typed whole is offered as a new one too, but that isn’t what Enter takes', $$('.float .menu-item').some(x => /^New .*U\.S\. Investors/.test(x.textContent)) && $('.float .menu-item.on')?.textContent === 'U.S. Investors', [...$$('.float .menu-item')].map(x => x.textContent).join(' | '));
+    press('Enter', $('.float .menu')); await tick(120);
+    await typed('Northpine'); press('Enter', $('.float .menu')); await previewed();
+    const asked3 = App.pending.peek();
+    check('Its sides picked, its figure’s asked, with the keys', asked3?.value?.edge === 'Percentage' && document.activeElement === $('.pendbar .amt input'), `${asked3?.value?.edge} ${document.activeElement?.tagName}`);
+    const amt = $('.pendbar .amt input'); amt.value = '45%'; amt.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60);
+    press('Enter', amt); await tick(250);
+    const added = Table.grid.getRows().find(r => r.getData().id === Shell.selection.peek()[0]);
+    check('… and Enter adds it with that figure, one change', N() === n2 + 1 && !App.pending.peek() && Object.values(last().adds).some(r => r.field === 'percent' && r.value === 0.45), `${N() - n2} ${App.pending.peek()?.what}`);
+    check('… the row staying at the foot, where it’s being typed, till it’s left', Table.grid.getRows().at(-1)?.getData().id === added?.getData().id, added?.getData().id);
+    undo(); await tick(150);
+    Shell.select([]); await tick(60);
     $('.newslot .nr-go').click(); await tick(80);
     await pickIn('Northpine Software');
     const f2 = $('.float .menu-find'); f2.textContent = 'Northpine'; f2.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60);

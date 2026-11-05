@@ -564,7 +564,9 @@ const Shell = (() => {
 
   // A menu; with `search`, a field that ranks its items, or that `items(query)` answers. An item `asked` (a new option named
   // as it's typed, from `more(query)`) is what Enter takes only where it's highlighted: by the pointer or the arrows, or
-  // of itself where nothing else is found. A short list that can grow (its `more`) has that field from the first key typed.
+  // of itself where nothing else is found. An item `choose`, only where it's highlighted, whatever else is or isn't found: a
+  // question, which Enter doesn't answer; pressed with nothing lit, it lights the first, so what's asked is seen. A short list
+  // that can grow (its `more`) has that field from the first key typed.
   function Menu({ f }) {
     const [q, setQ] = useState(f.query ?? ''), [grew, setGrew] = useState(false), searching = f.search || grew;
     const items = typeof f.items === 'function' ? f.items(q.trim()) : searching && q.trim() ? [...rank(f.items.filter(it => selectable(it) && !it.asked), q), ...(f.more?.(q.trim()) ?? [])] : f.items;
@@ -572,7 +574,7 @@ const Shell = (() => {
     const live = items.map((it, i) => selectable(it) || it?.seg ? i : -1).filter(i => i >= 0);
     // Opened by the keys, it's on its ticked item, or its first, so Enter does something and what's on is seen; by the pointer, on nothing.
     const [act, setAct] = useState(() => { if (!keyed || f.search) return -1; const k = items.findIndex(it => it && it.checked && selectable(it)); return k >= 0 ? k : live.find(i => selectable(items[i])) ?? -1; });
-    const active = searching && q.trim() && act < 0 ? live.find(i => selectable(items[i]) && !items[i].asked) ?? live.find(i => selectable(items[i])) ?? -1 : act;
+    const active = searching && q.trim() && act < 0 ? live.find(i => selectable(items[i]) && !items[i].asked && !items[i].choose) ?? live.find(i => selectable(items[i]) && !items[i].choose) ?? -1 : act;
     const checks = items.some(it => it && it.checked !== undefined), typed = useRef({ s: '', t: 0 });
     const mi = i => `mi${f.id}-${i}`, el = i => document.getElementById(mi(i));
     const run = it => {
@@ -597,7 +599,7 @@ const Shell = (() => {
       else if (e.key === 'End' && !searching) setAct(live[live.length - 1]);
       else if (it?.seg && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { const n = it.seg[it.seg.findIndex(s => s.pressed) + (e.key === 'ArrowRight' ? 1 : -1)]; if (n && !n.pressed) n.run(); }
       else if (it?.seg && e.key === 'Enter') closeAll();
-      else if (e.key === 'Enter') { if (it) run(it); }
+      else if (e.key === 'Enter') { if (it) run(it); else if (items.some(x => x?.choose)) move(1); }
       else if (e.key === 'ArrowRight' && it?.items) run(it);
       else if (e.key === 'ArrowLeft' && f.parent) f.close();
       else if (e.key === 'Tab') return closeAll();   // and focus goes on from what opened it
@@ -1203,8 +1205,10 @@ const Shell = (() => {
       why: () => 'Show a table first', run: () => Export.open('Excel') },
     // Printing is the PDF, as it would print: the browser would print the window.
     { id: 'print', name: 'Print', keys: '$mod+KeyP', inputs: true, enabled: () => typeof Export !== 'undefined', run: () => Export.open(current.peek()?.layout === 'chart' ? 'pdf' : undefined) },
-    { id: 'keys', name: 'Keyboard shortcuts', names: ['Keys', 'Hot keys', 'Help', 'Shortcut list'], keys: '[Shift]+?', menu: 'chart', order: 35, run: () => find('?') },
-    { id: 'keys.slash', name: 'Keyboard shortcuts', keys: '$mod+Slash', inputs: true, hideInFind: true, run: () => find('?') },
+    // (Typed over something selected, ? is what's typed: bare keys on the page are for typing.)
+    { id: 'keys', name: 'Keyboard shortcuts', names: ['Keys', 'Hot keys', 'Help', 'Shortcut list'], keys: '$mod+Slash', inputs: true, menu: 'chart', order: 35, run: () => find('?') },
+    // (Typed over something selected on a page, ? is what's typed.)
+    { id: 'keys.ask', name: 'Keyboard shortcuts', keys: '[Shift]+?', hideInFind: true, enabled: () => !selection.peek().length || !document.activeElement?.matches?.('.dc'), run: () => find('?') },
     // With nothing to undo, Undo says so.
     { id: 'undo', name: 'Undo', keys: '$mod+KeyZ', enabled: () => !!part('undo'), run: () => part('undo').undo() },
     { id: 'redo', name: 'Redo', keys: '$mod+KeyY', enabled: () => !!part('undo'), run: () => part('undo').redo() },

@@ -130,7 +130,7 @@ async function run() {
   check('… its card clear of the bars under what it points at', $('.tour-card').getBoundingClientRect().top >= ($('#view .formulabar')?.getBoundingClientRect().bottom ?? like.getBoundingClientRect().bottom), JSON.stringify(card()));
   own.click(); await tick(200);
   check('Either part does step 3, “This box” as well as what’s beside it, and the name typed in is left as it was', step() === '4 / 7' && !$('.dc-edit') && N() === n0, `${step()} ${!!$('.dc-edit')} ${N() - n0}`);
-  check('Step 4’s dots stand on the box it points at', !!$('.tour-dots:not([hidden]) i'), $('.tour-dots')?.outerHTML.slice(0, 60));
+  check('Step 4 pulses the box’s own dots, its grips away', !!$('.dc.teaching.relating-on .dc-handle:not([hidden])') && getComputedStyle($('.x6-widget-transform') ?? document.body).visibility !== 'visible' || !$('.x6-widget-transform'), $('.dc')?.className);
 
   // 4. Drag to another: the canvas asks for the two boxes' relations.
   Shell.emit('relate-open', ['fund', 'blocker']); await tick(300);
@@ -557,7 +557,16 @@ async function pagesMean() {
 const errors = [];
 window.onerror = (m, s, l) => { errors.push(`${m} (${(s || '').split('/').pop()}:${l})`); };
 addEventListener('unhandledrejection', e => errors.push(String(e.reason?.stack ?? e.reason)));
-Shell.ready.then(() => run())
+// What comes after the tour, a person's first entries: canvas-test's, in a window of their own, its own budget having no room for them.
+const entering = async () => {
+  const f = document.body.appendChild(Object.assign(document.createElement('iframe'), { src: 'canvas-test.html?entering' }));
+  f.style.cssText = 'position:fixed;left:0;top:0;width:1440px;height:900px;z-index:-1;border:0';
+  for (let i = 0; i < 1500 && !f.contentWindow.__done; i++) await new Promise(r => setTimeout(r, 100));
+  check('the first entries ran', !!f.contentWindow.__done);
+  out.push(...(f.contentWindow.__out ?? []));
+  f.remove();
+};
+Shell.ready.then(() => run()).then(entering)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

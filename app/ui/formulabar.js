@@ -1812,6 +1812,13 @@ const FormulaBar = (() => {
         c.setOption('readOnly', false);
         startEditing(c, props.current.row.key);
       });
+      // A press on the formula is a formula to type in, the cursor where it lands, as Excel's bar's is.
+      cm.on('mousedown', (c, e) => {
+        if (e.button !== 0 || !c.getOption('readOnly') || App.readOnly.peek() || !props.current.m.def || props.current.m.absent) return;
+        writing.value = draft.peek()?.def ?? model.peek()?.def?.id ?? null;
+        c.setOption('readOnly', false);
+        startEditing(c, props.current.row.key);
+      });
       const wrap = cm.getWrapperElement();
       wrap.addEventListener('mousemove', e => {
         const { row } = props.current;
@@ -1991,7 +1998,8 @@ const FormulaBar = (() => {
     if (m.err?.error.msg) return html`<span class="fx-inline" ref=${ref}><span class="fx-why" onClick=${drop}>${m.err.error.msg}</span></span>`;
     const labels = new Map();
     for (const r of m.rows) { const l = r.label || r.formula, was = labels.get(l); labels.set(l, { key: was?.key ?? r.key, ink: was?.ink || r.ink }); }
-    return html`<span class="fx-inline fx-labels" ref=${ref}>${[...labels].map(([l, { key, ink }]) => html`<button class=${ink ? null : 'grey'} onClick=${() => openAt(key)}>${l}</button>`)}</span>`;
+    // (A formula clicked is a formula to type in, as Excel's bar is.)
+    return html`<span class="fx-inline fx-labels" ref=${ref}>${[...labels].map(([l, { key, ink }]) => html`<button class=${ink ? null : 'grey'} onClick=${() => openAt(key, { write: !App.readOnly.peek() && !!m.def && !m.absent })}>${l}</button>`)}</span>`;
   }
 
   // The definition's rows, over the view, and what reads it.
@@ -2187,8 +2195,8 @@ const FormulaBar = (() => {
   }
 
   // A row: its label, its formula, and what the rows would give where an entry overrides them.
-  // Read, until it's asked to be written (openAt): a click shows it, lit on the chart, and only a double-click or its
-  // pencil gives a label to type over, a formula to type in, a grip and a way to delete it.
+  // Read, until it's asked to be written (openAt): a click on its row shows it, lit on the chart; a click on its formula, a double-click or its
+  // pencil gives a label to type over, a formula to type in, the cursor where it was clicked, a grip and a way to delete it.
   function Row({ r, m, colors, editable }) {
     const write = editable && writable(m);
     const cls = 'fx-row' + (r.cited ? ' cited' : r.ink ? ' alt' : ' grey') + (r.gone ? ' gone' : '') + (editing.value?.key === r.key ? ' editing' : '') + (write ? ' editable' : '') + (reading.value === r.key ? ' reading' : '');

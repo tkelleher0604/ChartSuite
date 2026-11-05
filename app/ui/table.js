@@ -507,6 +507,8 @@ const Table = (() => {
   // other keeps the grid as it would leave it, till it's made or discarded.
   const running = () => { const p = App.pending.peek(); return !!p?.typed && p.chart === App.chart.peek(); };
   const locked = () => !!current?.red && !running();
+  // What's waiting that a cell can't be typed past: a paste, an import, a deletion, each its own to make or discard, which is said. A row or a name being added isn't: what's typed makes that, and then itself (write).
+  const barred = () => locked() && App.pending.peek()?.verb !== 'Add';
 
   // What a cell's marks mean, on hover: italic is worked out, the corner is typed over what's worked out, and n/a untested.
   function markTip(c, m, v) {
@@ -560,7 +562,7 @@ const Table = (() => {
     const first = typed0 !== null || atEnd, type0 = typeOf(c, cell.getRow().getData());
     // As Excel's AutoComplete: words typed that begin what the column already has are finished for it, the rest selected, so going on typing replaces it. (A list's cell, of the names its side can be, after its last comma.)
     const pool = type0 !== 'text' && c.type !== 'list' ? null : () => { const st = App.state.peek(), f = field(c); return c.type === 'list' ? (c.kindNames ?? []).flatMap(k => Tree.index(st).kinds.get(norm(k)) ?? []).map(id => App.notes.peek().nameOf(st, id)) : [...new Set((current?.data ?? []).map(d => d[f]).filter(v => typeof v === 'string' && v))]; };
-    const finish = () => { if (!pool || input.selectionStart !== input.value.length) return; const v = input.value, at = c.type === 'list' ? v.lastIndexOf(',') + 1 : 0, head = v.slice(0, at), typed = v.slice(at).replace(/^\s+/, ''), lead = v.slice(at, v.length - typed.length); if (!typed) return; const hit = pool().find(x => x.length > typed.length && x.toLowerCase().startsWith(typed.toLowerCase())); if (!hit) return; input.value = head + lead + typed + hit.slice(typed.length); input.setSelectionRange(v.length, input.value.length); grow(input, cell); };
+    const finish = () => { if (!pool || input.selectionStart !== input.value.length) return; const v = input.value, at = c.type === 'list' ? v.lastIndexOf(',') + 1 : 0, head = v.slice(0, at), typed = v.slice(at).replace(/^\s+/, ''), lead = v.slice(at, v.length - typed.length); if (!typed) return; const hits = [...new Set(pool().filter(x => x.length > typed.length && x.toLowerCase().startsWith(typed.toLowerCase())))], hit = hits.length === 1 ? hits[0] : null; if (!hit) return; input.value = head + lead + typed + hit.slice(typed.length); input.setSelectionRange(v.length, input.value.length); grow(input, cell); };
     typed0 = null; atEnd = false;
     // (Over what it was begun with, too: the first key's what opened it.)
     input.addEventListener('input', e => { grow(input, cell); if (e.inputType === 'insertText') finish(); });
@@ -614,7 +616,9 @@ const Table = (() => {
       items = found.map(o => ({ label: o, value: o }));
       const none = !!q && typing && !found.length && !c.grows, fresh = c.type === 'choice' && !!q && typing && !opts.some(o => same(o, q));
       if (fresh) items.push({ label: `New option: ${q}`, value: q, fresh: true });
-      lit = !typing ? found.findIndex(o => same(o, was)) : found.length ? 0 : fresh && c.grows ? items.length - 1 : -1;
+      // (Lit, what Enter takes: a name typed whole, or the one thing with what's typed at a word's start, as Excel completes it. Of two near ones, neither: it's asked.)
+      const at = ` ${q.toLowerCase()}`, whole = found.findIndex(o => same(o, q)), starts = found.filter(o => norm(o).startsWith(k)), near = found.filter(o => ` ${o.toLowerCase()}`.includes(at)), only = starts.length === 1 ? starts[0] : !starts.length && near.length === 1 ? near[0] : null;
+      lit = !typing ? found.findIndex(o => same(o, was)) : !q ? (found.length ? 0 : -1) : whole >= 0 ? whole : only !== null ? found.indexOf(only) : !found.length && fresh && c.grows ? items.length - 1 : -1;
       wrong = none && c.type === 'edge' ? otherKind(current, c.edge, q) : null;
       input.classList.toggle('bad', none);
       input.dataset.why = '';   // (Its list says why.)
@@ -632,14 +636,15 @@ const Table = (() => {
     const close = () => { pop.remove(); removeEventListener('scroll', place, true); };
     const place = () => { if (input.isConnected) paint(); else close(); };
     // Taken, the cell is written as one typed in is (put), or every cell of the range (fillWith); left blank, it's cleared.
-    const take = (value, then) => { if (done) return; done = true; close(); cancel(); if (then === 'fill') fillWith(cell, value, ranged); else { put(cell, value, then === 'day' ? { auto: true } : undefined); if (then && then !== 'day') move(then); else back(); } };
+    // (The range as it stood: going out of the editor lets it go.)
+    const take = (value, then) => { if (done) return; const cs = ranged; done = true; close(); cancel(); if (then === 'fill') fillWith(cell, value, cs); else { put(cell, value, then === 'day' ? { auto: true } : undefined); if (then && then !== 'day') move(then); else back(); } };
     const leave = () => { if (done) return; done = true; close(); cancel(); back(); };
     input.addEventListener('input', () => { typing = true; grow(input, cell); draw(); });
     input.addEventListener('keydown', e => {
       const q = clean(input.value), it = items[lit], go = e.key === 'Tab' ? (e.shiftKey ? 'left' : 'right') : e.shiftKey ? 'up' : 'down';
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); if (items.length) { lit = lit < 0 ? (e.key === 'ArrowDown' ? 0 : items.length - 1) : (lit + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; paint(); } }
       else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); if (it) take(it.value, 'fill'); }
-      else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); if (it) take(it.value, go); else if (!q) take('', go); }
+      else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); if (it) take(it.value, go); else if (!q) take('', go); else if (items.some(x => !x.fresh)) { lit = 0; paint(); } }
       else if (e.key === 'F6' && !e.shiftKey && it) { e.preventDefault(); e.stopPropagation(); take(it.value, 'day'); }
       else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); leave(); }
       else if (e.key === 'Home' || e.key === 'End' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') e.stopPropagation();
@@ -767,7 +772,7 @@ const Table = (() => {
         hozAlign: right, headerHozAlign: right, cssClass: 'c-' + (c.key === '$why' ? 'why' : c.type === 'edge' ? 'edge' : c.type) + (look.filters?.[c.key] ? ' filtered' : '') + (look.sort?.key === c.key ? ' sorted' : ''),
         sorter: sorter(c),
         formatter: formatter(c),
-        editable: cell => !App.readOnly.peek() && !locked() && !cell.getRow().getData()._ended && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
+        editable: cell => !App.readOnly.peek() && !barred() && !cell.getRow().getData()._ended && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
         editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? chooser(c) : editor(c, put),
         accessorClipboard: (v, d) => plain(typeOf(c, d), v), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), v)),
       };
@@ -1302,7 +1307,13 @@ const Table = (() => {
   // `auto`: the keys go to the day, where one's asked.
   function write(ws, say, { auto = false } = {}) {
     ws = ws.filter(Boolean);
-    if (!ws.length || App.readOnly.peek() || locked()) return false;
+    if (!ws.length || App.readOnly.peek()) return false;
+    // What's typed while a change waits on the bar is never lost: a figure in the row being added is what it's added with; anything else, that's made first, and then this.
+    if (locked()) {
+      const p = App.pending.peek(), at = ws[0].put?.[1];
+      if (p?.value && p.row && ws.length === 1 && at?.at === p.row && same(at.edge, p.value.edge)) { App.amendPending(p, { value: { ...p.value, v: at.value } }); App.commit(); return true; }
+      if (barred() || !App.commit()) { Shell.toast(`First make or discard ${p?.what ?? 'what’s waiting'}: what you typed wasn’t kept`, { ms: 4000 }); return false; }
+    }
     const lists = ws.filter(w => w.list), st = App.state.peek();
     ws = ws.filter(w => !w.list);
     if (lists.length) stage(real, () => ({ keys: [], plan: lists.map(({ list: [row, c, raw] }) => ({ row, key: [], cells: [[c, raw]] })) }), { verb: 'Add' });
@@ -1801,7 +1812,9 @@ const Table = (() => {
     }
     // What it adds is named, a few by their names, or how many: a row a person might have meant is never only a count.
     const made = x.made.filter(o => !o.row).map(o => o.name), noun = m.noun, recs = { ...st, ...x.records }, few = x.rows.length <= 3;
-    const related = x.rels.length > 2 ? [count(x.rels.length, N.nameOf(recs, x.rels[0]).toLowerCase())] : x.rels.map(id => `${N.nameOf(recs, id)}: ${N.placed(recs, id).map(s => s.join + s.text).join('')}`);
+    // (A relation's name that ends on its preposition is counted by its lines: 39 reports to lines.)
+    const lines = (n, name) => (/\s(to|of|by|from|with|for|in|at|on)$/i.test(name) ? `${n} ${name} line${n === 1 ? '' : 's'}` : count(n, name));
+    const related = x.rels.length > 2 ? [lines(x.rels.length, N.nameOf(recs, x.rels[0]).toLowerCase())] : x.rels.map(id => `${N.nameOf(recs, id)}: ${N.placed(recs, id).map(s => s.join + s.text).join('')}`);
     const rowsSaid = !few ? [] : m.isKind ? x.made.filter(o => o.row).map(o => o.name) : x.rows.map(id => N.placed(recs, id).map(s => s.join + s.text).join(''));
     const added = [!few && count(x.rows.length, noun), ...rowsSaid, ...related, ...(made.length > 3 ? [...made.slice(0, 2), `${made.length - 2} more`] : made)].filter(Boolean);
     const say = !x.values && !x.rows.length ? ch => Time.describe(ch)
@@ -1842,8 +1855,11 @@ const Table = (() => {
     const entered = App.entered.peek();
     // What it's at: the records it writes over, those it adds at, and those it ends.
     const needs = [...new Set([...Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]), ...x.ends])].filter(id => id in entered);
-    App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, asking: asked.length > 0 || !!x.ends.length, ...(x.left.length && { note: `Left out: ${x.left.map(leftWord).join('; ')}` }), cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
-      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : over.length && App.isDated.peek() ? App.day.peek() : App.begins() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
+    // A list's cell that takes one out and puts another in, a manager typed over, is one move, however many cells; it's said so. On a chart that keeps no dated record it asks nothing (dendra.md, Time: Moving).
+    const pairOf = rid => { const r = recs[rid], e = x.ends.map(id => st[id]).find(o => o.args.some(a => r.args.some(b => b.at === a.at && same(a.edge, b.edge)))), kept = e && r.args.find(b => e.args.some(a => a.at === b.at && same(a.edge, b.edge))), to = kept && r.args.find(b => b !== kept); return to ? { who: N.shortOf(recs, Tree.objectOf(recs, kept.at)), to: N.shortOf(recs, Tree.objectOf(recs, to.at)) } : null; };
+    const pairs = x.ends.length && x.rels.length === x.ends.length && !x.rows.length && !x.values ? x.rels.map(pairOf) : [], moved = pairs.length && pairs.every(Boolean) && pairs.every(p => p.to === pairs[0].to) ? `Moved ${list(pairs.map(p => p.who))} to ${pairs[0].to}` : null;
+    App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: moved ?? list(added.length ? added : [count(x.values, 'value')]), parts, source, say: moved ?? say, needs, asking: asked.length > 0 || (!!x.ends.length && App.isDated.peek()), ...(x.left.length && { note: `Left out: ${x.left.map(leftWord).join('; ')}` }), cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
+      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : over.length && App.isDated.peek() ? App.day.peek() : App.begins() }), make: moved ? (tx, ...more) => { const r = make(tx, ...more); tx.says(moved); return r; } : make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
   // Rows deleted, as one change pending: the records entered there, and what's at them, each ended as App.deleting says.
@@ -2502,11 +2518,14 @@ const Table = (() => {
     const m = shownM.value;
     if (!m || m.isDatatype || m.red || App.readOnly.value) return null;
     const label = `New ${m.noun}`;
-    if (m.isKind) return html`<div class="newrow"><span class="plus">${Shell.icon('plus')}</span>
+    // (Anywhere along it takes the keys to it: nothing else is there to click.)
+    const along = e => { if (e.target === e.currentTarget) { e.preventDefault(); const to = e.currentTarget.querySelector('input, button'); to?.focus(); if (to?.matches('button')) to.click(); } };
+    if (m.isKind) return html`<div class="newrow" onPointerDown=${along}><span class="plus">${Shell.icon('plus')}</span>
       <input class="nr-name" placeholder=${label} aria-label=${label} spellcheck=${false} autocomplete="off" onKeyDown=${newName} onPaste=${pastedNew} /></div>`;
     // While its sides are picked, the row says those picked, and the side asked for next.
     const so = choosing.value;
-    return html`<div class="newrow"><span class="plus">${Shell.icon('plus')}</span><button type="button" class=${'nr-go' + (so ? ' on' : '')} aria-haspopup="menu" onKeyDown=${offNew} onClick=${e => relate(e.currentTarget)}>${so
+    // (A name typed on it is the first side's, found as it's typed, so one row goes on to the next by the keys.)
+    return html`<div class="newrow" onPointerDown=${along}><span class="plus">${Shell.icon('plus')}</span><button type="button" class=${'nr-go' + (so ? ' on' : '')} aria-haspopup="menu" onKeyDown=${e => { if (offNew(e)) return; if (e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); relate(e.currentTarget, e.key); } }} onClick=${e => relate(e.currentTarget)}>${so
       ? html`${so.picked.map(n => html`<span class="nr-side">${n}</span><span class="nr-to">→</span>`)}<span class="nr-next">${so.next}</span>` : label}</button></div>`;
   }
   const choosing = Shell.signal(null);
@@ -2570,39 +2589,41 @@ const Table = (() => {
     if (table?.rowManager.findRow(id)) return Shell.toast(`Added ${App.notes.peek().nameOf(App.state.peek(), id)}, which a filter hides`, { undo: () => Shell.parts.peek().undo?.undo() });
     if (tries) setTimeout(() => landed(id, then, tries - 1), 25);
   }
-  function relate(anchor) {
+  function relate(anchor, first = null) {
     const m = current, sides = m.cols.filter(c => c.type === 'edge'), picked = {}, st = App.state.peek();
     const say = o => typeof o === 'string' ? saidOf(st, o) : clean(o.name);
     const next = i => {
       if (i === sides.length) {
         // (A relation whose record is a choice, a Position, asks which: it's no yes-or-no.)
         const out = m.cols.find(c => c.key === '$out' && c.type === 'choice');
-        if (!out) return addRelation(m, sides, picked);
+        if (!out) return addRelation(m, sides, picked, anchor);
         choosing.value = { picked: sides.map(c => say(picked[c.edge])), next: out.title };
-        return Shell.menu(anchor, [{ head: out.title }, ...out.options.map(o => ({ label: o, run: () => addRelation(m, sides, picked, { choice: o }) }))], { placement: 'top-start', onClose: () => { choosing.value = null; } });
+        return Shell.menu(anchor, [{ head: out.title }, ...out.options.map(o => ({ label: o, run: () => addRelation(m, sides, picked, anchor, { choice: o }) }))], { placement: 'top-start', onClose: () => { choosing.value = null; } });
       }
       choosing.value = { picked: sides.slice(0, i).map(c => say(picked[c.edge])), next: sides[i].title };
-      pickSide(anchor, m, sides[i], o => { picked[sides[i].edge] = o; next(i + 1); }, new Map(sides.filter(c => typeof picked[c.edge] === 'string').map(c => [norm(c.edge), picked[c.edge]])));
+      pickSide(anchor, m, sides[i], o => { picked[sides[i].edge] = o; next(i + 1); }, new Map(sides.filter(c => typeof picked[c.edge] === 'string').map(c => [norm(c.edge), picked[c.edge]])), i ? null : first);
     };
     next(0);
   }
   // One side, from the objects it can be, found as they're typed; or a new one of each kind it can be, that most like it first.
-  function pickSide(anchor, m, c, done, other = new Map()) {
+  // Enter takes a name typed whole, or else the one that has just what's typed, at a word's start; never a near one where there are two: it asks.
+  function pickSide(anchor, m, c, done, other = new Map(), query = null) {
     const st = App.state.peek(), N = App.notes.peek(), rel = onRelation(m, c.edge), first = rel ? null : kindAt(m, c.edge, other), kinds = rel ? [] : [first, ...sideKindNames(m, c.edge).filter(k => !same(k, first))];
     const all = rel ? sideRecords(m, c.edge).map(x => ({ ...x, short: x.name })) : [...sideKinds(m, c.edge)].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => ({ id, name: N.nameOf(st, id), short: N.shortOf(st, id) }))
       .sort((a, b) => a.name.localeCompare(b.name));
     // (What's on another of its sides isn't offered: a company doesn't own itself, unless the relation says it can.)
     const taken = N.value('Itself', m.rows) || m.cols.filter(x => x.type === 'edge').length !== 2 ? new Set() : new Set(other.values());
     Shell.menu(anchor, q => {
-      // Found as typed, or as people write it ("Partners III LP"); a new one offered only where none reads alike, and where
-      // the name isn't of a record the side doesn't take, which is said instead.
-      const t = norm(q), l = loose(q), hit = all.filter(x => !taken.has(x.id) && (!t || norm(x.name).includes(t) || norm(x.short).includes(t) || (l && loose(x.name).includes(l))));
-      const wrong = q && l && !hit.length ? otherKind(m, c.edge, q) : null;
-      return [{ head: c.title }, ...hit.slice(0, 60).map(x => ({ label: x.name, run: () => done(x.id) })), ...(wrong ? [{ label: wrong }] : []),
-        ...(!wrong && q && l && !all.some(x => loose(x.name) === l || loose(x.short) === l) ? kinds.map(kind => ({ label: `New ${kind}: ${q}`, run: () => done({ name: q, kind }) })) : [])];
-    }, { search: true, placement: 'top-start', onClose: () => { choosing.value = null; } });
+      // Found as typed, or as people write it ("Partners III LP"), what has just what's typed first; a new one always offered too, but
+      // where the name is of a record the side doesn't take, which is said instead.
+      const t = norm(q), l = loose(q), raw = ` ${q.toLowerCase()}`, whole = x => same(x.name, q) || same(x.short, q), says = x => ` ${x.name.toLowerCase()}`.includes(raw) || ` ${x.short.toLowerCase()}`.includes(raw);
+      const hit = all.filter(x => !taken.has(x.id) && (!t || norm(x.name).includes(t) || norm(x.short).includes(t) || (l && loose(x.name).includes(l)))).map((x, i) => [x, i]).sort(([a, i], [b, j]) => (whole(b) - whole(a)) || (says(b) - says(a)) || i - j).map(([x]) => x);
+      const starts = x => norm(x.name).startsWith(t) || norm(x.short).startsWith(t), wrong = q && l && !hit.length ? otherKind(m, c.edge, q) : null, wholes = q ? hit.filter(whole) : [], first = q ? hit.filter(starts) : [], near = q ? hit.filter(says) : [], takes = wholes.length === 1 ? wholes[0] : wholes.length ? null : first.length === 1 ? first[0] : first.length ? null : near.length === 1 ? near[0] : null, asks = !!takes || hit.length > 0;
+      return [{ head: c.title }, ...hit.slice(0, 60).map(x => ({ label: x.name, choose: !!q && x !== takes, run: () => done(x.id) })), ...(wrong ? [{ label: wrong }] : []),
+        ...(!wrong && q && l ? kinds.map(kind => ({ label: `New ${kind}: ${q}`, choose: asks, run: () => done({ name: q, kind }) })) : [])];
+    }, { search: true, placement: 'top-start', ...(query && { query }), onClose: () => { choosing.value = null; } });
   }
-  function addRelation(m, sides, picked, out = { tag: true }) {
+  function addRelation(m, sides, picked, anchor, out = { tag: true }) {
     const st = App.state.peek(), N = App.notes.peek(), records = {}, made = [];
     const at = (c, o) => {
       if (typeof o !== 'string') { const id = Log.newId(); records[id] = { kind: o.kind }; records[Log.newId()] = { at: id, edge: 'Name', field: 'text', value: clean(o.name) }; made.push(id); o = id; }
@@ -2612,10 +2633,19 @@ const Table = (() => {
     if (args.some(a => !a.at)) return Shell.toast(`Couldn’t add the ${m.noun}`);
     const rel = Log.newId();
     records[rel] = { args, ...out };
-    const recs = { ...st, ...records }, asks = App.asksDay(records[rel], recs), entered = App.entered.peek();
-    App.stage({ verb: 'Add', what: `${N.nameOf(recs, rel)}: ${N.placed(recs, rel).map(s => s.join + s.text).join('')}`, source: 'row ' + m.view,
-      ...(asks && { asks: 'from', day: App.begins(), auto: true }), needs: args.map(a => a.at).filter(id => id in entered),
-      say: c => Time.describe(c), make: tx => fill(tx, records), done: () => landed(rel, () => Shell.select([rel])) });
+    const recs = { ...st, ...records }, asks = App.asksDay(records[rel], recs), entered = App.entered.peek(), amount = App.amountOf(records[rel], recs);
+    // Its figure's asked first, as a list's Add asks it, and it's what the keys have; added with none, they go to its cell. Either way the row stays where it's being typed till it's left (`keeping`).
+    keeping = rel;
+    App.stage({ verb: 'Add', what: `${N.nameOf(recs, rel)}: ${N.placed(recs, rel).map(s => s.join + s.text).join('')}`, source: 'row ' + m.view, row: rel,
+      ...(asks && { asks: 'from', day: App.begins() }), auto: true, ...(amount && { value: { ...amount, v: null } }), needs: args.map(a => a.at).filter(id => id in entered),
+      say: c => Time.describe(c), make: (tx, d, p) => { fill(tx, records); if (p?.value?.v !== null && p?.value?.v !== undefined) tx.add('record', { at: rel, edge: p.value.edge, field: p.value.field, value: p.value.v }); },
+      done: (c, p) => landed(rel, () => {
+        Shell.select([rel]);
+        const blank = amount && !App.state.peek()[Tree.entryAt(App.state.peek(), rel, amount.edge)], row = blank && table?.rowManager.findRow(rel)?.getComponent(), col = row && table.getColumns().find(x => same(current?.byField?.get(x.getField())?.path?.at(-1) ?? '', amount.edge));
+        setTimeout(() => { if (col) { table.addRange(row.getCell(col), row.getCell(col)); focus(); across(); } else if (document.querySelector('.newrow .nr-go')?.isConnected && !blank) document.querySelector('.newrow .nr-go').focus(); }, 30);
+      }) });
+    // (Where it can be seen, as it waits.)
+    setTimeout(() => { if (App.pending.peek()?.row === rel) reveal(rel); }, 120);
   }
   // The new row's place: under the last row, or, where the rows run on past the grid's foot, there.
   let rowEl = null;
@@ -2814,7 +2844,9 @@ const Table = (() => {
   // Home and End go to the row's first and last cells, with Ctrl the grid's; Alt+Down opens the column's menu; Ctrl+D
   // and Ctrl+R fill down and right.
   function keydown(e) {
-    if (!table || table.modules.edit?.currentCell || e.target.closest('.tabulator-header') || locked()) return;
+    // (With a change waiting, a key typed still begins a value, which is kept (write); or where that can't be typed past, it says so. Nothing typed goes nowhere.)
+    if (!table || table.modules.edit?.currentCell || e.target.closest('.tabulator-header') || (locked() && (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey))) return;
+    if (barred()) return void Shell.toast(`First make or discard ${App.pending.peek()?.what ?? 'what’s waiting'}`, { ms: 3000 });
     const cell = table.modules.selectRange?.getActiveCell()?.getComponent(), mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
     const rows = table.getRows('active'), cols = table.getColumns().filter(c => c.getField()), r0 = table.getRanges()[0];
     const to = (a, b = a) => { e.preventDefault(); if (a && b) table.addRange(a, b); };

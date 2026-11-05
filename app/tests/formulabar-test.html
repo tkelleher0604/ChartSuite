@@ -817,7 +817,12 @@ async function checks() {
   document.querySelector('.fxbar button.fx-name').click(); await wait(60);
   document.querySelector('.fx-labels > button')?.click(); await wait(60);
   const clickedAt = cmOf(FormulaBar.model.peek().rows[0].key);
-  check('a formula clicked in the shut bar opens to read, the keys in it: Ctrl+A and typing are the formula’s, not the page’s', !!clickedAt?.hasFocus() && clickedAt.getOption('readOnly') === true && !document.querySelector('.fxbar input.fx-label'), `focus on ${document.activeElement?.tagName}.${document.activeElement?.className}`);
+  check('a formula clicked in the shut bar opens to type in, the keys in it: Ctrl+A and typing are the formula’s, not the page’s', !!clickedAt?.hasFocus() && clickedAt.getOption('readOnly') === false && !!document.querySelector('.fxbar input.fx-label') && App.version.peek() === v2, `focus on ${document.activeElement?.tagName}.${document.activeElement?.className}`);
+  FormulaBar.discard(); await wait(30);
+  await openRows();
+  cmOf('r1').getScrollerElement().dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, detail: 1 })); await wait(40);
+  check('… as does its formula clicked in the open rows: one click, as Excel’s bar', cmOf('r1').getOption('readOnly') === false && !!document.querySelector('.fxbar input.fx-label') && App.version.peek() === v2);
+  FormulaBar.discard(); await wait(30);
   FormulaBar.open.value = false; Shell.select([OKAFOR_GP]); await wait(40);
   await openRows();
   document.querySelector('.fxbar [data-key="r3"] .fx-pencil').click(); await wait(40);

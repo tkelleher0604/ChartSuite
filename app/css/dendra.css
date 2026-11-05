@@ -541,9 +541,6 @@ html[data-splash][data-theme="dark"]::after { background: #111315; }
 .tour-card > .acts > .skip { margin: 0 auto -4px -8px; padding: 0 8px; height: 24px; color: var(--accent-ink); font-weight: 500; }
 /* The last card is the one that asks: nothing behind it takes a click till it's answered. Who you are, and then, apart, what you begin with. */
 .tour-scrim { position: fixed; inset: 0; z-index: 40; }
-.tour-dots { position: fixed; z-index: 40; pointer-events: none; }
-.tour-dots > i { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #fff; border: 1px solid var(--accent); }
-.tour-dots > i:nth-child(1) { left: 50%; top: 0; } .tour-dots > i:nth-child(2) { left: 100%; top: 50%; } .tour-dots > i:nth-child(3) { left: 50%; top: 100%; } .tour-dots > i:nth-child(4) { left: 0; top: 50%; }
 form.tour-card > label { padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
 .tour-card label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--ink-2); }
 

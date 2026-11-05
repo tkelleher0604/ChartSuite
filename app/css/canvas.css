@@ -108,7 +108,11 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc:not(.relating-on) .dc-handle { pointer-events: none; }
 .dc .dc-linedot { opacity: 1; pointer-events: auto; }
 .dc .dc-linedot:hover { background: var(--accent); transform: scale(1.25); }
-@media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } }
+/* (The tour's step about them: the real ones, pulsing, and the grips away, so what it says to drag is the only thing there is to drag.) */
+.dc.teaching .x6-widget-transform, .dc.teaching .x6-widget-transform-resize, .dc.teaching .x6-widget-transform-rotate { visibility: hidden; opacity: 0 !important; pointer-events: none !important; }
+.dc.teaching .dc-handle:not([hidden]) { background: var(--accent); animation: dc-teach 1.1s var(--ease) infinite; }
+@keyframes dc-teach { 50% { transform: scale(1.6); } }
+@media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } .dc.teaching .dc-handle { animation: none; } }
 
 /* What's a shape's own to adjust, its corner, a callout's tip: a small diamond, so it's told from a grip's square and a dot, there as the pointer nears; and where a Key's row dragged would go. */
 .dc-over > .dc-adjust { position: absolute; box-sizing: border-box; width: 8px; height: 8px; margin: -4px 0 0 -4px; background: #fff; border: 1px solid var(--accent); transform: rotate(45deg); cursor: ew-resize; touch-action: none; transition: opacity var(--quick) var(--ease); }
@@ -302,6 +306,7 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .palette button[style][aria-pressed="true"]::after { content: ""; position: absolute; left: calc(50% - 3px); top: calc(50% - 7px); width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000); }
 .palette button[style]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 2px var(--surface); z-index: 1; }
 .palette > .more { display: grid; margin: 8px -8px -8px; padding-top: 4px; border-top: 1px solid var(--rule); }
+.by-answer { display: grid; margin: -4px -8px 8px; padding-bottom: 4px; border-bottom: 1px solid var(--rule); }
 .palette .menu-sep { margin: 4px 0; }
 .palette .withfield > .hex { margin-right: 24px; position: relative; z-index: 1; }
 .palette .hex { display: flex; align-items: center; gap: 4px; color: var(--ink-3); }
