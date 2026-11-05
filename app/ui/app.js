@@ -2054,7 +2054,7 @@ const App = (() => {
   // The view itself, on a change: all but where it stands among the others. (A fresh chart's page comes as the page it's like has its own: its paper, its All text, its title's look, and a date and a Key where that has them.)
   function viewMade(tx, n, rows, from, { also, blank, title, then } = {}) {
     const vs = views.peek().filter(v => !v.look), like = from ?? (rows === undefined ? (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id : null);
-    const id = tx.add('record', { kind: 'View' }), t = viewTree(id), all = book.peek().rows(chart.peek());
+    const id = tx.add('record', { kind: 'View' }), t = viewTree(id), all = book.peek().rows(chart.peek()), copied = new Map();
     tx.note('Name', t, n);
     if (rows !== undefined) tx.note('Layout', t, { rows });
     if (rows && !from && typeof Table !== 'undefined') Table.opening(tx, id, rows);
@@ -2064,9 +2064,11 @@ const App = (() => {
       if ('note' in r && r.view === like && (from || (r.label !== 'Position' && r.label !== 'Bend'))) { const { note, ...x } = r; tx.add('note', { ...x, ...(x.pattern.id === like && { pattern: t }), view: id }); }
       else if ('note' in r && !r.view && r.pattern.id === like && !from && rows === undefined && (r.label === 'Page' || Notes.ROOT.includes(r.label))) tx.note(r.label, t, r.value);
       else if (!from) continue;
-      else if ('shape' in r && r.view === from) { const { shape, ...s } = r; tx.add('shape', { ...s, view: id, ...(title && s.role === 'title' && { text: title }) }); }
+      else if ('shape' in r && r.view === from) { const { shape, ...s } = r; copied.set(shape, tx.add('shape', { ...s, view: id, ...(title && s.role === 'title' && { text: title }) })); }
       else if ('note' in r && !r.view && r.pattern.id === from && r.label !== 'Order' && r.label !== 'Name' && r.label !== 'Plan') tx.note(r.label, t, r.value);
     }
+    // (A frame copied holds its boxes here too, and its own copies of what's free in it.)
+    for (const r of all) if ('shape' in r && r.view === from && r.geometry === 'frame' && r.holds?.some(x => copied.has(x))) tx.update(copied.get(r.shape), { holds: r.holds.map(x => copied.get(x) ?? x) });
     if (!from && rows === undefined) {
       const has = test => !like || all.some(r => 'shape' in r && r.view === like && test(r));
       page(tx, id, title ?? book.peek().charts().find(c => c.chart === chart.peek())?.name ?? n, like ? Notes.houseLook(all, like) : null, { date: has(r => r.role === 'date'), key: has(r => r.geometry === 'legend') });

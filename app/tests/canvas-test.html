@@ -3716,6 +3716,59 @@ async function pagesMean() {
   await on(rulePage);
   const copy = App.addView('Finance team', undefined, rulePage); await on(copy);
   check('A page copied keeps its rule', App.ruleOf(copy)?.filters?.[0]?.values?.[0] === 'Finance' && boxes().join() === want('bea', 'dee', 'fay', 'gus'), boxes().join());
+  await framesHold();
+  // ---- Frames are containers (dendra.md, Frames) ----
+  async function framesHold() {
+    const page = App.addView('Frames'); await on(page);
+    await until(() => boxes().length > 3);
+    const m = n => sc().byId.get(ids[n]), rowOfFrame = id => App.shown.peek().item(App.chart.peek(), id)[0], rect = q => ({ x: q.x, y: q.y, w: q.w, h: q.h });
+    // A row of three, with one between: selected either side, the one between isn't held.
+    const row = ['bea', 'cam', 'eli'], y = m('bea').y;
+    for (const [i, n] of row.entries()) { cv().put(ids[n], { x: 60 + i * 180, y }); await tick(120); }
+    const b0 = rect(m('bea')), c0 = rect(m('cam')), e0 = rect(m('eli'));
+    Shell.select([ids.bea, ids.eli]); await tick(120);
+    const f = cv().insert('frame'); await tick(250);
+    const fm = () => sc().byId.get(f), inside = q => q.x + q.w / 2 >= fm().x && q.x + q.w / 2 <= fm().x + fm().w && q.y + q.h / 2 >= fm().y && q.y + q.h / 2 <= fm().y + fm().h;
+    check('Frame holds what’s selected, and what only stood among them steps out, said so', rowOfFrame(f)?.holds?.length === 2 && inside(m('bea')) && inside(m('eli')) && !(m('cam').x < fm().x + fm().w && fm().x < m('cam').x + m('cam').w && m('cam').y < fm().y + fm().h && fm().y < m('cam').y + m('cam').h) && /stepped out/.test(toast()), `${JSON.stringify(rect(fm()))} ${JSON.stringify(rect(m('cam')))} ${toast()}`);
+    check('… what it holds stays where it stood', Math.abs(m('bea').x - b0.x) < 1 && Math.abs(m('eli').x - e0.x) < 1, `${m('bea').x} ${b0.x}`);
+    // Moved, it takes them.
+    const at0 = rect(fm()), b1 = rect(m('bea')), e1 = rect(m('eli')), c1 = rect(m('cam'));
+    cv().put(f, { x: at0.x + 40, y: at0.y + 30 }); await tick(250);
+    check('A frame moved takes what it holds, and leaves what it doesn’t', Math.abs(m('bea').x - b1.x - 40) < 1 && Math.abs(m('bea').y - b1.y - 30) < 1 && Math.abs(m('eli').x - e1.x - 40) < 1 && Math.abs(m('cam').x - c1.x) < 1 && Math.abs(fm().x - at0.x - 40) < 1 && Math.abs(fm().y - at0.y - 30) < 1, `${m('bea').x - b1.x} ${m('cam').x - c1.x} ${fm().x - at0.x}`);
+    check('… as one step of Undo', (Shell.parts.peek().undo.undo(), true)); await tick(250);
+    check('… back together', Math.abs(m('bea').x - b1.x) < 1 && Math.abs(fm().x - at0.x) < 1, `${m('bea').x} ${b1.x}`);
+    // A box put in joins; out, leaves; the frame stays as it stands.
+    const atIn = rect(fm());
+    cv().put(ids.dee, { x: atIn.x + atIn.w / 2 - m('dee').w / 2, y: atIn.y + atIn.h / 2 - m('dee').h / 2 }); await tick(250);
+    check('A box dropped in joins', rowOfFrame(f).holds.includes(ids.dee), JSON.stringify(rowOfFrame(f).holds));
+    check('… the frame as it stood', Math.abs(fm().x - atIn.x) < 1 && Math.abs(fm().w - atIn.w) < 1, `${JSON.stringify(rect(fm()))} ${JSON.stringify(atIn)}`);
+    cv().put(ids.dee, { x: atIn.x + atIn.w + 80, y: atIn.y }); await tick(250);
+    check('… dragged out, leaves', !rowOfFrame(f).holds.includes(ids.dee) && Math.abs(fm().w - atIn.w) < 1, `${JSON.stringify(rowOfFrame(f).holds)} ${fm().w} ${atIn.w}`);
+    // Past its edge but its middle in: it grows round it.
+    cv().put(ids.eli, { x: fm().x + fm().w - m('eli').w / 2 - 2, y: m('eli').y }); await tick(250);
+    check('A box still in it, past its edge: the frame grows round it', rowOfFrame(f).holds.includes(ids.eli) && m('eli').x + m('eli').w <= fm().x + fm().w, `${m('eli').x + m('eli').w} ${fm().x + fm().w}`);
+    // A free shape is carried too.
+    cv().insert('text', { x: fm().x + 30, y: fm().y + fm().h - 40, w: 80, h: 20, text: 'Note' }); await tick(200);
+    const note = sc().marks.find(q => q.geometry === 'text' && q.texts[0]?.text === 'Note');
+    cv().put(note.id, { x: fm().x + 30, y: fm().y + fm().h - 40 }); await tick(200);
+    check('A free shape put in it is held too', rowOfFrame(f).holds.includes(note.id), JSON.stringify(rowOfFrame(f).holds));
+    { const n0 = rect(sc().byId.get(note.id)), a = rect(fm()); cv().put(f, { x: a.x, y: a.y + 12 }); await tick(250);
+      check('… and goes with it', Math.abs(sc().byId.get(note.id).y - n0.y - 12) < 1, `${sc().byId.get(note.id).y} ${n0.y}`); }
+    // Tidy lays out what it holds together.
+    cv().tidy(); await tick(500);
+    { const h = rowOfFrame(f).holds.map(id => sc().byId.get(id)).filter(q => q?.type === 'box'), out = sc().marks.filter(q => q.type === 'box' && !h.includes(q)), box = fm();
+      check('Tidy keeps what it holds in it, and nothing else', h.length === 2 && h.every(q => q.x >= box.x && q.x + q.w <= box.x + box.w && q.y >= box.y && q.y + q.h <= box.y + box.h) && !out.some(q => q.x + q.w / 2 > box.x && q.x + q.w / 2 < box.x + box.w && q.y + q.h / 2 > box.y && q.y + q.h / 2 < box.y + box.h), `${JSON.stringify(rect(box))} held ${h.map(q => `${q.texts[0].text} ${q.x},${q.y},${q.w}`).join(' ')} out ${out.map(q => `${q.texts[0].text} ${q.x},${q.y},${q.w}`).join(' ')} ${JSON.stringify(rowOfFrame(f).pad)} lines ${sc().marks.filter(q => q.type === 'line').map(l => `${sc().byId.get(l.from)?.texts[0].text}>${sc().byId.get(l.to)?.texts[0].text}`).join(' ')}`); }
+    // An empty frame takes what's dropped in it; it's still drawn on export.
+    Shell.select([]); await tick(100);
+    const e = cv().insert('frame', { x: 20, y: 20, w: 300, h: 160, text: 'Empty' }); await tick(200);
+    check('A frame with nothing selected holds nothing yet', !(rowOfFrame(e).holds ?? []).length, JSON.stringify(rowOfFrame(e)));
+    const pdf = Export.svg(sc(), {}), deckNames = sc().marks.filter(q => q.geometry === 'frame').length;
+    check('… and the PDF draws each', deckNames === 2 && /Empty/.test(pdf), `${deckNames}`);
+    // A view copied: its frame holds its boxes there too.
+    const copied = App.addView('Frames', undefined, page); await on(copied);
+    const fr = sc().marks.find(q => q.geometry === 'frame' && q.texts[0]?.text === 'Frame');
+    check('A page copied: its frame holds what it held, its own copy of the note among them', fr && fr.holds.length === 3 && fr.holds.includes(ids.bea) && !fr.holds.includes(note.id) && fr.holds.some(id => sc().byId.get(id)?.geometry === 'text'), JSON.stringify(fr?.holds));
+  }
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);

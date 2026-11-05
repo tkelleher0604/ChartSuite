@@ -1343,11 +1343,15 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // Order says one of its entries (Born) taking their turns in the order of that, earliest first.
   const acrossBy = new Map(), acrossOf = new Map(boxes.map(b => { const k = state[b.record]?.kind ?? ''; if (!acrossBy.has(k)) acrossBy.set(k, N.across(k)); const by = acrossBy.get(k), e = by && Tree.entryAt(state, b.record, by); return [b.id, e ? state[e].value ?? null : null]; }));
   const inTurn = bs => { const valued = bs.filter(b => acrossOf.get(b.id) != null); if (valued.length < 2) return bs; valued.sort((a, b) => (acrossOf.get(a.id) < acrossOf.get(b.id) ? -1 : acrossOf.get(a.id) > acrossOf.get(b.id) ? 1 : 0)); let i = 0; return bs.map(b => acrossOf.get(b.id) != null ? valued[i++] : b); };
+  // (A frame drawn on the page is a frame to the layout too, what it holds kept together, where none of it is in a frame a style draws: dendra.md, Frames.)
+  const framesHolding = onPage.filter(r => r.geometry === 'frame' && r.holds?.length).map(r => ({ id: r.shape, parent: null, members: r.holds.filter(id => drawnBoxes.has(id)), top: padOf(r).t, pad: padOf(r), solid: true })).filter(c => c.members.length && !c.members.some(id => steps.has(id)));
+  // (And what's kept clear of it where it stands now: what it holds, placed, and its margins round that.)
+  const obstacleOf = r => { if (r.geometry !== 'frame' || !r.holds?.length) return r; const bs = r.holds.map(id => drawnBoxes.get(id)).filter(b => b && positions.has(b.id)), p = padOf(r); if (!bs.length) return { ...r, x: null }; const g = bounds(bs.map(b => ({ ...positions.get(b.id), w: b.w, h: b.h }))); return { ...r, x: g.x - p.l, y: g.y - p.t, w: g.w + p.l + p.r, h: g.h + p.t + p.b }; };
   // What the layout reads: the boxes, the lines that rank them, and the frames.
   const ranked = bs => ({
     boxes: inTurn(bs).map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null, order: tidiedAs.get(b.id)?.order ?? null, around: !!tidiedAs.get(b.id)?.around })),
     links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, level: l.level, room: Math.max(roomFor.get(`${l.from}|${l.to}`) ?? 0, l.level ? 40 : 0) })),
-    clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
+    clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })).concat(framesHolding),
   });
   // (On another paper with the height to spare, a chart placed has its rows further apart: see below.)
   let further = 1;
@@ -1359,7 +1363,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const placed = Layout.arrange({
       keep: last?.at ?? null, ...ranked(boxes),
       lines: lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight })),
-      obstacles: obstaclesOf(onPage),
+      obstacles: obstaclesOf(onPage.map(obstacleOf)),
       entered: apart(squeeze === 1 ? positions : squeezed(positions, boxes, squeeze, pageSizes, beside, linked)), hints, page: { ...sheet, room }, bounds: last?.page ?? null,
     });
     // A triangle placed that its texts set wider than it was placed keeps its middle where it was, as far as the room on its
@@ -1630,6 +1634,17 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     for (const it of m.texts ?? []) { for (const id of it.records ?? [it.id]) if (!byId.has(id)) byId.set(id, it); if (it.runs?.length) spansIn(it, 1 / s); }
   }
   for (const g of shapes.filter(m => m.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
+  // A frame drawn stands round what it holds (dendra.md, Frames), as far out as its margins say, wherever the page has come to place that; one within it first.
+  const framed = new Set(), goRound = f => {
+    if (framed.has(f) || !f.holds?.length) return f;
+    framed.add(f);
+    const inIt = f.holds.map(id => byId.get(id)).filter(q => q && q !== f && q.type !== 'text' && (q.geometry !== 'frame' || goRound(q)));
+    if (!inIt.length) return f;
+    const row = onPage.find(r => r.id === f.row), b = bounds(inIt), p = padOf(row), head = f.texts.length ? f.texts[0].lines.length * lineHeight(f.look) + 8 / s : 0, top = Math.max(p.t, head), at = { x: b.x - p.l, y: b.y - top, w: b.w + p.l + p.r, h: b.h + top + p.b };
+    const again = freeShape({ ...row, ...at }, said.get(row.id), 1 / s);
+    return Object.assign(f, at, { texts: again.texts });
+  };
+  for (const f of shapes.filter(m => m.geometry === 'frame')) { goRound(f); for (const it of f.texts) if (!byId.has(it.id)) byId.set(it.id, it); }
   if (footsOf.size) numberFeet([...boxes, ...lines, ...shapes], footsOf, shapes.find(m => m.role === 'footnotes'), onPage.find(r => r.role === 'footnotes'), s, state);
 
   const laid = !preview && !opts.paper ? {
@@ -2303,6 +2318,8 @@ const TABLE = { Fill: 'none', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Si
 // The page's own texts: its title, its date, its footer and its number.
 const ROLES = { title: { Size: 20, Bold: true, Font: 'Heading' }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, day: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
 const TOKENED = /\{[^{}\n]+\}/;
+// How far out a frame stands from what it holds, as Insert makes one, or a hand has since (dendra.md, Frames).
+const padOf = r => r?.pad ?? { l: 14, t: 28, r: 14, b: 14 };
 function freeShape(row, text, u = 1, k = 1) {
   const { id, shape, format = {} } = row;
   const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...(row.geometry === 'table' && TABLE), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
@@ -2324,6 +2341,7 @@ function freeShape(row, text, u = 1, k = 1) {
   if (m.geometry === 'table') { tableOf(m, row, text, t, u); return m; }
   if (m.geometry === 'picture') { m.src = row.src; if (row.crop) m.crop = row.crop; }
   if (m.geometry === 'group') m.members = row.members ?? [];
+  if (m.geometry === 'frame' && row.holds) m.holds = row.holds;
   if (m.geometry === 'legend') Object.assign(m, { title: row.title ?? 'Key', columns: row.columns ?? 1, hide: row.hide ?? [], captions: row.captions ?? {}, order: row.order ?? [], auto: row.w == null });
   // A text box nobody has sized grows with its text, a line to each paragraph, as PowerPoint's does.
   if (m.geometry === 'text' && row.w == null) Object.assign(m, { auto: true, w: 120 * u, h: lineHeight(t) + 9.6 * u });
@@ -3120,8 +3138,13 @@ function annotated(before, after) {
   const inside = (m, [x, y], pad = 0) => x >= m.x - pad && x <= m.x + m.w + pad && y >= m.y - pad && y <= m.y + m.h + pad;
   const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
   const moved = (a, b) => !b || Math.abs(a.x * r - b.x) > 1 || Math.abs(a.y * r - b.y) > 1 || Math.abs(a.w * r - b.w) > 1;
+  // (A frame that holds what it holds stands round it, whatever moves it; a free shape it holds goes with what else it holds, as far off that as it was.)
+  const holding = before.marks.filter(m => m.geometry === 'frame' && m.holds?.length), carried = new Map();
+  for (const f of holding) { const bs = f.holds.map(id => before.byId.get(id)).filter(b => b?.type === 'box' && box(b.id)); if (bs.length) for (const id of f.holds) { const q = before.byId.get(id); if (q?.type === 'shape') carried.set(id, { q, was: bounds(bs), now: bounds(bs.map(b => box(b.id))) }); } }
   for (const m of before.marks) {
     if (m.type !== 'shape' || m.role || m.master || ['legend', 'group'].includes(m.geometry) || m.locked) continue;
+    if (m.geometry === 'frame' && m.holds?.length) continue;
+    if (carried.has(m.id)) { const { was, now } = carried.get(m.id); if (!m.points) { rows.set(m.id, { x: half(now.x + (m.x - was.x) * r), y: half(now.y + (m.y - was.y) * r), w: half(m.w * r), h: half(m.h * r) }); continue; } }
     if (m.geometry === 'line') {
       const glue = m.ends ?? [], pts = m.points, ends = [0, pts.length - 1].map((i, k) => { if (glue[k]) return null; const b = boxes.find(q => inside(q, pts[i], 4 / (before.page.scale ?? 1))), now = b && box(b.id); return now ? { i, x: now.x + (pts[i][0] - b.x) * (now.w / (b.w || 1)), y: now.y + (pts[i][1] - b.y) * (now.h / (b.h || 1)) } : null; }).filter(Boolean);
       if (!ends.length) { if (!glue.some(Boolean)) stay.push(m); continue; }

@@ -203,7 +203,7 @@ function attach(x) {
     const view = x.viewOf(), ids = new Map();
     for (const m of ms) if (m.type === 'shape' && m.geometry !== 'group') {
       const { ends, kept, ...row } = x.rowOf(m.id) ?? {};
-      ids.set(m.id, tx.add('shape', { ...row, view, x: (row.x ?? m.x) + dx, y: (row.y ?? m.y) + dy, ...(row.points && { points: row.points.map(([a, b]) => [round(a + dx), round(b + dy)]) }), ...(ends && { ends: null }) }));
+      ids.set(m.id, tx.add('shape', { ...row, view, x: (row.x ?? m.x) + dx, y: (row.y ?? m.y) + dy, ...(row.points && { points: row.points.map(([a, b]) => [round(a + dx), round(b + dy)]) }), ...(ends && { ends: null }), ...(row.geometry === 'frame' && { holds: [], pad: null, w: m.w, h: m.h }) }));
     }
     return ids;
   }
