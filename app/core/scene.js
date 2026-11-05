@@ -1595,7 +1595,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   return scene;
 }
 // Footnotes numbered, by reading order on the page (down its rows, then across), one number for one text however many marks carry it. Each mark
-// says what it carries, `feet`, and gets its marker, a superscript after its first line, or after the field it was added to; the shape gets its lines, each
+// says what it carries, `feet`, and gets its marker, a superscript at the end of its first text, or of the field it was added to; the shape gets its lines, each
 // number a superscript run of its text, so the canvas, the PDF and the deck each draw them as they draw any part of a text. In columns, by its Columns, as any shape's are.
 function numberFeet(marks, foots, shape, row, s, state) {
   const u = 1 / s, numbers = new Map(), at = m => m.type === 'line' ? m.labelAt ?? { x: m.x ?? 0, y: m.y ?? 0 } : m, read = marks.filter(m => foots.has(m.id) && (m.type !== 'line' || (m.labelAt && !m.merged)));
@@ -1606,10 +1606,10 @@ function numberFeet(marks, foots, shape, row, s, state) {
     for (const f of fs) { if (!numbers.has(f.text)) numbers.set(f.text, { n: numbers.size + 1, text: f.text, from: [] }); numbers.get(f.text).from.push(f); const it = onto(f.field); (by.get(it) ?? by.set(it, []).get(it)).push(numbers.get(f.text).n); }
     m.feet = fs.map(f => ({ n: numbers.get(f.text).n, text: f.text, key: f.param }));
     for (const [it, ns] of by) {
-      if (!it?.lines?.[0]) continue;
+      if (!it?.lines?.length) continue;
       const look = spanLook(it.look, { Base: 'up' }, u), text = ns.sort((a, b) => a - b).join(',');
       // (A field in a part of a design: the box's copy says where it is, and the part's own is what's drawn.)
-      for (const l of [it.lines[0], it.drawn?.lines[0]].filter(Boolean)) {
+      for (const l of [it.lines.at(-1), it.drawn?.lines.at(-1)].filter(Boolean)) {
         l.spans = [...(l.spans ?? [{ text: l.text, look: it.look, own: false }]), { text, look, base: 'up', own: true, foot: true }];
         l.footW = measure(text, look);
         l.w += l.footW;
