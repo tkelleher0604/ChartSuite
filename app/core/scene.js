@@ -155,6 +155,8 @@ const none = c => !c || c === 'none';
 const luminance = c => { const m = /^#?([0-9a-f]{6})$/i.exec(c ?? ''); return !m ? null : [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0); };
 const tooDark = s => !none(s.Fill) && (s.Transparency ?? 0) < 50 && (L => L !== null && L < 0.179)(luminance(s.Fill));
 const unread = (color, fill) => { const a = luminance(color), b = luminance(fill); return a === null || b === null || (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) < 3; };
+// Whether one colour is lost on another: too near to tell apart as a shape.
+const unlike = (color, fill) => { const a = luminance(color), b = luminance(fill); return a !== null && b !== null && (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) < 1.6; };
 const WHITE = '#ffffff';
 function inkOn(b) {
   const fill = b.settings.Fill?.value;
@@ -793,6 +795,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   };
   const land = (record, label, res, accept) => {
     for (const start of own.get(record) ?? []) {
+      // (A text's own look stays its own: one a hand has hidden here is nothing to the box, whose other words keep theirs. What no note shows at all, its look is the box's.)
+      if (start.type === 'text' && !start.listed && TEXT_PROPS.includes(label) && !about(res.note) && start.cand.Shown?.value === false) continue;
       let m = start, depth = 0;
       // A relation written in a box keeps what's given for its line to itself.
       while (m && !(HAS[m.type].has(label) && accept(m))) { m = m.listed ? null : up(m); depth++; }
@@ -1106,17 +1110,33 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // While a design is edited (see Edit design), its parts stand on the page as free shapes over one box, each reading that box's words, in the look they'd have.
   const editing = boxes.find(b => b.design?.value.editing);
   if (editing) {
-    const kept = N.resolve('Scale', { id: view, kind: 'View' })?.value?.scale ?? 1, names = new Set((editing.design.value.names ?? []).map(Tree.norm));
+    const kept = N.resolve('Scale', { id: view, kind: 'View' })?.value?.scale ?? 1;
     // (What stands under a part's words is what's on the page, a part being read against those as it will be against its neighbours.)
-    const standing = onPage.filter(r => r.part || wb.made(r.shape) > editing.design.value.begun);
+    const standing = onPage.filter(r => r.part || wb.made(r.shape) > editing.design.value.begun), names = new Set(standing.flatMap(r => tokensIn(r.text)).map(Tree.norm)), { w: W = 1, h: H = 1 } = editing.design.value, sharesOf = r => ({ ...r, w: (r.w ?? 0) / W, h: (r.h ?? 0) / H });
     for (let i = 0; i < onPage.length; i++) {
       const r = onPage[i];
       if (r.role || r.geometry === 'legend') continue;
-      if (r.rest) said.set(r.id, editing.fields.filter(it => !names.has(Tree.norm(state[it.id]?.edge ?? ''))).map(it => it.text).join('\n'));
-      else if (r.geometry === 'table') said.set(r.id, reads.table(r, editing.record));
-      else if (r.text) said.set(r.id, /^\s*=/.test(r.text) ? reads.formula(r.text, editing.record) : cleaned(r.text.replace(TOKEN, (_, l) => { const q = reads(editing.record, l), it = !l.includes('|') && editing.fields.find(x => x.id === q.id); return (it ? it.text : q.text) || l; })));
+      // (The fields it holds as they'll print, each in its own size and colour, what's typed in it under them.)
+      if (r.rest) {
+        const held = editing.fields.filter(it => !it.part && !it.was && !names.has(Tree.norm(state[it.id]?.edge ?? it.blank?.edge ?? ''))), words = r.text ? readWords(r.text, editing.record, reads) : '', all = [...held.map(it => it.text), ...(words ? [words] : [])].join('\n');
+        let from = 0;
+        // (A field with none yet by its name, faint, as a box selected shows it.)
+        const runs = held.map(it => { const run = { from, to: from + it.text.length, Size: printed(it, kept), Bold: !it.blank && !!it.look.Bold, Italic: !!it.blank || !!it.look.Italic, ...(it.blank ? { Color: '#8a8f8c' } : it.settings.Color?.note && { Color: it.look.Color }) }; from += it.text.length + 1; return run; });
+        // (And what's typed in it, at the size it'll print.)
+        if (words) runs.push({ from, to: from + words.length, Size: r.format?.Size ?? half(BESIDE_NAME, kept) * kept, Bold: !!r.format?.Bold, Italic: !!r.format?.Italic });
+        said.set(r.id, all);
+        const f = partFormat(editing, { p: r, item: null, shares: sharesOf(r) }, kept, standing);
+        onPage[i] = { ...r, runs, reads: true, format: { ...f, Bold: false, ...(runs.length && r.format?.Size === undefined && { Size: Math.max(...runs.map(x => x.Size)) }) } };
+        continue;
+      }
+      if (r.geometry === 'table') said.set(r.id, reads.table(r, editing.record));
+      else if (r.text) said.set(r.id, /^\s*=/.test(r.text) ? reads.formula(r.text, editing.record) : cleaned(r.text.replace(TOKEN, (_, l) => { const q = reads(editing.record, l), it = !l.includes('|') && editing.fields.find(x => x.id === q.id); return (it ? it.text : q.text) || l.split('|')[0].trim(); })));
       // (Drawn since it began too: as it will be, a part.)
-      if (r.part || wb.made(r.shape) > editing.design.value.begun) { const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))); onPage[i] = { ...r, format: partFormat(editing, { p: r, item }, kept, standing) }; }
+      if (r.part || wb.made(r.shape) > editing.design.value.begun) {
+        const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))), one = /^\s*\{([^{}\n]+)\}\s*$/.exec(r.text ?? ''), unfilled = one && !reads(editing.record, one[1]).text, t = said.get(r.id) ?? '';
+        // (One whose field has none yet stands faint, by its name, as a blank does.)
+        onPage[i] = { ...r, reads: true, ...(unfilled && t && { runs: [{ from: 0, to: t.length, Bold: false, Italic: true, Color: '#8a8f8c' }] }), format: partFormat(editing, { p: r, item, shares: sharesOf(r) }, kept, standing) };
+      }
     }
   }
 
@@ -2164,6 +2184,7 @@ const SHAPED = new Set(['line', 'picture', 'group', 'legend', 'table', 'text', '
 const TABLE = { Fill: '#44546a', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Size: 10, Valign: 'middle' };
 // The page's own texts: its title, its date, its footer and its number.
 const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
+const TOKENED = /\{[^{}\n]+\}/;
 function freeShape(row, text, u = 1, k = 1) {
   const { id, shape, format = {} } = row;
   const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...(row.geometry === 'table' && TABLE), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
@@ -2208,7 +2229,9 @@ function freeShape(row, text, u = 1, k = 1) {
     const r = textRect(m.geometry, across(), downIt(), t.Corner), wholeWidth = Math.max(16 * u, across() * share - ins.l - ins.r) - 2 * r.x, avail = cols > 1 ? (wholeWidth - gap * (cols - 1)) / cols : wholeWidth, tall = downIt() - r.top - r.bottom - ins.t - ins.b;
     // Shrink on overflow, PowerPoint's: smaller by its steps until it holds, no less than a quarter of its size.
     if (t.Shrink && !m.auto) for (const f of [0.925, 0.85, 0.775, 0.7, 0.625, 0.55, 0.475, 0.4, 0.325, 0.25]) { if (Math.ceil(lines.length / cols) * lineHeight(look) <= tall + 0.5) break; look = { ...t, Size: t.Size * f }; lines = lay(look); m.shrunk = f; }
-    const it = { id: shape, type: 'text', look, settings: m.settings, text, lines, ...(runs && { runs }) };
+    // (A field named in a text box on the page reads the box it's dropped on or the design it's made a part of. Till then it has nothing to read, and stands as a blank does, faint, by its name, and printing nothing.)
+    const asks = !row.reads && !row.role && !row.part && !/^\s*=/.test(row.text ?? '') && TOKENED.test(row.text ?? '');
+    const it = { id: shape, type: 'text', look, settings: m.settings, text, lines, ...(runs && { runs }), ...(asks && { blank: { reads: true } }) };
     const perCol = cols > 1 ? Math.max(1, Math.floor((tall + 0.5) / lineHeight(look))) : Infinity, tb = cols > 1 ? Math.min(perCol, lines.length) * lineHeight(look) : blockHeight([it]), ind = indentOf(look);
     if (sideways && m.auto) { m.h = tb ? widest([{ lines }]) + ins.l + ins.r + 1 : m.h; m.w = tb + ins.t + ins.b; }
     else if (m.geometry === 'text' && !t.Shrink && cols === 1) { if (!sideways) m.h = m.auto ? tb + ins.t + ins.b : Math.max(m.h, tb + ins.t + ins.b); else m.w = Math.max(m.w, tb + ins.t + ins.b); }
@@ -2241,7 +2264,8 @@ function freeShape(row, text, u = 1, k = 1) {
 function shapeText(row, computed, day, state, N) {
   if (row.geometry === 'table') return JSON.stringify(tableRead(row, computed, day, state, N));
   const text = row.text ?? '';
-  return /^\s*=/.test(text) && computed ? Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } })) : text;
+  if (/^\s*=/.test(text)) return computed ? Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } })) : text;
+  return !row.role && TOKENED.test(text) ? text.replace(/\{([^{}\n]+)\}/g, (_, l) => l.split('|')[0].trim()) : text;
 }
 
 // ---- Group designs (dendra.md, Group designs) ----
@@ -2264,22 +2288,58 @@ function designAtPattern(N, p, view) {
     d = wholeDesign(n.value) ? overDesign(n.value, n.value.over) : d && overDesign(d, n.value.over);
   return d;
 }
+// One of what a list's name says: Owners, an owner; Children, a child; People, a person.
+const oneOf = w => [w.replace(/ren$/i, ''), w.replace(/people$/i, 'person').replace(/People$/, 'Person'), w.replace(/ies$/i, 'y'), w.replace(/es$/i, ''), w.replace(/s$/i, '')].find(x => x !== w && Tree.same(Tree.plural(x), w)) ?? w;
+// "Owner's name", as it's said, is what's offered and what's read: Owner.Name says the same.
+const OWNED = /^(.+?)(?:\.|['’]s\s+)(.+)$/;
+// What a record's words can read, by name, as a person says it: its entries, then, of each list of its relatives, what's said of one of them ("Owner's name", "Owner's Jurisdiction"), and a relation's sides.
+// → [{ label, of }], `of` the list a relative's is from, `first` its name, what a list shows first. Each label is the token that reads it.
+const readings = new WeakMap();
+function readable(state, N, schema, at) {
+  const t = treeOf(state, at), specs = Object.values(schema);
+  if (!t) return [];
+  // (Asked of as a panel's drawn, once for each of its lists: kept for as long as what it's worked out from is the same.)
+  const byState = readings.get(N) ?? readings.set(N, new WeakMap()).get(N), kept = byState.get(state) ?? byState.set(state, new Map()).get(state);
+  if (kept.has(at)) return kept.get(at);
+  const own = new Map();
+  for (const e of Tree.index(state).entries.get(at) ?? []) if (!N.check(bare(treeOf(state, e)))) own.set(Tree.norm(state[e].edge), state[e].edge);
+  for (const x of specs) if (x.args?.length === 1 && Tree.narrower(t, x.args[0].loc) && !N.check(bare(x))) own.set(Tree.norm(x.args[0].edge), x.args[0].edge);
+  const byOrder = (edges, loc) => { const order = e => same(e, 'Name') ? -1 : N.order({ args: [{ edge: e, loc }] }) ?? Infinity; return [...edges].sort((a, b) => order(a) - order(b) || a.localeCompare(b)); };
+  const offered = byOrder(own.values(), t).map(label => ({ label }));
+  // (Of one at a side or in a list: its name, then what its kind has. No document's own list: what evidences a thing isn't over it.)
+  const whose = (noun, locs, of) => { const es = new Map([['name', 'name']]), kinds = locs.map(l => l.kind).filter(Boolean); for (const x of specs) if (x.args?.length === 1 && !x.args[0].loc.args && kinds.some(k => same(x.args[0].loc.kind ?? '', k)) && !N.check(bare(x)) && !same(x.args[0].edge, 'Name') && !('tag' in x.out)) es.set(Tree.norm(x.args[0].edge), x.args[0].edge); return byOrder(es.values(), locs[0] ?? {}).map(e => ({ label: `${noun}'s ${e}`, of, ...(e === 'name' && { first: true }) })); };
+  for (const a of state[at]?.args ?? []) offered.push(...whose(a.edge, [treeOf(state, Tree.objectOf(state, a.at) ?? a.at) ?? {}], a.edge));
+  const lists = new Map(), isDoc = loc => !!loc.kind && specs.some(s => s.out?.field === 'document' && s.args?.length === 1 && same(s.args[0].loc.kind ?? '', loc.kind));
+  for (const s of specs) if (s.args?.length === 2 && ('tag' in s.out || 'choice' in s.out) && !N.resolve('Formula', bare(s))) for (const sm of s.args) {
+    const sl = s.args.find(a => a !== sm);
+    if (!sl || !Tree.narrower(t, sm.loc) || isDoc(sl.loc)) continue;
+    const name = N.listName(bare(s), sl.edge);
+    const l = lists.get(Tree.norm(name));
+    if (l) l.locs.push(sl.loc); else lists.set(Tree.norm(name), { name, locs: [sl.loc], edge: sl.edge });
+  }
+  // (A list named for what it is to them, "Adviser To", by who's at the side: that's what one of them is.)
+  for (const l of [...lists.values()].sort((a, b) => a.name.localeCompare(b.name))) offered.push(...whose(/\s(to|of|for|in|by|under|with)$/i.test(l.name) ? l.edge : oneOf(l.name), l.locs, l.name));
+  kept.set(at, offered);
+  return offered;
+}
 // What a token reads at a record, as a form letter's field does, where it isn't there, as nothing: an entry of it, at any depth, as Text reads
-// one; `A › B`, an entry of an entry; `Side.Entry`, that entry of the record at a relation's side, or of the first at that side of a relation it's on;
-// a list's name, the names of the relatives it lists (Holdings); and `|initials`, its words' first letters. → { text, id }, id the entry read.
+// one; `A › B`, an entry of an entry; `Side's Entry` or `Side.Entry`, that entry of the record at a relation's side, or of everyone in a list of its relatives, by the list's name or one of them ("Owner's name");
+// a list's name, or one of them, the names of the relatives it lists (Holdings); and `|initials`, its words' first letters. → { text, id }, id the entry read.
 function reader(state, N, computed, day) {
   const below = (at, label) => { const { entries } = Tree.index(state), k = Tree.norm(label); for (let todo = [at], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { if (Tree.norm(state[e].edge) === k) return e; todo.push(e); } return null; };
-  const on = at => (Tree.index(state).relations.get(at) ?? []).map(id => ({ id, r: state[id] })).filter(x => x.r?.args);
   const objectAt = at => Tree.objectOf(state, at) ?? at;
-  const atSide = (at, side) => { const r = state[at], here = r?.args?.find(a => same(a.edge, side)); if (here) return objectAt(here.at); for (const x of on(at)) { const a = x.r.args.find(y => same(y.edge, side) && objectAt(y.at) !== at); if (a) return objectAt(a.at); } return null; };
-  const listed = (at, label) => (listsAt(state, N, at).find(l => same(l.name, label))?.items ?? []).map(it => N.shortOf(state, objectAt(it.obj)));
+  // Who a word names among what's over a record: a relation's side, or its list of relatives, by the list's name, one of them, or the side.
+  const among = (at, word) => { const here = state[at]?.args?.find(a => same(a.edge, word)); return here ? [objectAt(here.at)] : (listsAt(state, N, at).find(l => same(l.name, word) || same(oneOf(l.name), word) || same(l.edge, word))?.items ?? []).map(it => objectAt(it.obj)); };
   const valueOf = e => textOf(state[e], 'value', state[e].edge);
   const read = (at, raw) => {
-    const [token, how] = String(raw).split('|').map(x => x.trim()), path = token.split(/\s*›\s*/), dot = /^(.+?)\.(.+)$/.exec(token), side = state[at]?.args?.find(a => same(a.edge, token));
+    const [token, how] = String(raw).split('|').map(x => x.trim()), path = token.split(/\s*›\s*/), side = state[at]?.args?.find(a => same(a.edge, token));
     let out = { text: '' };
     if (path.length > 1) { let x = at; for (const e of path) x = x && below(x, e); if (x) out = { text: valueOf(x), id: x }; }
     else if (side) out = { text: N.nameOf(state, objectAt(side.at)) };
-    else { const e = below(at, token); if (e) out = { text: valueOf(e), id: e }; else if (dot) { const o = atSide(at, dot[1]); if (o) out = { text: read(o, dot[2]).text }; } else out = { text: listed(at, token).join(', ') }; }
+    else {
+      const e = below(at, token), whose = !e && OWNED.exec(token);
+      out = e ? { text: valueOf(e), id: e } : { text: [...new Set(whose ? among(at, whose[1]).map(o => read(o, whose[2]).text).filter(Boolean) : among(at, token).map(o => N.shortOf(state, o)))].join(', ') };
+    }
     return how === 'initials' ? { ...out, text: out.text.split(/\s+/).filter(w => /^[\p{L}\p{N}]/u.test(w)).slice(0, 3).map(w => w[0].toUpperCase()).join('') } : out;
   };
   read.formula = (text, at) => { if (!computed) return ''; const v = Formulas.evaluateAt(computed, text, at, { '@AsOf': { t: 'date', iso: day } }); return Formulas.text(computed, v); };
@@ -2313,9 +2373,13 @@ function designIn(b, read, hidden, hasEntry) {
     const runs = p.runs?.length ? (text === raw ? p.runs : runsAfter(raw, text, p.runs)) : null;
     return { p, text, item, ...(one && id && text && !one[1].includes('|') && { id }), ...(blank && { blank }), ...(runs?.length && { runs }) };
   });
-  b.texts = items.filter(it => !named.has(it));
-  // (What's left is read on what it stands on: the box, or the part it goes in.)
   const rest = value.parts?.find(p => p.rest && !p.hidden);
+  // (Words typed in the part the fields go in stand under those fields, in the look it gives them; a field they name isn't said twice.)
+  for (const t of tokensIn(rest?.text)) { const r = read(b.record, t), it = r.id && of(r.id); if (it) named.add(it); }
+  b.texts = items.filter(it => !named.has(it));
+  const said = rest?.text ? readWords(rest.text, b.record, read) : '';
+  if (said) { const settings = Object.fromEntries(TEXT_PROPS.map(l => [l, l in (rest.format ?? {}) ? { value: rest.format[l], note: null } : l === 'Size' ? { value: BESIDE_NAME, note: null } : b.settings[l]])); b.texts.push({ id: `words@${b.id}`, type: 'text', settings, look: Object.fromEntries(Object.entries(settings).map(([k, v]) => [k, v.value])), text: said, computed: false, shownBy: null }); }
+  // (What's left is read on what it stands on: the box, or the part it goes in.)
   if (value.parts?.length) inkOn({ texts: b.texts, settings: { Fill: { value: rest ? groundOf(b, rest) : b.settings.Fill.value }, Transparency: b.settings.Transparency } });
 }
 // What a part's words stand on: its own fill; or, clear, the fill of the part before it that it stands in the middle of; or the box's.
@@ -2326,16 +2390,37 @@ function groundOf(b, p, parts = b.design?.value.parts ?? []) {
   for (let k = i - 1; k >= 0; k--) { const q = parts[k]; if (!q.hidden && !none(fill(q)) && mx >= q.x && mx <= q.x + q.w && my >= q.y && my <= q.y + q.h) return fill(q); }
   return b.settings.Fill.value;
 }
+// A shape a part draws, not its words alone or a line.
+const bodied = p => !['text', 'line', 'picture', 'table', undefined].includes(p.geometry);
+// The panel the eye sees: a part with a fill, over at least half the box.
+const panels = p => bodied(p) && !none(p.format?.Fill ?? WHITE) && p.w * p.h >= 0.5;
+// A share of a colour over white: what a panel takes of a fill given the box.
+const tintOf = (c, k = 0.14) => { const m = /^#([0-9a-f]{6})$/i.exec(String(c)); if (!m) return WHITE; const at = i => parseInt(m[1].slice(i, i + 2), 16), mix = v => Math.round(255 + (v - 255) * k).toString(16).padStart(2, '0'); return `#${mix(at(0))}${mix(at(2))}${mix(at(4))}`; };
 // A part's look: what it says of itself; a look named as {Outline}, the box's; and of its words, what the chart says of the field it reads, or the box, as a text's in the box would have
 // it (All text's font; a style's bold; a size a note gives, as printed, else the chart's, at the sheet's half point). A colour that wouldn't read on what's under it gives way, as Ink.
-function partFormat(b, { p, item }, s, parts) {
+// A fill given the box beyond the design's own is the band's whole, and a tint of it on a white panel over the box, so a fill is seen where the eye looks. A shape in a colour lost on the dark it stands on (a navy avatar on a navy box) turns white.
+function partFormat(b, { p, item, shares = p }, s, parts) {
   const f = { ...p.format }, src = item?.settings ?? b.settings, given = l => (src[l]?.note ? src[l].value : undefined);
   for (const [k, v] of Object.entries(f)) { const m = typeof v === 'string' && /^\{(\w+)\}$/.exec(v); if (m) { const o = b.settings[m[1]]?.value; if (o === undefined) delete f[k]; else f[k] = m[1] === 'Weight' ? o * s : o; } }
+  const fill = b.settings.Fill, panel = panels(shares);
+  if (f.Fill === WHITE && panel && fill?.note && fill.note !== b.design?.note?.note && !none(fill.value)) f.Fill = tintOf(fill.value);
+  else if (bodied(p) && !none(f.Fill) && f.Fill !== WHITE && !panel) { const under = groundOf(b, { ...p, format: { ...f, Fill: 'none' } }, parts); if (tooDark({ Fill: under, Transparency: 0 }) && unlike(f.Fill, under)) f.Fill = WHITE; }
   f.Font ??= item?.look.Font ?? b.settings.Font.value;
   if (f.Size === undefined) f.Size = Number.isFinite(given('Size')) ? given('Size') : half(item?.look.Size ?? BESIDE_NAME, s) * s;
   for (const l of ['Bold', 'Italic', 'Underline', 'Strike', 'Spacing', 'Align']) if (f[l] === undefined && given(l) !== undefined) f[l] = given(l);
   if (f.Color === undefined && !['line', 'picture'].includes(p.geometry)) { const ground = groundOf(b, { ...p, format: f }, parts), c = given('Color'); if (c && (none(ground) || !unread(c, ground))) f.Color = c; else if (tooDark({ Fill: ground, Transparency: 0 })) f.Color = WHITE; }
   return f;
+}
+// What a part is called, by what it is, in the panel and the deck: its own name; the field it shows ("Name, as initials"); its words; or what it draws (a place in shares of the box).
+function partName(p) {
+  if (p.name) return p.name;
+  if (p.rest) return 'Other fields';
+  const raw = String(p.text ?? '').trim(), one = /^\{([^{}\n]+)\}$/.exec(raw);
+  if (one) { const [t, how] = one[1].split('|').map(x => x.trim()), word = t.replace(/^(.+?)\.(.+)$/, "$1's $2"); return how === 'initials' ? `${word}, as initials` : word; }
+  if (raw) return raw.split('\n')[0].replace(TOKEN, (_, l) => l.split('|')[0].trim());
+  if (p.geometry === 'line') return 'Rule';
+  if (p.geometry === 'text') return 'Text';
+  return panels(p) ? 'Panel' : bodied(p) && (p.w >= 0.98 || p.h >= 0.98) ? 'Band' : Shapes.name(p.geometry) ?? 'Shape';
 }
 // What a part's words keep in from its edges, the chart's as a box's are: its Inner margins, or PowerPoint's own.
 const insetOf = format => { const i = format.Inset, by = pts => pts * PT; return i ? { l: by(i.l ?? 7.2), r: by(i.r ?? 7.2), t: by(i.t ?? 3.6), b: by(i.b ?? 3.6) } : { l: INSET, r: INSET, t: PAD, b: PAD }; };
@@ -2345,7 +2430,10 @@ function partRow(b, pp, w, h, s) {
   let px = (b.x ?? 0) + x * w, py = (b.y ?? 0) + down(y) * h, fw = pw * w, fh = (down(y + ph) - down(y)) * h;
   // (A part that's square stays so, in the middle of its frame: a person's circle, however the box is stretched.)
   if (square) { const side = Math.min(fw, fh); px += (fw - side) / 2; py += (fh - side) / 2; fw = fh = side; }
-  const f = partFormat(b, pp, s), out = { ...row, id: at, shape: at, geometry: row.geometry ?? 'text', x: px, y: py, w: fw, h: fh, format: { ...f, Size: f.Size / s, Weight: (f.Weight ?? 0.75) / s },
+  const f = partFormat(b, pp, s);
+  // (What's drawn on a surface goes where that surface is seen: on the last panel over the box, for what's under it would never show.)
+  if (panels(pp.p) && (b.design?.value.parts ?? []).filter(q => !q.hidden && panels(q)).at(-1)?.id === id) for (const l of ['Inner Shadow', 'Bevel', 'Soft Edge']) if (b.settings[l]?.note && f[l] === undefined) f[l] = b.settings[l].value;
+  const out = { ...row, name: partName(pp.p), id: at, shape: at, geometry: row.geometry ?? 'text', x: px, y: py, w: fw, h: fh, format: { ...f, Size: f.Size / s, Weight: (f.Weight ?? 0.75) / s },
     ...(pp.runs && { runs: pp.runs }), ...(points && { points: points.map(([u, v]) => [(b.x ?? 0) + u * w, (b.y ?? 0) + down(v) * h]) }) };
   // A panel to the corners of a rounded box follows them, so nothing stands out past it, in the deck by PowerPoint's own adjustments.
   if (out.geometry === 'rect' && b.settings.Shape.value === 'rounded' && !out.format.Corner && !row.rotate) {
@@ -2426,7 +2514,8 @@ function instance(scene, id, value, N, computed) {
   for (const [l, v] of Object.entries(value?.base ?? {})) if (l in settings && (l === 'Shape' || !settings[l].note)) settings[l] = { value: l === 'Weight' ? v / s : v, note: null };
   const texts = (m.fields ?? m.texts).filter(it => !it.part).map(it => ({ ...it, lines: (it.lines ?? []).map(l => ({ ...l })) }));
   const b = { id, type: 'box', record: m.record, x: 0, y: 0, settings, texts, design: { value: value ?? {}, parts: [], rank: [] }, designAt: s };
-  if (!value) b.design = null; else designIn(b, reader(scene.state, N, computed, scene.day), () => false, () => false);
+  // (A field with none yet stands by its name, so a thumbnail of a new record isn't empty.)
+  if (!value) b.design = null; else designIn(b, reader(scene.state, N, computed, scene.day), () => false, () => true);
   size(b, 1, null, 1);
   b.texts.forEach(it => snap(it, s, it.typedAt !== undefined));
   setText(b);
@@ -2436,7 +2525,8 @@ function instance(scene, id, value, N, computed) {
 // A Key's row or a Styles' swatch of a design, in miniature: its parts' shapes in a swatch's rect, with no words, in the look of what it stands for.
 function swatchParts(sw, box, u = 1) {
   if (!sw.Design?.parts?.length) return [];
-  const on = { settings: Object.fromEntries(Object.keys(DEFAULTS.box).map(k => [k, { value: sw[k], note: null }])) };
+  // (As a box of it has it: a fill the row gives, beyond the design's own, reaches its panel.)
+  const on = { settings: Object.fromEntries(Object.keys(DEFAULTS.box).map(k => [k, { value: sw[k], note: k === 'Fill' && sw.Fill !== (sw.Design.base?.Fill ?? DEFAULTS.box.Fill) ? {} : null }])) };
   return sw.Design.parts.filter(p => !['text', undefined].includes(p.geometry)).map(p => {
     const { id, text, rest, x, y, w, h, points, format, runs, ...row } = p, f = partFormat(on, { p }, 1);
     return freeShape({ ...row, id, shape: id, x: box.x + x * box.w, y: box.y + y * box.h, w: w * box.w, h: h * box.h, ...(points && { points: points.map(([a, c]) => [box.x + a * box.w, box.y + c * box.h]) }), format: { ...f, Weight: Math.min(f.Weight ?? 0.5, 0.5) } }, '', u);
@@ -2903,6 +2993,7 @@ function says(scene, name, paper) {
   // What's too small for its text says so, never broken mid-word for it.
   for (const b of boxes) if (b.spills) out.push(`${called(b)}: its text runs out of its box`);
   for (const m of scene.marks) for (const q of m.type === 'shape' ? [m] : m.parts ?? []) if (q.spills) out.push(`“${q.texts[0]?.text?.split('\n')[0] ?? 'A shape'}” runs out of its shape`);
+  for (const m of scene.marks) if (m.type === 'shape' && m.texts?.[0]?.blank?.reads) out.push(`A text box asks for ${m.texts[0].text.split('\n')[0]}, and stands on no box: it won’t print`);
   // A box given by hand the very look a Key row says means something else makes the Key lie: said by what it reads as.
   for (const { b, row } of keyLies(scene)) out.push(`${called(b)} looks like ${row.caption} in the Key, but isn't`);
   if (p.paper) boxes.forEach((a, i) => boxes.slice(i + 1).forEach(b => { if (over(a, b)) out.push(`${called(a)} overlaps ${called(b)}`); }));
@@ -2911,7 +3002,7 @@ function says(scene, name, paper) {
 
 return {
   MASTER, fontName, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
-  instance, swatchParts, wholeDesign, overDesign, designAtPattern, tokensIn, reader, readWords,
+  instance, swatchParts, wholeDesign, overDesign, designAtPattern, tokensIn, reader, readWords, readable, oneOf, partName,
   toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };

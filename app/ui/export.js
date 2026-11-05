@@ -766,6 +766,8 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
   // A mark, written. → its rects on the slide.
   const write = m => {
     const s = look(m);
+    // (A text box that asks for a field and stands on no box prints nothing: dendra.md, Free shapes.)
+    if (m.texts?.[0]?.blank?.reads) return [];
     if (m.type === 'box') {
       // (A box of a design: a native group of its body and its parts, each an editable shape with its own words, its connectors glued to the body: dendra.md, Group designs.)
       const whose = (m.parts?.length ? m.texts.find(it => it.name)?.text : null) ?? m.texts[0]?.text ?? 'Shape', items = m.parts?.length ? m.texts.filter(it => !it.part) : m.texts;
