@@ -2988,7 +2988,7 @@ function mount(el) {
     return true;
   }
   // A copy from the menu puts the names on the system's clipboard too, as it can.
-  const copyOut = () => { if (field ? copyField(fieldNow()) : copy()) navigator.clipboard?.writeText(clip.text).catch(() => {}); };
+  const copyOut = () => { const cells = hand.cellsText(); if (cells !== null) return navigator.clipboard?.writeText(cells).catch(() => {}); if (field ? copyField(fieldNow()) : copy()) navigator.clipboard?.writeText(clip.text).catch(() => {}); };
   // A field copied is its entry, by its label, or a free text's words: pasted on a box, the box shows its own entry of
   // that label, as a form's field shows its record's, or the same words, at the scope (see Fields). Its text is what
   // the system's clipboard holds of it.

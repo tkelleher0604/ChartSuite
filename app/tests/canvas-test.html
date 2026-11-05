@@ -3215,7 +3215,8 @@ async function designing(st) {
   cv().root.focus(); key('Delete'); await tick(200);
   // Theme fonts reach what says no font of its own.
   App.change(tx => tx.note('Theme Fonts', { kind: 'View' }, { heading: 'Garamond', body: 'Verdana' }), { dated: false }); await tick(250);
-  { const title = sc().marks.find(m => m.role === 'title'), boxes = sc().marks.filter(m => m.type === 'box'); check('Heading and Body move the title and the boxes, which say no font of their own', title.texts[0].look.Font === 'Heading' && boxes.some(b => b.texts[0].look.Font === 'Body') && Scene.fontName('Heading') === 'Garamond' && Scene.fontName('Body') === 'Verdana', `${title.texts[0].look.Font} ${[...new Set(boxes.map(b => b.texts[0].look.Font))]}`); }
+  { const pages = App.views.peek().filter(v => v.layout === 'chart').map(v => Scene.of(App.shown.peek(), App.chart.peek(), v.id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek() })), says = pages.flatMap(p => [p.marks.find(m => m.role === 'title')?.texts[0]?.look.Font, ...p.marks.filter(m => m.type === 'box').map(b => b.texts[0]?.look.Font)]);
+    check('Heading and Body move the title and the boxes, what says no font of its own or All text saying one', says.includes('Heading') && says.includes('Body') && Scene.fontName('Heading') === 'Garamond' && Scene.fontName('Body') === 'Verdana', [...new Set(says)].join()); }
   App.change(tx => tx.note('Theme Fonts', { kind: 'View' }, undefined), { dated: false }); await tick(200);
   const shownBefore = App.scene.peek().view;
   App.mastering.value = true; await tick(300);

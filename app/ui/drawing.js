@@ -758,6 +758,7 @@ function attach(x) {
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); editCell(m, null, e.key); }
   }, true);
   // The clipboard, a cell picked: cells go out as a spreadsheet takes them, tabs and lines, and what comes in fills from the cell picked, as far as it goes, the table growing for it, as Excel's and PowerPoint's.
+  const cellsText = () => { const m = cellNow && scene().byId.get(cellNow.id), g = m?.table && rangeOf(m); return !g ? null : m.table.rows.filter(r => r.i >= g.r0 && r.i <= g.r1).map(r => r.cells.filter(k => k.c >= g.c0 && k.c <= g.c1).map(k => k.it.text).join('\t')).join('\n'); };
   const cellsClip = e => {
     if (!cellNow || !root.contains(document.activeElement) || document.activeElement.closest?.('.dc-edit')) return;
     const m = scene().byId.get(cellNow.id), t = tableOfRow(cellNow.id);
@@ -773,9 +774,8 @@ function attach(x) {
       const added = next.rows.length - t.rows.length;
       return putTable(m.id, next, `Pasted ${lines.flat().length === 1 ? 'a cell' : `${lines.flat().length} cells`}`, added ? { h: round(m.h * next.rows.length / t.rows.length) } : {});
     }
-    const g = rangeOf(m), raw = m.table.rows.filter(r => r.i >= g.r0 && r.i <= g.r1).map(r => r.cells.filter(k => k.c >= g.c0 && k.c <= g.c1).map(k => k.it.text).join('\t')).join('\n');
     e.preventDefault(); e.stopImmediatePropagation();
-    e.clipboardData?.setData('text/plain', raw);
+    e.clipboardData?.setData('text/plain', cellsText());
     if (e.type === 'cut' && !x.still()) { const on = inRange(m); putTable(m.id, { ...t, rows: t.rows.map((r, y) => ({ ...r, cells: r.cells.map((k, j) => { if (!on.some(q => q.r.src === y && q.k.c === j)) return k; const { runs: _, ...rest } = k; return { ...rest, text: '' }; }) })) }, on.length > 1 ? `Cut ${on.length} cells` : 'Cut a cell'); }
   };
   ['copy', 'cut', 'paste'].forEach(n => document.addEventListener(n, cellsClip, true));
@@ -1201,7 +1201,7 @@ function attach(x) {
       </div></div>`;
   }
 
-  return { editPoints, endPoints, merge, mergeable, alongLine, lineAmong, shapeItems, pastePicture, setLink, askLink, editCell, tableItems, newTable, readsFrom, styleGallery, StyleGallery, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), cellsPicked: id => { const m = id && scene().byId.get(id); return m?.table ? inRange(m) : []; }, arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook,
+  return { editPoints, endPoints, merge, mergeable, alongLine, lineAmong, shapeItems, pastePicture, setLink, askLink, editCell, cellsText, tableItems, newTable, readsFrom, styleGallery, StyleGallery, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), cellsPicked: id => { const m = id && scene().byId.get(id); return m?.table ? inRange(m) : []; }, arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook,
     destroy() { ['copy', 'cut', 'paste'].forEach(n => document.removeEventListener(n, cellsClip, true)); stopMaster(); render(null, masterEl); removeEventListener('pointermove', altMove, true); removeEventListener('keyup', altUp, true); removeEventListener('pointermove', heldKeys, true); removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
 }
 return { attach };
