@@ -2366,9 +2366,10 @@ function designIn(b, read, hidden, hasEntry) {
     const runs = p.runs?.length ? (text === raw ? p.runs : runsAfter(raw, text, p.runs)) : null;
     return { p, text, item, ...(one && id && text && !one[1].includes('|') && { id }), ...(blank && { blank }), ...(runs?.length && { runs }) };
   });
-  b.texts = items.filter(it => !named.has(it));
   const rest = value.parts?.find(p => p.rest && !p.hidden);
-  // (Words typed in the part the fields go in stand under those fields, in the look it gives them.)
+  // (Words typed in the part the fields go in stand under those fields, in the look it gives them; a field they name isn't said twice.)
+  for (const t of tokensIn(rest?.text)) { const r = read(b.record, t), it = r.id && of(r.id); if (it) named.add(it); }
+  b.texts = items.filter(it => !named.has(it));
   const said = rest?.text ? readWords(rest.text, b.record, read) : '';
   if (said) { const settings = Object.fromEntries(TEXT_PROPS.map(l => [l, l in (rest.format ?? {}) ? { value: rest.format[l], note: null } : l === 'Size' ? { value: BESIDE_NAME, note: null } : b.settings[l]])); b.texts.push({ id: `words@${b.id}`, type: 'text', settings, look: Object.fromEntries(Object.entries(settings).map(([k, v]) => [k, v.value])), text: said, computed: false, shownBy: null }); }
   // (What's left is read on what it stands on: the box, or the part it goes in.)
