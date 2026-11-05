@@ -2329,6 +2329,8 @@ async function stillAsMade() {
 
 // ---- The format bar and house styles (FIXG3, F), on the sample chart ----
 async function format() {
+  // (This page is at the suite's budget. What's here is drawn and read, no timer to outlast, so it waits less; what's elsewhere times a gesture.)
+  const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.6));
   await until(() => App.views.peek().length && sc(), 15000);
   const wbPart = Shell.parts.peek().workbook, sample = App.wb.charts().find(c => /Calder Ridge/.test(c.name));
   if (App.chart.peek() !== sample.chart) { wbPart.open(sample.chart); await until(() => App.chart.peek() === sample.chart); await tick(300); }
