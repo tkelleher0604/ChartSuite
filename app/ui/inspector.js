@@ -476,7 +476,7 @@ function ComparedRows({ v }) {
     ${v.changes?.since ? html`<div class="row in"><div class="k">Since</div><div class="v ctl"><${Field} looks r=${{ field: 'date', value: v.changes.since }} datatype="date" label="Since" put=${out => out && Time.showChanges(v.id, { since: out.value })} /></div></div>` : null}
     ${v.changes ? lists.map(([w, ms]) => html`<div class="row in marked" key=${w}><div class="k">${w}</div><div class="v">${ms.map((m, i) => html`${i ? ', ' : ''}<${Go} to=${m.record}>${bound(shortOf(m.record) || m.name)}</${Go}>`)}</div></div>`) : null}`;
 }
-// What a chart keeps by what its boxes know (Canvas's filter): a look, as a table's filter is, its words a click from changing them.
+// What a chart keeps by what its boxes know (Canvas's filter): a look, as a table's filter is, or the page's own rule or list, kept; its words a click from changing them.
 function FilterRow({ v }) {
   const said = App.lookWordsOf(v.id);
   return html`<div class="row"><div class="k">Filter</div><div class="v ctl"><button class="sel dd" aria-haspopup="menu" aria-label=${`Filter: ${said.join(', ') || 'None'}`} disabled=${!App.canAsk()} onClick=${e => Canvas.active.peek()?.filter(e.currentTarget)}><span>${said.join(' · ') || 'None'}</span></button></div></div>`;
@@ -650,6 +650,8 @@ function entryMenu(anchor, id) {
     { label: App.isDated.value ? 'Rule' : `About ${r.edge}`, run: () => select([general(patternOf(id))]) },
     // A choice or a tag is how a chart styles by an answer (dendra.md, The pen).
     ...(typeof FormatBar !== 'undefined' && charted() && !App.readOnly.peek() && FormatBar.answersOf?.(id) ? [{ label: 'A look for each', run: () => FormatBar.lookForEach(id) }] : []),
+    // And a page for each (dendra.md, Views), each a rule by that answer.
+    ...(typeof FormatBar !== 'undefined' && charted() && !App.readOnly.peek() && FormatBar.answersOf?.(id) ? [{ label: 'A page for each', run: () => App.pagesFor(Shell.view.peek(), { key: T.pathOf(recs(), id).slice(1).map(x => recs()[x].edge).join(' › '), label: T.pathOf(recs(), id).slice(1).map(x => recs()[x].edge).join(' › ') }) }] : []),
     // What a formula gives is overridden only by saying so (App.overriding), as its reason in the formula bar offers it; and what's typed over one goes back the same way.
     ...(f && 'tag' in r && !App.readOnly.peek() ? [{ label: 'Override…', run: () => App.overriding(id) }] : []),
     ...(!f && over(id) && !App.readOnly.peek() ? [{ label: 'Back to the rule…', run: () => App.backToRule(id) }] : []),
@@ -1631,7 +1633,7 @@ function LaterView({ id }) {
 const hiddenNote = (id, view) => { const n = N().resolve('Shown', tree(id), view); return n?.value === false && n.note.view === view && n.note.pattern.id === id ? n.note : null; };
 // Whether a record is hidden there, one by one, by its note or for the session; and shown or hidden there: as a change, or, in
 // Viewing, or where a look has it (a filter, Show only), for this window, in no log (App.see).
-const hiddenHere = (id, view) => { const s = App.seenIn(view)?.get(id); return s === undefined ? !!hiddenNote(id, view) : !s; };
+const hiddenHere = (id, view) => { const s = App.seenIn(view)?.get(id); return s === undefined ? !!hiddenNote(id, view) || App.offRule(id, view) : !s; };
 const showHere = (ids, v, on = true) => {
   const look = App.seenIn(v.id), mine = App.seeing() ? ids : ids.filter(x => look?.has(x)), rest = ids.filter(x => !mine.includes(x));
   if (mine.length) App.see(v.id, mine, on);
@@ -1655,8 +1657,9 @@ function leftOut(sc, ids) {
 }
 const leftHere = id => { const v = viewShown(), sc = App.scene.value; return v?.layout === 'chart' && sc ? leftOut(sc, [id]).get(id) ?? [] : []; };
 function HiddenList({ v }) {
-  // (What a filter or Show only keeps off, the band says, with its way back: only what's hidden one by one is listed.)
-  const hid = [...new Set([...N().notes('Shown').filter(n => n.view === v.id && n.value === false && n.pattern.id !== undefined).map(n => n.pattern.id), ...Object.keys(App.lookOf(v.id)?.ticks ?? {})])]
+  // (What a filter or Show only keeps off, the band or the page's rule says, with its way back: only what's hidden one by one is listed, and what isn't on a list the page keeps, which is ticked on as a box is on a blank chart.)
+  const offList = App.ruleOf(v.id)?.only ? Object.keys(recs()).filter(x => recs()[x].kind !== undefined && !recs()[x].calendar && !T.isView(recs()[x])) : [];
+  const hid = [...new Set([...N().notes('Shown').filter(n => n.view === v.id && n.value === false && n.pattern.id !== undefined).map(n => n.pattern.id), ...Object.keys(App.lookOf(v.id)?.ticks ?? {}), ...offList])]
     .filter(x => recs()[x] && (recs()[x].kind || recs()[x].args) && hiddenHere(x, v.id));
   // And what it leaves out of the boxes it draws, by list: "Not shown here: 2 owners of Fund III".
   const sc = App.scene.value, left = sc ? [...leftOut(sc, [...sc.byId.keys()])].flatMap(([id, parts]) => parts.map(p => ({ id, ...p }))) : [];

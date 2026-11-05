@@ -711,7 +711,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
     // An entry the view's free text may read, or a field shown beside another record, is never inert.
     // (A design reads a relation's list too: see Group designs.)
-    const N0 = wb.notes(chart), lists = N0.notes('Design').some(n => n.view === view), reads = lists || ['Text', 'Footnote'].some(l => N0.notes(l).some(n => n.view === view)), fielded = new Set(['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param && n.view === view).map(n => Tree.norm(n.param))));
+    // (And what a page's rule reads, any entry or relation, is no more inert than what it writes.)
+    const N0 = wb.notes(chart), lists = N0.notes('Design').some(n => n.view === view) || !!N0.resolve('Filter', { id: view, kind: 'View' }), reads = lists || ['Text', 'Footnote'].some(l => N0.notes(l).some(n => n.view === view)), fielded = new Set(['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param && n.view === view).map(n => Tree.norm(n.param))));
     const formatsOf = (recs, id) => { const r = recs[id], t = treeOf(recs, id); return (r?.at && (reads || fielded.has(Tree.norm(r.edge ?? '')))) || (lists && r?.args) ? { Text: true } : t ? N0.formats(t, view) : {}; };
     const d = alike.find(d => d.from[0] === opts.state) ?? (alike[0] && unmoved(alike[0].scene, alike[0].from[0], opts.state, formatsOf) ? alike[0] : null);
     if (d) {
@@ -845,7 +846,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   }
   // Where no note says, a box and its name are shown, and nothing else: a new chart's boxes say what they are.
   const named = m => m.type === 'text' && !m.host && isObject(state[state[m.record].at] ?? {}) && Tree.norm(state[m.record].edge ?? '') === 'name';
-  const shownAlone = m => (m.type !== 'text' ? opts.seen?.get(m.record) : undefined) ?? (m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown || named(m));
+  // A page's own list or rule (its Filter note, dendra.md, Views): what isn't on the list, or doesn't pass the rule as things stand now, is no box of this page; but a box's own Shown here, the narrowest there is, says for it.
+  const pageRule = N.resolve('Filter', { id: view, kind: 'View' })?.value ?? null, ownSaid = m => m.cand.Shown?.note.view === view && m.cand.Shown.note.pattern.id === m.record;
+  const offPage = m => !!pageRule && m.type === 'box' && !ownSaid(m) && !Tree.onPage(state, m.record, pageRule);
+  const shownAlone = m => (m.type !== 'text' ? opts.seen?.get(m.record) : undefined) ?? (offPage(m) ? false : m.cand.Shown ? m.cand.Shown.value !== false : DEFAULTS[m.type].Shown || named(m));
   // Revealed, a hidden box or line is drawn; never a text, which would change the box it's in.
   const drawnMemo = new Map();
   const drawn = m => {

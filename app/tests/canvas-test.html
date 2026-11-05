@@ -1894,7 +1894,7 @@ async function onlyThese() {
   check('Show all returns to what the page had, nothing logged, the band gone', JSON.stringify(boxes()) === JSON.stringify(all) && App.wb.changes().length === n0 && !band(), `${boxes()}`);
   Shell.select(keep); await tick(200); find.run(); await tick(450);
   bandBtn('Keep').click(); await tick(450);
-  check('Keep makes it the page’s, in one change, said so, with Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 + 1 && !band() && /^Hid \d+ boxes in Only/.test(txt($$('.toast').at(-1))) && /Undo/.test(txt($$('.toast').at(-1))), `${boxes()} | ${txt($$('.toast').at(-1))}`);
+  check('Keep makes it the page’s, in one change, said so, with Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 + 1 && !band() && /^Only shows only these 3 boxes/.test(txt($$('.toast').at(-1))) && /Undo/.test(txt($$('.toast').at(-1))), `${boxes()} | ${txt($$('.toast').at(-1))}`);
   Shell.select([]); await tick(250);
   const row = id => $$('.insp .hiddenrow').find(r => txt(r).startsWith(App.notes.peek().nameOf(App.state.peek(), id)));
   const hid = all.find(id => !keep.includes(id)), r0 = row(hid), y0 = r0?.getBoundingClientRect().top;
@@ -2030,7 +2030,7 @@ async function readingOnly() {
   const fields = menuItems();
   check('Filter… on a chart lists what a box knows, its kind first, then its choices', fields[0] === 'Kind' && fields.includes('Jurisdiction') && fields.indexOf('Jurisdiction') < fields.indexOf('Name'), fields.slice(0, 6).join());
   [...document.querySelectorAll('.float .menu-item')].find(x => txt(x) === 'Jurisdiction').click(); await tick(150);
-  const vals = $$('.tfilter .tf-row:not(.all) .v').map(txt), delaware = all.filter(id => App.valueAt(st(), sc().byId.get(id).record, 'Jurisdiction') === 'Delaware');
+  const vals = $$('.tfilter .tf-row:not(.all) .v').map(txt), delaware = all.filter(id => Tree.valuesAt(st(), sc().byId.get(id).record, 'Jurisdiction')[0] === 'Delaware');
   check('… by the same control as a table’s: a search, Select all, a tick for each value with how many', !!$('.tfilter .tf-find') && !!$('.tfilter .tf-row.all') && vals.includes('Delaware') && +$$('.tfilter .tf-row').find(r => txt(r.querySelector('.v')) === 'Delaware').querySelector('.n').textContent === delaware.length, vals.join());
   const flipped = $$('.tfilter .tf-row.all input')[0]; flipped.click(); await tick(100);
   $$('.tfilter .tf-row').find(r => txt(r.querySelector('.v')) === 'Delaware').querySelector('input').click(); await tick(300);
@@ -3639,6 +3639,85 @@ async function templates() {
   check('the chart it was begun from stands as it was', !!kept && wb().asOf(sample, App.day.peek())['fund']?.kind === 'Entity');
 }
 
+// ---- A page means what it says (dendra.md, Views): Show only these, kept, is a list; a Filter, kept, a rule, worked out afresh; a page for each answer; a filter by a relation ----
+async function pagesMean() {
+  const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.5));
+  await until(() => App.views.peek().length && sc(), 15000);
+  App.begin({ template: 'org-chart', name: 'Staff' }); await tick(400);
+  $('.dc-edit')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(100);
+  const person = (tx, name, dept) => { const id = tx.add('record', { kind: 'Person' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }); if (dept) tx.add('record', { at: id, edge: 'Department', choice: dept }); return id; };
+  const reports = (tx, report, manager) => tx.add('record', { args: [{ edge: 'Report', at: report }, { edge: 'Manager', at: manager }], tag: true });
+  const ids = {};
+  App.change(tx => { ids.ana = person(tx, 'Ana', 'Executive'); ids.bea = person(tx, 'Bea', 'Finance'); ids.cam = person(tx, 'Cam', 'Sales'); ids.dee = person(tx, 'Dee', 'Finance'); ids.eli = person(tx, 'Eli', 'Sales');
+    reports(tx, ids.bea, ids.ana); reports(tx, ids.cam, ids.ana); reports(tx, ids.dee, ids.bea); reports(tx, ids.eli, ids.cam); }, { dated: false }); await tick(300);
+  const first = App.views.peek().find(v => v.layout === 'chart').id, boxes = () => sc().marks.filter(m => m.type === 'box' && !m.revealed).map(m => m.record).sort(), want = (...ns) => ns.map(n => ids[n]).sort().join();
+  const on = async id => { Shell.show(id); await until(() => sc()?.view === id); await tick(200); }, band = () => $('.lookband'), bandBtn = w => $$('.lookband .btn').find(b => txt(b) === w), toast = () => txt($$('.toast').at(-1));
+  await on(first);
+  check('(five on the first page)', boxes().length === 5, boxes().length);
+  // A list.
+  const listPage = App.addView('List'); await on(listPage);
+  Shell.select([ids.bea, ids.dee]); await tick(120); cv().showOnly(); await tick(250);
+  check('Show only these is a look till it’s kept', boxes().join() === want('bea', 'dee') && !!band(), boxes().join());
+  bandBtn('Keep').click(); await tick(250);
+  check('Keep makes it the page’s list: one note, said so, the band gone', boxes().join() === want('bea', 'dee') && !band() && App.ruleOf(listPage)?.only?.length === 2 && /List shows only these 2 boxes/.test(toast()), `${boxes()} ${toast()}`);
+  check('… no box of the page hidden one by one', !App.notes.peek().notes('Shown').some(n => n.view === listPage && n.value === false && n.pattern.id), '');
+  App.change(tx => { ids.fay = person(tx, 'Fay', 'Finance'); reports(tx, ids.fay, ids.bea); }, { dated: false }); await tick(250);
+  check('a record not on the list is never drawn, whoever it’s related to and whatever it says', boxes().join() === want('bea', 'dee'), boxes().join());
+  Shell.select([]); await tick(120);
+  check('… the panel’s Filter row says it’s a list', /These 2 boxes/.test(txt($('.insp [aria-label^="Filter"]') ?? document.body)), txt($('.insp [aria-label^="Filter"]') ?? document.body));
+  check('… and what’s off it is ticked on from Hidden, as on a blank chart', $$('.insp .hiddenrow').some(r => /^Fay/.test(txt(r))), $$('.insp .hiddenrow').map(txt).join());
+  $$('.insp .hiddenrow').find(r => /^Fay/.test(txt(r)))?.querySelector('input').click(); await tick(250);
+  check('… a box’s own Shown, the narrowest, saying for it', boxes().join() === want('bea', 'dee', 'fay'), boxes().join());
+  Shell.parts.peek().undo.undo(); await tick(200);
+  // A rule.
+  const rulePage = App.addView('Finance team'); await on(rulePage);
+  App.filterBy(rulePage, 'Department', 'Department', ['Finance']); await tick(250);
+  check('A filter is a look till it’s kept', boxes().join() === want('bea', 'dee', 'fay') && /^Showing 3 of 6 · Department: Finance/.test(txt(band())), `${boxes()} ${txt(band())}`);
+  bandBtn('Keep').click(); await tick(250);
+  check('Keep makes it the page’s rule: said so, the band gone', !band() && App.ruleOf(rulePage)?.filters?.[0]?.values?.[0] === 'Finance' && /Finance team shows Department: Finance, whoever that comes to be/.test(toast()), `${JSON.stringify(App.ruleOf(rulePage))} ${toast()}`);
+  check('… and its words are in the panel', App.lookWordsOf(rulePage).join() === 'Department: Finance', App.lookWordsOf(rulePage).join());
+  App.change(tx => { ids.gus = person(tx, 'Gus', 'Finance'); ids.hal = person(tx, 'Hal', 'Sales'); reports(tx, ids.gus, ids.bea); reports(tx, ids.hal, ids.bea); }, { dated: false }); await tick(250);
+  check('a kept filter is worked out afresh: a new Finance hire is on it, a new Sales hire isn’t', boxes().join() === want('bea', 'dee', 'fay', 'gus'), boxes().join());
+  const cell = Tree.entryAt(App.state.peek(), ids.cam, 'Department');
+  App.change(tx => { tx.remove(cell); tx.add('record', { at: ids.cam, edge: 'Department', choice: 'Finance' }); }, { dated: false }); await tick(250);
+  check('… and one who changes department changes pages, though nothing drawn says so', boxes().join() === want('bea', 'cam', 'dee', 'fay', 'gus'), boxes().join());
+  Shell.parts.peek().undo.undo(); await tick(200);
+  check('… Undo too', boxes().join() === want('bea', 'dee', 'fay', 'gus'), boxes().join());
+  // A filter over a rule.
+  App.filterBy(rulePage, 'Department', 'Department', ['Finance', 'Sales']); await tick(250);
+  check('A wider filter over a kept rule shows what it keeps off, and says it', boxes().join() === want('bea', 'cam', 'dee', 'eli', 'fay', 'gus', 'hal') && !!bandBtn('As kept') && /Department: Finance, Sales/.test(txt(band())), `${boxes()} ${txt(band())}`);
+  bandBtn('As kept').click(); await tick(250);
+  check('… As kept goes back to the rule, nothing written', boxes().join() === want('bea', 'dee', 'fay', 'gus') && !band(), boxes().join());
+  App.clearFilters(rulePage); await tick(250);
+  const n0 = App.wb.changes().length;
+  check('Clear filters takes the rule off, in this window', boxes().length === 8 && /Filter off/.test(txt(band())) && App.wb.changes().length === n0, `${boxes().length} ${txt(band())}`);
+  bandBtn('As kept').click(); await tick(200);
+  // A relation.
+  const lines = App.addView('Under Bea'); await on(lines);
+  const sides = App.filterFields(lines).filter(f => Tree.isSide(f.key)), manager = sides.find(f => f.menu === 'Reports To › Manager');
+  check('Filter lists a relation, by who’s on its other side', !!manager && manager.label === 'Reports To' && App.filterFields(lines).indexOf(manager) < App.filterFields(lines).findIndex(f => f.key === 'Name'), sides.map(f => f.menu).join());
+  App.filterBy(lines, manager.key, manager.label, [ids.bea]); await tick(250);
+  check('… a relation’s filter shows who’s under it, and who it’s by', boxes().join() === want('bea', 'dee', 'fay', 'gus', 'hal') && /Reports To: Bea/.test(txt(band())), `${boxes()} ${txt(band())}`);
+  bandBtn('Keep').click(); await tick(250);
+  App.change(tx => { ids.ida = person(tx, 'Ida', 'Sales'); reports(tx, ids.ida, ids.bea); }, { dated: false }); await tick(250);
+  check('… kept, a rule: a new report of Bea’s comes on it', boxes().includes(ids.ida), boxes().join());
+  // A page for each answer.
+  await on(first);
+  const count = App.views.peek().length, m0 = App.wb.changes().length, field = App.filterFields(first).find(f => f.key === 'Department');
+  App.pagesFor(first, field); await tick(400);
+  const made = App.views.peek().filter(v => ['Executive', 'Finance', 'Sales'].includes(v.name));
+  check('A page for each answer: as one change, each by its answer', App.views.peek().length === count + 3 && App.wb.changes().length === m0 + 1 && made.length === 3 && made.every(v => App.ruleOf(v.id)?.filters?.[0]?.values?.[0] === v.name), `${App.views.peek().map(v => v.name)}`);
+  const fin = made.find(v => v.name === 'Finance'); await on(fin.id);
+  check('… a rule, showing those', boxes().join() === want('bea', 'dee', 'fay', 'gus'), boxes().join());
+  check('… with its own title, and the look of the page it’s from', sc().marks.find(m => m.role === 'title')?.texts[0].text === 'Finance' && sc().marks.find(m => m.role === 'title')?.look.Color === '#1f3a5f' && !sc().marks.some(m => m.geometry === 'legend'), JSON.stringify(sc().marks.find(m => m.role === 'title')?.look.Color));
+  Shell.parts.peek().undo.undo(); await tick(300);
+  check('… and Undo takes them all', App.views.peek().length === count, App.views.peek().map(v => v.name).join());
+  // Duplicating keeps a page's rule; a look on it isn't written.
+  await on(rulePage);
+  const copy = App.addView('Finance team', undefined, rulePage); await on(copy);
+  check('A page copied keeps its rule', App.ruleOf(copy)?.filters?.[0]?.values?.[0] === 'Finance' && boxes().join() === want('bea', 'dee', 'fay', 'gus'), boxes().join());
+}
+
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);
 // The format bar's are on the sample as it opens, so in a window of their own, whose checks count here; so are the templates'.
 const framed = async which => {
@@ -3649,7 +3728,7 @@ const framed = async which => {
   f.remove();
 };
 window.__out = out;
-Shell.ready.then(() => location.search.includes('format') ? format().finally(() => { window.__done = true; }) : location.search.includes('templates') ? templates().catch(e => check('the templates run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : run().then(() => framed('format')).then(() => framed('templates')))
+Shell.ready.then(() => location.search.includes('format') ? format().finally(() => { window.__done = true; }) : location.search.includes('templates') ? templates().catch(e => check('the templates run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : location.search.includes('pages') ? pagesMean().catch(e => check('the pages run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : run().then(() => framed('format')).then(() => framed('templates')).then(() => framed('pages')))
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

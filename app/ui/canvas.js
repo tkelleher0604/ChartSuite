@@ -3119,20 +3119,11 @@ function mount(el) {
     FormatBar.aim?.(null);
   }
   // Filter…: by what a chart knows of each box, as a table's filter is by what its columns hold: first what by, then its values
-  // ticked, with how many of each. A look: said by the band, with Show all.
-  const FIELD_MAX = 3;
-  function fieldsOf() {
-    const st = App.state.peek(), { entries } = Tree.index(st), boxes = (App.page.peek() ?? scene).marks.filter(m => m.type === 'box' && !m.revealed), n = new Map();
-    // (What's a choice or a yes-or-no first, what most boxes have, as what a chart's filtered by; what's only words after.)
-    const rank = r => ('choice' in r ? 0 : 'tag' in r ? 1 : r.field === 'text' ? 3 : 2);
-    const walk = (id, path, depth) => { for (const e of entries.get(id) ?? []) { const r = st[e]; if (!r?.edge || r.field === 'document') continue; const p = [...path, r.edge], k = p.join(' › '), x = n.get(k) ?? { c: 0, rank: rank(r) + (depth > 1 ? 4 : 0) }; x.c++; n.set(k, x); if (depth < FIELD_MAX) walk(e, p, depth + 1); } };
-    for (const m of boxes) walk(m.record, [], 1);
-    return [{ key: App.KIND, label: 'Kind' }, ...[...n].sort((a, b) => a[1].rank - b[1].rank || b[1].c - a[1].c || a[0].localeCompare(b[0])).map(([key]) => ({ key, label: key }))];
-  }
+  // ticked, with how many of each. A look: said by the band, with Show all and Keep, which makes it the page's rule.
   function filter(anchor) {
-    const view = viewOf(), at = anchor ?? { x: root.getBoundingClientRect().left + 60, y: root.getBoundingClientRect().top + 40 }, on = App.lookOf(view)?.filters ?? [];
-    Shell.menu(at, [...fieldsOf().map(f => ({ label: f.label, checked: on.some(x => x.key === f.key), run: () => Shell.popover(at, close => Shell.html`<${ChartFilter} view=${view} field=${f} close=${close} />`, { placement: 'bottom-start' }) })),
-      ...(on.length ? ['-', { label: 'Clear filters', run: () => App.showAll(view) }] : [])], { search: true });
+    const view = viewOf(), at = anchor ?? { x: root.getBoundingClientRect().left + 60, y: root.getBoundingClientRect().top + 40 }, on = App.filtersOf(view);
+    Shell.menu(at, [...App.filterFields(view).map(f => ({ label: f.menu ?? f.label, checked: on.some(x => x.key === f.key), run: () => Shell.popover(at, close => Shell.html`<${ChartFilter} view=${view} field=${f} close=${close} />`, { placement: 'bottom-start' }) })),
+      ...(on.length ? ['-', { label: 'Clear filters', run: () => App.clearFilters(view) }] : [])], { search: true });
   }
   // What's copied is marks of one view, and their names: pasting a box shows it where it was in the chart, a
   // shape is copied.
@@ -3812,10 +3803,10 @@ function ChartFilter({ view, field, close }) {
   App.looks.value;
   const [q, setQ] = useState(''), [none, setNone] = useState(false), st = App.state.value, page = App.page.value;
   if (!page) return null;
-  const all = App.lookOf(view)?.filters ?? [], mine = all.find(f => f.key === field.key) ?? null, others = all.filter(f => f !== mine), counts = new Map();
-  for (const m of page.marks) if (m.type === 'box' && !m.revealed && others.every(f => f.values.includes(App.valueAt(st, m.record, f.key)))) { const v = App.valueAt(st, m.record, field.key); counts.set(v, (counts.get(v) ?? 0) + 1); }
+  const all = App.filtersOf(view), mine = all.find(f => f.key === field.key) ?? null, others = all.filter(f => f !== mine), counts = new Map(), word = v => App.answerWord(field.key, v);
+  for (const id of App.filterable(view)) if (others.every(f => Tree.passes(st, id, f))) for (const v of Tree.valuesAt(st, id, field.key)) counts.set(v, (counts.get(v) ?? 0) + 1);
   for (const v of mine?.values ?? []) if (!counts.has(v)) counts.set(v, 0);
-  const vals = [...counts.keys()].sort((a, b) => (a === null) - (b === null) || String(a).localeCompare(String(b), 'en', { numeric: true })), t = q.trim().toLowerCase(), list = t ? vals.filter(v => String(v ?? 'Blank').toLowerCase().includes(t)) : vals;
+  const vals = [...counts.keys()].sort((a, b) => (a === null) - (b === null) || word(a).localeCompare(word(b), 'en', { numeric: true })), t = q.trim().toLowerCase(), list = t ? vals.filter(v => word(v).toLowerCase().includes(t)) : vals;
   const kept = none ? new Set() : new Set(mine?.values ?? vals), every = list.length > 0 && list.every(v => kept.has(v)), some = list.some(v => kept.has(v));
   const set = ks => { const v = vals.filter(x => ks.has(x)); setNone(!v.length); if (v.length) App.filterBy(view, field.key, field.label, v.length === vals.length ? null : v); };
   const toggle = v => { const ks = new Set(kept); if (ks.has(v)) ks.delete(v); else ks.add(v); set(ks); };
@@ -3825,7 +3816,7 @@ function ChartFilter({ view, field, close }) {
     <input type="search" class="tf-find" placeholder="Find" aria-label="Find" value=${q} autofocus spellcheck=${false} onInput=${e => setQ(e.target.value)} onKeyDown=${keys} />
     <div class="tf-list" role="group" aria-label=${field.label}>
       ${list.length ? html`<label class="tf-row all"><input type="checkbox" ref=${x => { if (x) x.indeterminate = some && !every; }} checked=${every} onChange=${flip} /><span class="v">Select all</span></label>` : html`<div class="tf-none">No match</div>`}
-      ${list.map(v => html`<label class="tf-row" key=${String(v)}><input type="checkbox" checked=${kept.has(v)} onChange=${() => toggle(v)} /><span class=${'v' + (v === null ? ' muted' : '')}>${v ?? 'Blank'}</span><span class="n">${counts.get(v)}</span></label>`)}
+      ${list.map(v => html`<label class="tf-row" key=${String(v)}><input type="checkbox" checked=${kept.has(v)} onChange=${() => toggle(v)} /><span class=${'v' + (v === null ? ' muted' : '')}>${word(v)}</span><span class="n">${counts.get(v)}</span></label>`)}
     </div>
     <div class="tf-foot"><button type="button" class="btn" disabled=${!mine && !none} onClick=${() => { setNone(false); App.filterBy(view, field.key, field.label, null); }}>Clear filter</button><button type="button" class="btn primary" disabled=${none} onClick=${close}>Done</button></div>
   </div>`;
