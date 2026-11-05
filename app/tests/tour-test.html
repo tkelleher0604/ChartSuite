@@ -126,7 +126,7 @@ async function run() {
   check('… its card clear of the bars under what it points at', $('.tour-card').getBoundingClientRect().top >= ($('#view .formulabar')?.getBoundingClientRect().bottom ?? like.getBoundingClientRect().bottom), JSON.stringify(card()));
   own.click(); await tick(200);
   check('Either part does step 3, “This box” as well as what’s beside it, and the name typed in is left as it was', step() === '4 / 7' && !$('.dc-edit') && N() === n0, `${step()} ${!!$('.dc-edit')} ${N() - n0}`);
-  check('Step 4’s dots stand on the box it points at', !!$('.tour-dots:not([hidden]) i'), $('.tour-dots')?.outerHTML.slice(0, 60));
+  check('Step 4 pulses the box’s own dots, its grips away', !!$('.dc.teaching.relating-on .dc-handle:not([hidden])') && getComputedStyle($('.x6-widget-transform') ?? document.body).visibility !== 'visible' || !$('.x6-widget-transform'), $('.dc')?.className);
 
   // 4. Drag to another: the canvas asks for the two boxes' relations.
   Shell.emit('relate-open', ['fund', 'blocker']); await tick(300);

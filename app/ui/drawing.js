@@ -905,7 +905,8 @@ function attach(x) {
       const p = local(e), first = pts[0], twice = e.timeStamp - lastT < 400 && Math.hypot(e.clientX - lastAt[0], e.clientY - lastAt[1]) < 6;
       lastAt = [e.clientX, e.clientY]; lastT = e.timeStamp;
       if (pts.length > 2 && Math.hypot(p.x - first[0], p.y - first[1]) < near) return finish(true);
-      if (twice) return finish(false);
+      // (The double-click that ends it ends it, and is no double-click on the page, which would begin a box.)
+      if (twice) { const eat = ev => { ev.preventDefault(); ev.stopPropagation(); }; root.addEventListener('dblclick', eat, { capture: true, once: true }); setTimeout(() => root.removeEventListener('dblclick', eat, true), 600); return finish(false); }
       pts.push([p.x, p.y]); pressed = true; ran = false; paintIt();
     };
     const up = () => { pressed = false; if (ran) { ran = false; } paintIt(); };

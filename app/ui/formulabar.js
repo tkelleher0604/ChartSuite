@@ -1985,7 +1985,8 @@ const FormulaBar = (() => {
     if (m.err?.error.msg) return html`<span class="fx-inline" ref=${ref}><span class="fx-why" onClick=${drop}>${m.err.error.msg}</span></span>`;
     const labels = new Map();
     for (const r of m.rows) { const l = r.label || r.formula, was = labels.get(l); labels.set(l, { key: was?.key ?? r.key, ink: was?.ink || r.ink }); }
-    return html`<span class="fx-inline fx-labels" ref=${ref}>${[...labels].map(([l, { key, ink }]) => html`<button class=${ink ? null : 'grey'} onClick=${() => openAt(key)}>${l}</button>`)}</span>`;
+    // (A formula clicked is a formula to type in, as Excel's bar is.)
+    return html`<span class="fx-inline fx-labels" ref=${ref}>${[...labels].map(([l, { key, ink }]) => html`<button class=${ink ? null : 'grey'} onClick=${() => openAt(key, { write: !App.readOnly.peek() && !!m.def && !m.absent })}>${l}</button>`)}</span>`;
   }
 
   // The definition's rows, over the view, and what reads it.
@@ -2181,8 +2182,8 @@ const FormulaBar = (() => {
   }
 
   // A row: its label, its formula, and what the rows would give where an entry overrides them.
-  // Read, until it's asked to be written (openAt): a click shows it, lit on the chart, and only a double-click or its
-  // pencil gives a label to type over, a formula to type in, a grip and a way to delete it.
+  // Read, until it's asked to be written (openAt): a click on its row shows it, lit on the chart; a click on its formula, a double-click or its
+  // pencil gives a label to type over, a formula to type in, the cursor where it was clicked, a grip and a way to delete it.
   function Row({ r, m, colors, editable }) {
     const write = editable && writable(m);
     const cls = 'fx-row' + (r.cited ? ' cited' : r.ink ? ' alt' : ' grey') + (r.gone ? ' gone' : '') + (editing.value?.key === r.key ? ' editing' : '') + (write ? ' editable' : '') + (reading.value === r.key ? ' reading' : '');
@@ -2193,7 +2194,9 @@ const FormulaBar = (() => {
       Shell.drag(e, { item, items, onDrop: (from, i) => change(m.def.id, rows => { const l = rows.slice(); l.splice(i, 0, l.splice(from, 1)[0]); return l; }) });
     };
     // A double-click by its count: the first click lights the row's names, which draws them anew under the pointer.
-    const reads = write ? {} : { onClick: e => { if (e.detail > 1 && editable) openAt(r.key, { write: true }); else reading.value = reading.peek() === r.key ? null : r.key; } };
+    const reads = write ? {} : { onClick: e => {
+      if (editable && !App.readOnly.peek() && e.target.closest?.('.CodeMirror')) { writing.value = draft.peek()?.def ?? model.peek()?.def?.id ?? null; const cm = e.currentTarget.querySelector('.CodeMirror')?.CodeMirror; if (cm) { cm.setOption('readOnly', false); cm.focus(); startEditing(cm, r.key); } return; }
+      if (e.detail > 1 && editable) openAt(r.key, { write: true }); else reading.value = reading.peek() === r.key ? null : r.key; } };
     // What it said, once it's typed over; and a figure its label says that it no longer has (W8: "more than 25%" over a rule at 20%).
     const was = draft.value?.def === m.def?.id && m.def?.id !== NEW ? kept(m.def.id).find(x => x.key === r.key)?.formula ?? null : null;
     const stale = was !== null && (r.label.match(/\d[\d.,]*\s*(?:%|per centum)?/g) ?? []).find(x => !r.formula.includes(x.replace(/\s*per centum/, '%').trim()) && was.includes(x.trim()));

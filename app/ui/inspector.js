@@ -344,6 +344,13 @@ function onward(el, d) {
   if (row) row.tabIndex = -1;
   return to ?? row;
 }
+// Where Tab goes from a value or a tag's box or a choice: the next that takes one, as a form's does; what a formula says being clicked, not typed in, nothing typed lands there. With none left in its part, it goes on as Tab does.
+function tabbed(el, d) {
+  const part = el.closest(PART), all = [...el.closest('.insp')?.querySelectorAll('.hug > .cell, .hug > .sel, .hug > .tag') ?? []].filter(x => x.closest(PART) === part && !x.disabled && !('fx' in x.dataset) && !x.classList.contains('fx'));
+  const after = x => el.compareDocumentPosition(x) & Node.DOCUMENT_POSITION_FOLLOWING;
+  return (d > 0 ? all.find(after) : all.findLast(x => x !== el && !after(x))) ?? null;
+}
+const tabOn = e => { if (e.key !== 'Tab' || e.ctrlKey || e.altKey || e.metaKey) return; const to = tabbed(e.currentTarget, e.shiftKey ? -1 : 1); if (to) { e.preventDefault(); to.focus(); } };
 
 // The pen (dendra.md, The pen): where a change goes, a location in the schema made visible. One stands, solid, in the left
 // gutter of the row it's at; pointing at any row that's a location shows a faint one, pointing at that lights what it would
@@ -425,6 +432,12 @@ function Field({ r, datatype, put, rule, preview, fx, over, id, auto, ph, cls = 
       if (title && to) to.tabIndex = -1;
       if (done(true) && !asked()) to?.focus();
     }
+    // Tab keeps it and goes on to the next that takes a value, as a form's does; what doesn't read keeps the keys, saying why, so what's typed is never left behind.
+    else if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      const to = title ? null : tabbed(el, e.shiftKey ? -1 : 1), typedIt = typed.current !== null;
+      if (typedIt && !done(true)) { e.preventDefault(); return; }
+      if (to && !asked()) { e.preventDefault(); to.focus(); }
+    }
     // Esc puts back what was typed and keeps the keys here, the value selected, as Excel's keeps its cell; with
     // nothing typed, it leaves for its row, so a key typed next is the window's. What's pending of it, Esc discards.
     else if (e.key === 'Escape') {
@@ -498,7 +511,7 @@ function Choice({ r, options, put, fx, over, id, fixed, label, ph, hint, was, lo
       { search: options.length > 7, more: fixed ? null : q => options.some(o => T.same(o, q)) ? [] : ['-', { label: `New option: ${q}`, asked: true, run: () => put({ choice: q }) }] });
   };
   return html`<span class="cellbox">${was ? html`<s class="del">${was}</s>` : null}<span class=${'hug' + (over ? ' over' : '')}><button class=${'sel dd' + (fx ? ' fx' : '') + (was ? ' add' : '')} disabled=${looks ? !App.canAsk() : App.readOnly.value} data-tour=${fx ? 'computed' : null}
-    aria-label=${label ? `${label}: ${r?.choice ?? 'none'}` : null} aria-haspopup="menu" onClick=${open}><span class=${r ? null : 'ph'}>${r?.choice ?? ph ?? ''}</span></button></span>${!r && hint && !App.readOnly.value
+    aria-label=${label ? `${label}: ${r?.choice ?? 'none'}` : null} aria-haspopup="menu" onClick=${open} onKeyDown=${tabOn}><span class=${r ? null : 'ph'}>${r?.choice ?? ph ?? ''}</span></button></span>${!r && hint && !App.readOnly.value
       ? html`<button class="lk hint" data-tip="From its name" onClick=${() => put({ choice: hint })}>${hint}?</button>` : null}${children}</span>`;
 }
 // A tag's checkbox: green attested, outlined when computed; a "no" a plain X, but red where it's a check failed and amber
@@ -516,7 +529,7 @@ function TagBox({ r, flip, fx, over, change, label, to, fixed, still, reason, to
   const hover = p => { if (reason || (p && (clicked || hush))) return; setPeek(p); if (change) FormulaBar.preview(p ? change() : null); };
   const leave = () => { clicked = false; setHush(false); if (peek) hover(false); };
   // (A box a rule covers has nothing to switch: Space asks why, with the keys in the reason.)
-  const key = e => { if (reason && e.key === ' ') { e.preventDefault(); flip(); FormulaBar.open.value = true; FormulaBar.into(); return; } if (e.key !== 'Enter') return; e.preventDefault(); onward(e.currentTarget, e.shiftKey ? -1 : 1)?.focus(); };
+  const key = e => { if (reason && e.key === ' ') { e.preventDefault(); flip(); FormulaBar.open.value = true; FormulaBar.into(); return; } tabOn(e); if (e.key !== 'Enter') return; e.preventDefault(); onward(e.currentTarget, e.shiftKey ? -1 : 1)?.focus(); };
   // (Reached by the keys, only what would be added previews: a box that's ticked is what stands, and passing it strikes nothing.)
   return html`<span class="cellbox"><span class=${'hug' + (over ? ' over' : '')}><button class=${'tag' + (show === true ? ' yes' : show === false ? ` no${tone ? ' ' + tone : ''}` : '') + (fx && !peek ? ' fx' : '') + (peek || held ? ' peek' : '')}
     role="checkbox" aria-checked=${on ? 'true' : 'false'} aria-label=${label && (on === false ? `${label}, ruled out` : label)} disabled=${(App.readOnly.value && !reason) || !!fixed}
@@ -2134,7 +2147,8 @@ function RelateView({ a, b }) {
   // the other way round, a slip from putting a son over his father.)
   const saidFrom = x => { const es = n.edges(x.s), [first] = FormulaBar.phrase?.(x.s, es[0], es[1]) ?? es; return (T.same(first, x.ea) ? x.la : x.lb) === a ? 0 : 1; };
   const holds = [...held.values()].sort(order), after = [...later.values()].sort((x, y) => x.since.localeCompare(y.since));
-  const ranked = [...open.values()].filter(x => !x.rest.length && !('choice' in x.s.out) ? ![...held.values()].some(h => T.same(h.name, x.name)) : true).sort((x, y) => named(x) - named(y) || filled(x) - filled(y) || fits(x) - fits(y) || used(y) - used(x) || much(x) - much(y) || x.name.localeCompare(y.name) || (y.la === a) - (x.la === a));
+  // (A template's that holds already isn't offered the other way round, a son over his father; one a person made may run both ways, a cycle of calls, so that second is a tick, nothing retyped.)
+  const ranked = [...open.values()].filter(x => !x.rest.length && !('choice' in x.s.out) ? !App.ofTemplate(x.s) || ![...held.values()].some(h => T.same(h.name, x.name)) : true).sort((x, y) => named(x) - named(y) || filled(x) - filled(y) || fits(x) - fits(y) || used(y) - used(x) || much(x) - much(y) || x.name.localeCompare(y.name) || (y.la === a) - (x.la === a));
   const could = [...new Set(ranked.map(x => T.norm(x.name)))].flatMap(k => ranked.filter(x => T.norm(x.name) === k).sort((x, y) => saidFrom(x) - saidFrom(y)));
   const plain = T.isObject(r[a]) && T.isObject(r[b]);
   const name = x => html`<${Go} to=${x}>${r[x].args ? bound(`${nameOf(x)}: ${rowName(x)}`) : html`${bound(nameOf(objectOf(x)))}${x !== objectOf(x) ? html`<span class="muted"> › ${segment(x)}</span>` : null}`}</${Go}>`;
@@ -2299,7 +2313,7 @@ function Typeset({ r, def }) {
       : t.k === 'str' || t.k === 'op' ? html`<span class="muted">${src}</span>` : src);
   });
   if (last < text.length) lines.at(-1).push(text.slice(last));
-  return html`<div class="st-set" onClick=${e => FormulaBar.focus('r' + r.i, { write: e.detail > 1 && !App.readOnly.peek() })}>${lines.map((l, i) => html`<div class=${i ? 'cont' : null}>${l}</div>`)}</div>`;
+  return html`<div class="st-set" onClick=${() => FormulaBar.focus('r' + r.i, { write: !App.readOnly.peek() })}>${lines.map((l, i) => html`<div class=${i ? 'cont' : null}>${l}</div>`)}</div>`;
 }
 // How many records a clause gives, in the words of the list they make ("15 close affiliates") or of the kind
 // they're at ("3 entities"). A yes-or-no is said by how many it holds at, for that it was asked at some says nothing of them: "3 hold,

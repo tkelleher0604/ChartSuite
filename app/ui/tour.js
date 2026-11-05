@@ -30,8 +30,8 @@ const Tour = (() => {
     { can: anyBox, event: 'select', target: 'box', act: 'Click a box.', keys: 'Tab to a box.', say: 'Every box is a record.', when: s => s?.length },
     { can: anyBox, event: 'field-edit', target: 'box', act: 'Double-click a box’s name.', keys: 'Press Enter on a box.', say: 'Type here or in the panel: it’s the same record.', ends: unedit },
     { can: twoBoxes, click: true, event: 'scope-toggled', target: 'scope', act: 'Click “This box” or what’s beside it, above the chart.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+KeyA')}.`, say: 'That moves the pen in the panel: a change goes where the pen is, what it reaches outlined. Click a pen on any row to move it there.', ends: unlike },
-    // (Its dots stand on the box it points at, so what it says to drag can be seen.)
-    { can: twoBoxes, dots: true, event: 'relate-open', target: 'box', act: 'Drag a dot on a box’s edge to another box.', keys: 'Press Shift+F10 on a box, choose Relate…, Tab to another box and press Enter.', say: 'The panel then says how the two are connected.' },
+    // (The box's own dots pulse, its grips away, so what it says to drag is what can be dragged.)
+    { can: twoBoxes, dots: true, event: 'relate-open', target: 'box', act: 'Drag a pulsing dot to another box.', keys: 'Press Shift+F10 on a box, choose Relate…, Tab to another box and press Enter.', say: 'The panel then says how the two are connected.' },
     // What the drag made, the two boxes' panel, shown before anything takes its place.
     { can: twoBoxes, point: true, target: 'pair', act: 'Point at what’s between them.', keys: 'Press F6 until you’re in the panel.', say: 'Tick what’s true of these two. Italic ones are worked out for you.' },
     { can: () => { const R = App.computed.peek()?.computed ?? {}, st = App.state.peek() ?? {}; return Object.keys(R).some(id => st[id] && !('tag' in st[id]) && !st[id].args); }, click: true, target: 'computed', act: 'Click an italic value.', keys: 'Tab to an italic value.', say: 'Italic means a formula worked it out, and the formula bar says why.', saysKeys: 'Italic means a formula worked it out, and F1 on it says why.', ends: unask },
@@ -137,7 +137,7 @@ const Tour = (() => {
   }
 
   function Layer() {
-    const i = at.value, hole = useRef(), card = useRef(), prev = useRef(-1), dotsAt = useRef();
+    const i = at.value, hole = useRef(), card = useRef(), prev = useRef(-1);
     const step = STEPS[i];
     // The cutout and the card follow the target directly, without redrawing; only a change of step glides.
     useLayoutEffect(() => {
@@ -153,12 +153,11 @@ const Tour = (() => {
         let el = step && find(step);
         if (el && !shown) { shown = true; if (!inView(el)) reveal(el); }
         if (el && !inView(el)) el = null;
-        const r = el?.getBoundingClientRect();
+        const r = el?.getBoundingClientRect(), teach = !!el && !!step?.dots && !Shell.usingKeys.peek(), pad = teach ? 28 : 4;
         h.classList.toggle('none', !r);
-        Object.assign(h.style, r ? { left: r.left - 4 + 'px', top: r.top - 4 + 'px', width: r.width + 8 + 'px', height: r.height + 8 + 'px' } : { left: '50%', top: '50%', width: 0, height: 0 });
-        // (A step about the dots shows them where the hole is: they come for real as the pointer nears.)
-        const d = dotsAt.current;
-        if (d) { d.hidden = !(el && step?.dots && !Shell.usingKeys.peek()); if (!d.hidden) { d.style.left = r.left + 'px'; d.style.top = r.top + 'px'; d.style.width = r.width + 'px'; d.style.height = r.height + 'px'; } }
+        Object.assign(h.style, r ? { left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + pad * 2 + 'px', height: r.height + pad * 2 + 'px' } : { left: '50%', top: '50%', width: 0, height: 0 });
+        // (A step about the dots shows the box's own, pulsing, its grips away: Canvas.)
+        if (step?.dots) Canvas.active.peek()?.teachDots?.(teach ? el.closest('[data-cell-id]')?.getAttribute('data-cell-id') ?? null : null);
         if (el) {
           // (Never on what it points at: where the side it's on has no room for it clear of that, whichever side has.)
           const room = roomOf(el);
@@ -178,14 +177,14 @@ const Tour = (() => {
       tick();
       const timer = setInterval(tick, 200);
       addEventListener('resize', tick);
-      return () => { clearTimeout(still); clearInterval(timer); removeEventListener('resize', tick); };
+      return () => { clearTimeout(still); clearInterval(timer); removeEventListener('resize', tick); if (step?.dots) Canvas.active.peek()?.teachDots?.(null); };
     }, [i]);
     if (i < 0) return null;
     const finish = fresh => { end(); if (fresh) Gallery.open({ workbook: true, title: 'New chart', then: made => { if (made && typeof made !== 'string') Shell.toast('The sample is kept: chart menu, Workbooks', { ms: 9000 }); } }); };
     // A step is said, and leaves focus in the window to do it; the last card is a dialog, which keeps it.
     const keysNow = Shell.usingKeys.value, act = keysNow && step?.keys ? (typeof step.keys === 'function' ? step.keys() : step.keys) : step?.act;
     return html`
-      <div class="tour-hole" ref=${hole} /><div class="tour-dots" ref=${dotsAt} hidden><i /><i /><i /><i /></div>
+      <div class="tour-hole" ref=${hole} />
       ${step ? html`<div class="tour-card" ref=${card} role="dialog" aria-label="Tour" aria-live="polite" onKeyDown=${e => { if (e.key === 'Escape') { e.preventDefault(); end(); } }}>
           <div class="step">${i + 1} / ${STEPS.length}</div>
           <p><b>${act}</b> ${keysNow && step.saysKeys || step.say}</p>

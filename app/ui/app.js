@@ -930,6 +930,11 @@ const App = (() => {
     else if (c) { p.done?.(c); after(p); }
     return c;
   }
+  // Whether a specification was what a chart began with, its template's, not a person's since.
+  function ofTemplate(s) {
+    const c = chart.peek(), begun = book.peek().changes().find(y => y.chart === c), k = Tree.key(Tree.bare(s)), N = notes.peek();
+    return !!begun?.adds.some(a => 'spec' in a && a.tree?.args?.length === s.args?.length && (Tree.key(Tree.bare(a.tree)) === k || (s.args?.length > 1 && Tree.same(N.name(Tree.bare(a.tree)), N.name(Tree.bare(s))))));
+  }
   // A field made by hand, on the chart's hands alone: no record has it but `id`, and neither a template nor a rule says anything of it. → its specifications, or null.
   function handMade(edge, id) {
     const c = chart.peek(), rows = book.peek().rows(c), begun = book.peek().changes().find(y => y.chart === c);
@@ -1586,7 +1591,7 @@ const App = (() => {
     const papers = p.between || part === null ? papersOf(rid, recs) : [], stay = papers.length ? html`<span class="sep">·</span><span class="stays">${papers.join(', ')} ${papers.length > 1 ? 'stay' : 'stays'} with the stake that ends</span>` : null;
     if (p.between) return html`<span class="transfer between"><span>${name(tr.first.at)} → ${picker} → ${name(tr.rest[0].at)}</span>${stay}</span>`;
     return html`<span class="transfer"><span>From ${name(tr.first.at)} to${' '}${picker}</span><span class="sep">·</span><span>${amt
-        ? html`<span class="hug"><input ref=${much} class="cell amount" aria-label="How much" spellcheck=${false} autocomplete="off" aria-invalid=${part === undefined ? 'true' : null} data-why="Not a figure"
+        ? html`<span class="hug"><input ref=${much} class="cell amount" aria-label="How much" spellcheck=${false} autocomplete="off" aria-invalid=${part === undefined ? 'true' : null} data-why=${(x => (x === undefined ? Tree.notA(amt.field) : x > amt.value + 1e-9 ? `${name(tr.first.at)} holds only ${Tree.format(amt.field, amt.value)}` : 'It has to be more than nothing'))(Tree.parse(amt.field, text ?? ''))}
             value=${text ?? Tree.format(amt.field, part ?? amt.value)} onFocus=${e => e.target.select()} onBlur=${() => { if (part !== undefined) setText(null); }} onInput=${typed} onKeyDown=${key} /></span>`
         : html`<span>${'choice' in recs[rid] ? recs[rid].choice : N.nameOf(recs, rid)}</span>`} of ${name(tr.rest[0].at)}</span>${stay}</span>`;
   }
@@ -2212,7 +2217,7 @@ const App = (() => {
 
   return {
     get wb() { return book.value; },
-    chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs, moving, movable, rankBy, rankOver, linesOver, handMade, asWords,
+    chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs, moving, movable, rankBy, rankOver, linesOver, handMade, asWords, amountOf, ofTemplate,
     mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, isDated, deleteLabel, mistakeLabel, bookName, lineNamed, nameLine, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken, sandbox, sandboxBegun, unsandbox,
   };

@@ -548,6 +548,8 @@ function mount(el) {
   };
   // What can be selected: a mark this view draws (a cell another view drew is kept hidden; see cellsTo).
   const selectable = c => { const k = c.getData()?.kind; return !!k && !UNMARKED.has(k) && c.isVisible() && (!designing || designing.keeps(c.id)); };
+  // Everything, to Ctrl+A: what's on the page, but its furniture, its title, its day, its footer and number, which a drag of the rest doesn't take. (A click takes each.)
+  const everything = () => graph.getCells().filter(c => selectable(c) && !scene?.byId.get(c.id)?.role);
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: false,
     pointerEvents: 'none', multipleSelectionModifiers: ['shift', 'ctrl', 'meta'], filter: selectable });
   graph.use(sel);
@@ -2260,7 +2262,7 @@ function mount(el) {
   // takes the line. A side with no such place has none. On a box selected, whose grips hold those middles and which is
   // the box a person has just made, they stand a little off the outline, as FigJam's do, so a drag from a side's middle
   // resizes and one from the dot beyond it relates, each where it's seen; a triangle's stay, as its sides have no grips.
-  let near = null, placed = null, pointerAt = null;
+  let near = null, placed = null, pointerAt = null, taught = null;
   const handles = ['n', 'e', 's', 'w'].map(side => {
     const h = document.createElement('div');
     h.className = `dc-handle ${side}`;
@@ -2291,6 +2293,7 @@ function mount(el) {
   // How far off the middle a handle may go, and how clear it keeps, in screen pixels: its reach and a line's.
   const ALONG = [0.5, 0.38, 0.62, 0.26, 0.74, 0.14, 0.86], CLEAR = 16, STANDOFF = 18, OUTWARD = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] };
   function showHandles(m = near) {
+    m = m ?? taught;
     near = m && !pointing && !still() && !dragging ? m : null;
     if (!near) { root.classList.remove('relating-on'); placed = null; return; }
     const z = graph.zoom(), cell = graph.getCellById(m.id), gripped = transform.widgets.has(cell), t = graph.translate();
@@ -2669,10 +2672,10 @@ function mount(el) {
     { label: 'New line', disabled: still(), run: () => insert('line', { points: [[round(p.x), round(p.y)], [round(p.x + 96 / pageScale()), round(p.y)]] }) },
     { label: 'New arrow', disabled: still(), run: () => insert('arrow-line', { points: [[round(p.x), round(p.y)], [round(p.x + 96 / pageScale()), round(p.y)]] }) }, '-',
     { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() },
-    { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, '-',
+    { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(everything()) }, '-',
     { label: 'Tidy', disabled: still(), run: tidy },
     { label: 'Page setup…', disabled: still(), run: () => Export.setup() },
-    { label: 'More', items: [{ label: 'Selection pane', keys: 'Alt+F10', run: () => hand.pane(true) }, { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
+    { label: 'More', items: [{ label: 'Selection pane', keys: 'Alt+F10', run: () => hand.pane(true) }, { label: 'Zoom to fit', keys: '$mod+Alt+Digit0', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
       ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-', aidsRow()] },
   ];
   const placedAt = (p, w, h) => ({ x: round(clamp(p.x - w / 2, 0, scene.page.w - w)), y: round(clamp(p.y - h / 2, 0, scene.page.h - h)), w, h });
@@ -3624,7 +3627,7 @@ function mount(el) {
     'F4': () => hand.repeat(), 'Alt+F10': () => hand.pane(),
     // The shapes' alignments have keys of their own.
     ...Object.fromEntries([['KeyL', 'left'], ['KeyE', 'center'], ['KeyR', 'right'], ['KeyT', 'top'], ['KeyM', 'middle'], ['KeyB', 'bottom']].map(([k, how]) => [`Alt+Shift+${k}`, () => align(how)])),
-    '$mod+KeyA': () => { sel.reset(graph.getCells().filter(selectable)); },
+    '$mod+KeyA': () => { sel.reset(everything()); },
     '$mod+KeyD': () => duplicate(), '$mod+KeyG': () => group(), '$mod+Shift+KeyG': () => ungroup(),
     // (With a field selected, as with text in PowerPoint, its size; with a mark, its order.)
     '$mod+BracketRight': () => fieldNow() ? FormatBar.resize?.(1) : order('forward'), '$mod+BracketLeft': () => fieldNow() ? FormatBar.resize?.(-1) : order('backward'),
@@ -3796,6 +3799,8 @@ function mount(el) {
     richSet: (label, v) => !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); }, footnote: id => footnote(id ? marked(id) : undefined),
     // Editing a design: what can be touched; and the zoom, brought to the box and put back (see Designs). A part selected, of a box (see Fields).
+    // The tour's step about the dots: a box's own, shown and pulsing whatever the pointer's near, its grips away.
+    teachDots: id => { const m = id ? scene?.byId.get(id) : null; taught = m?.type === 'box' ? m : null; root.classList.toggle('teaching', !!taught); showHandles(taught); },
     designing: d => { designing = d; root.classList.toggle('designing', !!d); document.body.classList.toggle('designing', !!d); if (!d) { field = null; } paintStates(); }, whereNow: () => ({ s: graph.zoom(), t: graph.translate() }),
     // (It moves, from the box and back to it: the page gliding as a zoom asked for does.)
     bringTo: r => { const was = aboutToGlide(); showRect(r, 90, LEAST, 4); glide(was); }, goBack: w => { const was = aboutToGlide(); quietly(() => { graph.zoomTo(w.s); graph.translate(w.t.tx, w.t.ty); }); zoomRead(); glide(was); }, partOf, reorder: (m, to, after, said) => hand.reorder(m, to, after, said),
@@ -3850,11 +3855,11 @@ Shell.register('keys', { head: 'On a chart', rows: [['Tab', 'Next box, in readin
   ['$mod+KeyA', 'Select everything'], ['$mod+Shift+Space', 'Select all like this'], ['$mod+KeyC', 'Copy'], ['$mod+KeyX', 'Cut'], ['$mod+KeyV', 'Paste'], ['$mod+KeyD', 'Duplicate'], ['$mod+KeyG', 'Group'], ['$mod+Shift+KeyG', 'Ungroup'], ['$mod+]', 'Bring forward'], ['$mod+[', 'Send backward'], ['$mod+Shift+]', 'Bring to front'], ['$mod+Shift+[', 'Send to back'],
   ['Shift+F10', 'What a box adds, Relate… and the rest of its menu'], ['Enter', 'While relating: take the box the keys are on'], ['A letter', 'While relating: a new box, named as it’s typed']] });
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
-Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
+Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: '$mod+Alt+Digit0', enabled: here, run: () => call('zoom')('fit') });
 // The zoom's, and the walk's, wherever the keys are on a chart shown: a look, writing nothing.
 Shell.register('action', { id: 'chart.zoomin', name: 'Zoom in', names: ['Larger', 'Magnify'], keys: '$mod+Equal', enabled: here, run: () => call('zoom')('in') });
 Shell.register('action', { id: 'chart.zoomout', name: 'Zoom out', names: ['Smaller'], keys: '$mod+Minus', enabled: here, run: () => call('zoom')('out') });
-Shell.register('action', { id: 'chart.zoom100', name: 'Zoom to 100%', names: ['Actual size'], keys: 'Shift+Digit0', enabled: here, run: () => call('zoom')(1) });
+Shell.register('action', { id: 'chart.zoom100', name: 'Zoom to 100%', names: ['Actual size'], keys: '$mod+Alt+Digit1', enabled: here, run: () => call('zoom')(1) });
 for (const [word, names, k, dx, dy] of [['above', 'up', 'ArrowUp', 0, -1], ['below', 'down', 'ArrowDown', 0, 1], ['to the left', 'left', 'ArrowLeft', -1, 0], ['to the right', 'right', 'ArrowRight', 1, 0]])
   Shell.register('action', { id: `chart.walk.${names}`, name: `Go to the box ${word}`, names: ['Walk', 'Next box', 'Box to box', 'Move between boxes'], keys: `$mod+Alt+${k}`, enabled: here, run: () => call('walk')(dx, dy), why: () => 'Show a chart first' });
 const aidToggle = k => () => { aids.value = { ...aids.peek(), [k]: !aids.peek()[k] }; };

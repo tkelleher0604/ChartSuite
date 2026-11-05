@@ -3604,7 +3604,7 @@ async function templates() {
   Shell.select([she]); await tick(150);
   Shell.parts.peek().inspector.adds(she).find(x => x.label === 'Add child…').run({ x: 300, y: 300 }); await tick(150);
   const find = $('.float .menu-find'); find.textContent = 'Ada Hale'; find.dispatchEvent(new Event('input', { bubbles: true })); await tick(80);
-  check('a child of one of a couple is offered as of both first', menuItems()[0] === 'New Person: Ada Hale, with Tom Hale' && menuItems()[1] === 'New Person: Ada Hale', menuItems().join(' | '));
+  check('a child of one of a couple is offered as of both first, of the one alone next', menuItems()[0] === 'New Person: Ada Hale, with Tom Hale' && menuItems()[1] === 'New Person: Ada Hale, Rose Hale’s only', menuItems().join(' | '));
   $$('.float .menu-item')[0].click(); await tick(350);
   check('… made as it’s said, with no bar', !App.pending.peek() && !$('.view > .pendbar'));
   const ada = Object.keys(App.state.peek()).find(id => App.notes.peek().nameOf(App.state.peek(), id) === 'Ada Hale' && App.state.peek()[id].kind), fromBoth = [she, he].map(p => sc().marks.find(m => m.type === 'line' && m.from === p && m.to === ada));
@@ -3637,6 +3637,104 @@ async function templates() {
   check('… drawn on the new chart’s page', sc().marks.some(m => m.master && m.texts?.some(it => it.text === 'Confidential')), sc().marks.filter(m => m.master).length);
   const kept = wb().charts().find(c => c.chart === blankChart);
   check('the chart it was begun from stands as it was', !!kept && wb().asOf(sample, App.day.peek())['fund']?.kind === 'Entity');
+  await entering(tick, esc);
+}
+// Entering, first try: a list means its relation; whose it is is asked; who stands over whom is moved in one move; a marriage's end stays drawn.
+async function entering(tick, esc) {
+  const wb = () => App.wb, st = () => App.state.peek(), sc = () => App.scene.peek(), one = id => App.notes.peek().nameOf(st(), id), toastNow = () => txt($$('.toast').at(-1)), press = (key, el) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  const person = (tx, kind, name) => { const id = tx.add('record', { kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }); return id; };
+  const typeIn = async q => { const f = $('.float .menu-find'); f.textContent = q; f.dispatchEvent(new Event('input', { bubbles: true })); await tick(80); };
+  const plusOf = async (id, list) => { Shell.select([id]); await tick(200); $$('.insp .btn.icon').find(b => b.getAttribute('aria-label') === `Add to ${list}`).click(); await tick(100); };
+  const linesOf = (x, edge) => Object.keys(st()).filter(id => st()[id].args?.some(a => a.at === x && a.edge === edge));
+  // June's: a blank chart, a Mother Of and a Father Of made by a person, each with its list of children.
+  App.begin({ template: 'blank', name: 'June' }); await tick(500); esc($('.dc-edit')); await tick(100);
+  const relation = (tx, name, ra, rb, a, b, above) => { const p = { args: [{ edge: ra, loc: {} }, { edge: rb, loc: {} }] }, view = Shell.view.peek(), out = { out: { tag: true }, ...p }; tx.add('record', { args: [{ edge: ra, at: a }, { edge: rb, at: b }], tag: true }); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, Tree.plural(ra), { param: ra }); tx.note('Name', p, Tree.plural(rb), { param: rb }); if (above) tx.note('Above', p, above); tx.note('Shown', out, true, { view }); };
+  let rose, albert, june, tom;
+  App.change(tx => { [rose, albert, june, tom] = ['Rose', 'Albert', 'June', 'Tom'].map(n => person(tx, 'Box', n)); relation(tx, 'Mother Of', 'mother', 'child', rose, june); relation(tx, 'Father Of', 'father', 'child', albert, june); relation(tx, 'Married To', 'wife', 'husband', june, tom, 'level'); }); await tick(300);
+  await plusOf(june, 'children'); await typeIn('Amy');
+  check('two relations read as one list ask which of them, each said of who it’s of', menuItems().join('|').startsWith('June the mother, Tom the father|June the father, Tom the mother|June the mother|June the father'), menuItems().join(' | '));
+  check('… nothing lit, so Enter takes none of them', !$('.float .menu-item.on'), txt($('.float .menu-item.on')));
+  press('Enter', $('.float .menu')); await tick(80);
+  check('… Enter lights the first, and it’s still asked', txt($('.float .menu-item.on')).startsWith('June the mother') && !!$('.float .menu'), txt($('.float .menu-item.on')));
+  press('Enter', $('.float .menu')); await tick(350);
+  const amy = Object.keys(st()).find(id => st()[id].kind && one(id) === 'Amy'), named = (x, e) => linesOf(x, e).map(l => App.notes.peek().nameOf(st(), l)).join();
+  check('June’s child has her as its mother and Tom as its father, as said: never the last relation made', named(june, 'mother').includes('Mother Of') && named(tom, 'father').includes('Father Of') && !linesOf(june, 'father').length && linesOf(amy, 'child').length === 2, `${named(june, 'mother')} ${named(tom, 'father')} ${linesOf(june, 'father').length}`);
+  await plusOf(june, 'children'); await typeIn('Ben');
+  check('… and having said what she is, the next is that by Enter', txt($('.float .menu-item.on')).startsWith('June the mother'), txt($('.float .menu-item.on')));
+  press('Escape', $('.float .menu')); await tick(60);
+  // Whose: two spouses are asked; one is what Enter takes, with one alone a row beneath.
+  App.begin({ template: 'family-tree', name: 'Whose' }); await tick(500); esc($('.dc-edit')); await tick(100);
+  let edith, frank, george, marriage;
+  App.change(tx => { [edith, frank, george] = ['Edith', 'Frank', 'George'].map(n => person(tx, 'Person', n)); marriage = tx.add('record', { args: [{ edge: 'Spouse', at: frank }, { edge: 'Partner', at: edith }], tag: true }); tx.add('record', { args: [{ edge: 'Spouse', at: edith }, { edge: 'Partner', at: george }], tag: true }); }); await tick(300);
+  await plusOf(edith, 'Children'); await typeIn('Susan');
+  check('with two spouses it asks whose child', $$('.float .menu-head').some(h => /Whose child\?/.test(txt(h))) && menuItems().join('|') === 'Edith and Frank|Edith and George|Edith alone' && !$('.float .menu-item.on'), menuItems().join(' | '));
+  $$('.float .menu-item').find(x => txt(x) === 'Edith alone').click(); await tick(300);
+  const susan = Object.keys(st()).find(id => st()[id].kind && one(id) === 'Susan');
+  check('… and a child of one can be said: one line, and the toast says whose', linesOf(susan, 'Child').length === 1 && /a child of Edith alone/.test(toastNow()), `${linesOf(susan, 'Child').length} ${toastNow()}`);
+  // A marriage's end leaves it on the chart.
+  check('a family tree says a marriage’s end stays: its word, its act', App.deleteLabel([marriage]) === 'Divorce…', App.deleteLabel([marriage]));
+  App.deleting([marriage], 'the marriage', { source: 'inspector', auto: true, meant: true }); await tick(120);
+  check('End… opens on a day, not on a mistake, though it was only just made', App.pending.peek()?.day !== null && App.pending.peek()?.asks === 'until', String(App.pending.peek()?.day));
+  App.amendPending(App.pending.peek(), { day: '1979' }); await tick(60); App.commit(); await tick(350);
+  const drawn = sc().byId.get(marriage);
+  check('the marriage stays, drawn as ended, saying so', !!st()[marriage] && drawn?.settings?.Dash?.value === 'dashed' && drawn.texts.some(it => /Divorced: 1979/.test(it.text)), `${!!st()[marriage]} ${drawn?.settings?.Dash?.value} ${drawn?.texts?.map(i => i.text)}`);
+  check('… said as what it is', /^Divorced Frank and Edith in 1979/.test(toastNow()), toastNow());
+  Shell.select([edith]); await tick(200);
+  check('… and each keeps the other, as former', /Frank.*Former.*divorced 1979/s.test(txt($('.insp [data-key="list:Spouses"]'))), txt($('.insp [data-key="list:Spouses"]')));
+  const kid = (() => { let k; App.change(tx => { k = person(tx, 'Person', 'Lea'); tx.add('record', { args: [{ edge: 'Parent', at: frank }, { edge: 'Child', at: k }], tag: true }); tx.add('record', { args: [{ edge: 'Parent', at: edith }, { edge: 'Child', at: k }], tag: true }); }); return k; })(); await tick(300);
+  const legs = sc().marks.filter(m => m.type === 'line' && m.to === kid), mline = sc().byId.get(marriage), onIt = l => l.points.slice(0, 2).every(p => Math.abs(p[1] - mline.points[0][1]) < 1);
+  check('… no line of its children running along it, to hide its dashes', legs.length === 2 && !legs.some(onIt), j2(legs.map(l => l.points)));
+  // A field made by hand and deleted stops being asked; a template's stays.
+  let hand; App.change(tx => { tx.add('spec', { tree: { out: { field: 'number' }, args: [{ edge: 'Wedding Cost', loc: { kind: 'Person' } }] } }); hand = tx.add('record', { at: frank, edge: 'Wedding Cost', field: 'number', value: 12 }); }); await tick(200);
+  App.deleting([hand], 'Wedding Cost', { source: 'inspector' }); await tick(250);
+  check('a field made by hand, deleted from the last that has it, is gone', !Object.values(App.schema.peek()).some(s => s.args?.[0]?.edge === 'Wedding Cost'), j2(Object.values(App.schema.peek()).filter(s => s.args?.[0]?.edge === 'Wedding Cost')));
+  check('… as a template’s isn’t', !App.handMade('Birthplace', null), 'Birthplace');
+  // Moving: a drop, a right-click and a list's +, one change, in the template's word.
+  App.begin({ template: 'org-chart', name: 'Moves' }); await tick(500); esc($('.dc-edit')); await tick(100);
+  let top, omar, grace, chloe, ella, oline, gline;
+  App.change(tx => { [top, omar, grace, chloe, ella] = ['Maria', 'Omar', 'Grace', 'Chloe', 'Ella'].map(n => person(tx, 'Person', n)); const r = (a, b) => tx.add('record', { args: [{ edge: 'Report', at: a }, { edge: 'Manager', at: b }], tag: true }); oline = r(omar, top); gline = r(grace, top); r(chloe, omar); r(ella, omar); }); await tick(300);
+  check('a box can be moved under one a relation ranks it under, or not under itself', App.movable([chloe, ella], grace) && !App.movable([chloe], chloe), `${App.movable([chloe, ella], grace)}`);
+  const n1 = wb().changes().length;
+  App.moving([omar], chloe); await tick(100);
+  check('nobody goes under what stands under them', !App.pending.peek() && /stands under Omar: nothing changed/.test(toastNow()) && wb().changes().length === n1, toastNow());
+  App.moving([chloe], omar); await tick(100);
+  check('… nor where they are', !App.pending.peek() && /there already/.test(toastNow()), toastNow());
+  App.moving([chloe, ella], grace); await tick(150);
+  check('it asks, in the relation’s word: Report to X instead of Y?', /Chloe and Ella: Report to Grace instead of Omar\?/.test(txt($('.pendbar'))) && App.pending.peek() && wb().changes().length === n1, txt($('.pendbar')));
+  App.commit(); await tick(300);
+  check('… one change, however many, that says what it did', wb().changes().length === n1 + 1 && Time.describe(wb().changes().at(-1)) === 'Moved Chloe and Ella to Grace' && [chloe, ella].every(x => linesOf(x, 'Report').length === 1 && st()[linesOf(x, 'Report')[0]].args.some(a => a.at === grace)), `${wb().changes().length - n1} ${Time.describe(wb().changes().at(-1))}`);
+  Shell.parts.peek().undo.undo(); await tick(200);
+  check('… which one Undo takes back', [chloe, ella].every(x => st()[linesOf(x, 'Report')[0]].args.some(a => a.at === omar)), 'undo');
+  check('a box’s right-click says Change manager…, of one or of many', Shell.parts.peek().inspector.changes([chloe, ella]).map(x => x.label).join() === 'Change manager…' && !Shell.parts.peek().inspector.changes([top]).length, Shell.parts.peek().inspector.changes([chloe]).map(x => x.label).join());
+  // A list named as one holds one: + with one that has one asks, As well a click; a name typed whole is offered as itself and as a new one.
+  await plusOf(grace, 'Reports'); await typeIn('Chloe');
+  check('a name that exists is offered as that one, and as a new one', menuItems().join('|').startsWith('ChloePerson|New Person: Chloe') && txt($('.float .menu-item.on')).startsWith('Chloe'), menuItems().join(' | '));
+  press('Enter', $('.float .menu')); await tick(200);
+  check('… and one with a manager is asked as a move, As well a click', /Report to Grace instead of Omar/.test(txt($('.pendbar'))) && $$('.pendbar .btn').some(b => txt(b) === 'As well'), txt($('.pendbar')));
+  App.discard({ quiet: true }); await tick(80);
+  await plusOf(grace, 'Reports'); await typeIn('El');
+  check('what begins one thing’s name is that thing, as Excel finishes it', txt($('.float .menu-item.on')).startsWith('Ella'), txt($('.float .menu-item.on')));
+  press('Escape', $('.float .menu')); await tick(60);
+  await plusOf(grace, 'Reports'); await typeIn('a');
+  check('a near match inside a word is never what Enter takes', !txt($('.float .menu-item.on') ?? document.createElement('i')).match(/^(Maria|Grace)/), txt($('.float .menu-item.on')));
+  press('Escape', $('.float .menu')); await tick(60);
+  // Color by an answer, first in Fill's menu.
+  const dept = (() => { let d; App.change(tx => { d = tx.add('record', { at: chloe, edge: 'Department', choice: 'Finance' }); tx.add('record', { at: ella, edge: 'Department', choice: 'Sales' }); }); return d; })(); await tick(250);
+  Shell.select([chloe]); await tick(200);
+  FormatBar.open('fill'); await tick(120);
+  const rows = $$('.by-answer .menu-item').map(txt);
+  check('Fill’s menu has what the page can be colored by, first', txt($('.by-answer .menu-head')) === 'Color by' && rows.includes('Department'), rows.join());
+  $$('.by-answer .menu-item').find(x => txt(x) === 'Department').click(); await tick(300);
+  check('… one click, a look for each', sc().byId.get(chloe)?.settings?.Fill?.value !== sc().byId.get(ella)?.settings?.Fill?.value && App.notes.peek().notes('Fill').some(n => n.pattern.out?.choice === 'Finance'), `${sc().byId.get(chloe)?.settings?.Fill?.value} ${sc().byId.get(ella)?.settings?.Fill?.value}`);
+  // Bare keys are for typing, and Ctrl+A isn't for the furniture.
+  Shell.select([]); await tick(100);
+  const cv = Canvas.active.peek(), zoomed = () => txt($('[data-fb="zoom"]'));
+  const was = zoomed(); for (const [key, code] of [['!', 'Digit1'], [')', 'Digit0']]) cv.root.dispatchEvent(new KeyboardEvent('keydown', { key, code, shiftKey: true, bubbles: true, cancelable: true })); await tick(100);
+  check('Shift+1 and Shift+0, typed on the page, leave the zoom', zoomed() === was, `${was} ${zoomed()}`);
+  cv.root.focus(); cv.root.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', ctrlKey: true, bubbles: true, cancelable: true })); await tick(150);
+  const got = Shell.selection.peek().map(k => sc().byId.get(k)).filter(Boolean);
+  check('Ctrl+A takes what’s on the page, and not its title, its day or its footer', got.length > 3 && !got.some(m => m.role), got.filter(m => m.role).map(m => m.role).join());
+  Shell.select([]); await tick(60);
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);

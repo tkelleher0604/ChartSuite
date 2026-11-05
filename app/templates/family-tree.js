@@ -6,7 +6,7 @@ Templates.register({
   order: 3,
   rows: Templates.rows(t => {
     const person = { kind: 'Person' }, field = (edge, type = 'text') => ({ out: { field: type }, ...t.entry(edge, {}) });
-    t.kind('Person', { Name: 'text', Born: 'date', Died: 'date', Birthplace: 'text', 'Maiden Name': 'text' });
+    t.kind('Person', { Name: 'text', Gender: ['Woman', 'Man'], Born: 'date', Died: 'date', Birthplace: 'text', 'Maiden Name': 'text' });
     t.undated();
     t.note('Order', person, { by: 'Born' });
     const parent = t.relation('Parent Of', ['Parent', 'Child'], { kinds: [['Person', 'Person']], lists: { Parent: 'Parents', Child: 'Children' } });
