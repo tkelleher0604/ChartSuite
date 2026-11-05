@@ -539,7 +539,7 @@ const Shell = (() => {
     for (let t; (t = w.nextNode());) { if (n <= t.length) return getSelection().collapse(t, n); n -= t.length; }
     getSelection().collapse(el, el.childNodes.length);
   }
-  function Field({ q, onQuery, at }) {
+  function Field({ q, onQuery, at, ph = 'Find', grab }) {
     const ref = useRef();
     useLayoutEffect(() => {
       const el = ref.current, markup = typeset(q);
@@ -548,23 +548,24 @@ const Shell = (() => {
       el.innerHTML = markup;
       if (n !== null) caretAt(el, n);
     }, [q]);
+    useLayoutEffect(() => { if (grab) ref.current.focus({ preventScroll: true }); }, []);
     const read = e => { if (!e.isComposing) onQuery(e.currentTarget.textContent.replace(/[\n ]/g, ' ')); };
-    return html`<div class="menu-find" ref=${ref} contenteditable="plaintext-only" role="searchbox" aria-label="Find" aria-activedescendant=${at} spellcheck="false" data-placeholder="Find"
+    return html`<div class="menu-find" ref=${ref} contenteditable="plaintext-only" role="searchbox" aria-label="Find" aria-activedescendant=${at} spellcheck="false" data-placeholder=${ph}
       onInput=${read} onCompositionEnd=${read} onKeyDown=${e => { if (e.key === 'Enter') e.preventDefault(); }} onFocus=${e => caretAt(e.currentTarget, Infinity)} />`;
   }
 
   // A menu; with `search`, a field that ranks its items, or that `items(query)` answers. An item `asked` (a new option named
   // as it's typed, from `more(query)`) is what Enter takes only where it's highlighted: by the pointer or the arrows, or
-  // of itself where nothing else is found.
+  // of itself where nothing else is found. A short list that can grow (its `more`) has that field from the first key typed.
   function Menu({ f }) {
-    const [q, setQ] = useState(f.query ?? '');
-    const items = typeof f.items === 'function' ? f.items(q.trim()) : f.search && q.trim() ? [...rank(f.items.filter(it => selectable(it) && !it.asked), q), ...(f.more?.(q.trim()) ?? [])] : f.items;
+    const [q, setQ] = useState(f.query ?? ''), [grew, setGrew] = useState(false), searching = f.search || grew;
+    const items = typeof f.items === 'function' ? f.items(q.trim()) : searching && q.trim() ? [...rank(f.items.filter(it => selectable(it) && !it.asked), q), ...(f.more?.(q.trim()) ?? [])] : f.items;
     // The arrows stop at what can be chosen and at a row of choices (Light and Dark), whose own arrows go across it.
     const live = items.map((it, i) => selectable(it) || it?.seg ? i : -1).filter(i => i >= 0);
     // Opened by the keys, it's on its ticked item, or its first, so Enter does something and what's on is seen; by the pointer, on nothing.
     const [act, setAct] = useState(() => { if (!keyed || f.search) return -1; const k = items.findIndex(it => it && it.checked && selectable(it)); return k >= 0 ? k : live.find(i => selectable(items[i])) ?? -1; });
-    const active = f.search && q.trim() && act < 0 ? live.find(i => selectable(items[i]) && !items[i].asked) ?? live.find(i => selectable(items[i])) ?? -1 : act;
-    const checks = items.some(it => it && it.checked !== undefined);
+    const active = searching && q.trim() && act < 0 ? live.find(i => selectable(items[i]) && !items[i].asked) ?? live.find(i => selectable(items[i])) ?? -1 : act;
+    const checks = items.some(it => it && it.checked !== undefined), typed = useRef({ s: '', t: 0 });
     const mi = i => `mi${f.id}-${i}`, el = i => document.getElementById(mi(i));
     const run = it => {
       if (it.items) return openSub(it, el(items.indexOf(it)));
@@ -584,19 +585,20 @@ const Shell = (() => {
       if (it?.art && (e.key === 'ArrowRight' || (e.key === 'ArrowLeft' && !(f.parent && live.indexOf(active) % across === 0)))) move(e.key === 'ArrowRight' ? 1 : -1);
       else if (e.key === 'ArrowDown') move(it?.art ? Math.min(across, live.length - 1 - live.indexOf(active)) || 1 : 1);
       else if (e.key === 'ArrowUp') move(it?.art ? -Math.min(across, live.indexOf(active)) || -1 : -1);
-      else if (e.key === 'Home' && !f.search) setAct(live[0]);
-      else if (e.key === 'End' && !f.search) setAct(live[live.length - 1]);
+      else if (e.key === 'Home' && !searching) setAct(live[0]);
+      else if (e.key === 'End' && !searching) setAct(live[live.length - 1]);
       else if (it?.seg && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { const n = it.seg[it.seg.findIndex(s => s.pressed) + (e.key === 'ArrowRight' ? 1 : -1)]; if (n && !n.pressed) n.run(); }
       else if (it?.seg && e.key === 'Enter') closeAll();
-      else if (e.key === 'Enter' && it) run(it);
+      else if (e.key === 'Enter') { if (it) run(it); }
       else if (e.key === 'ArrowRight' && it?.items) run(it);
       else if (e.key === 'ArrowLeft' && f.parent) f.close();
       else if (e.key === 'Tab') return closeAll();   // and focus goes on from what opened it
-      else if (!f.search && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const k = e.key.toLowerCase(), from = live.indexOf(active);
-        const next = [...live.slice(from + 1), ...live.slice(0, from + 1)].find(i => items[i].label?.toLowerCase().startsWith(k));
-        if (next === undefined) return;
-        setAct(next);
+      else if (f.more && !searching && e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { setGrew(true); setQ(e.key); setAct(-1); }
+      else if (!searching && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Typed, a list goes to what begins with all that's typed ("3(c)(7)"), a pause beginning again; one letter again goes on through what it begins. What finds nothing lights nothing, so Enter chooses no other, and no key of it reaches the chart.
+        const t = typed.current; clearTimeout(t.t); t.s += e.key.toLowerCase(); t.t = setTimeout(() => { t.s = ''; }, 800);
+        const from = live.indexOf(active), round = k => [...live.slice(k), ...live.slice(0, k)], begins = s => i => items[i].label?.toLowerCase().startsWith(s);
+        setAct((t.s.length > 1 ? round(Math.max(from, 0)).find(begins(t.s)) : undefined) ?? ([...t.s].every(c => c === t.s[0]) ? round(from + 1).find(begins(t.s[0])) : undefined) ?? -1);
       } else return;
       e.preventDefault();
     };
@@ -608,8 +610,8 @@ const Shell = (() => {
     useEffect(() => { if (!pointed) return; pointed(true); return () => pointed(false); }, [pointed]);
     // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
     const at = active >= 0 && items[active] ? mi(active) : null;
-    return html`<div class=${'menu' + (tiled ? ' tiled' : '') + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${f.search ? null : at} onKeyDown=${onKey}>
-      ${f.search ? html`<${Field} q=${q} at=${at} onQuery=${t => { setQ(t); setAct(-1); }} />` : null}
+    return html`<div class=${'menu' + (tiled ? ' tiled' : '') + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${searching ? null : at} onKeyDown=${onKey}>
+      ${searching ? html`<${Field} q=${q} at=${at} ph=${f.ph} grab=${grew} onQuery=${t => { setQ(t); setAct(-1); }} />` : null}
       ${items.map((it, i) => it === '-' ? html`<div class="menu-sep" role="separator" />`
         : it.head ? html`<div class="menu-head" role="presentation">${it.head}</div>`
         : it.seg ? html`<div class=${'menu-seg' + (i === active ? ' on' : '')} id=${mi(i)} role="radiogroup">${it.seg.map(s => html`<button tabindex="-1" role="radio" aria-checked=${!!s.pressed} aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
@@ -636,7 +638,7 @@ const Shell = (() => {
   const tip = signal(null);
   let tipEl = null, tipTimer = 0;
   // A yes-or-no's box says in words, pointed at, which of its states it's in, so they need no legend (dendra.md, Part 3, States).
-  const tagSaid = t => { const c = t.classList; return c.contains('pend') ? null : c.contains('yes') ? (c.contains('fx') ? 'Yes, worked out' : 'Yes, typed') : c.contains('no') ? (c.contains('fx') ? 'No, worked out' : 'No, typed') : 'Nobody has said'; };
+  const tagSaid = t => { const c = t.classList; return c.contains('pend') ? null : c.contains('yes') ? (c.contains('fx') ? 'Yes, worked out' : 'Yes') : c.contains('no') ? (c.contains('fx') ? 'No, worked out' : 'No') : 'Not answered'; };
   document.addEventListener('pointerover', e => {
     if (e.target.classList?.contains('tag') && !e.target.dataset.tip && !e.target.closest('[data-tip]')) { const s = tagSaid(e.target); if (s) e.target.dataset.tip = s; }
     const el = tipOf(e.target);
@@ -771,6 +773,7 @@ const Shell = (() => {
     const was = el.style.translate;
     el.style.translate = '';
     el.style.left = `${Math.round(view.left + view.width / 2)}px`;
+    el.style.maxWidth = `${Math.round(view.width - 24)}px`;   // Centred on the work, a long one wraps inside it, not off the window's edge.
     const r = el.getBoundingClientRect(), under = typedIn().filter(b => b.left < r.right + 8 && b.right > r.left - 8 && b.top < r.bottom + 8 && b.bottom > r.top - 8);
     const now = under.length ? `0 ${Math.round(Math.min(...under.map(b => b.top)) - 8 - r.bottom)}px` : '';
     el.style.translate = now;
@@ -853,7 +856,14 @@ const Shell = (() => {
   // The chart's name is renamed in place, as a sheet's is: from the chart menu, Find, a double-click on it, or
   // as a new chart begins. Enter or leaving keeps what's typed, Esc puts it back; another chart shown ends it.
   const naming = signal(null);
-  const nameChart = () => { const id = part('workbook')?.current(); if (id && !App.readOnly.peek()) { closeAll(); naming.value = id; } };
+  let namedThen = null;
+  const nameChart = o => { const id = part('workbook')?.current(); if (id && !App.readOnly.peek()) { closeAll(); namedThen = o?.then ?? null; naming.value = id; } };
+  // A chart just begun lands naming its first box, of its first kind, the chip beside it saying which: the way in, not a button to find. Esc leaves Add a box.
+  function firstBox(tries = 40) {
+    const c = part('canvas'), drawn = c?.active?.()?.scene?.();
+    if (drawn && App.scene.peek() && current.peek()?.layout === 'chart' && drawn.view === current.peek().id) { if (!App.readOnly.peek() && !App.scene.peek().marks.some(m => m.type === 'box')) c.kinds?.()[0]?.run(); return; }
+    if (tries) setTimeout(() => firstBox(tries - 1), 50);
+  }
   effect(() => { const id = part('workbook')?.current(); if (naming.peek() && naming.peek() !== id) naming.value = null; });
   let refocus = false;
   function Naming() {
@@ -863,6 +873,7 @@ const Shell = (() => {
       naming.value = null; refocus = back;
       const name = Tree.clean(value ?? '');
       if (keep && name && name !== was) part('workbook').rename(id, name);
+      const then = namedThen; namedThen = null; then?.();
     };
     return html`<div class="chartmenu naming">${mark}<input class="name" aria-label="Chart name" value=${text} spellcheck="false" style=${`width:${text.length + 2}ch`}
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onInput=${e => setText(e.target.value)}
@@ -1253,7 +1264,7 @@ const Shell = (() => {
 
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
-    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart, roved, land, enter, keyed: () => keyed, usingKeys,
+    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart, firstBox, roved, land, enter, keyed: () => keyed, usingKeys,
     widen, narrow, wide, gliding, showPanel, theme, setTheme, html, h, signal, computed, effect, parts: reg,
     problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n) })), listProblems: kind => listOf(kind),
     aside: c => { aside.value = c; },

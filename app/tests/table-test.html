@@ -2088,7 +2088,7 @@ async function run() {
   check('… so Undo straight after leaves it whole', C() === C1 && App.wb.charts().some(c => c.chart === C1) && views().length > 0 && /Nothing to undo/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
   const kept = views().map(v => v.name), chart1 = views().find(v => v.layout === 'chart');
   check('It keeps the views named for what they show, and every page, by what it says of what it shows; not a table made of one list (Entities 2)', ['Structure', '40 Act', 'Fund', 'Management and control', 'Entities', 'Ownership', 'Dates', 'Documents'].every(n => kept.includes(n))
-    && !kept.includes('Entities 2') && views().filter(v => v.layout === 'chart').length === 4, kept.join());
+    && !kept.includes('Entities 2') && views().filter(v => v.layout === 'chart').length === 4 && !Object.values(App.state.peek()).some(r => r.kind && !Tree.isView(r) && !r.calendar), kept.join());
   check('… its chart with the styles and Shown of the old chart’s first', chart1 && App.notes.peek().resolve('Shown', { kind: 'Document' }, chart1.id)?.note.view === chart1.id);
   const pages = views().filter(v => v.layout === 'chart'), furniture = v => App.wb.rows(C1).filter(r => 'shape' in r && r.view === v.id);
   check('Each of its pages has a title, its name and the page’s, an as-of line and a Key', pages.length > 0 && pages.every((v, i) => furniture(v).some(s => s.role === 'title' && s.text === (i ? `${name1}: ${v.name}` : name1))
@@ -2101,7 +2101,7 @@ async function run() {
   type(naming(), 'Harbor Point Fund I'); press('Enter', naming()); await tick(100);
   const chartName1 = () => App.wb.charts().find(c => c.chart === C1)?.name;
   check('Enter names it: the chart, the title bar, the window and its page’s title, so its exports are named so', chartName1() === 'Harbor Point Fund I' && !naming()
-    && $('.titlebar .chartmenu .name').textContent === 'Harbor Point Fund I' && document.title === 'Harbor Point Fund I – Dendra' && pageTitles() === 'Harbor Point Fund I', `${chartName1()} / ${pageTitles()}`);
+    && $('.titlebar .chartmenu .name').textContent === 'Harbor Point Fund I' && document.title === 'Harbor Point Fund I – Dendra' && pageTitles().split(' | ').every(t => t === 'Harbor Point Fund I'), `${chartName1()} / ${pageTitles()}`);
   check('… as one change, said so, that one Undo takes back', Time.describe(last()) === 'Renamed Untitled to Harbor Point Fund I' && Shell.parts.peek().undo.canUndo(), Time.describe(last()));
   // A page whose title was changed by hand keeps it.
   const second = App.addView('Closing'); await tick(60);
@@ -2111,7 +2111,7 @@ async function run() {
   item('Rename').click(); await tick(60);
   check('The chart menu’s Rename types over the name in place', naming()?.value === 'Harbor Point Fund I' && document.activeElement === naming());
   type(naming(), 'Harbor Point Fund I, L.P.'); press('Enter', naming()); await tick(100);
-  check('… and a page’s title changed by hand keeps what it says', chartName1() === 'Harbor Point Fund I, L.P.' && pageTitles() === 'Closing structure | Harbor Point Fund I, L.P.', pageTitles());
+  check('… and a page’s title changed by hand keeps what it says', chartName1() === 'Harbor Point Fund I, L.P.' && pageTitles().split(' | ')[0] === 'Closing structure' && pageTitles().split(' | ').slice(1).every(t => t === 'Harbor Point Fund I, L.P.'), pageTitles());
   $('.titlebar .chartmenu').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await tick(60);
   type(naming(), 'Something else'); press('Escape', naming()); await tick(60);
   check('A double-click on it types over it too, and Esc puts it back, the keys on it again', chartName1() === 'Harbor Point Fund I, L.P.' && !naming() && document.activeElement === $('.titlebar .chartmenu'), document.activeElement?.outerHTML.slice(0, 60));
@@ -2305,6 +2305,17 @@ async function tablesG3() {
   // What the marks mean, on hover.
   const fxCell = cell(named('Calder Ridge III AIV-1 Blocker, Inc.'), 'Tax Classification').getElement();
   check('An italic says it’s computed, on hover', getComputedStyle(fxCell).fontStyle === 'italic' && fxCell.dataset.tip === 'Worked out by a formula', fxCell.dataset.tip);
+  { // Tab goes on past what a rule works out; the arrows still reach it.
+    const row = rowOf(named('Calder Ridge III AIV-1 Blocker, Inc.')), cs = row.getCells(), at = cs.findIndex(c => c.getElement() === fxCell), prev = cs[at - 1], grid = Table.grid.rowManager.element;
+    const push = key => grid.dispatchEvent(new KeyboardEvent('keydown', { key, code: key, bubbles: true, cancelable: true }));
+    Table.grid.addRange(prev, prev); await tick();
+    push('Tab'); await tick(80);
+    const past = Table.grid.modules.selectRange.getActiveCell();
+    check('Tab goes on past what a rule works out', past?.getComponent().getElement() !== fxCell && past?.row.getComponent() === row, past?.column.getDefinition().title);
+    Table.grid.addRange(prev, prev); await tick();
+    push('ArrowRight'); await tick(80);
+    check('… and an arrow still reaches it', Table.grid.modules.selectRange.getActiveCell()?.getComponent().getElement() === fxCell, Table.grid.modules.selectRange.getActiveCell()?.column.getDefinition().title);
+  }
   const overCell = cell(named('Calder Ridge Capital BDC, Inc.'), 'Tax Classification').getElement();
   check('… and a corner triangle that it’s typed over what’s worked out, saying what that is', overCell.classList.contains('over') && overCell.dataset.tip === 'Typed over what’s worked out, which is C Corporation', overCell.dataset.tip);
   // Its way back is on its cell's menu; cleared, it asks why as that does; out in Excel, its note says what the rule says.
@@ -2333,7 +2344,7 @@ async function tablesG3() {
     press('Escape', input); await tick(200);
     check('… and Esc leaves the grid where it was, on that row, selected', Shell.selection.peek().join() === id && Table.grid.modules.selectRange.getActiveCell()?.row.getData().id === id && Math.abs(h.scrollTop - top) < 40 && input.value === '', `${Shell.selection.peek().join()} ${top} → ${h.scrollTop}`);
     Shell.select([fund3]); await tick(200);
-    check('… and left, it takes its place', order().indexOf(id) === 0 && Table.grid.getRows('active').length === order().length, order().indexOf(id));
+    check('… and left, it stays where it was typed: rows hold still', order().indexOf(id) === order().length - 1 && Table.grid.getRows('active').length === order().length, order().indexOf(id));
     undo(); await tick(200);
     h.scrollTop = 0; await tick(60);
     Shell.select([]); await tick(60);
@@ -2605,6 +2616,10 @@ async function tablesAsk() {
   check('Import takes rows pasted, not only a file: it opens on a box for them', !!box && $('dialog.dlg .btn.primary').disabled, $('dialog.dlg')?.textContent.slice(0, 80));
   box.value = 'Name\tJurisdiction\nHollis Bay, LLC\tDelaware\n'; box.dispatchEvent(new Event('input', { bubbles: true })); await tick(120);
   check('… and rows in it are shown, read as they’ll be', $('dialog.dlg .imp-first').value === 'head' && sels().join() === 'Name,Jurisdiction' && !$('dialog.dlg .btn.primary').disabled, sels().join());
+  box.value = 'Hollis Bay, LLC, Delaware\nBeacon Interco, Inc., Delaware\n'; box.dispatchEvent(new Event('input', { bubbles: true })); await tick(120);
+  check('… typed by commas, they split on them, a legal form staying with its name', $$('dialog.dlg .imp-grid tbody tr').length === 2 && $$('dialog.dlg .imp-grid tbody tr')[0].children[0].textContent === 'Hollis Bay, LLC' && $$('dialog.dlg .imp-grid tbody tr')[0].children[1].textContent === 'Delaware', $('dialog.dlg .imp-grid')?.textContent.slice(0, 80));
+  box.value = '2025\n2026\n'; box.dispatchEvent(new Event('input', { bubbles: true })); await tick(120);
+  check('… and bare years are what a row’s found by, not left out', sels()[0] === 'Name' && !$('dialog.dlg .imp-miss'), sels().join());
   $$('dialog.dlg .btn').find(b => b.textContent === 'Cancel').click(); await tick(120);
   paste('Lantern Midco, LLC\tDelaware\nBeacon Interco, Inc.\tDelaware\n', $('.nr-name')); await tick(150);
   check('Rows pasted on the New row open in Import, not as one long name', !!$('dialog.dlg .imp-grid') && $('.nr-name').value === '', $('.nr-name').value);

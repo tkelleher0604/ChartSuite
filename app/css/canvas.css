@@ -103,6 +103,8 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-handle.slim::before { inset: -1px; }
 .dc.relating-on .dc-handle { opacity: 1; }
 .dc:not(.relating-on) .dc-handle { pointer-events: none; }
+.dc .dc-linedot { opacity: 1; pointer-events: auto; }
+.dc .dc-linedot:hover { background: var(--accent); transform: scale(1.25); }
 @media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } }
 
 /* A rounded shape's corner handle, as a line's grip is, there as the pointer nears; and where a Key's row dragged would go. */

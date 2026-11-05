@@ -242,6 +242,8 @@ function calledBy(s, n) {
   if (s.rest) return `${caption} (${n})`;
   if (s.says) return s.says(n);
   if (s.has) return `${n} with ${caption}`;
+  // (A date isn't a counted noun: "12 with Born".)
+  if (ps.length && ps.every(p => p.out?.field === 'date')) return `${n} with ${caption}`;
   // A relation's, as its lines: "24 ownership lines".
   if (ps.length && ps.every(p => p.args?.length > 1 && !Tree.idsIn(p).size)) return `${n} ${caption[0].toLowerCase()}${caption.slice(1)} line${n === 1 ? '' : 's'}`;
   // What's changed is said as a state: "3 new or changed", "1 gone".
@@ -254,8 +256,7 @@ function calledBy(s, n) {
   const kind = ps.length && ps.every(p => p.kind && !p.args && !p.out), common = kind || words.slice(1).every(w => !/^[A-Z]/.test(w));
   const lower = w => common && /^[A-Z][a-z]/.test(w) ? w[0].toLowerCase() + w.slice(1) : w, last = words.at(-1);
   if (/^(not|no|in|with|without)$/i.test(words[0])) return `${n} ${lower(caption)}`;
-  const one = w => w.replace(/ies$/i, 'y').replace(/(?<![su])s$/i, '');
-  return `${n} ${[...words.slice(0, -1), n === 1 ? one(last) : Tree.plural(last)].map((w, i) => i ? w : lower(w)).join(' ')}`;
+  return `${n} ${[...words.slice(0, -1), n === 1 ? Tree.singular(last) : Tree.plural(last)].map((w, i) => i ? w : lower(w)).join(' ')}`;
 }
 // And as a sentence says it, which a toast lowers: "Filled all 5 funds", "Filled 1 main fund", "Filled the 7 shown".
 const allOf = (s, n) => n > 1 && !s.rest && !s.shown ? `All ${calledBy(s, n)}` : calledBy(s, n);
@@ -1970,12 +1971,12 @@ function Bar() {
       onClick=${() => armed ? disarm() : arm(true)} onDblClick=${() => ro || arm(false)}>${Shell.icon('painter')}</button>
     <button class="btn icon" data-fb="clear" aria-label="Clear formatting" data-keys="Ctrl+Space" ...${writes('Clear formatting', none)} onClick=${clearLook}>${Shell.icon('eraser')}</button>
     <span class="sep" />
-    <div class=${'scope' + (scope?.own ? ' own' : '') + (none && !root ? ' off' : '')} role="group" aria-label="Format" data-fb="scope">
+    <div class=${'scope' + (scope?.own ? ' own' : '') + (none && !root ? ' off' : '')} role="group" aria-label="Format" data-fb="scope" data-tour="scope">
       ${root ? html`<button class="dd root" data-fb="all" aria-haspopup="menu" data-tip="Every text on this page that nothing narrower sets; or what its list aims at"
         onClick=${e => Shell.menu(e.currentTarget, [{ label: 'All text', checked: true, run: () => {} }, ...Scene.groupsOf(App.notes.peek(), c.scene().view).filter(g => !g.off).flatMap((g, i, all) => [...g.name ? (g.name !== all[i - 1]?.name ? [{ head: g.name }] : []) : all[i - 1]?.name ? ['-'] : [], { label: g.caption, run: () => aim(g) }])], { placement: 'bottom-start' })}><span>All text</span></button>` : none ? html`<button disabled><span>Nothing selected</span></button>` : null}
       ${ownPart ? html`<button aria-pressed=${!!scope?.own} data-fb="own" data-tip=${like ? 'Just the selection' : null} data-keys=${like ? 'Ctrl+Shift+A' : null}
         onClick=${() => choose(ownPart)}><span>${ownPart.label}</span></button>` : null}
-      ${like ? html`<button aria-pressed=${!scope?.own} data-fb="like" data-tour="like" data-keys=${ownPart ? 'Ctrl+Shift+A' : null} onPointerOver=${whole}
+      ${like ? html`<button aria-pressed=${!scope?.own} data-fb="like" data-keys=${ownPart ? 'Ctrl+Shift+A' : null} onPointerOver=${whole}
         onPointerEnter=${() => cue(like)} onPointerLeave=${() => cue(null)} onClick=${() => choose(like)}><span>${placeSaid(c, like)}</span></button>` : null}
       ${like && (s.scopes.length > 2 || countOf(c, like) > (like.marks ?? marksOf(c.scene(), like)).size) ? html`<button class="more" data-fb="groups" aria-label="All like it" data-tip="All like it" aria-haspopup="menu"
         onClick=${e => Shell.menu(e.currentTarget, scopes(), { placement: 'bottom-end', onClose: () => cue(null) })} />` : null}

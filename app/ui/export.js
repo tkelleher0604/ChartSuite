@@ -397,12 +397,16 @@ function svg(scene, { pdf = false, frame = scene.page.sheet } = {}) {
 }
 
 // A scene's boxes and lines, furniture aside, as a small drawing of what it is: the New chart gallery's cards.
-function sketch(scene) {
+function sketch(scene, { bars: barred = false, at: room = null } = {}) {
   const ms = reading(scene.marks).filter(m => m.type === 'box' || m.type === 'line'), boxes = ms.filter(m => m.type === 'box');
   if (!boxes.length) return '';
   const pad = 2, x = Math.min(...boxes.map(b => b.x)) - pad, y = Math.min(...boxes.map(b => b.y)) - pad, w = Math.max(...boxes.map(b => b.x + b.w)) + pad - x, h = Math.max(...boxes.map(b => b.y + b.h)) + pad - y;
   at = scene.page.scale ?? 1;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${n(x)} ${n(y)} ${n(w)} ${n(h)}" preserveAspectRatio="xMidYMid meet">${ms.map(m => markSvg(m, false)).join('')}</svg>`;
+  // (In a room of one size, its middle at the drawing's, so cards are at one scale; and words a card's too small for are bars of their length, so there's no mush.)
+  const W = room ? Math.max(room.w, w) : w, H = room ? Math.max(room.h, h) : h, X = x + (w - W) / 2, Y = y + (h - H) / 2;
+  const bar = it => it.blank ? '' : it.lines.map(l => { const t = it.look, z = t.Size * PT, f = { start: 0, middle: 0.5, end: 1 }[ANCHOR[t.Align] ?? 'middle']; return `<rect x="${n(l.x - l.w * f)}" y="${n(l.y - z * 0.72)}" width="${n(l.w)}" height="${n(z * 0.64)}" rx="${n(z * 0.2)}" fill="${t.Color}" opacity="${t.Bold ? 0.62 : 0.36}"/>`; }).join('');
+  const drawn = m => !barred ? markSvg(m, false) : m.type === 'line' ? route(m.points, look(m), m.runs) : markSvg({ ...m, texts: [], parts: m.parts?.filter(p => !p.texts?.length || p.fill) }, false) + g(m.x, m.y, m.texts.map(bar).join('')) + (m.parts ?? []).map(p => (p.texts?.length ? g(p.x, p.y, p.texts.map(bar).join('')) : '')).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${n(X)} ${n(Y)} ${n(W)} ${n(H)}" preserveAspectRatio="xMidYMid meet">${ms.map(drawn).join('')}</svg>`;
 }
 // A page's title, as its title shape says it; else its view's name.
 const titleOf =s => s.marks.find(m => m.role === 'title')?.texts.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim() || s.name || '';
@@ -1056,7 +1060,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     return { ...(own && shown?.view === v.id && shown.day === Time.pageDay(v.id) ? shown : scene(v.id, own ? null : paper)), name: v.name };
   });
   // A page's day, as its caption says it, or the moment while the past is shown.
-  const whenOf = s => App.shown.peek().moment ? App.asOfWords(s.day).line : Tree.formatDate(s.day, 'short');
+  // (On a chart that keeps no dated record, a page has no day to say.)
+  const whenOf = s => App.shown.peek().moment ? App.asOfWords(s.day).line : App.isDated.peek() ? Tree.formatDate(s.day, 'short') : '';
   const chartName = () => App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name ?? 'Chart';
   const uri = s => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(s)}`;
   // The pages the file will have: a deck's on its one slide size, a document's each its own, in the faces it will
@@ -1272,16 +1277,19 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const asked = format && (FORMATS.some(([f]) => f === format) ? format : other(format));
     const usable = f => !!f && (f === 'ics' || (!!here && (f === 'pptx' || f === 'pdf')));
     const tableShown = !list.some(v => v.id === shown) && others.length;
-    const first = asked ?? (tableShown ? other(was.table) ?? 'x0' : usable(was.format) ? was.format : here ? 'pptx' : 'ics');
+    // (And across charts, the format and paper last used: who prints PDFs on Letter goes on doing it.)
+    const last = (() => { try { return JSON.parse(Shell.store.get('export') ?? '{}') ?? {}; } catch { return {}; } })();
+    const first = asked ?? (tableShown ? other(was.table) ?? 'x0' : usable(was.format) ? was.format : usable(last.format) ? last.format : here ? 'pptx' : 'ics');
     // What was last exported from the chart, where the tab you're on was among them; or else that tab alone.
     const kept = (was.views ?? []).filter(id => list.some(v => v.id === id)), on = list.some(v => v.id === shown) ? shown : null;
     const views0 = on ? (kept.includes(on) ? kept : [on]) : kept.length ? kept : here ? [here.id] : [], onPages = new Set(views0.map(id => pageNow(id).paper));
-    const choice = { format: first, views: views0, all: !!was.all, paper: onPages.size === 1 && [...onPages][0] ? [...onPages][0] : list.length ? OWN : 'slide' };
+    const choice = { format: first, views: views0, all: !!was.all, paper: last.paper && list.length ? last.paper : onPages.size === 1 && [...onPages][0] ? [...onPages][0] : list.length ? OWN : 'slide' };
     const go = await Shell.dialog({ title: 'Export', width: 1180, body: settle => html`<${Choice} choice=${choice} here=${here} others=${others} close=${settle} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'Export', value: true, primary: true }] });
     if (!go) return;
     const x = choice.format.startsWith('x') ? others[+choice.format.slice(1)] : null;
     Shell.store.set(memo(), JSON.stringify({ format: x ? was.format : choice.format, table: x ? x.name : was.table, views: choice.views, all: choice.all }));
+    if (!x && choice.format !== 'ics') Shell.store.set('export', JSON.stringify({ format: choice.format, paper: choice.paper === OWN || choice.paper === pageNow(choice.views[0]).paper ? null : choice.paper }));
     // A file of one view is named for it, but where the chart's name says it already; of more, for the chart and what's
     // in it. Each says its as-of day, where every page shares it and it's not today, or the moment, while the past is shown
     // (App.asOfWords). By whoever exports it, blank where no name is set.

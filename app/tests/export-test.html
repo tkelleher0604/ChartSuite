@@ -873,8 +873,10 @@ async function run() {
       && /\/MediaBox \[([^\]]+)\]/.exec(twoRaw)?.[1].trim().split(/\s+/).map(Number).join() === '0,0,1224,792', `${two.name} ${(twoRaw.match(/\/Type \/Page\b(?!s)/g) ?? []).length} ${/\/MediaBox \[[^\]]*\]/.exec(twoRaw)?.[0]}`);
     opening = X.open();
     await until(() => dlg()?.querySelector('.btn.primary'));
-    check('… those views remembered, the paper not: it opens on the page’s', JSON.stringify(ticked()) === JSON.stringify(charts.map((_, i) => [0, 2].includes(i))) && sel('Page size').value === 'slide', `${ticked()} ${sel('Page size').value}`);
+    check('… those views remembered, and the paper last chosen over the page’s, as on any chart', JSON.stringify(ticked()) === JSON.stringify(charts.map((_, i) => [0, 2].includes(i))) && sel('Page size').value === 'tabloid', `${ticked()} ${sel('Page size').value}`);
+    check('… the format too', sel('Format')?.value === undefined || sel('Format').value === 'pdf', sel('Format')?.value);
     await cancel(opening);
+    G('Shell').store.set('export', null);
     // A file says what it is: an as-of day other than today in its name, one punctuation throughout. One view of the chart, as of a far-off day.
     const Sh = G('Shell'), one = async d => { const boxes = [...d.querySelectorAll('.ex-views input')]; for (const [i, box] of boxes.entries()) if (box.checked !== (i === 0)) { box.click(); await tick(60); } };
     Sh.at({ asOf: '2037-12-31' }); await tick(300);
