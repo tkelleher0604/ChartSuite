@@ -167,7 +167,7 @@ function textMarkup(it, red, faint) {
     tagName: 'text', attrs: {
       'font-family': Scene.fontFamily(t.Font), 'font-size': px(t.Size), 'font-weight': t.Bold ? 700 : 400,
       'font-style': t.Italic || it.computed || it.blank ? 'italic' : 'normal', 'text-anchor': ANCHOR[t.Align] ?? 'middle', 'data-text': it.id, ...(faint && { opacity: FAINT }),
-      ...(it.blank && { class: 'dc-blank' }), ...rim, ...(it.turn && { transform: it.turn }),
+      ...(it.blank && { class: it.blank.reads ? 'dc-asks' : 'dc-blank' }), ...rim, ...(it.turn && { transform: it.turn }),
     },
     children: it.lines.flatMap(l => {
       const r = l.red ?? it.redline ?? red;
@@ -580,6 +580,9 @@ function mount(el) {
         const at = g.dataset.position ?? '', gx = x + (at.includes('left') ? 0 : at.includes('right') ? s.width : s.width / 2), gy = y + (at.includes('top') ? 0 : at.includes('bottom') ? s.height : s.height / 2);
         g.classList.toggle('on-label', labels.some(l => gx > l.labelAt.x - r && gx < l.labelAt.x + l.label.w + r && gy > l.labelAt.y - r && gy < l.labelAt.y + l.label.h + r));
       }
+      // (While a design is edited, a part's turning handle stands above its box, clear of the words in it.)
+      const turn = w.container?.querySelector('.x6-widget-transform-rotate'), of = designing && scene?.byId.get(designing.box);
+      if (turn) { if (of && cell.id !== of.id) turn.style.setProperty('top', `${-Math.max(0, (y - of.y) * z) - 22}px`, 'important'); else turn.style.removeProperty('top'); }
     }
     // (The relate handles keep clear of them, from the click that selects it.)
     if (near) showHandles(near);
@@ -1280,7 +1283,7 @@ function mount(el) {
     const at = Layout.pin(m.points, { x: p.x, y: p.y, w: m.label.w, h: m.label.h });
     App.change(tx => tx.note('Position', treeOf(m.record), at, { view: viewOf() }), { dated: false, say: `Moved the label of ${called(m)}` });
   }
-  graph.on('node:moved', ({ node }) => { dragging = null; root.classList.remove('dragging'); if (node.getData()?.kind === 'label') return movedLabel(node); if (['box', 'shape'].includes(node.getData()?.kind)) hand.equalGaps(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
+  graph.on('node:moved', ({ node, e }) => { dragging = null; root.classList.remove('dragging'); if (node.getData()?.kind === 'label') return movedLabel(node); if (joining(node, e)) return; if (['box', 'shape'].includes(node.getData()?.kind)) hand.equalGaps(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
   graph.on('node:resized', ({ node }) => { dragging = null; root.classList.remove('dragging'); moved([node.id]); spilt([node.id]); });
   graph.on('node:rotating', ({ node }) => { dragging = node.id; showHandles(null); astray(node.id); });
   graph.on('node:rotated', ({ node }) => { dragging = null; turn(node.id, node.getAngle()); });
@@ -1339,7 +1342,29 @@ function mount(el) {
     if (aids.peek().snap) { const step = gridStep(); x = Math.round(x / step) * step; y = Math.round(y / step) * step; }
     if (Math.abs(y - p.y) > 0.01 || Math.abs(x - p.x) > 0.01) node.setPosition(x, y);
   }
-  graph.on('node:moving', ({ node }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); if (node.getData()?.kind === 'label') astray(node.id); else { snapMoving(node); follow(node); } });
+  // A text box dragged over a box: the box lit, with all the pen reaches, so it's plain it would join them. (While a design is edited, a text box is a part, and stands where it's put.)
+  const textBoxOf = node => { const m = node.getData()?.kind === 'shape' && !designing && !still() ? scene.byId.get(node.id) : null; return m?.geometry === 'text' && !m.role && !m.locked && sel.getSelectedCells().length <= 1 && rowOf(m.id)?.text?.trim() ? m : null; };
+  const boxAtPointer = e => { if (!e) return null; const p = graph.clientToLocal(e.clientX, e.clientY); return [...scene.marks].reverse().find(b => b.type === 'box' && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) ?? null; };
+  function joinCue(node, e) {
+    const b = textBoxOf(node) && boxAtPointer(e);
+    if ((b?.id ?? null) === dropOn) return;
+    dropOn = b?.id ?? null;
+    const s = b && scoped(b);
+    cue(b ? (s.own ? [b.id] : [...s.marks]) : null);
+    paintFields();
+  }
+  function joining(node, e) {
+    const m = textBoxOf(node), b = m && boxAtPointer(e);
+    if (dropOn) { dropOn = null; cue(null); paintFields(); }
+    if (!b) return false;
+    const p = node.getPosition();
+    // (Back where it was till that's made, so nothing's left hanging over the box; and the box it joined selected.)
+    node.setPosition(m.x, m.y);
+    const made = joinText(m, b, { x: p.x, y: p.y });
+    if (made) Shell.select([b.id]);
+    return made;
+  }
+  graph.on('node:moving', ({ node, e }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); if (node.getData()?.kind === 'label') astray(node.id); else { snapMoving(node); follow(node); joinCue(node, e); } });
   graph.on('node:resizing', ({ node }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); follow(node); });
 
   // ---- Double-click to type: a box's text edits its record, a shape's its own ----
@@ -1358,10 +1383,11 @@ function mount(el) {
     // A part's own words, typed over, are what's said over the design at the pen (Figma's override); a part with none, the design's own.
     if (it.of || (it.part && !it.blank && st()[it.id]?.edge === undefined)) {
       const part = partOf(m, it), raw = m.design.value.parts.find(p => p.id === part?.part)?.text ?? '';
-      if (!part || !part.texts.length) return Designs.edit(m);
-      return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? raw, text => saidOfPart(`Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}`, tx => Designs.say(tx, m, part.part, { text: text.trim() }, scopeNow(canvas))), { multiline: true, selectAll: typed === undefined, complete: entriesOf(m), kept: true });
+      // (What reads a field is said in Edit design, its fields as chips, and never by its token.)
+      if (!part || !part.texts.length || (typed === undefined && /\{[^{}\n]+\}/.test(raw))) return Designs.edit(m);
+      return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? raw, text => saidOfPart(`Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}`, tx => Designs.say(tx, m, part.part, { text: text.trim() }, scopeNow(canvas))), { multiline: true, selectAll: typed === undefined, complete: wordsOf(m), kept: true });
     }
-    const st = App.state.peek(), r = it.blank ? null : st[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
+    const r = it.blank ? null : st()[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
     if (!kind || kind.type === 'object' || (r && r.args)) return;
     Shell.emit('field-edit', { box: m.id, id: it.id });
     const rect = fieldRect(m, it), at = graph.localToGraph(rect.x, rect.y + rect.h), box = root.getBoundingClientRect(), menuAt = { x: box.left + at.x, y: box.top + at.y + 2 };
@@ -1435,21 +1461,42 @@ function mount(el) {
       raw = footNote().text;
       save = text => App.change(tx => { const { format, ...f } = footNote(), t = text.trim(); tx.note('Footer', { kind: 'View' }, t || f.number || f.date ? { ...f, text: t, ...(format && { format }) } : undefined); }, { dated: false, say: 'Set the footer' });
     } else if (m.type === 'shape' && !['line', 'picture', 'group'].includes(m.geometry)) {
-      // (While a design is edited, the part its other fields go in has no words of its own to type.)
-      if (rowOf(m.id)?.rest) return;
-      const legend = m.geometry === 'legend';
-      it = legend ? m.texts[0] : m.texts[0] ?? { look: m.look, text: '', lines: [] };
+      const legend = m.geometry === 'legend', row = rowOf(m.id);
+      // (While a design is edited, what's typed in the part its other fields go in stands under them; the fields stay fields.)
+      it = legend ? m.texts[0] : !row?.rest && m.texts[0] ? m.texts[0] : { look: m.look, text: '', lines: [] };
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
-      raw = legend ? m.title : rowOf(m.id)?.text;
+      raw = legend ? m.title : row?.text;
+      // (While a design is edited, a part that reads a field is typed in the panel, its fields as chips, and never by its token.)
+      if (designing && typed === undefined && /\{[^{}\n]+\}/.test(raw ?? '')) { Shell.select([m.id]); return setTimeout(() => document.querySelector('.part-words .words-in')?.focus(), 30); }
       // A text box left empty goes, however it's left, as PowerPoint's does.
       const gone = tx => tx.remove(m.id);
-      save = (text, keys, runs) => App.change(tx => m.geometry === 'text' && !text.trim() ? gone(tx) : tx.update(m.id, legend ? { title: text } : { text, runs: runs?.length ? runs : undefined }));
-      if (m.geometry === 'text' && !raw?.trim()) escaped = () => App.change(gone);
+      save = (text, keys, runs) => { const said = App.change(tx => { if (m.geometry === 'text' && !text.trim() && !row?.rest) return gone(tx); tx.update(m.id, legend ? { title: text } : { text, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, text); }); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, text); };
+      if (m.geometry === 'text' && !raw?.trim() && !row?.rest) escaped = () => App.change(gone);
     }
     if (!it) return;
-    // (Its words can be set part by part: a shape's own, not the Key's title or what a formula says.)
-    const parts = m.type === 'shape' && m.geometry !== 'legend' && !m.role && !/^\s*=/.test(raw ?? '');
-    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape', ...(parts && { rich: { runs: typed !== undefined ? [] : rowOf(m.id)?.runs ?? [] } }) });
+    // (Its words can be set part by part: a shape's own, not the Key's title or what a formula says. While a design is edited, a `{` offers what its box can read.)
+    const parts = m.type === 'shape' && m.geometry !== 'legend' && !m.role && !/^\s*=/.test(raw ?? '') && !rowOf(m.id)?.rest;
+    const reads = m.type === 'shape' && m.geometry !== 'legend' && !m.role ? (designing ? scene.byId.get(designing.box) : boxOver(m)) : null;
+    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape', ...(reads && { complete: wordsOf(reads) }), ...(parts && { rich: { runs: typed !== undefined ? [] : rowOf(m.id)?.runs ?? [] } }) });
+  }
+  // The box a free shape stands on, by its middle: the topmost.
+  const boxOver = m => { const cx = m.x + m.w / 2, cy = m.y + m.h / 2; return [...scene.marks].reverse().find(b => b.type === 'box' && cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) ?? null; };
+  // A text box that asks for a field reads the box it stands on, as text dropped there does; on none, it's said it won't print, and how it can.
+  function askedOf(id, text) {
+    if (!/\{[^{}\n]+\}/.test(text) || /^\s*=/.test(text)) return;
+    const m = scene.byId.get(id), b = m && boxOver(m);
+    if (b) return joinText(m, b);
+    Shell.toast(`${text.match(/\{[^{}\n]+\}/)[0]} reads a box, so this won’t print here: drag it onto one`, { ms: 5000 });
+  }
+  // A text box dropped on a box joins it, its free text at the pen, its words and its look kept; where it's a mistake, it can stand loose where it was dropped.
+  function joinText(m, b, place = null) {
+    const s = scoped(b), row = rowOf(m.id), view = viewOf(), N = App.notes.peek(), { Layer, ...kept } = row.format ?? {}, look = Object.fromEntries(Object.entries(kept).filter(([k]) => k in Scene.DEFAULTS.text));
+    const said = `Added text to ${whereSaid([b], s)}`;
+    return App.change(tx => {
+      for (const p of s.own ? [treeOf(b.record)] : s.outputs) { const was = N.notes('Text').find(n => n.view === view && Tree.key(n.pattern) === Tree.key(p))?.value; tx.note('Text', p, was?.text ? { ...was, text: `${was.text}\n${row.text}` } : { ...look, text: row.text, ...(row.runs?.length && { runs: row.runs }) }, { view }); }
+      tx.remove(m.id);
+      tx.says(said);
+    }, { dated: false, say: said, go: place ? () => ['Leave it loose', () => { Shell.parts.peek().undo?.undo(); moveTo(new Map([[m.id, place]])); }] : null });
   }
   // Typing in place, over the mark: Enter keeps it (a shape's begins a paragraph: see below), Esc doesn't, as a cell's in
   // Excel (but does what `escaped` says), unless it's `kept`, as a shape's text in PowerPoint; and leaving keeps it.
@@ -1869,6 +1916,7 @@ function mount(el) {
     if (tipQuiet && pointerAt && Math.hypot(pointerAt.x - tipQuiet.x, pointerAt.y - tipQuiet.y) > 4) tipQuiet = null;
     hovered = f?.it && !dragging ? { box: f.m.id, id: f.it.id } : null;
     root.classList.toggle('on-field', !!hovered);
+    root.classList.toggle('on-grab', !!hovered && !designing && !still() && f.m.type === 'box' && grabbable(fieldNow(), f));
     root.classList.toggle('on-body', !!f && !f.it && f.m.type === 'box' && sel.isSelected(graph.getCellById(f.m.id) ?? {}));
     if (was?.id !== hovered?.id || was?.box !== hovered?.box) { paintFields(); tipFor(hovered && sel.isSelected(graph.getCellById(hovered.box) ?? {}) ? f : null); }
   }
@@ -1913,8 +1961,10 @@ function mount(el) {
     const order = e => Tree.same(e, 'Name') ? -1 : N.order({ args: [{ edge: e, loc: t }] }) ?? Infinity;
     return [...out.values()].sort((a, b) => order(a) - order(b) || a.localeCompare(b));
   }
+  // What a mark's words can read, by name: its entries, then a relative's ("Owner's name"), each what `{` offers and what's read.
+  const wordsOf = m => Scene.readable(st(), App.notes.peek(), App.schema.peek(), m.record).map(x => x.label);
   // Whether a mark shows an entry of a label at a record (its own, or one in it), as a field or a blank.
-  const shows = (m, edge, at = m.record) => (m.texts ?? []).some(it => it.blank ? it.blank.at === at && Tree.same(it.blank.edge, edge) : st()[it.id]?.at === at && Tree.same(st()[it.id].edge, edge));
+  const shows = (m, edge, at = m.record) =>(m.texts ?? []).some(it => it.blank ? it.blank.at === at && Tree.same(it.blank.edge, edge) : st()[it.id]?.at === at && Tree.same(st()[it.id].edge, edge));
   // The pen, for a mark: where it reaches that, the pen's place; else that mark alone, as what's dragged onto a box the pen doesn't reach is.
   const scoped = (m, s = scopeOfBox()) => !s.own && s.marks?.has(m.id) ? s : { own: true };
   // What's said of one thing goes on that thing: a footnote or a free text begun on a box goes on that box, unless a hand moved the pen for this selection, and then it goes where the pen is.
@@ -1972,6 +2022,8 @@ function mount(el) {
   // A free text written in a mark at a scope, as it's typed in place (new, where `it` is none): its words, {Entry} and
   // all, its look kept. Left empty, it's taken away (see unText).
   function writeText(m, it, typed) {
+    // (While a design is edited, words begun on its box are a part of it.)
+    if (designing && !it) return Designs.addWords();
     const s = it ? scopeNow(canvas) : saidOn(m), view = viewOf(), rec = treeOf(m.record), N = App.notes.peek();
     const at = p => N.notes('Text').find(n => n.view === view && Tree.key(n.pattern) === Tree.key(p));
     // A new one goes under the mark's texts: in a box, across it; on a line, under its label, or at its middle.
@@ -1979,12 +2031,28 @@ function mount(el) {
     const look = it?.look ?? { ...Scene.DEFAULTS.text, ...Object.fromEntries(Object.keys(Scene.DEFAULTS.text).map(k => [k, m.settings[k]?.value]).filter(([, v]) => v !== undefined)), Bold: false };
     const under = drawn.length ? Math.max(...drawn.map(r => r.y + r.h)) : m.type === 'box' ? m.y + m.h / 2 - 8 : mid[1];
     const rect = it ? fieldRect(m, it) : { x: m.type === 'box' ? m.x : drawn[0]?.x ?? mid[0], y: under, w: m.type === 'box' ? m.w : 120, h: px(look.Size) * 1.2 };
-    const labels = entriesOf(m);
+    const labels = wordsOf(m);
     openEditor({ look }, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 120) }, typed ?? raw, (text, keys, runs) => {
       if (!Tree.clean(text)) return it && unText(m);
       App.change(tx => { for (const p of s.own ? [rec] : s.outputs) { const { runs: _, ...was } = at(p)?.value ?? {}; tx.note('Text', p, { ...was, text: text.trim(), ...(runs?.length && { runs }) }, { view }); } },
         { dated: false, say: it ? null : `Added text to ${whereSaid([m], s)}` });
     }, { multiline: true, selectAll: typed === undefined && !!raw, ph: 'Text', complete: labels, tab: it ? d => stepField(d, true) : null, kept: true, rich: { runs: typed !== undefined ? [] : it?.free.runs ?? [] } });
+  }
+  // A relative's field on a box ("Owner's name"), shown or hidden at the pen: a line of its free text, reading it. So where a design has a part that names it, the part says it; where not, it stands with the box's other fields.
+  const LINE = label => new RegExp(`^\\{${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}$`, 'i');
+  const showsWord = (m, label) => { const s = m.texts?.find(x => x.free)?.free.text ?? '', named = m.design?.value.parts?.some(p => LINE(label).test(String(p.text ?? '').trim())); return !!named || s.split('\n').some(l => LINE(label).test(l.trim())); };
+  function setWord(ms, label, on, s = scopeNow(canvas)) {
+    ms = ms.filter(m => m.type === 'box' || m.type === 'line');
+    if (!ms.length || still()) return null;
+    const view = viewOf(), N = App.notes.peek(), said = `${on ? 'Showed' : 'Hid'} ${label} ${on ? 'in' : 'from'} ${whereSaid(ms, s)}`;
+    return App.change(tx => {
+      for (const p of s.own ? ms.map(m => treeOf(m.record)) : s.outputs) {
+        const was = N.notes('Text').find(n => n.view === view && Tree.key(n.pattern) === Tree.key(p))?.value, lines = String(was?.text ?? '').split('\n').filter(l => l.trim() && !LINE(label).test(l.trim()));
+        if (on) lines.push(`{${label}}`);
+        tx.note('Text', p, lines.length ? { ...was, text: lines.join('\n') } : undefined, { view });
+      }
+      tx.says(said);
+    }, { dated: false, say: said });
   }
   // A free text written from the panel: on the box, or where a hand put the pen.
   function putText(m, text, s = saidOn(m)) {
@@ -1993,8 +2061,8 @@ function mount(el) {
   }
   // ---- Footnotes (dendra.md, Footnotes) ----
   // A Footnote note on what it's said of, or where a hand put the pen, its param its name, so a box carries one of each; a free shape's are in its row. What the page places them in, a shape of its own with
-  // the role footnotes, comes with the first on a page. What a footnote can read of: the entries of what it goes on.
-  const wordsAt = (m, s = saidOn(m)) => [...new Set((s.own ? [m] : [...s.marks].map(id => scene.byId.get(id)).filter(Boolean)).flatMap(x => x.record ? entriesOf(x) : []))].sort((a, b) => a.localeCompare(b));
+  // the role footnotes, comes with the first on a page. What a footnote can read of: what can be read on what it goes on.
+  const wordsAt = (m, s = saidOn(m)) => [...new Set((s.own ? [m] : [...s.marks].map(id => scene.byId.get(id)).filter(Boolean)).flatMap(x => x.record ? wordsOf(x) : []))];
   // It says the page it's on, and offers the same on the others: one key, so a page reads one footnote for one text.
   function addFoot(m, text, s, field) {
     const view = viewOf(), key = `fn${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`, to = m ? (m.type === 'shape' ? `the ${SHAPE[m.geometry] ?? 'shape'}` : whereSaid([m], s)) : named(s), pages = App.views.peek().filter(v => v.layout === 'chart'), said = `Added a footnote to ${to}${pages.length > 1 ? ` on ${viewName(view)}` : ''}`;
@@ -2043,7 +2111,7 @@ function mount(el) {
     if (still()) return Shell.toast(App.whyNot());
     picked_foot = null;
     const raw = String(f.from[0].value?.text ?? f.text), box = f.from[0].shape ? null : scene.marks.find(x => x.feet?.some(y => y.n === f.n && y.key === f.from[0].key));
-    openEditor({ look: m.texts[0].look }, { ...footRect(m, f), w: m.w }, raw, text => { const t = text.trim(); if (!t) return footDelete(f); if (t !== raw) App.change(tx => { footWritten(f, v => ({ ...v, text: t }))(tx); tx.says(`Reworded footnote ${f.n}`); }, { dated: false, say: `Reworded footnote ${f.n}` }); }, { ph: 'Footnote', complete: box?.record ? entriesOf(box) : [], kept: true });
+    openEditor({ look: m.texts[0].look }, { ...footRect(m, f), w: m.w }, raw, text => { const t = text.trim(); if (!t) return footDelete(f); if (t !== raw) App.change(tx => { footWritten(f, v => ({ ...v, text: t }))(tx); tx.says(`Reworded footnote ${f.n}`); }, { dated: false, say: `Reworded footnote ${f.n}` }); }, { ph: 'Footnote', complete: box?.record ? wordsOf(box) : [], kept: true });
   }
   // A marker selected in a box selected, by a click on it: Delete takes its footnotes away. → the marker under a point, at the end of the texts it ends.
   let picked_foot = null;
@@ -2074,16 +2142,16 @@ function mount(el) {
     if (one?.role === 'footnotes') return footsDelete(one);
     return fieldNow() ? clearField() : remove(true);
   }
-  // A field dragged off its box, to the panel or into empty room, is taken away at the pen, what it reaches lit as it goes. Only a field already selected drags so; a
-  // press elsewhere in a box selected moves the box, as ever.
+  // A field dragged off its box, to the panel or into empty room, is taken away at the pen, what it reaches lit as it goes. On a box selected, the first drag from a field's words takes the field,
+  // the pointer saying so (a hand, and its name), as its name stands for the box, which a press on it moves, as a press anywhere else in it does.
+  const grabbable = (f, u = f) => !!u?.it && !u.it.of && u.it.lines?.length && (u.it.id === f?.it?.id || (!u.it.name && u.m.type === 'box' && sel.isSelected(graph.getCellById(u.m.id) ?? {}) && sel.getSelectedCells().length === 1));
   gEl.addEventListener('mousedown', e => {
-    const f = fieldNow();
-    if (!f || e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || still() || f.m.type !== 'box') return;
-    const u = fieldUnder(e.clientX, e.clientY);
-    if (u?.m.id !== f.m.id || u.it?.id !== f.it.id) return;
+    if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || still() || designing) return;
+    const u = fieldUnder(e.clientX, e.clientY), now = fieldNow(), f = u?.it && u.it.id === now?.it.id && u.m.id === now.m.id ? now : u?.m.type === 'box' && grabbable(null, u) ? u : null;
+    if (!f || f.m.type !== 'box') return;
     e.stopPropagation();
     root.focus({ preventScroll: true });
-    const x0 = e.clientX, y0 = e.clientY, s = scoped(f.m, scopeNow()), off = ev => { const p = graph.clientToLocal(ev.clientX, ev.clientY); return p.x < f.m.x || p.x > f.m.x + f.m.w || p.y < f.m.y || p.y > f.m.y + f.m.h; };
+    const x0 = e.clientX, y0 = e.clientY, s = scoped(f.m, f === now ? scopeNow() : scopeOfBox()), off = ev => { const p = graph.clientToLocal(ev.clientX, ev.clientY); return p.x < f.m.x || p.x > f.m.x + f.m.w || p.y < f.m.y || p.y > f.m.y + f.m.h; };
     let ghost = null, gone = false;
     const move = ev => {
       if (!ghost && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
@@ -2093,13 +2161,16 @@ function mount(el) {
       if (now !== gone) { gone = now; ghost.classList.toggle('going', now); ghost.textContent = now ? `Hide ${fieldName(f.it)}` : fieldName(f.it); cue(now ? (s.own ? [f.m.id] : [...s.marks]) : null); }
     };
     const up = ev => {
-      removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true);
+      removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); removeEventListener('mouseup', up, true);
       ghost?.remove();
       cue(null);
       if (ghost && off(ev)) hideField(f, s);
+      // (No drag: the click it was, on a field of the box selected, selects the field.)
+      else if (!ghost) pickField(f);
     };
     addEventListener('pointermove', move, true);
     addEventListener('pointerup', up, true);
+    addEventListener('mouseup', up, true);
   }, true);
   // A field hidden: its entry, or a blank, at the scope; a free text taken away.
   function hideField(f = fieldNow(), s) {
@@ -2240,6 +2311,8 @@ function mount(el) {
       h.at = p ?? null;
       h.from = edge ?? p ?? null;
       h.hidden = !p;
+      // (On a free shape, only the dot itself begins a line: grabbed anywhere else near its edge, it moves.)
+      h.classList.toggle('slim', m.type === 'shape');
       if (p) { const g = graph.localToGraph(p[0], p[1]); h.style.left = `${g.x}px`; h.style.top = `${g.y}px`; dots.push(p); }
     }
     root.classList.add('relating-on');
@@ -2455,6 +2528,7 @@ function mount(el) {
       { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !(clip?.items.length || clip?.field || clip?.free !== undefined), run: () => paste() },
       '-',
       ...formatItems(ms, ro),
+      ...(typeof Designs === 'undefined' ? [] : Designs.makes(ms, ro)),
       { label: 'More', items: more },
       '-',
       // (On the Key, what it deletes, the row selected or the Key, in its own label.)
@@ -2480,8 +2554,15 @@ function mount(el) {
   const addsOf = m => (Shell.parts.peek().inspector?.adds?.(m.record) ?? []).map(x => ({ label: x.label, run: () => { const g = graph.localToClient(m.x + m.w / 2, m.y + m.h); x.run({ x: g.x, y: g.y + 4 }); } }));
   // Show on chart: each entry the selection's records have, or could have, a checkbox row, ticked where every one of
   // them shows it; switched at the scope.
-  const showItems = ms => entriesOf(ms[0]).filter(e => ms.every(m => entriesOf(m).some(x => Tree.same(x, e))))
-    .map(e => { const on = ms.every(m => shows(m, e)); return { label: e, checked: on, run: () => setField(ms, e, !on) }; });
+  // Then what's over them, by name: of each list of their relatives, one's name ("Owner's name"), and behind one row, what else is said of them.
+  const showItems = ms => {
+    const own = entriesOf(ms[0]).filter(e => ms.every(m => entriesOf(m).some(x => Tree.same(x, e)))).map(e => { const on = ms.every(m => shows(m, e)); return { label: e, checked: on, run: () => setField(ms, e, !on) }; });
+    const all = Scene.readable(st(), App.notes.peek(), App.schema.peek(), ms[0].record).filter(x => x.of && ms.every(m => wordsOf(m).includes(x.label)));
+    const row = x => { const on = ms.every(m => showsWord(m, x.label)); return { label: x.label, checked: on, run: () => setWord(ms, x.label, !on) }; };
+    // (Those it has any of first, or all, where there are few. A chart's lists can run long, and a menu mustn't.)
+    const has = new Set(Scene.listsAt(st(), App.notes.peek(), ms[0].record).map(l => Tree.norm(l.name))), firsts = all.filter(x => x.first), front = firsts.length <= 5 ? firsts : firsts.filter(x => has.has(Tree.norm(x.of))), rest = all.filter(x => !front.includes(x));
+    return [...own, ...(front.length ? ['-', ...front.map(row)] : []), ...(rest.length ? [...(front.length ? [] : ['-']), { label: 'More of what’s over it', items: rest.map(row) }] : [])];
+  };
   // Format: the format bar's Fill, Outline and Font, opened from here; and its painter's Copy and Paste formatting.
   function formatItems(ms, ro) {
     if (!ms.length) return [];
@@ -2900,6 +2981,8 @@ function mount(el) {
     return { ...spot(s, w, h, near), w, h };
   }
   function insert(geometry, opts = {}) {
+    // (While a design is edited, a text box is words begun on its box: a part, in the free band of it.)
+    if (geometry === 'text' && designing && opts.x === undefined) return Designs.addWords();
     const view = viewOf(), s = scene, r = root.getBoundingClientRect(), mid = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2), sel0 = placeable(), stands = opts.x !== undefined;
     let row = { view, geometry, ...opts }, besideIt = null;
     if (geometry === 'arrow-line') row = { ...row, geometry: 'line', format: { Arrow: 'end', ...opts.format } };
@@ -2939,7 +3022,8 @@ function mount(el) {
       if (!text.trim()) return;
       // (Put by a hand, it stands where it's put; left to the page, it's placed again, as long as it's come out.)
       const made = Scene.shapeOf({ ...row, x: at.x, y: at.y, text }, scene), q = stands ? { x: at.x, y: at.y } : spot(scene, made.w, made.h, besideIt ? { x: besideIt.left + made.w / 2, y: besideIt.y } : { x: at.x + made.w / 2, y: at.y + made.h / 2 }, !besideIt, !!besideIt);
-      add({ ...row, x: round(q.x), y: round(q.y), text, ...(runs?.length && { runs }) });
+      const id = add({ ...row, x: round(q.x), y: round(q.y), text, ...(runs?.length && { runs }) });
+      if (id && !designing) askedOf(id, text);
     }, { multiline: true, grow: !!typing.auto, kept: true, rich: {} });
     return null;
   }
@@ -3532,6 +3616,10 @@ function mount(el) {
     shown: (id, edge, at = id) => { const m = marked(id); return !!m && shows(m, edge, at); },
     // Whether a box has the entry, or its kind could: one that can't is nothing against a group's eye.
     could: (at, edge) => !!Tree.entryAt(st(), at, edge) || !!specOfField(at, edge),
+    // A relative's field, by name, from a list's heading: whether it's shown; shown or hidden at the pen; and all a box can read, for a list's menu.
+    wordShown: (id, label) => { const m = marked(id); return !!m && showsWord(m, label); },
+    showWord: (id, label, on) => { const m = marked(id); return !m ? null : designing ? (on ? Designs.dropped(m, label, null) : null) : setWord([m], label, on, scoped(m, scopeOfBox())); },
+    readable: id => { const m = marked(id); return m?.record ? Scene.readable(st(), App.notes.peek(), App.schema.peek(), m.record) : []; },
     // From the panel: a free text, a footnote, and what they can read.
     words: id => { const m = marked(id); return m ? wordsAt(m) : []; },
     addText: (id, text) => { const m = marked(id); return m && putText(m, text); },
@@ -3575,6 +3663,8 @@ function mount(el) {
       // (Onto a part of a design: its token there, at the pen, the design standing. Onto the rest of the box, shown as ever.)
       const part = m && at && [...m.parts ?? []].reverse().find(q => q.geometry !== 'line' && at.x >= q.x && at.x <= q.x + q.w && at.y >= q.y && at.y <= q.y + q.h);
       if (part && !m.design.value.parts.find(p => p.id === part.part)?.rest) return saidOfPart(`Put ${edge} in a part of ${whereSaid([m], scoped(m))}`, tx => Designs.say(tx, m, part.part, { text: Designs.tokenIn(m, part.part, edge) }, scoped(m)));
+      // (A relative's, by name, is read in the words it's given; anything else is its own entry.)
+      if (m && wordsOf(m).includes(edge) && !entriesOf(m).includes(edge)) return setWord([m], edge, true, scoped(m));
       return m && setField([m], edge, true, scoped(m));
     },
     clip: (edge, text) => { clip = { items: [], text, field: edge }; },
@@ -3615,8 +3705,9 @@ function mount(el) {
     richSet: (label, v) => !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); }, footnote: id => footnote(id ? marked(id) : undefined),
     // Editing a design: what can be touched; and the zoom, brought to the box and put back (see Designs). A part selected, of a box (see Fields).
-    designing: d => { designing = d; if (!d) { field = null; } paintStates(); }, whereNow: () => ({ s: graph.zoom(), t: graph.translate() }),
-    bringTo: r => showRect(r, 90, LEAST, 4), goBack: w => { quietly(() => { graph.zoomTo(w.s); graph.translate(w.t.tx, w.t.ty); }); zoomRead(); }, partOf,
+    designing: d => { designing = d; root.classList.toggle('designing', !!d); document.body.classList.toggle('designing', !!d); if (!d) { field = null; } paintStates(); }, whereNow: () => ({ s: graph.zoom(), t: graph.translate() }),
+    // (It moves, from the box and back to it: the page gliding as a zoom asked for does.)
+    bringTo: r => { const was = aboutToGlide(); showRect(r, 90, LEAST, 4); glide(was); }, goBack: w => { const was = aboutToGlide(); quietly(() => { graph.zoomTo(w.s); graph.translate(w.t.tx, w.t.ty); }); zoomRead(); glide(was); }, partOf, reorder: (m, to, after, said) => hand.reorder(m, to, after, said),
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },
@@ -3626,7 +3717,7 @@ function mount(el) {
       hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
-  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected, connect, entriesOf });
+  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected, connect, wordsOf });
   active.value = canvas;
   return canvas;
 }

@@ -467,8 +467,6 @@ const ALIGN = { left: 'l', center: 'ctr', right: 'r' };
 const ROLE = { title: 'Title', date: 'Date', day: 'Date', footer: 'Footer', number: 'Page number', footnotes: 'Footnotes' };
 // A box by what it says, in a design its name in full, not the initials a part makes of it.
 const boxName = m => (m?.parts?.length ? m.texts.filter(it => it.name).map(it => it.text).sort((a, b) => b.length - a.length)[0] : null) ?? m?.texts?.[0]?.text ?? null;
-// What each part of a design is, by the id the gallery's designs give it.
-const PART_WORD = { panel: 'panel', rule: 'rule', tear: 'rule', tag: 'tag', face: 'portrait', name: 'name', rest: 'details' };
 // The footer and its number as a deck holds them: the master's placeholders, and each slide's, which take their place and
 // look from there, so a footer changed on the master is changed on every slide; its number a field, so a slide moved
 // renumbers. A slide says its own place or look only where its sheet or the page's font makes it other than the master's.
@@ -786,6 +784,8 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
   // A mark, written. → its rects on the slide.
   const write = m => {
     const s = look(m);
+    // (A text box that asks for a field and stands on no box prints nothing: dendra.md, Free shapes.)
+    if (m.texts?.[0]?.blank?.reads) return [];
     if (m.type === 'box') {
       // (A box of a design: a native group of its body and its parts, each an editable shape with its own words, its connectors glued to the body: dendra.md, Group designs.)
       const whose = boxName(m) ?? 'Shape', items = m.parts?.length ? m.texts.filter(it => !it.part) : m.texts;
@@ -817,7 +817,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     }
     // (A part of a design with nothing to say and nothing to draw isn't there, so no empty text box waits in each box; and one that's there is named for what it is, of whose it is.)
     if (m.of && m.geometry === 'text' && !m.texts.some(it => it.lines?.length && !it.blank)) return [];
-    const partName = m.of ? `${boxName(scene.byId.get(m.of)) ?? 'Box'} ${m.name ?? PART_WORD[m.part] ?? String(Shapes.name(m.geometry) ?? 'part').toLowerCase()}` : null;
+    const partName = m.of ? `${boxName(scene.byId.get(m.of)) ?? 'Box'} ${m.name}` : null;
     // A free line is a connector glued to what it's glued to, named so, and it follows that in PowerPoint; or a line.
     if (m.geometry === 'line') return connector(m.points, s, m.ends ?? null, partName ?? m.name ?? (m.ends ? 'Connector' : 'Line'), { alt: m.alt, link: m.link });
     if (m.geometry === 'picture') {
