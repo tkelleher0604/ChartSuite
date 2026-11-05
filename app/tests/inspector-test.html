@@ -100,6 +100,15 @@ async function run() {
     check('typed in a short list, it goes to what begins with all that’s typed, and Enter chooses it', got.join() === '7', got.join());
     await offer(); keys('3(c)(9)'); await tick(); keys(['Enter']); await tick();
     check('… what finds nothing is chosen by no Enter', got.join() === '7' && !!$('.float .menu'), got.join());
+    Shell.closeAll(); await tick();
+    const grown = [];
+    Shell.menu($('.ih'), [{ label: 'Remote', run: () => grown.push('Remote') }], { more: q => [{ label: `New option: ${q}`, asked: true, run: () => grown.push(q) }] }); await tick(60);
+    keys('L'); await tick(60);
+    const field = $('.float .menu-find');
+    check('in a short list that can grow, the first key opens its field, with that key in it and the keys going on there', field?.textContent === 'L' && document.activeElement === field && $('.float .menu-item.on')?.textContent.includes('New option: L'), `${field?.textContent} ${document.activeElement?.className}`);
+    field.textContent = 'Legal'; field.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60);
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick();
+    check('… and Enter takes what’s typed as the new one it is', grown.join() === 'Legal', grown.join());
     Shell.closeAll(); removeEventListener('keydown', spy); await tick();
     check('… and no key of it reaches the chart', out === 0, out);
   }

@@ -539,7 +539,7 @@ const Shell = (() => {
     for (let t; (t = w.nextNode());) { if (n <= t.length) return getSelection().collapse(t, n); n -= t.length; }
     getSelection().collapse(el, el.childNodes.length);
   }
-  function Field({ q, onQuery, at, ph = 'Find' }) {
+  function Field({ q, onQuery, at, ph = 'Find', grab }) {
     const ref = useRef();
     useLayoutEffect(() => {
       const el = ref.current, markup = typeset(q);
@@ -548,6 +548,7 @@ const Shell = (() => {
       el.innerHTML = markup;
       if (n !== null) caretAt(el, n);
     }, [q]);
+    useLayoutEffect(() => { if (grab) ref.current.focus({ preventScroll: true }); }, []);
     const read = e => { if (!e.isComposing) onQuery(e.currentTarget.textContent.replace(/[\n ]/g, ' ')); };
     return html`<div class="menu-find" ref=${ref} contenteditable="plaintext-only" role="searchbox" aria-label="Find" aria-activedescendant=${at} spellcheck="false" data-placeholder=${ph}
       onInput=${read} onCompositionEnd=${read} onKeyDown=${e => { if (e.key === 'Enter') e.preventDefault(); }} onFocus=${e => caretAt(e.currentTarget, Infinity)} />`;
@@ -555,15 +556,15 @@ const Shell = (() => {
 
   // A menu; with `search`, a field that ranks its items, or that `items(query)` answers. An item `asked` (a new option named
   // as it's typed, from `more(query)`) is what Enter takes only where it's highlighted: by the pointer or the arrows, or
-  // of itself where nothing else is found.
+  // of itself where nothing else is found. A short list that can grow (its `more`) has that field from the first key typed.
   function Menu({ f }) {
-    const [q, setQ] = useState(f.query ?? '');
-    const items = typeof f.items === 'function' ? f.items(q.trim()) : f.search && q.trim() ? [...rank(f.items.filter(it => selectable(it) && !it.asked), q), ...(f.more?.(q.trim()) ?? [])] : f.items;
+    const [q, setQ] = useState(f.query ?? ''), [grew, setGrew] = useState(false), searching = f.search || grew;
+    const items = typeof f.items === 'function' ? f.items(q.trim()) : searching && q.trim() ? [...rank(f.items.filter(it => selectable(it) && !it.asked), q), ...(f.more?.(q.trim()) ?? [])] : f.items;
     // The arrows stop at what can be chosen and at a row of choices (Light and Dark), whose own arrows go across it.
     const live = items.map((it, i) => selectable(it) || it?.seg ? i : -1).filter(i => i >= 0);
     // Opened by the keys, it's on its ticked item, or its first, so Enter does something and what's on is seen; by the pointer, on nothing.
     const [act, setAct] = useState(() => { if (!keyed || f.search) return -1; const k = items.findIndex(it => it && it.checked && selectable(it)); return k >= 0 ? k : live.find(i => selectable(items[i])) ?? -1; });
-    const active = f.search && q.trim() && act < 0 ? live.find(i => selectable(items[i]) && !items[i].asked) ?? live.find(i => selectable(items[i])) ?? -1 : act;
+    const active = searching && q.trim() && act < 0 ? live.find(i => selectable(items[i]) && !items[i].asked) ?? live.find(i => selectable(items[i])) ?? -1 : act;
     const checks = items.some(it => it && it.checked !== undefined), typed = useRef({ s: '', t: 0 });
     const mi = i => `mi${f.id}-${i}`, el = i => document.getElementById(mi(i));
     const run = it => {
@@ -584,15 +585,16 @@ const Shell = (() => {
       if (it?.art && (e.key === 'ArrowRight' || (e.key === 'ArrowLeft' && !(f.parent && live.indexOf(active) % across === 0)))) move(e.key === 'ArrowRight' ? 1 : -1);
       else if (e.key === 'ArrowDown') move(it?.art ? Math.min(across, live.length - 1 - live.indexOf(active)) || 1 : 1);
       else if (e.key === 'ArrowUp') move(it?.art ? -Math.min(across, live.indexOf(active)) || -1 : -1);
-      else if (e.key === 'Home' && !f.search) setAct(live[0]);
-      else if (e.key === 'End' && !f.search) setAct(live[live.length - 1]);
+      else if (e.key === 'Home' && !searching) setAct(live[0]);
+      else if (e.key === 'End' && !searching) setAct(live[live.length - 1]);
       else if (it?.seg && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { const n = it.seg[it.seg.findIndex(s => s.pressed) + (e.key === 'ArrowRight' ? 1 : -1)]; if (n && !n.pressed) n.run(); }
       else if (it?.seg && e.key === 'Enter') closeAll();
       else if (e.key === 'Enter') { if (it) run(it); }
       else if (e.key === 'ArrowRight' && it?.items) run(it);
       else if (e.key === 'ArrowLeft' && f.parent) f.close();
       else if (e.key === 'Tab') return closeAll();   // and focus goes on from what opened it
-      else if (!f.search && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      else if (f.more && !searching && e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { setGrew(true); setQ(e.key); setAct(-1); }
+      else if (!searching && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         // Typed, a list goes to what begins with all that's typed ("3(c)(7)"), a pause beginning again; one letter again goes on through what it begins. What finds nothing lights nothing, so Enter chooses no other, and no key of it reaches the chart.
         const t = typed.current; clearTimeout(t.t); t.s += e.key.toLowerCase(); t.t = setTimeout(() => { t.s = ''; }, 800);
         const from = live.indexOf(active), round = k => [...live.slice(k), ...live.slice(0, k)], begins = s => i => items[i].label?.toLowerCase().startsWith(s);
@@ -608,8 +610,8 @@ const Shell = (() => {
     useEffect(() => { if (!pointed) return; pointed(true); return () => pointed(false); }, [pointed]);
     // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
     const at = active >= 0 && items[active] ? mi(active) : null;
-    return html`<div class=${'menu' + (tiled ? ' tiled' : '') + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${f.search ? null : at} onKeyDown=${onKey}>
-      ${f.search ? html`<${Field} q=${q} at=${at} ph=${f.ph} onQuery=${t => { setQ(t); setAct(-1); }} />` : null}
+    return html`<div class=${'menu' + (tiled ? ' tiled' : '') + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${searching ? null : at} onKeyDown=${onKey}>
+      ${searching ? html`<${Field} q=${q} at=${at} ph=${f.ph} grab=${grew} onQuery=${t => { setQ(t); setAct(-1); }} />` : null}
       ${items.map((it, i) => it === '-' ? html`<div class="menu-sep" role="separator" />`
         : it.head ? html`<div class="menu-head" role="presentation">${it.head}</div>`
         : it.seg ? html`<div class=${'menu-seg' + (i === active ? ' on' : '')} id=${mi(i)} role="radiogroup">${it.seg.map(s => html`<button tabindex="-1" role="radio" aria-checked=${!!s.pressed} aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`
