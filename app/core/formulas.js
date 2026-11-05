@@ -3961,9 +3961,9 @@ function requiredAt(N, t, edge) {
   const byTree = asked.get(N) ?? asked.set(N, new WeakMap()).get(N), m = byTree.get(t) ?? byTree.set(t, new Map()).get(t);
   return m.get(edge) ?? m.set(edge, N.required({ args: [{ edge, loc: t }] })).get(edge);
 }
-// Whether a yes-or-no holds at a record or up from it: what a Required note's `when` asks (dendra.md, Notes).
-function holdsUp(recs, id, edge) {
-  for (let x = id, n = 0; x && recs[x] && n < 16; x = recs[x].at, n++) { const e = Tree.entryAt(recs, x, edge); if (e) return recs[e].tag === true; }
+// Whether what a Required note's `when` asks holds at a record or up from it (dendra.md, Notes): a yes-or-no, or a choice among those it `is`.
+function holdsUp(recs, id, { when, is }) {
+  for (let x = id, n = 0; x && recs[x] && n < 16; x = recs[x].at, n++) { const e = Tree.entryAt(recs, x, when); if (e) return is ? is.some(o => same(o, recs[e].choice ?? '')) : recs[e].tag === true; }
   return false;
 }
 function attention(R, N, day, within = 30) {
@@ -3986,8 +3986,8 @@ function attention(R, N, day, within = 30) {
       const e = normal(a.edge);
       if (has?.has(e) || blank.has(e) || !Tree.narrower(t, a.loc) || !requiredAt(N, t, a.edge)) continue;
       // (Asked only of what a yes-or-no of its own says: a portfolio company's EIN is no blank of the chart's.)
-      const when = N.value('Required', { args: [{ edge: a.edge, loc: t }] })?.when;
-      if (when && !holdsUp(recs, id, when)) continue;
+      const asks = N.value('Required', { args: [{ edge: a.edge, loc: t }] });
+      if (asks?.when && !holdsUp(recs, id, asks)) continue;
       blank.add(e);
       items.push({ kind: 'blank', id, edge: a.edge });
     }

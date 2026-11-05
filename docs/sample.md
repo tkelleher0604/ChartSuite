@@ -22,15 +22,17 @@ Opened as of November 3, 2026, the chart has 1,029 entered records. The definiti
 - **ERISA Plan Assets** of each private fund, by the 25% test of its **Benefit Plan Percentage**, unless it has a VCOC opinion.
 - **Deadlines:**
   - the Delaware tax of each tax year, a corporation's franchise tax or a partnership's or LLC's annual tax, from the year it was formed, each payment recorded at the year it settles;
-  - Form ADV, Form PF and Form D;
+  - Form ADV and Form PF, and Form D: the notice 15 days after a first sale, until it's filed, then the anniversary while the offering is open;
   - CFTC 4.13(a)(3) affirmations;
   - LEI renewals, a year on from the anniversary renewed, or from a late renewal;
   - the Cayman annual return and fee, audited accounts, CRS and FATCA.
 
-  Each moves to the business day before a weekend where the rule says "on or before".
+  Each moves to the business day before a weekend where the rule says "on or before", and to the next business day where it says "within" a period, as Form D's notice does.
 
-  Each is owed only by an entity of the family: one whose Vehicle Type, which is required, is set and isn't Portfolio Company or Third Party, as the pension plan is. So a buyer, or an entity not yet typed, owes nothing tracked.
-- **Checks**, definitions whose every ruled-out record is a problem: **Formation Document on File** and **Governing Agreement on File** for each entity of the family, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, and **Capacity Held**. They flag four: David R. Okafor's four signing authorities through GP III, which he doesn't manage. **Good Standing** has a Check note too, at an entry typed by hand, so its "no" needs attention, in amber, and is counted among the errors: AIV-1's. Any other typed "no" is a plain grey X.
+  Each is owed only by what's **Ours to Track**, one rule, at an entity: not a third party, as the pension plan is, nor a portfolio company with other holders, each by a row saying so; every other vehicle, and a portfolio company held whole by those on the chart. So a buyer owes nothing tracked; and an entity not yet typed can't say, its Vehicle Type, required, counted blank.
+- **Tax years are the calendar's:** a Years note at the kind, so none is typed and none runs out: from 2023, the year before the chart was begun, to the day asked about. A payment is at its year as it's at any record.
+- **Checks**, definitions whose every ruled-out record is a problem: **Formation Document on File** and **Governing Agreement on File** for each entity of the family, whether **Ownership Adds Up**, **Percentages In Range** for every ownership, **Capacity Held**, and **Within 3(c)(1) Limit** at a 3(c)(1) fund, of which the sample has none. They flag four: David R. Okafor's four signing authorities through GP III, which he doesn't manage. **Good Standing** has a Check note too, at an entry typed by hand, so its "no" needs attention, in amber, and is counted among the errors: AIV-1's. Any other typed "no" is a plain grey X.
+- **What a kind is asked for,** so an empty record isn't clean: of an entity that's ours, its EIN, Good Standing and File Number (Delaware's) or Registration Number (Cayman's); of a fund vehicle, its Investment Company Status; of an offering that's ours, its First Sale; of an investor group, its Beneficial Owners and Benefit Plan Investors. The sample's own have them all.
 - **What doesn't change over time:** EIN, File Number, Fiscal Year End and LEI have Fixed notes, so typing over one corrects it, asking no day.
 
 ## Views
@@ -39,11 +41,11 @@ Opened as of November 3, 2026, the chart has 1,029 entered records. The definiti
 | --- | --- |
 | Structure | The fund structure, with GP lines, percentages and a Key |
 | 40 Act | The BDC's close and remote affiliates, in frames by kind |
-| Fund III | The fund's own investors and holdings |
+| Fund | The fund's own investors and holdings |
 | Management and control | The sponsor entities, with their directors and officers as text in the boxes |
 | Entities, Ownership, Dates, Documents | Tables |
 
-Each chart view has a title, an as-of line and a Key on a 16:9 page, in the look the app's new charts begin from: a title in Georgia and a page's subject in navy (the main fund on Structure and Fund III, the BDC on 40 Act), the rest in slate, sand and stone. Structure's places are composed by hand; Fund III and Management and control are as the layout places them, keeping the order they had.
+Each chart view has a title, an as-of line and a Key on a 16:9 page, in the look the app's new charts begin from: a title in Georgia and a page's subject in navy (the main fund on Structure and Fund, the BDC on 40 Act), the rest in slate, sand and stone. Structure's places are composed by hand; Fund and Management and control are as the layout places them, keeping the order they had. Each goes by what it says of what it shows, so a new chart from the template has them all, empty, filling as what they show is added.
 
 ## What to look at first
 
@@ -65,6 +67,8 @@ Each chart view has a title, an as-of line and a Key on a 16:9 page, in the look
 - **§57: why is the Manager close?** Two grounds, each a row of its own: it's the BDC's investment adviser (§57(b)(2)), and Chen, a director of the BDC, controls it (§57(b)(1)). Its people are close by the first: Ferraro, Moretti and Lindqvist are its officers or employees, §2(a)(3)(D) affiliates of the BDC's adviser.
 - **§57: why is Fiona MacAllister on neither list?** That's right on the chart's facts. She's only an independent director of the Cayman GP, so she is a §2(a)(3)(D) affiliate of it and of nothing else. The Cayman GP is close only as an affiliate, by Chen's control of it: §57(b)(1) reaches a director's (C) affiliates and stops there, and §57(b)(2) and (e)(2) reach the affiliates of the persons they name (the BDC's directors, officers, employees and adviser, and whoever controls it or is under common control with it), none of whom she's affiliated with. The chart records no controller of the BDC: the Manager advises it and Chen chairs its board, but no one holds 25% of its vote, and there's no general partner or managing member. So nothing is under common control with it. That's a reading of §2(a)(9) a lawyer may not share: enter Control of the BDC by the Manager, and the Cayman GP is under common control with the BDC, so a (b)(2) person, and she becomes a close affiliate under (b)(2)'s last clause.
 - **Does Fund III hold Tessellate?** No. AIV-1 holds it, through AIV-1 Blocker, 66%, for AIV-1's own investors. The group was once called "AIV-1 Investors (Fund III and III-A Partners)", words the chart couldn't answer for and that read like a Fund III holding; it's AIV-1 Investors now, as Co-Invest's are Co-Invest Investors.
+- **The 3(c)(1) limit?** Not more than one hundred persons, or 250 for a qualifying venture capital fund (15 U.S.C. § 80a-3(c)(1); its $12,000,000 is Rule 3c-7's), checked at a fund that says it's a 3(c)(1) fund, none here. Who's looked through is asked: a company holding 10% or more is its holders where it's an investment company, or would be but for 3(c)(1) or 3(c)(7), one person where it says it's Not an Investment Company, and with its status blank the count waits for it, though a fund past the limit whatever it's answered fails at once. That it reads the holding's Percentage for its voting securities, and looks through one tier, is a reading a lawyer may not share: its Looked Through can be typed over, with why.
+- **The first Form D?** Due 15 calendar days after the first sale, or the first business day following where that falls on a Saturday, Sunday or holiday (Rule 503(a)(1)). The sample's are all filed. Weekends are rolled, and holidays aren't: no calendar of them is kept.
 - **Delaware's $400?** It's real. House Bill 400, signed May 21, 2026, raised the annual tax of a Delaware limited partnership or LLC from $300 to $400 from tax year 2026, so the first $400 falls due June 1, 2027. A corporation's franchise tax is its own.
 - **Is a Director asked for a title?** No: the position says it. An officer or employee still is. Formation dates for Northpine and Halvard, Northstar's jurisdiction and Raman's start at the BDC are recorded now. The one blank left is the email's.
 

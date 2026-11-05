@@ -51,7 +51,7 @@ function run(json) {
   // governing agreement is among its 59 documents, and each Delaware tax paid, a corporation's franchise tax
   // among them, is at the tax year it settled.
   const docs = Object.values(now).filter(r => r.kind === 'Document').length;
-  check('the sample is as big as it should be', Object.keys(now).length === 1027 && docs === 59 && wb.changes().length === 137,
+  check('the sample is as big as it should be', Object.keys(now).length === 1030 && docs === 59 && wb.changes().length === 137,
     `${Object.keys(now).length} records, ${docs} documents, ${wb.changes().length} changes`);
   const hourIn = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' });
   const late = wb.changes().filter(c => { const h = +hourIn.formatToParts(new Date(c.when)).find(p => p.type === 'hour').value; return h < 9 || h >= 17; });
@@ -344,6 +344,22 @@ function run(json) {
       && !w.notes(C).position(tree('northpine'), 'view_main'));
     back(removal);
     check('one reverse brings all of it back', w.rows(C).length === rows && w.asOf(C, TODAY).own_fund_npine_pct?.value === 0.64 && w.notes(C).position(tree('northpine'), 'view_main'));
+  }
+
+  // ---- The calendar's years (dendra.md, Time): a Years note at a kind, so none is typed and none runs out ----
+  {
+    const w = fresh(), years = (d, on = w) => Object.values(on.asOf(C, d)).filter(r => r.kind === 'Tax Year'), names = d => years(d).map(r => r.calendar).every(Boolean);
+    check('Tax years are the calendar’s: from the year before the chart was begun to the year of the day asked, each from its first day', years('2026-12-31').length === 4 && names('2026-12-31') && !w.asOf(C, '2026-12-31')['·2027'] && w.asOf(C, '2027-01-01')['·2027'] && w.asOf(C, '2023-06-01')['·2023'] && !w.asOf(C, '2022-12-31')['·2023'], years('2026-12-31').length);
+    check('… none runs out, on any day asked about', years('2041-06-01').length === 19 && w.asOf(C, '2041-06-01')['·2041 name']?.value === '2041', years('2041-06-01').length);
+    check('… in no change and no file', !JSON.stringify(w.toJSON()).includes('"record":"·2026"') && !w.changes().some(c => c.adds.some(r => r.calendar)));
+    const t1 = w.edit({ chart: C, who: WHO }); t1.update('·2026 name', { value: '1999' });
+    check('… and one can’t be changed, which is said', t1.commit() === 'A year is the calendar’s: it can’t be changed.');
+    const n0 = w.changes().length, paid = commit(w, tx => tx.add('record', { args: [{ edge: 'Taxpayer', at: 'mgmt_juris' }, { edge: 'Tax Year', at: '·2019' }], tag: true }));
+    check('… what’s said of an older year brings it, as what’s at one is at the same year everywhere', w.changes().length === n0 + 1 && !!paid && w.asOf(C, '2019-06-01')['·2019'] && Log.open(w.toJSON()).asOf(C, '2019-06-01')['·2019'], typeof paid === 'string' ? paid : '');
+    const w2 = fresh(); commit(w2, tx => { const y = tx.add('record', { kind: 'Tax Year' }); tx.add('record', { at: y, edge: 'Name', field: 'text', value: '2026' }); });
+    check('… and a year someone has entered under that name is theirs: one 2026, entered', years('2026-12-31', w2).filter(r => !r.calendar).length === 1 && !w2.asOf(C, '2026-12-31')['·2026'], years('2026-12-31', w2).length);
+    const blank = Log.open({ dendra: 1, changes: [] }), bt = blank.edit({ chart: 'n', who: WHO }); bt.add('chart', { name: 'None' }, 'n'); bt.add('spec', { tree: { kind: 'Box' } }); bt.commit();
+    check('… and a chart with no Years note has none', !blank.rows('n').some(r => r.calendar));
   }
 
   // ---- Restoring an item deleted: it, and what was at it, and nothing else its deletion did ----

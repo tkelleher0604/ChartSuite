@@ -50,7 +50,7 @@ Templates.register({
     t.rule('Ownership Adds Up', { at: entity, check: true, rows: [
       ['Owners recorded', '= IF(SUM(Owners.Percentage) = 100%, TRUE)'],
       ['More than all of it', '= IF(SUM(Owners.Percentage) > 100%, FALSE)'],
-      ['Owners missing', '= IF(COUNT(Owners.Percentage) > 0 AND [Ours to Track] AND NOT [Others Hold the Rest], FALSE)'],
+      ['Owners missing', '= IF(COUNT(Owners.Percentage) > 0 AND [Ours to Track] <> FALSE AND NOT [Others Hold the Rest], FALSE)'],
     ], about: 'Whether what’s recorded of an entity’s owners comes to 100%. It finds more than all of it wherever it is; less, where the entity is ours to track and others aren’t said to hold the rest.' });
     const inRange = t.entry('Percentages In Range', { out: { tag: true }, args: [{ edge: 'Owner', loc: {} }, { edge: 'Owned', loc: entity }] });
     for (const owner of ['Entity', 'Individual']) t.spec({ out: { tag: true }, ...t.entry('Percentages In Range', { out: { tag: true }, args: [{ edge: 'Owner', loc: { kind: owner } }, { edge: 'Owned', loc: entity }] }) });
@@ -70,7 +70,7 @@ Templates.register({
     t.note('Order', taxes, 2, { param: 'Tax Year' });
     t.note('Name', taxes, 'Taxpayers', { param: 'Taxpayer' });
     t.note('Name', taxes, 'Taxed For', { param: 'Tax Year' });
-    t.note('Formula', { args: tax.args }, [{ label: 'Each year on the register', formula: '← Taxpayer.[Entity Type] IN {"Limited Partnership", "Limited Liability Company", "General Partnership", "Corporation"} AND Taxpayer.[Ours to Track] AND [Tax Year].Year >= YEAR(Taxpayer.[Formation Date])' }]);
+    t.note('Formula', { args: tax.args }, [{ label: 'Each year on the register', formula: '← Taxpayer.[Entity Type] IN {"Limited Partnership", "Limited Liability Company", "General Partnership", "Corporation"} AND Taxpayer.[Ours to Track] <> FALSE AND [Tax Year].Year >= YEAR(Taxpayer.[Formation Date])' }]);
     t.note('Description', { args: tax.args }, 'The Delaware tax an entity owes for a tax year, a corporation’s franchise tax or a limited partnership’s, LLC’s or general partnership’s annual tax: owed for every year it’s on the register, at any time in the year, and settled by the payment recorded at it.');
     t.entries(tax, { 'Annual Tax Paid': 'date' });
     t.rule('Annual Tax Due', { at: tax, type: 'date', rows: [
@@ -99,9 +99,9 @@ Templates.register({
     };
     const held = 'ANY(Documents, @.[Document Type] IN wanted AND @.Status IN {"Executed", "Filed", "Final"})';
     onFile('Formation Document on File', 'Whether the document that formed the entity is on file, executed, filed or final: a corporation’s certificate or articles of incorporation, an LLC’s certificate of formation or articles of organization, a limited partnership’s certificate.',
-      `= IF([Ours to Track], LET(wanted, IF(@ = "Limited Partnership", {"Certificate of Limited Partnership"}, IF(@ = "Limited Liability Company", {"Certificate of Formation", "Articles of Organization"}, {"Certificate of Incorporation", "Articles of Incorporation"})), ${held}))`);
+      `= IF([Ours to Track] <> FALSE, LET(wanted, IF(@ = "Limited Partnership", {"Certificate of Limited Partnership"}, IF(@ = "Limited Liability Company", {"Certificate of Formation", "Articles of Organization"}, {"Certificate of Incorporation", "Articles of Incorporation"})), ${held}))`);
     onFile('Governing Agreement on File', 'Whether the agreement that governs the entity is on file, executed, filed or final: a corporation’s bylaws, an LLC’s operating agreement, a limited partnership’s agreement.',
-      `= IF([Ours to Track], LET(wanted, IF(@ = "Limited Partnership", {"Limited Partnership Agreement"}, IF(@ = "Limited Liability Company", {"Operating Agreement"}, {"Bylaws"})), ${held}))`);
+      `= IF([Ours to Track] <> FALSE, LET(wanted, IF(@ = "Limited Partnership", {"Limited Partnership Agreement"}, IF(@ = "Limited Liability Company", {"Operating Agreement"}, {"Bylaws"})), ${held}))`);
 
     t.page('structure', 'Structure', 1, { title: { format: { Font: 'Georgia', Bold: false, Color: '#1f3a5f' } }, date: { format: { Size: 10, Color: '#5f6b78' } }, key: { format: { Outline: 'none' } } });
     t.note('Shown', { kind: 'Document' }, false, { view: 'structure' });

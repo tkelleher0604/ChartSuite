@@ -267,8 +267,8 @@ function theSample() {
   check('…and Acquisition Vehicle is a vehicle of the family', owesYears(typed('Acquisition Vehicle')) === 2 && docsChecked(typed('Acquisition Vehicle')).every(v => v === false));
   // What a kind's asked for (dendra.md, Notes: Required, its `when`): counted blank of what's ours, and of no one else.
   const asks = X => needed(X).filter(x => x.startsWith('blank')).join();
-  check('An empty record isn’t clean: a new fund entity counts its EIN, Good Standing and File Number blank, and a Cayman one its Registration Number; one not ours counts none',
-    asks(typed('Main Fund')) === 'blank EIN,blank Good Standing,blank File Number' && asks(typed('Third Party')) === '' && asks(typed('Portfolio Company')) === '', asks(typed('Main Fund')));
+  check('An empty record isn’t clean: a new fund entity counts its EIN, Good Standing, File Number, and, being a fund, its Investment Company Status and whether it’s a Regulation D Offering, blank; a general partner neither of those; one not ours nothing',
+    asks(typed('Main Fund')) === 'blank EIN,blank Good Standing,blank Investment Company Status,blank Regulation D Offering,blank File Number' && asks(typed('General Partner')) === 'blank EIN,blank Good Standing,blank File Number' && asks(typed('Third Party')) === '' && asks(typed('Portfolio Company')) === '', asks(typed('Main Fund')));
   check('The sample’s own entities are asked nothing more: its one blank is still the email’s', Formulas.attention(R, WB.notes(CHART), DAY).filter(a => a.kind === 'blank').map(a => a.edge).join() === 'Document Date', Formulas.attention(R, WB.notes(CHART), DAY).filter(a => a.kind === 'blank').map(a => a.edge).join());
   // The 3(c)(1) limit (15 U.S.C. § 80a-3(c)(1)): not more than 100 persons, 250 for a qualifying venture capital fund; what's looked through asked, not assumed.
   const usOwners = Object.keys(SAMPLE_INPUTS.recs).find(id => SAMPLE_INPUTS.recs[id].at === 'inv_us' && SAMPLE_INPUTS.recs[id].edge === 'Beneficial Owners');
@@ -294,6 +294,9 @@ function theSample() {
   check("…one falling on a weekend goes to the first business day following: Oct 17, 2036 + 15 is Saturday Nov 1, Oct 18 + 15 Sunday Nov 2, each Monday Nov 3", dueD(formD("2036-10-17")) === "2036-11-03" && dueD(formD("2036-10-18")) === "2036-11-03", `${dueD(formD("2036-10-17"))} ${dueD(formD("2036-10-18"))}`);
   check('…once filed, the anniversary while it’s open, on or before, the business day before a weekend; and none when it’s closed', dueD(formD('2036-10-20', '2036-11-01', true)) === '2037-10-30' && !dueD(formD('2036-10-20', '2036-11-01', false)), dueD(formD('2036-10-20', '2036-11-01', true)));
   check('…no first sale yet: no date, and First Sale is asked for', !dueD(formD(null)) && Formulas.attention(formD(null), WB.notes(CHART), DAY).some(a => a.kind === 'blank' && a.id === 'x_d' && a.edge === 'First Sale'));
+  // Paid late says so: a rule, read from the day it was paid and the day it fell due.
+  const paidOn = day => { const X = withRecords({ x_tax: { args: [{ edge: 'Taxpayer', at: 'aiv_juris' }, { edge: 'Tax Year', at: '·2025' }], tag: true }, x_tax_paid: { at: 'x_tax', edge: 'Annual Tax Paid', field: 'date', value: day } }); return rowsOf(X, 'def_paid_late').find(r => r.at === 'x_tax')?.value; };
+  check('Paid Late: AIV-1’s 2025 tax paid after June 1, 2026 is late; paid on it, not', paidOn('2026-11-04') === true && !paidOn('2026-06-01'), `${paidOn('2026-11-04')} ${paidOn('2026-06-01')}`);
   // More than all of it is wrong wherever it is.
   check('Ownership Adds Up rules out more than all of a portfolio company, as it doesn’t less', (() => { const X = withRecords({ x_own: { args: [{ edge: 'Owner', at: 'blocker' }, { edge: 'Owned', at: 'northpine' }], tag: true }, x_own_p: { at: 'x_own', edge: 'Percentage', field: 'percent', value: 0.5 } }); return entryRow(X, 'def_adds_up', 'northpine')?.value === false; })());
   const asFund = typed('Main Fund');

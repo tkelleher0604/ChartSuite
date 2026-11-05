@@ -371,7 +371,7 @@ const App = (() => {
   // about to be formed is a chart worth drawing. Only for this window, as a day picked is, and only till the user asks for today.
   const nothingDrawn = () => { const s = typeof Scene !== 'undefined' && scene.peek(); return !!s && !s.marks.some(m => m.type === 'box'); };
   const keptToday = new Set();
-  const firstDrawn = () => shown.peek().rows(chart.peek()).filter(r => r.kind && r.kind !== 'View').map(r => heldFrom(r.record)).filter(Boolean).sort()[0] ?? null;
+  const firstDrawn = () => shown.peek().rows(chart.peek()).filter(r => r.kind && r.kind !== 'View' && !r.calendar).map(r => heldFrom(r.record)).filter(Boolean).sort()[0] ?? null;
   // (Boxes there are that the view hides, one by one, are no call to go looking for another day.)
   const nothingThere = () => !Object.values(state.peek()).some(r => Tree.isObject(r) && !Tree.isView(r) && notes.peek().value('Shown', { kind: r.kind }, scene.peek()?.view) !== false);
   Shell.ready.then(() => effect(() => {
@@ -1760,7 +1760,7 @@ const App = (() => {
     const names = new Set(wb.charts().map(x => Tree.norm(x.name)));
     let name = `${was} copy`, i = 2;
     while (names.has(Tree.norm(name))) name = `${was} copy ${i++}`;
-    const rows = wb.rows(from).filter(r => Log.typeOf(r) !== 'chart'), fresh = new Map();
+    const rows = wb.rows(from).filter(r => Log.typeOf(r) !== 'chart' && !r.calendar), fresh = new Map();
     for (const r of rows) { const k = r[Log.typeOf(r)]; if (!fresh.has(k)) fresh.set(k, Log.newId()); }
     const to = x => fresh.get(x) ?? x;
     const loc = p => !p || typeof p !== 'object' ? p : { ...p, ...(p.id !== undefined && { id: to(p.id) }), ...(p.args && { args: p.args.map(a => ({ ...a, ...(a.at !== undefined && { at: to(a.at) }), ...(a.loc && { loc: loc(a.loc) }) })) }) };
@@ -1798,7 +1798,7 @@ const App = (() => {
     if (id !== chart.peek() || !name || name === was) return;
     change(tx => {
       tx.set(id, { name });
-      for (const r of book.peek().rows(id)) if ('shape' in r && r.role === 'title' && r.text === was) tx.update(r.shape, { text: name });
+      for (const r of book.peek().rows(id)) if ('shape' in r && r.role === 'title' && (r.text === was || r.text?.startsWith(`${was}: `))) tx.update(r.shape, { text: name + r.text.slice(was.length) });
     }, { dated: false });
     listBooks();
   }

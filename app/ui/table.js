@@ -404,7 +404,7 @@ const Table = (() => {
       const held = view === stillIn ? still : null;
       for (const r of data) { const k = held?.get(r.id); r._g = k?.g ?? (r._m[f0].due ? 'overdue' : Tree.firstDay(r[f0]).slice(0, 7)); r._at = k?.at ?? r[f0]; }
       // (This month is upcoming while it has a day still to come; with none it's past, a `~` sorting it before the next.)
-      const month = upFrom = today.slice(0, 7) + (data.some(r => r._g === today.slice(0, 7) && r._at >= today) ? '' : '~');
+      const month = upFrom = today.slice(0, 7) + (data.some(r => r._g === today.slice(0, 7) && (r._at > today || (r._at === today && r._m[f0].fx))) ? '' : '~');
       groups = monthsIn(data.map(r => r._g), month);
       const at = new Map(groups.map((g, i) => [g, i]));
       data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b._at.localeCompare(a._at) : a._at.localeCompare(b._at)));

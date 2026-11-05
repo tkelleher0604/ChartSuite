@@ -2018,7 +2018,8 @@ function frameBounds(frames, boxes) {
   const fit = f => {
     if (done.has(f.id)) return f;
     done.add(f.id);
-    const inner = [...f.members.map(id => byId.get(id)), ...f.frames.map(id => fit(frames.get(id)))];
+    // (A lone frame inside it is its caption alone: its box is in this one all the same.)
+    const inner = [...f.members.map(id => byId.get(id)), ...f.frames.flatMap(id => { const c = fit(frames.get(id)); return c.lone ? [c, byId.get(c.members[0])] : [c]; })];
     const b = bounds(inner), pad = 10;
     if (f.kind === 'bracket') Object.assign(f, { x: b.x, y: b.y - f.label - 12, w: b.w, h: f.label + 6 });
     else if (f.lone) Object.assign(f, { x: b.x, y: b.y - f.label - 5.3, w: b.w, h: f.label + 5.3 });
