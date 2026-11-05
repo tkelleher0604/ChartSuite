@@ -391,7 +391,7 @@ function shapeMarkup(m, s, textOf = it => textMarkup(it)) {
   // (A freeform with no fill is picked by its line and a little more; an icon, by the square it stands in.)
   const pick = m.geometry !== 'freeform' || paint(s.Fill) !== 'none' ? [] : s.Points?.round ? [{ tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'transparent' } }] : [{ tagName: 'path', attrs: { d: Scene.outlineOf(geometry, m.w, m.h, s), fill: 'none', stroke: 'transparent', 'stroke-width': 10, ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) } }];
   // (A frame is taken anywhere on its edge, and by its heading: what's inside it is for what's inside it.)
-  const edge = m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'none', stroke: 'transparent', 'stroke-width': 10, 'pointer-events': 'stroke' } }] : [];
+  const edge = m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'none', stroke: 'transparent', 'stroke-width': 10, 'pointer-events': 'stroke', cursor: 'move' } }] : [];
   return [body, ...pick, ...edge, ...(m.geometry === 'text' || m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.geometry === 'frame' ? 18 : m.h, fill: 'transparent' } }] : []), ...m.texts.map(textOf)];
 }
 // A free line's drawing, by its points, less (ox, oy): its path and its arrowheads, as the swatches and the PDF draw them; how transparent, a gradient along it, a compound's gaps.
@@ -1325,7 +1325,7 @@ function mount(el) {
     const at = Layout.pin(m.points, { x: p.x, y: p.y, w: m.label.w, h: m.label.h });
     App.change(tx => tx.note('Position', treeOf(m.record), at, { view: viewOf() }), { dated: false, say: `Moved the label of ${called(m)}` });
   }
-  graph.on('node:moved', ({ node, e }) => { dragging = null; root.classList.remove('dragging'); if (frameLit) { frameLit = null; cue(null); } if (node.getData()?.kind === 'label') return movedLabel(node); if (joining(node, e)) return; if (['box', 'shape'].includes(node.getData()?.kind)) hand.equalGaps(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
+  graph.on('node:moved', ({ node, e }) => { dragging = null; root.classList.remove('dragging'); if (frameLit) { lightFrame(frameLit, false); frameLit = null; } if (node.getData()?.kind === 'label') return movedLabel(node); if (joining(node, e)) return; if (['box', 'shape'].includes(node.getData()?.kind)) hand.equalGaps(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
   graph.on('node:resized', ({ node }) => { dragging = null; root.classList.remove('dragging'); moved([node.id]); spilt([node.id]); });
   graph.on('node:rotating', ({ node }) => { dragging = node.id; showHandles(null); astray(node.id); });
   graph.on('node:rotated', ({ node }) => { dragging = null; turn(node.id, node.getAngle()); });
@@ -1408,14 +1408,16 @@ function mount(el) {
     if (made) Shell.select([b.id]);
     return made;
   }
-  // A box carried over a frame it isn't in: the frame lit, so it's plain it would join it.
+  // A box carried over a frame it isn't in: the frame's outline lit, so it's plain it would join it. (Its own again with the next draw, or as it's left.)
   let frameLit = null;
+  const lightFrame = (id, on) => { const c = id && graph.getCellById(id), m = id && scene.byId.get(id); if (c && m) { c.attr('body/stroke', on ? BLUE : paint(m.look.Outline)); c.attr('body/stroke-width', on ? 2 : px(m.look.Weight)); astray(id, true); } };
   function frameCue(node) {
     const m = scene.byId.get(node.id), p = node.getPosition(), s = node.getSize();
     const f = m && holdable(m) && !isFrame(m) ? scene.marks.filter(q => isFrame(q) && middleIn({ x: p.x, y: p.y, w: s.width, h: s.height }, q)).sort((a, b) => a.w * a.h - b.w * b.h)[0] ?? null : null, to = f && !heldOf(f).includes(m) ? f.id : null;
     if (to === frameLit) return;
+    lightFrame(frameLit, false);
     frameLit = to;
-    cue(to ? [to] : null);
+    lightFrame(to, true);
   }
   graph.on('node:moving', ({ node, e }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); if (node.getData()?.kind === 'label') astray(node.id); else { snapMoving(node); follow(node); joinCue(node, e); if (!dropOn) frameCue(node); } });
   graph.on('node:resizing', ({ node }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); follow(node); });
@@ -3384,7 +3386,8 @@ function mount(el) {
     // (Boxes laid out around what stands go around the Key too, where it's drawn.)
     const standing = n ? App.scene.peek().marks.find(m => m.geometry === 'legend') : null;
     // (Each note tried is new, as a look tried is, so nothing worked out from another is kept for it.)
-    const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))).map(r => key && r.shape === key ? { ...r, kept: null, ...(freed && { x: null, y: null }) } : standing && r.shape === standing.id && r.x == null ? { ...r, x: standing.x - 16, y: standing.y - 16, w: standing.w + 32, h: standing.h + 32 } : r),
+    // (And with no box selected, a frame's margins go too: it stands round what it holds as it was first drawn.)
+    const rows = [...wb.rows(App.chart.peek()).filter(r => !out.has(r.note) && !(r.label === 'Position' && r.view === view && keys.has(Tree.key(r.pattern)))).map(r => key && r.shape === key ? { ...r, kept: null, ...(freed && { x: null, y: null }) } : standing && r.shape === standing.id && r.x == null ? { ...r, x: standing.x - 16, y: standing.y - 16, w: standing.w + 32, h: standing.h + 32 } : !n && r.view === view && r.geometry === 'frame' && r.holds?.length && r.pad ? { ...r, pad: null } : r),
       ...(!only && firstTidy() ? [] : writes.map(w => { const id = `·tidy${++triedTidy}`; return { id, note: id, label: 'Position', pattern: w.t, view, value: w.value }; }))];
     const notes = Notes.index(rows.filter(r => 'note' in r));
     const wbTried = { ...wb, rows: () => rows, notes: () => notes, tidy: tidyName() };
@@ -3407,7 +3410,7 @@ function mount(el) {
     const entered = w => { if (pins.has(w.id)) return pinnedAt(w.id) ?? w.value; if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value, ...(pins.size ? { order: undefined } : {}), ...(first && !pins.size && { order: p.x }) }; };
     // What's laid over a box goes with it; what's tied to nothing stays, which is said.
     const ann = Scene.annotated(base, after);
-    return { n, after, ann, write: tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null, ...(freed && { x: null, y: null }) }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); for (const [id, c] of ann.rows) tx.update(id, c); } };
+    return { n, after, ann, write: tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null, ...(freed && { x: null, y: null }) }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); for (const [id, c] of ann.rows) tx.update(id, c); if (!n) for (const f of base.marks) if (isFrame(f) && f.holds?.length && rowOf(f.id)?.pad) tx.update(f.id, { pad: null }); } };
   }
   function tidy(o) {
     const { write, after, ann, n } = tidyWrites(o?.only), base = App.scene.peek();

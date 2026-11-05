@@ -100,7 +100,7 @@ const App = (() => {
       if (m.has(id) || recs[id].kind === undefined || Tree.isView(recs[id])) continue;
       if (only ? !only.has(id) : !l.filters.every(f => Tree.passes(recs, id, f))) m.set(id, false);
       // (A look wider than the page's rule shows what that keeps off, but for what the page's own notes hide besides.)
-      else if (rule && !Tree.onPage(recs, id, rule) && notes.value.resolve('Shown', Tree.treeOf(recs, id), view)?.value !== false) m.set(id, true);
+      else if (rule && !Tree.onPage(recs, id, rule) && notes.value.resolve('Shown', Tree.treeOf(recs, id), view)?.value !== false) { m.set(id, true); m.widens = true; }
     }
     return m.size ? m : null;
   }
@@ -131,7 +131,15 @@ const App = (() => {
     const ticks = Object.entries(l.ticks ?? {}).filter(([id, on]) => st[id] && (on || drawn?.byId.has(id))), hid = ticks.filter(([, on]) => !on).map(([id]) => id);
     const rule = l.only ? { only: l.only } : l.filters?.length ? { filters: l.filters } : undefined;
     const said = l.only ? `${name} shows only ${boxesSaid(l.only.length)}` : rule ? `${name} shows ${rule.filters.map(filterWords).join(' · ')}, whoever that comes to be` : l.filters ? `${name} has no filter now` : `Hid ${hid.length === 1 ? notes.peek().nameOf(st, hid[0]) : `${hid.length} boxes`} in ${name}`;
-    if (!change(tx => { if (l.only || l.filters) tx.note('Filter', viewTree(view), rule); for (const [id, on] of ticks) tx.note('Shown', Tree.treeOf(st, id), on, { view }); tx.says(said); }, { dated: false, say: said })) return;
+    // (A page nobody has placed by hand is laid out again for what's on it now, as large as that goes; one a hand has placed stands, and Tidy is its own.)
+    const afresh = (l.only || l.filters) && !drawn?.marks.some(m => m.type === 'box' && !m.revealed && m.hand);
+    if (!change(tx => {
+      if (l.only || l.filters) tx.note('Filter', viewTree(view), rule);
+      for (const [id, on] of ticks) tx.note('Shown', Tree.treeOf(st, id), on, { view });
+      if (afresh) for (const n of [...notes.peek().notes('Position'), ...notes.peek().notes('Bend')].filter(n => n.view === view)) tx.remove(n.note);
+      if (afresh) for (const n of notes.peek().notes('Scale').filter(n => n.pattern.id === view)) tx.remove(n.note);
+      tx.says(said);
+    }, { dated: false, say: said, ...(afresh && { keep: false }) })) return;
     letGo(view, 'only', 'filters', 'ticks');
   }
   // What can be filtered, on a page: its boxes, or with a rule of its own (which a filter may take off), all it could draw.
@@ -2079,11 +2087,15 @@ const App = (() => {
     return id;
   }
   // A page for each answer (dendra.md, Views): each a rule, by that answer, over whatever the page it's from filters by, titled by the answer, after that page; one change. Those it adds are shown first, so a person sees where they went.
+  // (Each who's on a relation's side, not those it reaches nobody by; a blank last, by what it lacks.)
+  function answersFor(from, field) {
+    const st = state.peek(), base = filtersOf(from), ids = filterable(from).filter(id => base.every(f => Tree.passes(st, id, f))), vals = [...new Set(ids.flatMap(id => Tree.valuesAt(st, id, field.key)))];
+    const words = v => (v === null ? `No ${field.label}` : answerWord(field.key, v));
+    return { base, words, answers: vals.filter(v => !Tree.isSide(field.key) || v !== null).sort((a, b) => (a === null) - (b === null) || words(a).localeCompare(words(b), 'en', { numeric: true })) };
+  }
   function pagesFor(from, field) {
     if (readOnly.peek()) return refuse();
-    const st = state.peek(), base = filtersOf(from), ids = filterable(from).filter(id => base.every(f => Tree.passes(st, id, f))), vals = [...new Set(ids.flatMap(id => Tree.valuesAt(st, id, field.key)))];
-    // (Each who's on a relation's side, not those it reaches nobody by; a blank last, by what it lacks.)
-    const words = v => (v === null ? `No ${field.label}` : answerWord(field.key, v)), answers = vals.filter(v => !Tree.isSide(field.key) || v !== null).sort((a, b) => (a === null) - (b === null) || words(a).localeCompare(words(b), 'en', { numeric: true }));
+    const { base, words, answers } = answersFor(from, field);
     if (answers.length < 2) return Shell.toast(answers.length ? `Every box here has the one ${field.label}` : `No box here has a ${field.label}`, { ms: 3000 });
     const vs = views.peek().filter(v => !v.look), at = vs.findIndex(v => v.id === from) + 1, taken = new Set(views.peek().map(v => Tree.norm(v.name))), made = [];
     const c = change(tx => {
@@ -2134,7 +2146,7 @@ const App = (() => {
         ...(v.layout === 'chart' ? ['-', { label: 'Edit master', run: () => { Shell.show(id); setTimeout(() => { mastering.value = true; }); } }, { label: 'Leave the master off', checked: !hasMaster(id), ...writes, run: () => pageMaster(id, !hasMaster(id)) }] : []),
         '-',
         ...(v.layout === 'chart' && typeof Time !== 'undefined' ? [{ label: 'Next step…', ...writes, run: () => Time.nextStep(id) }] : []),
-        ...(v.layout === 'chart' ? [{ label: 'One page for each', ...writes, items: () => filterFields(id).filter(f => f.answers).map(f => ({ label: f.menu ?? f.label, run: () => pagesFor(id, f) })) }] : []),
+        ...(v.layout === 'chart' ? [{ label: 'One page for each', ...writes, items: () => { const fs = filterFields(id).filter(f => f.answers && answersFor(id, f).answers.length > 1); return fs.length ? fs.map(f => ({ label: f.menu ?? f.label, run: () => pagesFor(id, f) })) : [{ label: 'No answer differs here', disabled: true }]; } }] : []),
         { label: 'Duplicate', ...writes, run: () => { const copy = addView(v.name, undefined, id); if (copy) Shell.show(copy); } },
         { label: 'Delete', danger: true, disabled: views.peek().length < 2, ...writes, run: () => change(tx => tx.remove(id), { say: `Deleted ${v.name}`, dated: false }) },
       ];

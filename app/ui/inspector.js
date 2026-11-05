@@ -263,9 +263,11 @@ function addEntry(at, edge, out, { recurs = false } = {}) {
 // it. A hand tick from making the field would beat the rule written next. A check is one whose failures count as errors, and it goes
 // straight to its rule. One change either way.
 const offered = signal([]);     // yes-or-noes made from a record, offered in its panel till it's left: [{ at, edge }]
+// A check begins with a look: what fails it is outlined, on every page, with its Key row, till someone says otherwise (dendra.md, Styles).
+const checkLook = (tx, p, edge) => { const no = { out: { tag: false }, ...p }; tx.note('Outline', no, '#c00000'); tx.note('Dash', no, 'dashed'); tx.note('Weight', no, 1.5); tx.note('Caption', no, `Fails ${edge}`); };
 function makeTag(at, edge, check = false) {
   const spec = { out: { tag: true }, args: [{ edge, loc: T.specOf(tree(at)) }] }, p = T.bare(spec), what = check ? 'check' : 'yes-or-no';
-  App.change(tx => { if (!App.schema.value[T.key(spec)]) tx.add('spec', { tree: spec }); if (check) tx.note('Check', p, true); tx.says(`Added the ${what} ${edge}`); }, { dated: false, say: `Added the ${what} ${edge}` });
+  App.change(tx => { if (!App.schema.value[T.key(spec)]) tx.add('spec', { tree: spec }); if (check) { tx.note('Check', p, true); checkLook(tx, p, edge); } tx.says(`Added the ${what} ${edge}`); }, { dated: false, say: `Added the ${what} ${edge}` });
   if (!check) { offered.value = [...offered.peek(), { at, edge }]; return; }
   select([general(p)]);
   FormulaBar.define(p);
@@ -474,7 +476,7 @@ function ComparedRows({ v }) {
       put=${out => Time.showChanges(v.id, out.choice === 'None' ? null : out.choice === 'Since a date' ? { since: v.changes?.since ?? Time.dayBefore(App.day.peek()) } : { page: true })} />
       ${look ? html`<button class="btn ghost keeps" aria-disabled=${can ? null : 'true'} data-tip=${can ? null : App.whyNot()} onClick=${() => Time.keepChanges(v.id)}>Keep</button>` : null}</div></div>
     ${v.changes?.since ? html`<div class="row in"><div class="k">Since</div><div class="v ctl"><${Field} looks r=${{ field: 'date', value: v.changes.since }} datatype="date" label="Since" put=${out => out && Time.showChanges(v.id, { since: out.value })} /></div></div>` : null}
-    ${v.changes ? lists.map(([w, ms]) => html`<div class="row in marked" key=${w}><div class="k">${w}</div><div class="v">${ms.map((m, i) => html`${i ? ', ' : ''}<${Go} to=${m.record}>${bound(shortOf(m.record) || m.name)}</${Go}>`)}</div></div>`) : null}`;
+    ${v.changes ? lists.map(([w, ms]) => html`<div class="row in marked" key=${w}><div class="k">${w}</div><div class="v">${ms.map((m, i) => html`${i ? ', ' : ''}<${Go} to=${m.record}>${bound(shortOf(m.record) || m.named?.text || m.texts?.[0]?.text || 'Unnamed')}</${Go}>`)}</div></div>`) : null}`;
 }
 // What a chart keeps by what its boxes know (Canvas's filter): a look, as a table's filter is, or the page's own rule or list, kept; its words a click from changing them.
 function FilterRow({ v }) {
@@ -1773,7 +1775,7 @@ function styleMenu(e, g, v, moves, rename) {
   e.preventDefault();
   const fb = typeof FormatBar !== 'undefined' && FormatBar.aim ? FormatBar : null, ro = App.readOnly.peek(), keys = new Set(g.outputs.map(p => T.key(p)));
   const look = () => { const on = !fb.aimedAt(g); if (on) fb.aim(g); };
-  const given = App.shown.peek().rows(App.chart.peek()).filter(x => 'note' in x && x.view === v && keys.has(T.key(x.pattern)) && Notes.looksLike(x));
+  const given = App.shown.peek().rows(App.chart.peek()).filter(x => 'note' in x && (x.view === v || N().everyPage(x)) && keys.has(T.key(x.pattern)) && Notes.looksLike(x));
   menu({ x: e.clientX, y: e.clientY }, [
     ...(rename ? [{ label: 'Rename', keys: 'F2', disabled: ro, run: rename }] : []), ...moves.map(m => ({ ...m, disabled: ro || m.disabled })),
     // What it's the row of, as what's lit is what's meant.
@@ -1857,7 +1859,7 @@ function ShapeView({ id, part }) {
   // the pointer; hidden ones it has no row for now (nothing drawn is keyed by them) after them.
   const all = m?.all ?? [], hidden = (row.hide ?? []).filter(k => !all.some(r => r.key === k)).map(k => n.styles(v).flatMap(s => s.outputs).find(o => T.key(o.pattern) === k)).filter(Boolean)
     .map(o => ({ key: T.key(o.pattern), outputs: [o.pattern], caption: Scene.captionOf(n, o.pattern, v), swatch: Scene.swatchOf(o.pattern, o.formats) }));
-  const rows = key ? [...all, ...hidden] : [];
+  const rows = key ? [...all, ...hidden] : [], held = m?.geometry === 'frame' ? (m.holds ?? []).map(x => App.scene.value.byId.get(x)).filter(Boolean) : [];
   const show = (k, on) => set({ hide: on ? (row.hide ?? []).filter(x => x !== k) : [...(row.hide ?? []), k] });
   const keyOrder = (from, i) => set({ order: moved(rows.map(r => r.key), from, i) }, 'Reordered the Key');
   return html`<div class="insp">
@@ -1873,6 +1875,7 @@ function ShapeView({ id, part }) {
     </div>
     ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
     ${glued(g) ? html`<div class="rows"><div class="row"><div class="k">Glued to</div><div class="v">${row.ends.map(e => e ? (gone(e)?.record ? n.nameOf(recs(), gone(e).record) : gone(e)?.texts?.[0]?.text ?? Shapes.name(gone(e)?.geometry) ?? 'A shape') : null).filter(Boolean).join(' and ')}</div></div></div>` : null}
+    ${m?.geometry === 'frame' && held.length ? html`<div class="rows"><div class="row" data-row="holds"><div class="k">Holds</div><div class="v">${held.map((x, i) => html`${i ? ', ' : ''}${x.type === 'box' ? html`<${Go} to=${x.record}>${bound(shortOf(x.record))}</${Go}>` : (x.name ?? x.texts?.[0]?.text?.split('\n')[0] ?? 'A shape')}`)}</div></div></div>` : null}
     ${m && !row.role ? html`<div class="rows"><div class="row" data-row="alt"><div class="k">Alt text</div><div class="v ctl"><${Prose} text=${row.alt ?? ''} label="Alt text" put=${alt => set({ alt: alt || undefined }, alt ? 'Set the alt text' : 'Took the alt text off')} /></div></div>
       <div class="row" data-row="link"><div class="k">Link</div><div class="v"><button type="button" class="lk" disabled=${still} onClick=${() => cv?.link(id)}>${row.link ? row.link.url ?? App.views.peek().find(x => x.id === row.link.view)?.name ?? 'A page' : 'None'}</button></div></div></div>` : null}
     ${g === 'table' && m ? html`<${TableRows} id=${id} row=${row} m=${m} still=${still} />` : null}

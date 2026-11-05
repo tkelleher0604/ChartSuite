@@ -593,9 +593,20 @@ function sinceOf(N, view, state) {
   return at > 0 ? N.value('As Of', { id: pages[at - 1], kind: 'View' }) ?? Log.today() : null;
 }
 // What the chart works out as of that day, kept with what's entered then, which stands while the log does.
-const workedThen = new WeakMap();
+const workedThen = new WeakMap(), stoodAt = new WeakMap();
+// A chart that keeps no dated record says nothing of when what's typed began, or what it replaced ended: only its log knows. So what it was as of a day is the log as it stood at that day's end (dendra.md, Changes), or for a chart begun since, once it first had a box: all that's done since is a change, a move and a hire undated among them.
+function entryThen(wb, chart, day) {
+  if (wb.notes(chart).value('Dated', { kind: 'View' }) !== false) return wb.asOf(chart, day);
+  const list = wb.changes().filter(c => c.chart === chart), first = list.find(c => c.adds.some(r => r.kind !== undefined && r.kind !== 'View' && 'record' in r && !r.calendar));
+  if (!first) return wb.asOf(chart, day);
+  const end = new Date(`${day}T23:59:59`).toISOString(), moment = end > first.when ? end : first.when, by = stoodAt.get(wb) ?? stoodAt.set(wb, new Map()).get(wb), k = `${chart}|${moment}`, was = by.get(k);
+  if (was && was.n === wb.changes().length) return was.log.asOf(chart, day);
+  const log = wb.at(moment);
+  by.set(k, { n: wb.changes().length, log });
+  return log.asOf(chart, day);
+}
 function stateThen(wb, chart, day, from) {
-  const entered = wb.asOf(chart, day);
+  const entered = entryThen(wb, chart, day);
   let R = workedThen.get(entered);
   if (!R) { const N = wb.notes(chart), S = wb.schema(chart); workedThen.set(entered, R = Formulas.computeState(entered, N.definitions(S), { relations: N.relations(S), schema: S, day, named: wb.named?.(chart) }, from)); }
   return R.records;
@@ -638,6 +649,12 @@ function comparing(wb, chart, view, day, opts) {
     bring(m.record);
     m.texts.forEach(t => (t.records ?? [t.id]).forEach(bring));
     mark(m.record, 'Gone');
+  }
+  // A line that's come or gone has moved the box at its lower end, where that box stands on both days and is marked for nothing else: who moved reads as changed, not only the lines.
+  const lowerOf = (st, r) => { const t = treeOf(st, r), above = t && N.value('Above', Tree.bare(t), view), low = st[r]?.args?.find(a => above && !same(a.edge, above)); return above && above !== 'none' && above !== 'level' && st[r].args.length === 2 ? low?.at : null; };
+  for (const [id, m] of [...is, ...was]) if (m.type === 'line' && (marks.get(id) === 'New' || marks.get(id) === 'Gone')) {
+    const low = lowerOf(is.has(id) ? opts.state : then, id);
+    if (low && is.has(low) && was.has(low) && !marks.has(low)) mark(low, 'Changed');
   }
   const out = { then, since, state, marks, was: said, lost };
   if (kept) kept.set(k, out);
@@ -697,7 +714,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   themed = wb.notes(chart).resolve('Theme Fonts', { kind: 'View' })?.value ?? null;
   const masterRows = view === MASTER || wb.notes(chart).resolve('Master', { id: view, kind: 'View' })?.value === false ? [] : (readRows(wb, chart, MASTER).shapes.get(MASTER) ?? []).filter(r => !r.hidden).map(r => ({ ...r, master: true }));
   const shapeRows = [...masterRows, ...read.shapes.get(view)];
-  const preview = !!(opts.keep || opts.reveal?.length || opts.seen?.size), drawnAs = `${chart}|${view}`;
+  // (A look that hides only keeps the page as it stands; one wider than the page's own rule (`seen.widens`) has more to draw than that page holds, and lays it out, as it would be if kept.)
+  const wider = !!opts.seen?.widens, preview = !wider && !!(opts.keep || opts.reveal?.length || opts.seen?.size), drawnAs = `${chart}|${view}`;
   const said = new Map(shapeRows.map(r => [r.id, r.role === 'date' && wb.moment ? Log.stoodText(wb.moment) : shapeText(r, opts.computed, day, opts.state, wb.notes(chart))]));
   // (A Key is drawn from where it's kept or held, either being one: so what its change made was laid out ahead for, and a
   // Key kept elsewhere since is drawn there, as it would be from nothing.)
@@ -706,7 +724,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // (The scale it keeps, whether a change is about to write it or has: so what its change made was laid out ahead for, too.)
   const keeps = JSON.stringify(opts.holds?.page ?? wb.notes(chart).resolve('Scale', { id: view, kind: 'View' })?.value ?? null);
   const from = [opts.state, notesAre, shapeRows.map(({ id, kept, ...r }) => JSON.stringify(r)).join(), [...said.values()].join('\n'), day, holding, keeps, changes ? JSON.stringify([changes.since, [...changes.was], [...changes.lost.keys()]]) : ''], whence = `${drawnAs}|${opts.paper ?? ''}`;
-  if (!preview && !opts.looks) {
+  if (!preview && !wider && !opts.looks) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
     // An entry the view's free text may read, or a field shown beside another record, is never inert.
@@ -753,7 +771,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const ranks = new Map();
   const rankOf = (note, depth) => {
     let r = ranks.get(note);
-    if (!r) ranks.set(note, r = [note.view ? 1 : 0, idsIn(note.pattern).size ? 1 : 0, note.param ? 1 : 0, note.view ? (styleAt.get(key(bare(note.pattern))) ?? -1) : 0]);
+    // (A look of a check's No, in no view, is every view's: dendra.md, Styles.)
+    if (!r) { const here = !!note.view || N.everyPage(note); ranks.set(note, r = [here ? 1 : 0, idsIn(note.pattern).size ? 1 : 0, note.param ? 1 : 0, here ? (styleAt.get(key(bare(note.pattern))) ?? -1) : 0]); }
     return [...r, -depth];
   };
   const beats = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
@@ -1647,7 +1666,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const f of shapes.filter(m => m.geometry === 'frame')) { goRound(f); for (const it of f.texts) if (!byId.has(it.id)) byId.set(it.id, it); }
   if (footsOf.size) numberFeet([...boxes, ...lines, ...shapes], footsOf, shapes.find(m => m.role === 'footnotes'), onPage.find(r => r.role === 'footnotes'), s, state);
 
-  const laid = !preview && !opts.paper ? {
+  const laid = !preview && !wider && !opts.paper ? {
     at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])), lowered: boxes.filter(b => b.laid).map(b => [b.laid.y, b.y - page.offset.y - b.laid.y]),
     frames: new Map([...frames.values()].map(f => [f.id, { x: f.x, y: f.y, w: f.w, h: f.h }])),
     routes: new Map(lines.map(l => [l.id, { from: l.from, to: l.to, points: l.points, labelAt: l.labelAt, down: l.down, landed: l.landed }])),
@@ -1676,7 +1695,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const m of [...marksInOrder, ...lines]) { delete m.cand; delete m.pos; delete m.base; delete m.placing; delete m.alike; delete m.stands; if (m.type !== 'shape') delete m.ends; }
   const palette = N.resolve('Palette', { kind: 'View' })?.value?.colors;
   const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, state, ms: now() - started, ...(changes && { since: changes.since }), ...(palette && { palette }), ...(themed && { themeFonts: themed }) };
-  if (!preview) drawnFrom.set(whence, [{ from, scene, laid }, ...drawnFrom.get(whence) ?? []].slice(0, 3));
+  if (!preview && !wider) drawnFrom.set(whence, [{ from, scene, laid }, ...drawnFrom.get(whence) ?? []].slice(0, 3));
   return scene;
 }
 // Footnotes numbered, by reading order on the page (down its rows, then across), one number for one text however many marks carry it. Each mark
@@ -2277,7 +2296,7 @@ function legend(N, view, marks) {
   const used = new Set();
   for (const m of marks) for (const label of KEYED[m.type] ?? []) {
     const note = m.settings?.[label]?.note;
-    if (note && note.view === view && !idsIn(note.pattern).size) used.add(key(note.pattern));
+    if (note && (note.view === view || N.everyPage(note)) && !idsIn(note.pattern).size) used.add(key(note.pattern));
   }
   return groupsOf(N, view, used).map(({ off, ...g }) => g);
 }

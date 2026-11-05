@@ -87,13 +87,16 @@ function index(rows) {
     return out;
   }
 
+  // Whether a pattern is what a check says of one that fails, its No: a look given there is the chart's, in no view, so a failing box shows it wherever it's drawn (dendra.md, Styles).
+  const failing = p => p.out?.tag === false && p.args?.length === 1 && (byLabel.get('Check') ?? []).some(n => n.value === true && n.pattern.args?.length === 1 && Tree.same(n.pattern.args[0].edge, p.args[0].edge));
+  const everyPage = n => !n.view && !n.param && !Tree.idsIn(n.pattern).size && (FORMATS.has(n.label) || n.label === 'Caption') && failing(n.pattern);
   // A view's styles in its order: each a pattern with root unlabeled, and its outputs' formats. A note at
   // one object or one value is that record's own setting, not a style's. Order in a view orders its styles. A
   // field shown beside an output (a Shown note's param) is the boxes' own, not a look a style gives them.
   function styles(view) {
     const groups = new Map(), order = new Map();
     const group = p => { const k = key(p); if (!groups.has(k)) groups.set(k, { pattern: p, key: k, outputs: new Map() }); return groups.get(k); };
-    for (const n of rows) if (n.view === view && !n.param) {
+    for (const n of rows) if (n.view === view ? !n.param : everyPage(n)) {
       const p = n.pattern;
       if (n.label === 'Order') { order.set(key(p), n.value); group(p); }
       // (A line's own look, at its relation's tree with its sides in it, is as much its own as a box's is.)
@@ -199,7 +202,7 @@ function index(rows) {
 
   const optionOrder = p => (byLabel.get('Order') ?? []).find(n => !n.view && n.pattern.out && narrower(n.pattern, p))?.value;
   return {
-    resolve, value, name, listName, edges, formats, fields, styles, definitions, relations, fitting, relationPattern,
+    resolve, value, name, listName, edges, formats, fields, styles, failing, everyPage, definitions, relations, fitting, relationPattern,
     nameOf, shortOf, sides, placed, segmentOf, placeOf, whereOf,
     notes: label => byLabel.get(label) ?? [],
     description: t => value('Description', t),
