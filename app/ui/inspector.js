@@ -1280,7 +1280,7 @@ function Relatives({ id }) {
 const TEXTS = { value: 'Value', label: 'Name and value', paren: 'Value in parentheses', none: 'None' };
 const labelOf = (label, named) => label === 'Corner' ? 'Rounding' : label === 'Dash' ? 'Dashes' : label === 'Valign' ? 'Vertical align' : label === 'Inset' ? 'Margins' : label === 'Points' ? 'Outline drawn' : label !== 'Format' ? label : named ? 'Name' : 'Text';
 // A theme colour by a word a person would use ("Dark blue"), not its place in PowerPoint's grid.
-const colorWord = n => { const m = /^([^,]+)(?:, (?:Accent|Text|Background) \d)(?:, (Darker|Lighter) \d+%)?$/.exec(n); return m ? (m[2] ? `${m[2] === 'Darker' ? 'Dark' : 'Light'} ${m[1].toLowerCase()}` : m[1]) : n; };
+const colorWord = n => { const m = /^([^,]+)(?:, (?:Accent|Text|Background) \d)(?:, (Darker|Lighter) (\d+)%)?$/.exec(n); if (!m) return n; const [, c, how, by] = m; return !how ? c : c === 'White' ? (+by < 35 ? 'Light grey' : 'Grey') : c === 'Black' ? (+by >= 50 ? 'Grey' : 'Dark grey') : `${how === 'Darker' ? 'Dark' : 'Light'} ${c.toLowerCase()}`; };
 // An inner margin in words: none, one all round, or each side.
 const insetSaid = v => { const s = [v.l ?? 7.2, v.t ?? 3.6, v.r ?? 7.2, v.b ?? 3.6]; return s.every(x => x === 0) ? 'None' : s.every(x => x === s[0]) ? `${s[0]} pt all round` : `Left ${s[0]}, top ${s[1]}, right ${s[2]}, bottom ${s[3]} pt`; };
 const DASHES = { dotted: 'Round dot', 'square-dot': 'Square dot', dashed: 'Dash', 'dash-dot': 'Dash dot', 'long-dash': 'Long dash', 'long-dash-dot': 'Long dash dot', 'long-dash-dot-dot': 'Long dash dot dot' };

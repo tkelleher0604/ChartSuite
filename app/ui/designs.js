@@ -343,10 +343,10 @@ function leave(keep) {
     { dated: false, say: said, empty: () => Shell.toast('The design is as it was', { ms: 2500 }) });
 }
 // The parts stood on the page, as the scene draws them, the topmost first.
-const partsNow = (sc, e) => sc.marks.filter(q => q.type === 'shape' && q.geometry !== 'group' && !e.rows0.has(q.id));
+const partsNow = (sc, e) => sc.marks.filter(q => q.type === 'shape' && q.geometry !== 'group' && !q.role && !q.master && !e.rows0.has(q.id));
 // The band of a box new words go in: the free one they were dropped at, or else its largest, as wide as the box, so they fit the space.
 function freeBand(sc, e, b, at) {
-  const taken = partsNow(sc, e).filter(p => p.texts?.some(t => t.lines?.length) && p.w * p.h < b.w * b.h * 0.9).map(p => { const ls = p.texts[0].lines, lh = Scene.lineHeight(p.texts[0].look), ys = ls.map(l => l.y - Scene.baseline(p.texts[0].look)); return [p.y + Math.min(...ys), p.y + Math.max(...ys) + lh]; }).sort((m, n) => m[0] - n[0]), gaps = [];
+  const taken = partsNow(sc, e).filter(p => p.texts?.some(t => t.lines?.length)).map(p => { const ls = p.texts[0].lines, lh = Scene.lineHeight(p.texts[0].look), ys = ls.map(l => l.y - Scene.baseline(p.texts[0].look)); return [p.y + Math.min(...ys), p.y + Math.max(...ys) + lh]; }).sort((m, n) => m[0] - n[0]), gaps = [];
   let from = b.y;
   for (const [top, foot] of taken) { if (top > from) gaps.push([from, top]); from = Math.max(from, foot); }
   if (b.y + b.h > from) gaps.push([from, b.y + b.h]);

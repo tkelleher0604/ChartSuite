@@ -1371,10 +1371,11 @@ function mount(el) {
     // A part's own words, typed over, are what's said over the design at the pen (Figma's override); a part with none, the design's own.
     if (it.of || (it.part && !it.blank && st()[it.id]?.edge === undefined)) {
       const part = partOf(m, it), raw = m.design.value.parts.find(p => p.id === part?.part)?.text ?? '';
-      if (!part || !part.texts.length) return Designs.edit(m);
+      // (What reads a field is said in Edit design, its fields as chips, and never by its token.)
+      if (!part || !part.texts.length || (typed === undefined && /\{[^{}\n]+\}/.test(raw))) return Designs.edit(m);
       return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? raw, text => saidOfPart(`Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}`, tx => Designs.say(tx, m, part.part, { text: text.trim() }, scopeNow(canvas))), { multiline: true, selectAll: typed === undefined, complete: wordsOf(m), kept: true });
     }
-    const st = App.state.peek(), r = it.blank ? null : st[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
+    const r = it.blank ? null : st()[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
     if (!kind || kind.type === 'object' || (r && r.args)) return;
     Shell.emit('field-edit', { box: m.id, id: it.id });
     const rect = fieldRect(m, it), at = graph.localToGraph(rect.x, rect.y + rect.h), box = root.getBoundingClientRect(), menuAt = { x: box.left + at.x, y: box.top + at.y + 2 };
@@ -1453,6 +1454,8 @@ function mount(el) {
       it = legend ? m.texts[0] : !row?.rest && m.texts[0] ? m.texts[0] : { look: m.look, text: '', lines: [] };
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
       raw = legend ? m.title : row?.text;
+      // (While a design is edited, a part that reads a field is typed in the panel, its fields as chips, and never by its token.)
+      if (designing && typed === undefined && /\{[^{}\n]+\}/.test(raw ?? '')) { Shell.select([m.id]); return setTimeout(() => document.querySelector('.part-words .words-in')?.focus(), 30); }
       // A text box left empty goes, however it's left, as PowerPoint's does.
       const gone = tx => tx.remove(m.id);
       save = (text, keys, runs) => { const said = App.change(tx => m.geometry === 'text' && !text.trim() && !row?.rest ? gone(tx) : tx.update(m.id, legend ? { title: text } : { text, runs: runs?.length ? runs : undefined })); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, text); };
@@ -2081,7 +2084,7 @@ function mount(el) {
       if (now !== gone) { gone = now; ghost.classList.toggle('going', now); ghost.textContent = now ? `Hide ${fieldName(f.it)}` : fieldName(f.it); cue(now ? (s.own ? [f.m.id] : [...s.marks]) : null); }
     };
     const up = ev => {
-      removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true);
+      removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); removeEventListener('mouseup', up, true);
       ghost?.remove();
       cue(null);
       if (ghost && off(ev)) hideField(f, s);
@@ -2090,6 +2093,7 @@ function mount(el) {
     };
     addEventListener('pointermove', move, true);
     addEventListener('pointerup', up, true);
+    addEventListener('mouseup', up, true);
   }, true);
   // A field hidden: its entry, or a blank, at the scope; a free text taken away.
   function hideField(f = fieldNow(), s) {
@@ -3594,7 +3598,7 @@ function mount(el) {
     richSet: (label, v) => !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); }, footnote: id => footnote(id ? marked(id) : undefined),
     // Editing a design: what can be touched; and the zoom, brought to the box and put back (see Designs). A part selected, of a box (see Fields).
-    designing: d => { designing = d; root.classList.toggle('designing', !!d); if (!d) { field = null; } paintStates(); }, whereNow: () => ({ s: graph.zoom(), t: graph.translate() }),
+    designing: d => { designing = d; root.classList.toggle('designing', !!d); document.body.classList.toggle('designing', !!d); if (!d) { field = null; } paintStates(); }, whereNow: () => ({ s: graph.zoom(), t: graph.translate() }),
     // (It moves, from the box and back to it: the page gliding as a zoom asked for does.)
     bringTo: r => { const was = aboutToGlide(); showRect(r, 90, LEAST, 4); glide(was); }, goBack: w => { const was = aboutToGlide(); quietly(() => { graph.zoomTo(w.s); graph.translate(w.t.tx, w.t.ty); }); zoomRead(); glide(was); }, partOf, reorder: (m, to, after, said) => hand.reorder(m, to, after, said),
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.

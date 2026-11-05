@@ -21,8 +21,8 @@ Templates.register({
       { id: 'band', geometry: 'rect', x: 0, y: 0, w: 1, h: 0.14, format: { Fill: '{Outline}', Outline: 'none' } },
       { id: 'rest', rest: true, geometry: 'text', x: 0, y: 0.14, w: 1, h: 0.86, format: { Align: 'center', Valign: 'middle' } }] });
     t.style('org', { out: { tag: true }, ...t.entry('Vacant', {}) }, 'Vacant', { Fill: '#ffffff', Outline: '#8a94a0', Dash: 'dashed' });
-    // (A vacant seat has no one's initials, whichever design gives a face.)
-    t.note('Design', { out: { tag: true }, ...t.entry('Vacant', {}) }, { over: { parts: { face: { text: '' } } } }, { view: 'org' });
+    // (A vacant seat has no one's initials, whichever design gives a face: an empty one, dashed as the seat is.)
+    t.note('Design', { out: { tag: true }, ...t.entry('Vacant', {}) }, { over: { parts: { face: { text: '', format: { Fill: '#ffffff', Outline: '#8a94a0', Dash: 'dashed' } } } } }, { view: 'org' });
     t.style('org', { out: { tag: true }, ...reports }, 'Reports to', { Outline: '#3a4653', Weight: 1 });
     t.note('Shown', { out: { tag: true }, ...reports }, true, { view: 'org' });
     t.note('Format', { out: { tag: true }, ...reports }, 'none', { view: 'org' });

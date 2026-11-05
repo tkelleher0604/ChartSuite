@@ -795,8 +795,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   };
   const land = (record, label, res, accept) => {
     for (const start of own.get(record) ?? []) {
-      // (A text's own look stays its own: hidden, it's nothing to the box, whose other words keep theirs.)
-      if (start.type === 'text' && !start.listed && TEXT_PROPS.includes(label) && !about(res.note) && !drawn(start)) continue;
+      // (A text's own look stays its own: one a hand has hidden here is nothing to the box, whose other words keep theirs. What no note shows at all, its look is the box's.)
+      if (start.type === 'text' && !start.listed && TEXT_PROPS.includes(label) && !about(res.note) && start.cand.Shown?.value === false) continue;
       let m = start, depth = 0;
       // A relation written in a box keeps what's given for its line to itself.
       while (m && !(HAS[m.type].has(label) && accept(m))) { m = m.listed ? null : up(m); depth++; }
@@ -2285,26 +2285,32 @@ const oneOf = w => [w.replace(/ren$/i, ''), w.replace(/people$/i, 'person').repl
 const OWNED = /^(.+?)(?:\.|['’]s\s+)(.+)$/;
 // What a record's words can read, by name, as a person says it: its entries, then, of each list of its relatives, what's said of one of them ("Owner's name", "Owner's Jurisdiction"), and a relation's sides.
 // → [{ label, of }], `of` the list a relative's is from, `first` its name, what a list shows first. Each label is the token that reads it.
+const readings = new WeakMap();
 function readable(state, N, schema, at) {
   const t = treeOf(state, at), specs = Object.values(schema);
   if (!t) return [];
+  // (Asked of as a panel's drawn, once for each of its lists: kept for as long as what it's worked out from is the same.)
+  const byState = readings.get(N) ?? readings.set(N, new WeakMap()).get(N), kept = byState.get(state) ?? byState.set(state, new Map()).get(state);
+  if (kept.has(at)) return kept.get(at);
   const own = new Map();
   for (const e of Tree.index(state).entries.get(at) ?? []) if (!N.check(bare(treeOf(state, e)))) own.set(Tree.norm(state[e].edge), state[e].edge);
   for (const x of specs) if (x.args?.length === 1 && Tree.narrower(t, x.args[0].loc) && !N.check(bare(x))) own.set(Tree.norm(x.args[0].edge), x.args[0].edge);
   const byOrder = (edges, loc) => { const order = e => same(e, 'Name') ? -1 : N.order({ args: [{ edge: e, loc }] }) ?? Infinity; return [...edges].sort((a, b) => order(a) - order(b) || a.localeCompare(b)); };
   const offered = byOrder(own.values(), t).map(label => ({ label }));
   // (Of one at a side or in a list: its name, then what its kind has. No document's own list: what evidences a thing isn't over it.)
-  const whose = (noun, loc, of) => { const es = new Map([['name', 'name']]); for (const x of specs) if (x.args?.length === 1 && loc.kind && !x.args[0].loc.args && same(x.args[0].loc.kind ?? '', loc.kind) && !N.check(bare(x)) && !same(x.args[0].edge, 'Name') && !('tag' in x.out)) es.set(Tree.norm(x.args[0].edge), x.args[0].edge); return byOrder(es.values(), loc).map(e => ({ label: `${noun}'s ${e}`, of, ...(e === 'name' && { first: true }) })); };
-  for (const a of state[at]?.args ?? []) offered.push(...whose(a.edge, treeOf(state, Tree.objectOf(state, a.at) ?? a.at) ?? {}, a.edge));
+  const whose = (noun, locs, of) => { const es = new Map([['name', 'name']]), kinds = locs.map(l => l.kind).filter(Boolean); for (const x of specs) if (x.args?.length === 1 && !x.args[0].loc.args && kinds.some(k => same(x.args[0].loc.kind ?? '', k)) && !N.check(bare(x)) && !same(x.args[0].edge, 'Name') && !('tag' in x.out)) es.set(Tree.norm(x.args[0].edge), x.args[0].edge); return byOrder(es.values(), locs[0] ?? {}).map(e => ({ label: `${noun}'s ${e}`, of, ...(e === 'name' && { first: true }) })); };
+  for (const a of state[at]?.args ?? []) offered.push(...whose(a.edge, [treeOf(state, Tree.objectOf(state, a.at) ?? a.at) ?? {}], a.edge));
   const lists = new Map(), isDoc = loc => !!loc.kind && specs.some(s => s.out?.field === 'document' && s.args?.length === 1 && same(s.args[0].loc.kind ?? '', loc.kind));
   for (const s of specs) if (s.args?.length === 2 && ('tag' in s.out || 'choice' in s.out) && !N.resolve('Formula', bare(s))) for (const sm of s.args) {
     const sl = s.args.find(a => a !== sm);
     if (!sl || !Tree.narrower(t, sm.loc) || isDoc(sl.loc)) continue;
     const name = N.listName(bare(s), sl.edge);
-    if (!lists.has(Tree.norm(name))) lists.set(Tree.norm(name), { name, loc: sl.loc, edge: sl.edge });
+    const l = lists.get(Tree.norm(name));
+    if (l) l.locs.push(sl.loc); else lists.set(Tree.norm(name), { name, locs: [sl.loc], edge: sl.edge });
   }
   // (A list named for what it is to them, "Adviser To", by who's at the side: that's what one of them is.)
-  for (const l of [...lists.values()].sort((a, b) => a.name.localeCompare(b.name))) offered.push(...whose(/\s(to|of|for|in|by|under|with)$/i.test(l.name) ? l.edge : oneOf(l.name), l.loc, l.name));
+  for (const l of [...lists.values()].sort((a, b) => a.name.localeCompare(b.name))) offered.push(...whose(/\s(to|of|for|in|by|under|with)$/i.test(l.name) ? l.edge : oneOf(l.name), l.locs, l.name));
+  kept.set(at, offered);
   return offered;
 }
 // What a token reads at a record, as a form letter's field does, where it isn't there, as nothing: an entry of it, at any depth, as Text reads
