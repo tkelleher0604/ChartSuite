@@ -184,11 +184,11 @@ async function fontsOf(scenes, local) {
     const stack = stackOf(t.Font), family = unread ? stack[0] : stack.find(f => local.has(f.toLowerCase()));
     // (What this computer hasn't, of a family with a standard font's widths, is that font, as near as a face can be, and said only where it wasn't asked.)
     if (!unread && !family && METRIC.has(stack[0].toLowerCase())) continue;
-    if (!family) { missed.set(t.Font, 'absent'); continue; }
+    if (!family) { missed.set(Scene.fontName(t.Font), 'absent'); continue; }
     const face = !unread && faceOf(local.get(family.toLowerCase()), styleOf(t));
     if (face && !files.has(face.postscriptName)) files.set(face.postscriptName, await fontFile(face).catch(() => null));
     if (face && files.get(face.postscriptName)) faces.set(k, { family, ps: face.postscriptName });
-    else missed.set(t.Font, unread ? 'read' : 'embed');
+    else missed.set(Scene.fontName(t.Font), unread ? 'read' : 'embed');
   }
   // Each named in the file, as a reader lists it, by its face's PostScript name, tagged as a subset is (DENDRA+Garamond-Italic).
   const add = doc => [...faces].forEach(([k, f], i) => {
@@ -499,10 +499,10 @@ async function pptx(scenes, title, author, say) {
   const W = Math.max(...scenes.map(s => s.page.sheet.w)), H = Math.max(...scenes.map(s => s.page.sheet.h));
   p.defineLayout({ name: 'Dendra', width: W / 96, height: H / 96 });
   p.layout = 'Dendra';
-  // The theme's fonts are the page's own (dendra.md, Notes), so what's typed in the deck later stays in style: the first page's, where they differ.
-  const themeFont = Scene.fontName(scenes[0]?.page.look?.Font ?? 'Arial'), palette = scenes[0]?.palette ?? null, ownFonts = scenes[0]?.themeFonts ?? null;
+  // The theme's fonts are the chart's Heading and Body, or the page's own where All text says one (dendra.md, Notes), so what follows them follows PowerPoint's Theme Fonts, and what's typed in the deck later stays in style: the first page's, where they differ.
+  const pageFont = scenes[0]?.page.look?.Font, palette = scenes[0]?.palette ?? null, ownFonts = scenes[0]?.themeFonts ?? null;
   inTheme = Shapes.inTheme(palette);
-  p.theme = { headFontFace: ownFonts?.heading ?? themeFont, bodyFontFace: ownFonts?.body ?? themeFont };
+  p.theme = { headFontFace: ownFonts?.heading ?? (pageFont ? Scene.fontName(pageFont) : Scene.fontName('Heading')), bodyFontFace: ownFonts?.body ?? (pageFont ? Scene.fontName(pageFont) : Scene.fontName('Body')) };
   Object.assign(p, { title, subject: '', author, company: '' });
   // The master's footer and number, where a page has them: as the first that does draws them.
   const placed = s => { const k = fit(s.page); return { k, ox: (W - s.page.w * k) / 2, oy: (H - s.page.h * k) / 2 }; };

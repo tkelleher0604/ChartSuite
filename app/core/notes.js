@@ -242,6 +242,8 @@ function index(rows) {
 const FURNITURE = { title: ['format'], date: ['format'], key: ['format', 'title', 'columns', 'order', 'hide', 'captions', 'corner'] };
 // What a note at the view itself says of every text on its page (dendra.md, Notes).
 const ROOT = ['Font', 'Size'];
+// The chart's master's page (dendra.md, The master), as Scene names it.
+const MASTER = '·master';
 const furnitureOf = r => r.role ?? (r.geometry === 'legend' ? 'key' : null);
 const isOption = p => !!p.out && ('choice' in p.out || 'tag' in p.out);
 const shownInLook = r => !!r.param || (r.pattern.args?.length === 1 && !isOption(r.pattern)) || (r.value === false && !!r.pattern.kind && !r.pattern.args);
@@ -263,7 +265,24 @@ function houseLook(rows, view, { corner } = {}) {
   const rest = Object.fromEntries(rows.filter(r => 'note' in r && r.view === view && r.pattern.id === view && r.pattern.kind === 'View' && FORMATS.has(r.label)).map(r => [r.label, r.value]));
   // And the designs it has saved (dendra.md, Group designs), plain data.
   const designs = rows.find(r => 'note' in r && r.label === 'Designs' && !r.view)?.value?.list;
-  return { notes: [...kept, ...own.filter(r => r.label === 'Caption' && styled.has(key(r.pattern)))].map(note), order: index(own).styles(view).map(s => s.pattern), furniture, root, page, ...(footer && { footer }), ...(palette && { palette }), ...(shapes && { shapes }), ...(Object.keys(rest).length && { rest }), ...(designs?.length && { designs }) };
+  // And what's the chart's whole: its theme fonts and its master, as it stands (dendra.md, The master), which name no record.
+  const theme = rows.find(r => 'note' in r && r.label === 'Theme Fonts' && !r.view)?.value, master = rows.filter(r => 'shape' in r && r.view === MASTER).map(({ id: _, view: _v, ...r }) => r);
+  return { notes: [...kept, ...own.filter(r => r.label === 'Caption' && styled.has(key(r.pattern)))].map(note), order: index(own).styles(view).map(s => s.pattern), furniture, root, page, ...(footer && { footer }), ...(palette && { palette }), ...(shapes && { shapes }), ...(Object.keys(rest).length && { rest }), ...(designs?.length && { designs }), ...(theme && { theme }), ...(master.length && { master }) };
+}
+// A master, taken: its rows the look's, in place of what the chart has where those differ, each with an id of its own, what's glued or grouped following.
+const bareRows = rs => JSON.stringify(rs.map(({ id: _, view: _v, shape: _s, ends: _e, members: _m, ...r }) => r));
+const mastered = new WeakSet();
+function takeMaster(tx, rows, list) {
+  // (One for a change, however many pages it gives the look.)
+  if (mastered.has(tx)) return;
+  mastered.add(tx);
+  const own = rows.filter(r => 'shape' in r && r.view === MASTER);
+  if (bareRows(own) === bareRows(list)) return;
+  for (const r of own) tx.remove(r.shape);
+  const made = new Map();
+  for (const { shape, ends, members, ...r } of list.filter(x => !x.members)) made.set(shape, tx.add('shape', { ...r, view: MASTER, ...(ends && { ends }) }));
+  for (const { shape, members, ...r } of list.filter(x => x.members)) tx.add('shape', { ...r, view: MASTER, members: members.map(id => made.get(id) ?? id) });
+  for (const { shape, ends } of list) if (ends?.some(id => made.has(id))) tx.update(made.get(shape), { ends: ends.map(id => made.get(id) ?? id) });
 }
 // A view takes a look, on tx. A style both have takes the look's: what the view gives its outputs and the look doesn't
 // goes. A style only in the look comes across; a style only in the view stays, after them, so what it says still
@@ -302,6 +321,9 @@ function takeLook(tx, rows, view, look, { begun = false, has = () => true } = {}
   for (const [l, v] of Object.entries(look.rest ?? {})) tx.note(l, self, v, { view });
   // (The designs it has saved join the chart's, in its gallery.)
   if (look.designs?.length) { const list = noted('Designs', { kind: 'View' })?.list ?? [], mine = new Set(look.designs.map(d => d.id)); tx.note('Designs', { kind: 'View' }, { list: [...list.filter(d => !mine.has(d.id)), ...look.designs] }); }
+  // (Its theme fonts and its master are the chart's, so a chart begun in it, or given it, has them.)
+  if (look.theme && JSON.stringify(noted('Theme Fonts', { kind: 'View' }) ?? null) !== JSON.stringify(look.theme)) tx.note('Theme Fonts', { kind: 'View' }, look.theme);
+  if (look.master?.length && tx.add && tx.remove) takeMaster(tx, rows, look.master);
   return { left: look.notes.filter(n => (begun || !owned(n)) && !has(n.pattern)).length };
 }
 // A look read from a file, as far as it's one: what a look may hold and nothing else, never a record. Null if it isn't one.
@@ -319,7 +341,9 @@ function lookFrom(data) {
     const shapes = data.shapes && typeof data.shapes === 'object' && !Array.isArray(data.shapes) ? Object.fromEntries(['shape', 'line', 'text'].filter(k => fits.format(data.shapes[k])).map(k => [k, data.shapes[k]])) : null;
     const rest = data.rest && typeof data.rest === 'object' && !Array.isArray(data.rest) ? Object.fromEntries(Object.entries(data.rest).filter(([l]) => ['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'].includes(l))) : null;
     const designs = Array.isArray(data.designs) ? data.designs.filter(d => d && typeof d === 'object' && typeof d.id === 'string' && typeof d.name === 'string' && Array.isArray(d.parts)) : [];
-    return { notes, order: (data.order ?? []).map(clean), furniture, ...(root && { root }), ...(paper(data.page) && { page: data.page }), ...(Object.keys(foot).length && { footer: foot }), ...(palette && { palette }), ...(shapes && Object.keys(shapes).length && { shapes }), ...(rest && Object.keys(rest).length && { rest }), ...(designs.length && { designs }) };
+    const theme = typeof data.theme?.heading === 'string' && typeof data.theme?.body === 'string' ? { heading: data.theme.heading, body: data.theme.body } : null;
+    const master = Array.isArray(data.master) ? data.master.filter(r => r && typeof r === 'object' && !Array.isArray(r) && typeof r.geometry === 'string' && !('record' in r) && !('note' in r)) : [];
+    return { notes, order: (data.order ?? []).map(clean), furniture, ...(root && { root }), ...(paper(data.page) && { page: data.page }), ...(Object.keys(foot).length && { footer: foot }), ...(palette && { palette }), ...(shapes && Object.keys(shapes).length && { shapes }), ...(rest && Object.keys(rest).length && { rest }), ...(designs.length && { designs }), ...(theme && { theme }), ...(master.length && { master }) };
   } catch { return null; }
 }
 

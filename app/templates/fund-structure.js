@@ -710,7 +710,7 @@ Templates.register({
 {"label":"Shown","pattern":{"args":[{"edge":"Member","loc":{}},{"edge":"LLC","loc":{"args":[{"edge":"Entity Type","loc":{}}]}}]},"value":true,"view":"structure"},
 {"label":"Shown","pattern":{"out":{"tag":true},"args":[{"edge":"Agent","loc":{}},{"edge":"Principal","loc":{"args":[{"edge":"Jurisdiction","loc":{}}]}}]},"value":true,"view":"structure"},
 {"label":"Shown","pattern":{"out":{"tag":true},"args":[{"edge":"Document","loc":{}},{"edge":"Subject","loc":{}}]},"value":true,"view":"structure"},
-{"shape":"structure-title","view":"structure","geometry":"text","role":"title","text":"","format":{"Font":"Georgia","Bold":false,"Color":"#1f3a5f"}},
+{"shape":"structure-title","view":"structure","geometry":"text","role":"title","text":"","format":{"Bold":false,"Color":"#1f3a5f"}},
 {"shape":"structure-date","view":"structure","geometry":"text","role":"date","text":"=\"As of \" & TEXT(@AsOf, \"mmmm d, yyyy\")","format":{"Size":10,"Color":"#5f6b78"}},
 {"shape":"structure-legend","view":"structure","geometry":"legend","title":"Key","columns":2,"format":{"Outline":"none"},"hide":["[\"choice:main fund\",\"[\\\"vehicle type\\\",\\\"*\\\"]\"]"]},
   ],

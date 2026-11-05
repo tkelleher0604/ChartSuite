@@ -893,7 +893,7 @@ async function run() {
   const findFont = async q => { const f = $('.float .fonts .find'); f.value = q; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(150); };
   await findFont('gara');
   check('… typing finds a font by its name, and draws the selection in it, changing nothing', $$('.float .fonts .list .menu-item').map(txt).join() === 'Garamond'
-    && sc().byId.get('halvard').texts[0].look.Font === 'Garamond' && lookOf('halvard').Font === 'Arial', $$('.float .fonts .list .menu-item').map(txt).join());
+    && sc().byId.get('halvard').texts[0].look.Font === 'Garamond' && lookOf('halvard').Font === 'Body', $$('.float .fonts .list .menu-item').map(txt).join());
   $('.float .fonts .find').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(200);
   check('… and Enter sets it', lookOf('halvard').Font === 'Garamond' && !$('.float .fonts'), lookOf('halvard').Font);
   Shell.parts.peek().undo.undo(); await tick(150);

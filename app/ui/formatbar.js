@@ -1622,7 +1622,7 @@ function holdsOf(look) {
   const words = g => { const f = styles.find(o => g.outputs.some(p => Tree.key(p) === Tree.key(o.pattern)))?.formats ?? {};
     return Object.entries(f).filter(([l]) => !['Shown', 'Caption', 'Layer', 'Above'].includes(l)).map(([l, v]) => l === 'Shape' ? shapeWord(v) : l === 'Fill' || l === 'Outline' || l === 'Color' ? `${l.toLowerCase()} ${v === 'none' ? 'none' : String(v).toUpperCase()}` : l === 'Weight' || l === 'Size' ? `${l === 'Size' ? 'size' : 'weight'} ${v} pt` : l === 'Font' ? v : l === 'Arrow' ? (v === 'auto' ? 'arrow auto' : `arrow ${ARROWS[v] ?? v}`) : l === 'Dash' ? (DASH_NAMES.find(([d]) => d === v)?.[1] ?? v).toLowerCase() : typeof v === 'boolean' ? (v ? l.toLowerCase() : `not ${l.toLowerCase()}`) : typeof v === 'object' ? l.toLowerCase() : `${l.toLowerCase()} ${v}`).join(', '); };
   const k = look.furniture?.key, corner = k?.corner, foot = look.footer;
-  return { rows: [['Paper', paperSaid(look.page)], ['All text', fmtSaid(look.root) || 'Arial'],
+  return { rows: [['Paper', paperSaid(look.page)], ['All text', fmtSaid(look.root) || Scene.fontName('Body')], ...look.theme ? [['Theme fonts', `${look.theme.heading} and ${look.theme.body}`]] : [], ...look.master?.length ? [['Master', `${look.master.length} ${look.master.length === 1 ? 'shape' : 'shapes'}`]] : [],
     ...look.palette?.colors ? [['Colors', look.palette.colors.slice(4).map(c => c.toUpperCase()).join(', ')]] : [], ...look.rest?.Fill ? [['Everything else', `fill ${String(look.rest.Fill).toUpperCase()}`]] : [],
     ...look.furniture?.title?.format ? [['Title', fmtSaid(look.furniture.title.format)]] : [], ...look.furniture?.date?.format ? [['Date', fmtSaid(look.furniture.date.format)]] : [],
     ...foot ? [['Footer', [foot.text ? `“${foot.text}”` : null, foot.number ? 'page numbers' : null, fmtSaid(foot.format)].filter(Boolean).join(', ')]] : [],
@@ -1754,7 +1754,7 @@ function Bar() {
   const like = likeOf(s), ownPart = s.scopes.find(x => x.own), armed = painter.value;
   // A font or size the texts it would change don't share is shown blank, as PowerPoint shows one its selection mixes.
   const several = l => texty && new Set(scopeTexts().map(it => it.look?.[l]).filter(v => v !== undefined)).size > 1;
-  const font = root ? value('Font') : !texty ? '' : several('Font') ? '' : value('Font'), size = root ? shown(value('Size')) ?? '' : !texty ? '' : several('Size') ? '' : shown(value('Size')), align = (texty && value('Align')) || 'center';
+  const font = root ? Scene.fontName(value('Font')) : !texty ? '' : several('Font') ? '' : Scene.fontName(value('Font')), size = root ? shown(value('Size')) ?? '' : !texty ? '' : several('Size') ? '' : shown(value('Size')), align = (texty && value('Align')) || 'center';
   // What would write, in Viewing: grey, saying why, pointed at or clicked, as + on the tabs does, showing what it reads all
   // the same. The scope, the zoom and Arrange, whose writes its menu greys, write nothing of themselves and go on.
   const why = ro ? App.whyNot() : null, writes = (tip, off) => ro ? { 'aria-disabled': 'true', 'data-tip': why, 'data-keys': null } : { 'data-tip': tip, disabled: off };

@@ -1652,11 +1652,11 @@ const App = (() => {
       for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Changes', 'Plan', 'Scale', 'Page', ...Notes.ROOT].includes(r.label) && r.pattern.id === like) && r.label !== 'Footer')
         tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Structure' : r.value, { view: kept.get(r.view), param: r.param });
       // And its master, as it stands (dendra.md, The page): furniture every page of it has, which names no record.
-      const master = typeof Scene === 'undefined' ? [] : src.rows(from).filter(r => 'shape' in r && r.view === Scene.MASTER), fresh = new Map(master.map(r => [r.shape, Log.newId()])), to = x => fresh.get(x) ?? x;
+      const master = typeof Scene === 'undefined' || style?.master?.length ? [] : src.rows(from).filter(r => 'shape' in r && r.view === Scene.MASTER), fresh = new Map(master.map(r => [r.shape, Log.newId()])), to = x => fresh.get(x) ?? x;
       for (const { id: _, shape: s, ...x } of master) tx.add('shape', { ...x, ...(x.ends && { ends: x.ends.map(to) }), ...(x.members && { members: x.members.map(to) }) }, fresh.get(s));
     }
     const first = kept.get(like) ?? tx.add('record', { kind: 'View' });
-    if (look) Notes.takeLook(tx, [], first, look, { begun: true, has: p => !given(p) && (!style || hasPattern(src.schema(from), src.notes(from), p)) });
+    if (look) Notes.takeLook(tx, [], first, { ...look, master: style?.master }, { begun: true, has: p => !given(p) && (!style || hasPattern(src.schema(from), src.notes(from), p)) });
     for (const p of recorded.values()) tx.note('Shown', p, true, { view: first });
     tx.note('Name', viewTree(first), 'Structure');
     page(tx, first, name, look);

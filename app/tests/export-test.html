@@ -124,7 +124,7 @@ async function run() {
     const missing = boxes(main).filter(b => { const sp = shapeOf(b); return !sp || tags(sp, 'a:prstGeom')[0]?.getAttribute('prst') !== PRESET[b.shape]; });
     check('every box is a shape of its preset geometry, holding its texts as paragraphs', !missing.length, missing.map(b => b.id).join(', '));
     const fund = shapeOf(main.byId.get('fund')), run = tags(fund, 'a:rPr')[0], latin = tags(fund, 'a:latin')[0];
-    check('a text keeps its font, weight and color, at the size it has on the slide, 1 pt at least', latin.getAttribute('typeface') === 'Arial' && run.getAttribute('sz') === String(Math.max(100, Math.round(1000 * k))) && run.getAttribute('b') === '1'
+    check('a text keeps its font, by the theme where it says none of its own, its weight and color, at the size it has on the slide, 1 pt at least', latin.getAttribute('typeface') === '+mn-lt' && run.getAttribute('sz') === String(Math.max(100, Math.round(1000 * k))) && run.getAttribute('b') === '1'
       && colorIn(run) === 'FFFFFF', run.outerHTML.slice(0, 120));
     const xf = tags(fund, 'a:xfrm')[0], off = tags(xf, 'a:off')[0], ext = tags(xf, 'a:ext')[0], f = main.byId.get('fund'), ox = (W - main.page.w * k) / 2, oy = (H - main.page.h * k) / 2;
     check('a box sits where the scene places it, its page on the middle of its slide', Math.abs(+off.getAttribute('x') - (ox + f.x * k) * EMU) < 2 && Math.abs(+off.getAttribute('y') - (oy + f.y * k) * EMU) < 2
@@ -258,7 +258,7 @@ async function run() {
     const def = lsp && tags(lsp, 'a:defRPr')[0], first = tags(heads[0][0], 'a:rPr')[0];
     check('… on PowerPoint’s Title Only layout, its title placeholder where the first slide’s title is, in its look', !tags(layout, 'parsererror').length
       && tags(layout, 'p:cSld')[0].getAttribute('name') === 'Title Only' && tags(lsp, 'p:ph')[0].getAttribute('type') === 'title' && j(rect(lsp)) === j(rect(heads[0][0]))
-      && def.getAttribute('sz') === first.getAttribute('sz') && def.getAttribute('b') !== '1' && tags(def, 'a:latin')[0].getAttribute('typeface') === 'Georgia'
+      && def.getAttribute('sz') === first.getAttribute('sz') && def.getAttribute('b') !== '1' && tags(def, 'a:latin')[0].getAttribute('typeface') === '+mj-lt'
       && j(textOf(lsp)) === j(['Click to edit Master title style']), lsp && lsp.outerHTML.slice(0, 160));
     const app = xml(await zip.file('docProps/app.xml').async('string')), parts = tags(app, 'vt:lpstr').map(e => said(e.textContent));
     check('its properties are PowerPoint’s: no subject and no PptxGenJS, its fonts, its slides’ titles, its words, widescreen', !tags(app, 'parsererror').length

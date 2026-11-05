@@ -13,7 +13,7 @@ Templates.register({
     t.rule('Direct Reports', { at: person, type: 'number', rows: [['', '= COUNT(Reports)']], about: 'How many people report to this person.' });
     t.rule('Span', { at: person, type: 'number', rows: [['Reports, and all under them', '= COUNT(Reports) + SUM(EACH(Reports, @.Span))']], about: 'How many people are under this person, at every level.' });
 
-    t.page('org', 'Org Chart', 1, { title: { format: { Font: 'Georgia', Bold: false, Color: '#1f3a5f' } }, date: { format: { Size: 10, Color: '#5f6b78' } }, key: false });
+    t.page('org', 'Org Chart', 1, { title: { format: { Bold: false, Color: '#1f3a5f' } }, date: { format: { Size: 10, Color: '#5f6b78' } }, key: false });
     t.shown('org', field('Name'), { Bold: true, Color: '#1c2733' });
     t.shown('org', t.entry('Title', person), { Color: '#5f6b78' });
     t.style('org', person, 'Person', { Shape: 'rounded', Fill: '#eef2f7', Outline: '#1f3a5f', Weight: 1 });

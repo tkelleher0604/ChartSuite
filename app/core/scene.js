@@ -64,7 +64,7 @@ const printed = (it, s) => (it.typedAt === s ? it.look.Size : half(it.look.Size,
 // below and to the right; and its Corner, a rounded rectangle's, is the radius of its corners as a percentage of
 // its shorter side, up to 50, PowerPoint's adjustment of the shape.
 const INK = '#1c2733', RULE = '#3a4653';
-const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: INK, 'Text Gradient': null, 'Text Outline': null, Align: 'center', Spacing: 1, Format: 'value' }, BESIDE_NAME = 8;
+const TEXT = { Font: 'Body', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: INK, 'Text Gradient': null, 'Text Outline': null, Align: 'center', Spacing: 1, Format: 'value' }, BESIDE_NAME = 8;
 const CORNER = 16.667;
 // What a box's or a shape's body can have beyond its fill and its outline (dendra.md, Effects): none of it, by default.
 const BODY = { 'Alt Text': null, Picture: null, 'Line Transparency': 0, 'Line Gradient': null, Compound: 'single', Glow: null, 'Soft Edge': 0, Reflection: null, 'Inner Shadow': 'none', Bevel: null, 'Turn 3D': null };
@@ -142,9 +142,9 @@ const FONTS = {
   'Lucida Console': ['mono', "'Lucida Console', Monaco, monospace"],
   Menlo: ['mono', "Menlo, Monaco, Consolas, monospace"],
 };
-// A chart's theme fonts (dendra.md, The master): Heading and Body are fonts by reference, what its Theme Fonts note says each is, so a text that says one follows it.
+// A chart's theme fonts (dendra.md, The master): Heading and Body are fonts by reference, what its Theme Fonts note says each is, Georgia and Arial where it says nothing. Every text that says no font of its own says Body, a title Heading, so each follows.
 let themed = null;
-const fontName = f => f === 'Heading' ? themed?.heading ?? 'Arial' : f === 'Body' ? themed?.body ?? 'Arial' : f;
+const fontName = f => f === 'Heading' ? themed?.heading ?? 'Georgia' : f === 'Body' ? themed?.body ?? 'Arial' : f;
 const fontClass = f0 => { const f = fontName(f0); return FONTS[f]?.[0] ?? (/mono|courier|consol|code/i.test(f) ? 'mono' : /serif|roman|times|garamond|georgia|book|old style/i.test(f) && !/sans/i.test(f) ? 'serif' : 'sans'); };
 const fontFamily = f0 => { const f = fontName(f0); return FONTS[f]?.[1] ?? `'${String(f).replace(/['\\]/g, '')}', ${{ sans: 'sans-serif', serif: 'serif', mono: 'monospace' }[fontClass(f)]}`; };
 const groupBy = (list, f) => list.reduce((m, x) => { const k = f(x); (m.get(k) ?? m.set(k, []).get(k)).push(x); return m; }, new Map());
@@ -223,7 +223,7 @@ function apart(w, t, most) {
 // same texts again.
 const broken = new Map();
 function breakLines(text, t, width, balanced = true, hang = false, name = false) {
-  const k = `${t.Italic ? 'i' : ''}${t.Bold ? 'b' : ''}${t.Size}|${t.Font}|${width}|${balanced}|${hang}|${name}|${text}`, em = hang ? t.Size * PT : 0;
+  const k = `${t.Italic ? 'i' : ''}${t.Bold ? 'b' : ''}${t.Size}|${fontName(t.Font)}|${width}|${balanced}|${hang}|${name}|${text}`, em = hang ? t.Size * PT : 0;
   let ls = broken.get(k);
   if (!ls) {
     ls = [];
@@ -359,7 +359,7 @@ function snap(it, s, under = false) {
 // Kept by what it reads, the latest few thousand, as the next scene sets the same triangles again.
 const pyramids = new Map();
 function pyramid(texts, w, wide) {
-  const k = JSON.stringify([w, wide, texts.map(it => [it.text, it.look.Font, it.look.Size, it.look.Bold, it.look.Italic, it.look.Spacing, !!it.name])]);
+  const k = JSON.stringify([w, wide, texts.map(it => [it.text, fontName(it.look.Font), it.look.Size, it.look.Bold, it.look.Italic, it.look.Spacing, !!it.name])]);
   let p = pyramids.get(k);
   if (!p) {
     p = fitPyramid(texts, w, wide);
@@ -2156,7 +2156,7 @@ const SHAPED = new Set(['line', 'picture', 'group', 'legend', 'table', 'text', '
 // A table's: its Fill is its heading row's, its Outline its rules', its Color its words'.
 const TABLE = { Fill: '#44546a', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Size: 10, Valign: 'middle' };
 // The page's own texts: its title, its date, its footer and its number.
-const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
+const ROLES = { title: { Size: 20, Bold: true, Font: 'Heading' }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
 function freeShape(row, text, u = 1, k = 1) {
   const { id, shape, format = {} } = row;
   const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...(row.geometry === 'table' && TABLE), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),

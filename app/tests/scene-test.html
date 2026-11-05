@@ -129,7 +129,7 @@ function run() {
       && t.byId.get('aiv').settings.Fill.note.pattern.args[0].edge === 'Good Standing', j(t.byId.get('aiv').settings.Fill.value));
     check('a text takes its own style’s properties, and its box’s where none', (() => {
       const juris = t.byId.get('fund').texts.find(x => x.id === 'fund_juris'), name = t.byId.get('fund').texts.find(x => x.id === 'fund_name');
-      return juris.settings.Size.value === 8 && juris.settings.Color.note && juris.text === '(Delaware)' && name.look.Bold === true && juris.look.Bold === false && name.look.Font === 'Arial';
+      return juris.settings.Size.value === 8 && juris.settings.Color.note && juris.text === '(Delaware)' && name.look.Bold === true && juris.look.Bold === false && name.look.Font === 'Body';
     })());
   }
 
