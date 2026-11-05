@@ -1,6 +1,6 @@
 /* The chart canvas and its format bar: only what's theirs. Tokens are dendra.css's. The page is the
-   document, so it stays white in both themes; the selection is Office's, a thin frame in the accent with
-   square handles, and the guides are red-orange. */
+   document, so it stays white in both themes; the selection is a ring in the accent by the mark's own shape, with
+   Office's square handles, and the guides are red-orange. */
 
 .dc { position: absolute; inset: 0; outline: none; background: var(--side); overflow: hidden; }
 .dc-graph { position: absolute; inset: 0; }
@@ -34,8 +34,8 @@
 .dc.flying :is(.x6-widget-selection, .x6-widget-transform, .dc-marks) { visibility: hidden; }
 .dc-ghosts { pointer-events: none; }
 
-/* The selection: a thin frame and 6 px square handles at its corners and sides, as in Office; a box too
-   small on screen for its side handles shows only its corners. */
+/* The selection's 6 px square handles at its corners and sides, as in Office; a box too small on screen for its
+   side handles shows only its corners. */
 .dc .x6-widget-selection-box { border: 1px solid var(--accent) !important; box-shadow: none !important; margin: -3px 0 0 -3px !important; padding: 2px !important; border-radius: 0 !important; }
 /* The box the keys are on is where they are: its ring as plain as any focus ring, on the page's white in either theme. */
 :root[data-hand="keys"] .dc:focus .x6-widget-selection-box { outline: 3px solid #2c4c7c; outline-offset: 1px; }
@@ -44,14 +44,15 @@
 .dc .x6-widget-transform { border: 0 !important; margin: -3px 0 0 -3px !important; padding: 3px !important; box-shadow: none !important; }
 /* While a design is edited, a part's frame is the part's: inside the box it's a part of. */
 .dc.designing .x6-widget-selection-box { margin: 0 !important; padding: 0 !important; }
-/* At rest, one quiet outline, by the mark's own shape: what can be taken hold of stands up as the pointer nears it. Dragged, a frame goes with it. */
+/* What's selected: a ring by the mark's own shape, clear of its edge, and its grips, squares, at rest; only what's selected has them. What else can be taken hold of stands up as the pointer nears it. Dragged, a frame goes with it. */
 .dc .x6-widget-selection-box-node { visibility: hidden; }
 .dc.dragging .x6-widget-selection-box-node { visibility: visible; }
 .dc-group.dc-shaped { stroke-dasharray: none; }
 .dc.dragging .dc-shaped { visibility: hidden; }
-.dc .x6-widget-transform-resize { width: 6px !important; height: 6px !important; margin: 0 !important; border-radius: 0 !important; background: #fff !important; border: 1px solid var(--accent) !important; box-shadow: none !important; opacity: 0; transition: opacity var(--quick) var(--ease); }
-.dc.near-grips .x6-widget-transform-resize:not(.on-label), .dc .x6-widget-transform-resize:hover { opacity: 1; }
-.dc .x6-widget-transform-resize.on-label { pointer-events: none; }
+.dc .x6-widget-transform-resize { width: 6px !important; height: 6px !important; margin: 0 !important; border-radius: 0 !important; background: #fff !important; border: 1px solid var(--accent) !important; box-shadow: none !important; }
+.dc .x6-widget-transform-resize.on-label { pointer-events: none; opacity: 0; }
+/* (A triangle's two upper corners stand off its slopes: there as the pointer nears, not hanging in the air at rest.) */
+.dc:not(.near-grips) .x6-widget-transform.triangular .x6-widget-transform-resize:is([data-position="top-left"], [data-position="top-right"]):not(:hover) { opacity: 0; }
 .dc .x6-widget-transform-resize[data-position^="top"] { top: -3px !important; }
 .dc .x6-widget-transform-resize[data-position^="bottom"] { bottom: -3px !important; }
 .dc .x6-widget-transform-resize[data-position$="left"] { left: -3px !important; }
@@ -81,13 +82,13 @@
 .dc-hl.deep { --w: 1px; --o: .5; }
 .dc-row, .dc-group { --hue: var(--accent); --w: 1px; --o: 1; }
 .dc-cue { --hue: var(--accent); --w: 1.5px; --o: 1; }
-/* What's selected, one thin rule, on its own edge. */
-.dc-group.dc-shaped { --w: 1.5px; }
-/* What's in reach of the pen, at rest: a faint tint, in the same accent, its edge a shade stronger so it shows on a dark fill; others untouched. A line in reach, the accent over its own stroke. */
-.dc-reach { --hue: var(--accent); --w: 1px; --o: .75; }
-path.dc-reach { fill: var(--accent) !important; fill-opacity: .07; stroke-width: 3px !important; stroke-opacity: .22; }
+/* What's selected: the strongest mark on the page, one ring, clear of its edge. */
+.dc-group.dc-shaped { --w: 2px; }
+/* What's in reach of the pen, at rest: the same ring, thin, every fill left its own colour. A line in reach, a band under it the same way, its own stroke left as it is. */
+.dc-reach { --hue: var(--accent); --w: 1px; --o: .7; }
+.x6-edge.dc-reach > path:first-child { stroke: var(--accent); stroke-opacity: .28; stroke-width: 5px; vector-effect: non-scaling-stroke; }
 .dc-sel { --hue: var(--accent); --w: 2px; --o: 1; }
-path:is(.dc-hl, .dc-row, .dc-group, .dc-cue, .dc-reach), .x6-edge:is(.dc-hl, .dc-row, .dc-sel, .dc-cue, .dc-reach) > path + path {
+path:is(.dc-hl, .dc-row, .dc-group, .dc-cue, .dc-reach), .x6-edge:is(.dc-hl, .dc-row, .dc-sel, .dc-cue) > path + path {
   fill: none; stroke: var(--hue); stroke-width: var(--w) !important; stroke-opacity: var(--o); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .dc-group { stroke-dasharray: 4 3; }
 path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms var(--ease) 2; }
@@ -113,8 +114,8 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 @keyframes dc-teach { 50% { transform: scale(1.6); } }
 @media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } .dc.teaching .dc-handle { animation: none; } }
 
-/* A rounded shape's corner handle, as a line's grip is, there as the pointer nears; and where a Key's row dragged would go. */
-.dc-over > .dc-adjust { position: absolute; box-sizing: border-box; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #fff; border: 1px solid var(--accent); cursor: ew-resize; touch-action: none; transition: opacity var(--quick) var(--ease); }
+/* What's a shape's own to adjust, its corner, a callout's tip: a small diamond, so it's told from a grip's square and a dot, there as the pointer nears; and where a Key's row dragged would go. */
+.dc-over > .dc-adjust { position: absolute; box-sizing: border-box; width: 8px; height: 8px; margin: -4px 0 0 -4px; background: #fff; border: 1px solid var(--accent); transform: rotate(45deg); cursor: ew-resize; touch-action: none; transition: opacity var(--quick) var(--ease); }
 .dc:not(.near-grips) > .dc-over > .dc-adjust:not(:hover), .dc.dragging > .dc-over > .dc-adjust { opacity: 0; }
 .dc-over > .dc-keydrop { position: absolute; height: 2px; margin-top: -1px; background: var(--accent); pointer-events: none; }
 
@@ -158,7 +159,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .stops .row { display: flex; gap: 6px; padding: 6px 8px 2px; }
 .colorrow { display: flex; align-items: center; gap: 6px; }
 .colorrow .chips { display: inline-flex; gap: 3px; margin-left: auto; }
-.colorrow .chips button { width: 14px; height: 14px; padding: 0; border: 1px solid var(--rule-2); border-radius: 2px; cursor: pointer; }
+.colorrow .chips button { width: 14px; height: 14px; padding: 0; border: 1px solid var(--ring); border-radius: 2px; cursor: pointer; }
 .colorrow .chips button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .colorrow .hex input { width: 66px; }
 .pop:has(> .linkform) { padding: 10px; }
@@ -180,23 +181,22 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .btn { height: 28px; padding: 0 6px; gap: 4px; border: 0; background: transparent; color: var(--ink); flex: none; }
 .fb .btn.icon { width: 28px; color: var(--ink); }
 .fb .btn[aria-pressed="true"] { background-color: var(--selected); background-image: none; color: var(--accent-ink); }
-/* The scope: two parts, the selection and all like it, the one a change goes to on in the selection's tint, the caret that chooses the group joined to its part. It keeps one width, selected or not, so
-   nothing after it in the bar moves as what it names changes; a name too long for it is cut short, and shown whole on hover. It takes what the bar has left, up to its most, before the font's list. */
-.fb .scope { display: inline-flex; flex: 1 1 0; min-width: 176px; max-width: 420px; height: 28px; border-radius: var(--r); overflow: hidden; }
+/* The scope: a pair of the bar's own buttons, each as wide as its word, the one a change goes to on in the selection's tint, as Bold is, the caret joined to the second. It holds one width, selected or not, whatever it says, so
+   nothing after it in the bar moves; a name too long for it is cut short, and shown whole on hover. */
+.fb .scope { display: inline-flex; flex: none; gap: 2px; width: 248px; height: 28px; }
 .fb .scope.off > button { color: var(--off); }
-.fb .scope > button { height: 28px; padding: 0 8px; border: 0; background: transparent; color: var(--ink-2); display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; cursor: default; }
+.fb .scope > button { flex: 0 1 auto; height: 28px; padding: 0 6px; border: 0; border-radius: var(--r); background: transparent; color: var(--ink); display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; cursor: default; }
 .fb .scope > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.fb .scope > [data-fb="own"] { flex: 0 1 auto; }
-.fb .scope > :only-child { flex: 1 1 auto; }
-.fb .scope > [data-fb="like"] { flex: 1 1 auto; }
 /* Short of room, what the pen isn't at gives way first, and never to a letter. */
 .fb .scope > [data-fb="own"], .fb .scope > [data-fb="like"] { min-width: 54px; }
 .fb .scope > [aria-pressed="false"] { flex-shrink: 20; }
-.fb .scope > button:hover { background-image: linear-gradient(var(--hover), var(--hover)); color: var(--ink); }
+.fb .scope > button:hover { background-image: linear-gradient(var(--hover), var(--hover)); }
 .fb .scope > button[aria-pressed="true"] { background-color: var(--selected); color: var(--accent-ink); font-weight: 500; }
 /* With nothing selected, it's a dropdown like any: All text, or a Styles row aimed at from its list. */
-.fb .scope > button.root { justify-content: flex-start; gap: 4px; color: var(--ink); }
-.fb .scope > .more { flex: none; width: 20px; padding: 0; justify-content: center; }
+.fb .scope > button.root { gap: 4px; }
+.fb .scope > [data-fb="like"] { margin-right: -2px; padding-right: 4px; border-radius: var(--r) 0 0 var(--r); }
+.fb .scope > [data-fb="like"]:hover + .more, .fb .scope > [data-fb="like"]:has(+ .more:hover) { background-image: linear-gradient(var(--hover), var(--hover)); }
+.fb .scope > .more { flex: none; width: 18px; padding: 0 4px 0 0; justify-content: center; border-radius: 0 var(--r) var(--r) 0; }
 .fb .scope > .more::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; }
 .fb .scope > [aria-pressed="true"] + .more { background-color: var(--selected); }
 .fb .scope > button[data-open] { background-image: linear-gradient(var(--press), var(--press)); }
@@ -216,13 +216,13 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* Where the bar is narrower than its full width, Align, Order, Group and Tidy are one Arrange menu. */
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
-@container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb > .sep { margin: 0 4px; } .fb .font { width: 104px; } }
-/* The scope has the room to say what it reaches: the font list gives way first, then what has a key or a place in Find. */
-@container (max-width: 1480px) { .fb .font { width: 72px; } .fb .arrange > span { display: none; } .fb .arrange > svg { display: block; } }
-@container (max-width: 1310px) { .fb > .sep { margin: 0 3px; } .fb [data-fb="grow"], .fb [data-fb="shrink"] { display: none; } }
-@container (max-width: 1130px) { .fb .font { width: 64px; } .fb [data-fb="underline"], .fb [data-fb="strike"], .fb [data-fb="paragraph"] { display: none; } }
+@container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb > .sep { margin: 0 4px; } }
+/* Each width a step, whatever's selected: the font list gives way first, then the scope a little, then what has a key or a place in Find. */
+@container (max-width: 1400px) { .fb .font { width: 104px; } .fb .arrange > span { display: none; } .fb .arrange > svg { display: block; } }
+@container (max-width: 1310px) { .fb > .sep { margin: 0 3px; } .fb .font { width: 84px; } .fb .scope { width: 208px; } .fb [data-fb="grow"], .fb [data-fb="shrink"] { display: none; } }
+@container (max-width: 1130px) { .fb .font { width: 64px; } .fb .scope { width: 176px; } .fb [data-fb="underline"], .fb [data-fb="strike"], .fb [data-fb="paragraph"] { display: none; } }
 @container (max-width: 1010px) { .fb > .sep { margin: 0 2px; } .fb [data-fb="painter"], .fb [data-fb="clear"], .fb [data-fb="shape"] { display: none; } }
-@container (max-width: 880px) { .fb .font { width: 56px; } }
+@container (max-width: 880px) { .fb .font { width: 56px; } .fb .scope { width: 148px; } }
 /* A color's bar under its glyph: the paint bucket's, the pen's; the A's is its own baseline, in the color. */
 .fb .well { display: inline-grid; grid-template-rows: 15px 4px; justify-items: center; width: 16px; height: 20px; }
 .fb .well > svg { width: 15px; height: 15px; }
@@ -300,7 +300,7 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .palette.grid > :nth-child(-n + 10) { margin-bottom: 4px; }
 .palette.grid > i { grid-column: 1 / -1; height: 4px; }
 .palette.grid > button { width: 20px; height: 20px; }
-.palette :is(.own, .grid) > button, .palette.grid > button { padding: 0; border: 1px solid var(--rule-2); border-radius: 3px; background-clip: padding-box; cursor: default; }
+.palette :is(.own, .grid) > button, .palette.grid > button { padding: 0; border: 1px solid var(--ring); border-radius: 3px; background-clip: padding-box; cursor: default; }
 /* The color it has wears a tick in what reads on it; the keys' ring goes round whichever they're on, a dark ring and a light one, so it shows on any swatch. */
 .palette button[style][aria-pressed="true"] { position: relative; }
 .palette button[style][aria-pressed="true"]::after { content: ""; position: absolute; left: calc(50% - 3px); top: calc(50% - 7px); width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000); }
@@ -410,8 +410,8 @@ text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-seri
 .dc-smart { stroke: #d6336c; pointer-events: none; }
 .dc-pin { fill: none; stroke: var(--accent); pointer-events: none; stroke-linecap: round; stroke-linejoin: round; }
 /* The chart's master, being edited: a bar over its page. */
-.dc-over > .dc-masterhost { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); pointer-events: none; }
-.dc-masterbar { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 4px 4px 4px 12px; background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r); box-shadow: 0 6px 18px rgb(0 0 0 / .12); font-weight: 600; }
+.dc-over > .dc-masterhost { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 3; }
+.dc-masterbar { pointer-events: auto; }
 .picker:has(> button.menu-item) { gap: 2px; }
 .fonts > button.menu-item { margin-top: 4px; border-top: 1px solid var(--rule); }
 /* A table on the page: the cell picked; the rule between two columns, to drag; Insert's grid of rows and columns. */
@@ -425,10 +425,10 @@ text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-seri
 .dc-tgrip path { fill: none; stroke: var(--accent); stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .pop:has(> .tstyles) { padding: 8px; }
 .tstyles .tcolors { display: flex; gap: 6px; padding: 0 0 8px; }
-.tstyles .tcolors button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--rule-2); border-radius: 50%; cursor: pointer; }
+.tstyles .tcolors button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--ring); border-radius: 50%; cursor: pointer; }
 .tstyles .tcolors button.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tstyles .ttiles { display: grid; grid-template-columns: repeat(4, 62px); gap: 4px; }
-.tstyles .ttiles button { width: 62px; height: 44px; padding: 3px; display: grid; place-items: center; background: #fff; border: 1px solid var(--rule-2); border-radius: 2px; cursor: pointer; }
+.tstyles .ttiles button { width: 62px; height: 44px; padding: 3px; display: grid; place-items: center; background: var(--well); border: 1px solid var(--rule-2); border-radius: 2px; cursor: pointer; }
 .tstyles .ttiles button:hover, .tstyles .ttiles button:focus-visible { border-color: var(--accent); }
 .tstyles .ttiles button.on { outline: 2px solid var(--accent); outline-offset: -1px; }
 .pop:has(> .iconpick) { padding: 6px; }
@@ -444,7 +444,7 @@ input.cell.tabs { width: 88px; }
 .pop:has(> .tablepick) { padding: 4px; }
 .tablepick { min-width: 216px; }
 .tablepick .grid { display: grid; grid-template-columns: repeat(8, 22px); gap: 2px; padding: 4px; }
-.tablepick .grid button { width: 22px; height: 18px; padding: 0; border: 1px solid var(--rule-2); border-radius: 1px; background: var(--surface); cursor: pointer; }
+.tablepick .grid button { width: 22px; height: 18px; padding: 0; border: 1px solid var(--ring); border-radius: 1px; background: var(--surface); cursor: pointer; }
 .tablepick .grid button.on { background: var(--selected); border-color: var(--accent); }
 .tablepick .grid button:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
 .dc-cropper.frame { stroke: var(--ink); stroke-dasharray: 3 2; pointer-events: none; }
@@ -528,13 +528,16 @@ input.cell.tabs { width: 88px; }
 .picker.designs .menu-head { margin-top: 6px; }
 .picker.designs .acts { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 0; }
 .dc .x6-cell.dc-locked, .dc .x6-cell.dc-locked * { pointer-events: none !important; }
-.dc-over > .dc-designbar { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 5px 6px 5px 12px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); color: var(--ink); font: var(--t13, var(--t12)); box-shadow: var(--shadow-1, 0 1px 4px rgba(0, 0, 0, .18)); pointer-events: auto; white-space: nowrap; z-index: 3; }
-.dc-over > .dc-designbar > span { overflow: hidden; text-overflow: ellipsis; margin-right: 6px; }
-.dc-over > .dc-designbar > input.cell { width: 120px; height: 26px; min-width: 0; padding: 0 6px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); }
-/* The design's name on the bar, the font list giving way for it, never the scope. */
-.fb .design-now > .wide { display: inline-block; max-width: 72px; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@container (max-width: 1560px) { .fb:has(.design-now > .wide) .font { width: 68px; } .fb .design-now { padding-right: 4px; } }
-@container (max-width: 1320px) { .fb .design-now > .wide { display: none; } }
+/* While the page is given over to one thing, the master or a design: one bar, over the page, saying what's being edited, with the way out at its end. */
+.dc-over > .dc-designbar { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px); pointer-events: auto; z-index: 3; }
+.dc-designbar, .dc-masterbar { display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); color: var(--ink); font: var(--t13); box-shadow: var(--shadow-pop); white-space: nowrap; }
+.dc-over > .dc-designbar > span, .dc-masterbar > span { overflow: hidden; text-overflow: ellipsis; margin-right: 6px; }
+.dc-over > .dc-designbar > input.cell { width: 120px; height: 26px; min-width: 0; margin: 0; padding: 0 6px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); }
+/* The design's name on the bar, in room kept for it, said or not, so nothing beside it moves as the selection does. */
+.fb .design-now { width: 112px; justify-content: flex-start; }
+.fb .design-now > .named { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb .design-now > .named:empty { display: none; }
+@container (max-width: 1400px) { .fb .design-now { width: auto; } .fb .design-now > .named { display: none; } }
 /* The panel, while a design is edited: its parts, a click from each; a part's words, its fields as chips. */
 .parts-of { flex: none; }
 .parts-of > .sect { display: flex; }

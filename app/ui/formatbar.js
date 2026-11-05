@@ -513,8 +513,13 @@ const pen = {
     if (n.aim) return aim(n.aim, true);
     penTo(c, n.s, n.to);
   },
-  // Pointed at: what it would reach lit, the rest dulled.
-  point(w, on) { const n = on ? pen.next(w) : null; cue(n?.marks ? { marks: n.marks } : null); },
+  // Pointed at: what it would reach lit, the rest dulled; for as long as `by`, what's pointed at, is there.
+  point(w, on, by) { const n = on ? pen.next(w) : null; cue(n?.marks ? { marks: n.marks, ...n.aim } : null, by); },
+  // Its row pointed at: what the row governs lit, nothing dulled.
+  hint(w, on, by) {
+    const c = Canvas.active.peek(), n = on && c?.scene() ? pen.next(w) : null, x = n?.marks ? { marks: n.marks, ...n.aim } : null;
+    c?.hint?.(x ? [...x.marks] : null, by, c && wordsOf(c, x));
+  },
   // Back to going by itself: Esc with nothing selected.
   home() { const had = !!level.peek() || !!aimed.peek(); level.value = null; if (aimed.peek()) aim(null); settled = { sel: null, loc: null }; return had; },
   // Whether the one mark selected draws this record: a page's pens are of what's selected.
@@ -1068,16 +1073,22 @@ function toggle() {
 }
 // What's in reach of the pen has a thin outline at rest, and nothing else is touched (the canvas's reach). Only what's being
 // pointed at dulls the rest, for as long as it's pointed at: the cue. (A Key row or a frame is lit by the canvas as it is.)
-function cue(x) {
+// `by`, what's pointed at: gone from under the pointer, it takes the cue with it. A style of one entry (Names) reaches words, so it's those that are lit, not the boxes they're in.
+function cue(x, by = null) {
   const c = Canvas.active.peek();
   if (!c?.scene()) return;
-  c.cue(x?.marks ? [...x.marks] : null);
+  c.cue(x?.marks ? [...x.marks] : null, by, wordsOf(c, x));
+}
+function wordsOf(c, x) {
+  if (x?.swatch?.kind !== 'text' || !x.marks) return null;
+  const sc = c.scene(), st = App.state.peek(), words = [...x.marks].flatMap(id => (sc.byId.get(id)?.texts ?? []).filter(it => x.outputs.some(p => Tree.fits(st, it.id, p))).map(it => it.id));
+  return words.length ? words : null;
 }
 function atRest() {
   const c = Canvas.active.peek();
   if (!c?.scene()) return;
   const s = scopesOf(c), sc = scopeOf(s.scopes);
-  c.reach?.(sc && !sc.own && !sc.root && sc.marks ? [...sc.marks] : null);
+  c.reach?.(sc && !sc.own && !sc.root && sc.marks ? [...sc.marks] : null, pen.moved(), wordsOf(c, sc));
 }
 // The group that's lit, a Styles row aimed at or a place a hand put the pen, which what comes next takes (dendra.md, What's lit is what's
 // meant); null where it's the selection itself, or the pen went there by itself. And what it reaches of a page, whatever a look keeps off it just now.
@@ -2038,10 +2049,11 @@ function Bar() {
     return [[...s.scopes.filter(x => x.own).map(item), ...(shownRow ? [item(shownRow)] : [])], rows.filter(x => !x.name).map(item), headed.flatMap((x, i) => x.style === headed[i - 1]?.style ? [item(x)] : [{ head: x.name }, item(x)]),
       own.length ? many ? [{ label: 'Same field value', items: own.map(item) }] : [{ head: 'Same field value' }, ...own.map(item)] : [], clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
   };
-  // The scope as two parts, PowerPoint's selection on the left and all like it on the right: the group chosen, or
-  // else the narrowest, which its ▾ chooses among the rest. A Key row or a frame is its group alone.
+  // The scope as a pair, PowerPoint's selection on the left and all like it on the right: the group chosen, or
+  // else the narrowest. A click on the one the pen isn't at moves it there; on the one it's at, or the caret, opens the list of all it could go to. A Key row or a frame is its group alone.
   liked.value;
   const like = likeOf(s), ownPart = s.scopes.find(x => x.own), armed = painter.value;
+  const places = e => Shell.menu(e.currentTarget, scopes(), { placement: 'bottom-start', onClose: () => cue(null) });
   // A font or size the texts it would change don't share is shown blank, as PowerPoint shows one its selection mixes.
   const several = l => texty && new Set(scopeTexts().map(it => it.look?.[l]).filter(v => v !== undefined)).size > 1;
   const font = root ? Scene.fontName(value('Font')) : !texty ? '' : several('Font') ? '' : Scene.fontName(value('Font')), size = root ? shown(value('Size')) ?? '' : !texty ? '' : several('Size') ? '' : shown(value('Size')), align = (texty && value('Align')) || 'center';
@@ -2057,14 +2069,13 @@ function Bar() {
     <button class="btn icon" data-fb="clear" aria-label="Clear formatting" data-keys="Ctrl+Space" ...${writes('Clear formatting', none)} onClick=${clearLook}>${Shell.icon('eraser')}</button>
     <span class="sep" />
     <div class=${'scope' + (scope?.own ? ' own' : '') + (none && !root ? ' off' : '')} role="group" aria-label="Format" data-fb="scope" data-tour="scope">
-      ${root ? html`<button class="dd root" data-fb="all" aria-haspopup="menu" data-tip="Every text on this page that nothing narrower sets; or what its list aims at"
+      ${root ? html`<button class="dd root" data-fb="all" aria-haspopup="menu" data-tip="All text on this page, or what you choose"
         onClick=${e => Shell.menu(e.currentTarget, [{ label: 'All text', checked: true, run: () => {} }, ...Scene.groupsOf(App.notes.peek(), c.scene().view).filter(g => !g.off).flatMap((g, i, all) => [...g.name ? (g.name !== all[i - 1]?.name ? [{ head: g.name }] : []) : all[i - 1]?.name ? ['-'] : [], { label: g.caption, run: () => aim(g) }])], { placement: 'bottom-start' })}><span>All text</span></button>` : none ? html`<button disabled><span>Nothing selected</span></button>` : null}
       ${ownPart ? html`<button aria-pressed=${!!scope?.own} data-fb="own" data-tip=${like ? 'Just the selection' : null} data-keys=${like ? 'Ctrl+Shift+A' : null}
         onClick=${() => choose(ownPart)}><span>${ownPart.label}</span></button>` : null}
-      ${like ? html`<button aria-pressed=${!scope?.own} data-fb="like" data-keys=${ownPart ? 'Ctrl+Shift+A' : null} onPointerOver=${whole}
-        onPointerEnter=${() => cue(like)} onPointerLeave=${() => cue(null)} onClick=${() => choose(like)}><span>${placeSaid(c, like)}</span></button>` : null}
-      ${like && (s.scopes.length > 2 || countOf(c, like) > (like.marks ?? marksOf(c.scene(), like)).size) ? html`<button class="more" data-fb="groups" aria-label="All like it" data-tip="All like it" aria-haspopup="menu"
-        onClick=${e => Shell.menu(e.currentTarget, scopes(), { placement: 'bottom-end', onClose: () => cue(null) })} />` : null}
+      ${like ? html`<button aria-pressed=${!scope?.own} data-fb="like" data-keys=${ownPart ? 'Ctrl+Shift+A' : null} onPointerOver=${whole} aria-haspopup=${scope?.own ? null : 'menu'}
+        onPointerEnter=${e => cue(like, e.currentTarget)} onPointerLeave=${() => cue(null)} onClick=${e => { cue(null); if (scope?.own) choose(like); else places(e); }}><span>${placeSaid(c, like)}</span></button>
+      <button class="more" data-fb="groups" aria-label="Where a change goes" data-tip="Where a change goes" aria-haspopup="menu" onClick=${places} />` : null}
     </div>
     <span class="sep" />
     <button class="btn dd font" data-fb="font" ...${writes(root ? 'All text' : lineOnly ? 'The text on these lines' : null, !texty && !root)} onClick=${e => opener.font(e.currentTarget)}><span>${font}</span></button>
@@ -2080,7 +2091,7 @@ function Bar() {
     <button class="btn dd" aria-label="Paragraph" data-fb="paragraph" ...${writes('Alignment and spacing', !texty)} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
     <span class="sep" />
     <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
-    <button class="btn dd design-now" aria-label="Design" data-fb="design" ...${writes((m => m ? `Design: ${m.design?.value.name ?? 'Plain'}` : 'Design')(s.marks.find(m => m.type === 'box')), !s.marks.some(m => m.type === 'box' || m.type === 'line') && !s.marks.some(m => m.type === 'shape' && !m.role))} onClick=${e => opener.design(e.currentTarget)}>${Shell.icon('LayoutTemplate')}${(n => n ? html`<span class="wide">${n}</span>` : null)(s.marks.find(m => m.type === 'box')?.design?.value.name)}</button>
+    <button class="btn dd design-now" aria-label="Design" data-fb="design" ...${writes((m => m ? `Design: ${m.design?.value.name ?? 'Plain'}` : 'Design')(s.marks.find(m => m.type === 'box')), !s.marks.some(m => m.type === 'box' || m.type === 'line') && !s.marks.some(m => m.type === 'shape' && !m.role))} onClick=${e => opener.design(e.currentTarget)}>${Shell.icon('LayoutTemplate')}<span class="named">${s.marks.find(m => m.type === 'box')?.design?.value.name ?? ''}</span></button>
     <button class="btn dd" aria-label="Effects" data-fb="effects" ...${writes('Shadow, glow, reflection and more', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.effects(e.currentTarget)}>${effectsGlyph}</button>
     <button class="btn dd" aria-label="Fill" data-fb="fill" ...${writes('Fill', !boxy)} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-fb="outline" ...${writes('Outline', none || textStyle || footOnly)} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle && !footOnly ? value('Outline') : 'none')}</button>
@@ -2088,7 +2099,7 @@ function Bar() {
     <button class="btn dd wide" data-fb="align" ...${writes(null, none)} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
     <button class="btn dd wide" data-fb="order" ...${writes(null, !layered)} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
     <button class="btn wide" data-fb="group" ...${writes(null, grouping.disabled)} onClick=${grouping.run}>${grouping.label}</button>
-    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [...aligns.map(a => a === '-' || a.head ? a : { ...a, disabled: a.disabled || none || ro }), '-', { label: 'Flip and turn', disabled: !free || ro, items: flips }, { label: 'Merge shapes', disabled: !c.mergeable?.() || ro, items: [['union', 'Union'], ['combine', 'Combine'], ['fragment', 'Fragment'], ['intersect', 'Intersect'], ['subtract', 'Subtract']].map(([k, label]) => ({ label, run: () => c.merge(k) })) }, { label: 'Order', disabled: !layered || ro, items: orders }, grouping, { label: 'Selection pane', keys: 'Alt+F10', run: () => c.pane() }, '-', { label: 'Edit master', run: () => { App.mastering.value = !App.mastering.peek(); }, checked: App.mastering.peek() }, ...(App.mastering.peek() ? [] : [{ label: 'Leave the master off', checked: !App.hasMaster(view), disabled: ro, run: () => App.pageMaster(view, !App.hasMaster(view)) }]), '-', tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, { label: 'Filter…', disabled: !App.canAsk(), run: () => c.filter() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', Canvas.aidsRow()])}>
+    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [{ label: 'Align', disabled: none || ro, items: aligns }, { label: 'Flip and turn', disabled: !free || ro, items: flips }, { label: 'Merge shapes', disabled: !c.mergeable?.() || ro, items: [['union', 'Union'], ['combine', 'Combine'], ['fragment', 'Fragment'], ['intersect', 'Intersect'], ['subtract', 'Subtract']].map(([k, label]) => ({ label, run: () => c.merge(k) })) }, { label: 'Order', disabled: !layered || ro, items: orders }, { ...grouping, icon: null }, { label: 'Selection pane', keys: 'Alt+F10', run: () => c.pane() }, '-', tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, { label: 'Filter…', disabled: !App.canAsk(), run: () => c.filter() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', Canvas.aidsRow()])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
     <button class="btn" data-fb="tidy" ...${writes(tidy.label === 'Tidy' ? null : tidy.label, tidy.disabled)} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label.replace(/ \D+$/, '')}<span class="wide">${tidy.label.match(/ \D+$/)?.[0]}</span></button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: '$mod+Alt+Digit0', run: () => c.zoom('fit') }, '-',
@@ -2100,7 +2111,7 @@ function Bar() {
 function mount(el) {
   // Another selection or view ends an aim: the pen goes on where a hand's place still reaches, or by itself. (Another page is a new start.)
   let pageWas = Shell.view.peek();
-  const stopSel = effect(() => { Shell.selection.value; const v = Shell.view.value; liked.value = null; if (v !== pageWas) { pageWas = v; level.value = null; } else holdOrLetGo(); if (aimed.peek()) queueMicrotask(() => aim(null)); });
+  const stopSel = effect(() => { Shell.selection.value; const v = Shell.view.value; liked.value = null; if (v !== pageWas) { pageWas = v; level.value = null; } else holdOrLetGo(); if (aimed.peek()) queueMicrotask(() => aim(null)); Canvas.active.peek()?.scene() && Canvas.active.peek().cue(null); });
   const stopHand = effect(() => { if (level.value) handFor = selectedKey(); });
   // What's in reach is outlined, wherever the pen goes, on the chart it's on.
   const stopCue = effect(() => { level.value; aimed.value; Shell.selection.value; App.scene.value; Canvas.fieldPicked?.value; if (Canvas.active.value) queueMicrotask(atRest); });

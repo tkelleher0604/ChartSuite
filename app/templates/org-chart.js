@@ -10,6 +10,8 @@ Templates.register({
     t.note('Grows', t.entry('Department', person), true);
     t.note('Grows', t.entry('Location', person), true);
     t.undated();
+    // (Its own type, a face every copy of Office has, so the deck carries it.)
+    t.note('Theme Fonts', { kind: 'View' }, { heading: 'Gill Sans MT', body: 'Gill Sans MT' });
     t.starts('Start Date', person);
     t.ends('End Date', person);
     // (Said from the one who reports, as its name says it: "Reports To: Bea Cole → Avery Stone"; the manager drawn above.)

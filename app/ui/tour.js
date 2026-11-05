@@ -1,6 +1,6 @@
 // The tour: seven steps, each done by doing what it teaches, then one card. It runs by itself on the very
 // first launch, once the launch screen is gone, if a chart is drawn; after that, from Tour in the chart menu or
-// Find. Enter skips a step and Skip ends it. Esc leaves what's being done first (a name typed, a
+// Find. Next or Enter passes a step over, Back goes to the one before, and Skip ends it. Esc leaves what's being done first (a name typed, a
 // menu), as it always does, and otherwise ends the tour, the chart having the keys. Tab from nothing goes to Skip, and
 // from Skip into the window; a step says its act by the keys once they're what's used. A step waits for its event on the shell's bus; or for what it points at to
 // be clicked, or focused from the keys; or, pointing, for the pointer to rest on what it points at and leave. It
@@ -56,6 +56,8 @@ const Tour = (() => {
   const leave = () => { rest = null; settle(); opened = STEPS[at.peek()]?.ends ?? null; };
   const done = () => { leave(); settle(); Shell.select(began, { replace: true }); };
   const next = () => { const i = at.peek(); if (i < 0 || i >= STEPS.length) return; const to = doable(i + 1); if (to < STEPS.length) leave(); else done(); at.value = to; };
+  // A step can be passed over without being done, or gone back to, so no one's stuck on one with Skip the only way on.
+  const back = () => { const i = at.peek(); for (let to = i - 1; to >= 0; to--) if (STEPS[to].can()) { leave(); at.value = to; return; } };
   // Skipped, it's over: a name's asked for when History first has one to sign.
   const skip = () => end();
   // Ended, the keys go to the chart, where they can be seen.
@@ -188,7 +190,7 @@ const Tour = (() => {
       ${step ? html`<div class="tour-card" ref=${card} role="dialog" aria-label="Tour" aria-live="polite" onKeyDown=${e => { if (e.key === 'Escape') { e.preventDefault(); end(); } }}>
           <div class="step">${i + 1} / ${STEPS.length}</div>
           <p><b>${act}</b> ${keysNow && step.saysKeys || step.say}</p>
-          <div class="acts"><button class="btn ghost skip" onClick=${skip}>Skip</button></div>
+          <div class="acts"><button class="btn ghost skip" onClick=${skip}>Skip</button>${STEPS.slice(0, i).some(s => s.can()) ? html`<button class="btn ghost back" onClick=${back}>Back</button>` : null}<button class="btn next" onClick=${next}>Next</button></div>
         </div>`
       : html`<div class="tour-scrim" /><form class="tour-card" ref=${card} role="dialog" aria-modal="true" aria-label="Tour" data-trap
           onSubmit=${e => { e.preventDefault(); finish(false); }} onKeyDown=${e => { if (e.key === 'Escape') finish(false); }}>

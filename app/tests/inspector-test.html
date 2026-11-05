@@ -917,7 +917,7 @@ async function run() {
   const swatch = $('svg.sw'), theme = document.documentElement.dataset.theme;
   document.documentElement.dataset.theme = 'dark';
   const dark = getComputedStyle(swatch), page = getComputedStyle(document.body).getPropertyValue('--well').trim();
-  check('in dark, a swatch’s colours are true, nothing dims them, on a neutral chip', dark.filter === 'none' && dark.opacity === '1' && dark.backgroundColor === 'rgb(213, 212, 207)' && page === '#d5d4cf', `${dark.filter} ${dark.opacity} ${dark.backgroundColor} ${page}`);
+  check('in dark, a swatch’s colours are true, nothing dims them, on a neutral chip', dark.filter === 'none' && dark.opacity === '1' && dark.backgroundColor === 'rgb(220, 220, 218)' && page === '#dcdcda', `${dark.filter} ${dark.opacity} ${dark.backgroundColor} ${page}`);
   document.documentElement.dataset.theme = theme;
   // Each 2 px inside its chip, a heavy outline too, so none runs along the chip's edge, where in dark a dashed one
   // (Not in good standing) would merge with the chip's white.

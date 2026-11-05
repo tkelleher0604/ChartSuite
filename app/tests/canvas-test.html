@@ -92,6 +92,8 @@ const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f
 // What a click there lands on: what's travelling lands first, for frames can stall in a headless run while its clock goes on.
 const hitAt = (x, y) => { for (const a of document.getAnimations()) if (a.effect?.target?.closest?.('.dc')) a.finish(); cv()?.root.classList.remove('flying'); return document.elementFromPoint(x, y); };
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+// Position, on a box's page, is folded till it's asked for.
+const placeOpened = async () => { $('.insp section[data-key="place"] > .sect > .fold[aria-expanded="false"]')?.click(); await tick(60); };
 const txt = el => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 const cv = () => Canvas.active.peek(), sc = () => cv().scene();
 const charts = () => App.views.peek().filter(v => v.layout === 'chart');
@@ -1485,7 +1487,7 @@ async function wherePut() {
   await undo();
 
   // Typed Left and Top read back as typed; a Height too, the row's others keeping theirs.
-  Shell.select([a]); await tick(250);
+  Shell.select([a]); await tick(250); await placeOpened();
   const field = k => $(`.insp [data-place="${k}"] input`);
   const type = async (k, v) => { const f = field(k); f.focus(); f.value = String(v); f.dispatchEvent(new Event('input', { bubbles: true })); f.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(350); };
   was = at();
@@ -3234,8 +3236,8 @@ async function designing(st) {
   cv().fields.addFoot('feeder', 'Only this one'); await tick(300);
   check('… and so does a footnote, the toast naming it', sc().byId.get('feeder').feet?.length === 1 && ![...FormatBar.scope().marks].some(id => id !== 'feeder' && sc().byId.get(id).feet?.length) && /Added a footnote to /.test(txt($$('.toast').at(-1))) && !/all 5/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
   Shell.parts.peek().undo.undo(); await tick(200);
-  // Free text at the pen a hand moved, `{Entry}` reading each box's own.
-  $('[data-fb="like"]').click(); await tick(150);
+  // Free text at the pen a hand moved, `{Entry}` reading each box's own. (It's where it stands by itself: its list, and the place ticked there, is a hand's.)
+  $('[data-fb="like"]').click(); await tick(150); $('.float .menu-item[aria-checked="true"]').click(); await tick(150);
   cv().fields.addText('feeder', 'In {Jurisdiction}'); await tick(300);
   const inJ = id => sc().byId.get(id).texts.find(it => it.free)?.text;
   check('a free text from the panel goes to what the pen reaches, each box reading its own', inJ('feeder') === 'In Cayman Islands' && [...FormatBar.scope().marks].some(id => /^In Delaware/.test(inJ(id) ?? '')) && $$('.toast').some(t => /Added text to all 5 funds/.test(txt(t))), `${inJ('feeder')} ${txt($$('.toast').at(-1))}`);
@@ -3418,7 +3420,7 @@ async function designing(st) {
   App.change(tx => tx.note('Theme Fonts', { kind: 'View' }, undefined), { dated: false }); await tick(200);
   const shownBefore = App.scene.peek().view;
   App.mastering.value = true; await tick(300);
-  check('Edit master shows its page alone, with a bar that says so', sc().view === Scene.MASTER && !sc().marks.some(m => m.type === 'box') && txt($('.dc-masterbar')).startsWith('Master'), sc().view);
+  check('Edit master shows its page alone, with a bar that says so', sc().view === Scene.MASTER && !sc().marks.some(m => m.type === 'box') && txt($('.dc-masterbar')).startsWith('Editing the master'), sc().view);
   check('… and has nothing of a kind to add', Canvas.kinds().length === 0);
   $('[data-fb="insert"]').click(); await tick(150);
   check('… Insert there offers its footer, date and page number', ['Footer', 'Date', 'Page number'].every(w => $$('.float .insert .menu-item').some(b => txt(b) === w)), $$('.float .insert .menu-item').map(txt).join());
@@ -3737,6 +3739,73 @@ async function entering(tick, esc) {
   Shell.select([]); await tick(60);
 }
 
+// The window's craft, on the sample as it opens: a selection that's unmistakable, what a pen reaches leaving every colour as it is, a preview that ends with what began it, a bar that holds still.
+async function craft() {
+  const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.5));
+  await until(() => App.views.peek().length && sc(), 15000);
+  if (App.mastering.peek()) App.mastering.value = false;
+  const dull = () => $$('.dc .x6-cell.dc-dull').length, cued = () => $$('.dc-marks path.dc-cue').length, like = () => $('[data-fb="like"]'), fontAt = () => $('[data-fb="font"]').getBoundingClientRect().left;
+  const enter = el => el.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false })), leave = el => el.dispatchEvent(new PointerEvent('pointerleave', { bubbles: false }));
+  Shell.select([]); await tick(150);
+  const noneAt = [fontAt(), $('[data-fb="zoom"]').getBoundingClientRect().left, $('[data-fb="tidy"]').getBoundingClientRect().left];
+  const fund = sc().marks.find(m => m.type === 'box' && m.record === 'feeder') ?? sc().marks.find(m => m.type === 'box');
+  Shell.select([fund.id]); await tick(250);
+  const barHolds = () => [fontAt(), $('[data-fb="zoom"]').getBoundingClientRect().left, $('[data-fb="tidy"]').getBoundingClientRect().left].every((x, i) => Math.abs(x - noneAt[i]) < 0.5);
+  check('the bar holds still as a box is selected', barHolds(), `${fontAt()} of ${noneAt[0]}`);
+  const reachers = $$('.dc-marks path.dc-reach');
+  check('what the pen reaches is a thin ring, no fill laid over it', reachers.length > 1 && reachers.every(p => getComputedStyle(p).fill === 'none' && parseFloat(getComputedStyle(p).strokeWidth) <= 1.01), reachers.map(p => getComputedStyle(p).fill).join());
+  const ring = $('.dc-marks path.dc-shaped');
+  check('what’s selected has the one strong ring, and its grips at rest', !!ring && parseFloat(getComputedStyle(ring).strokeWidth) >= 2 && $$('.x6-widget-transform-resize').filter(e => getComputedStyle(e).display !== 'none').some(e => +getComputedStyle(e).opacity === 1), ring && getComputedStyle(ring).strokeWidth);
+  check('… and only what’s selected names its blanks, the pen having gone by itself', !$$('.dc .x6-cell.dc-on').some(el => el.getAttribute('data-cell-id') !== fund.id && !el.getAttribute('data-cell-id')?.startsWith(`${fund.id}·`)), $$('.dc .x6-cell.dc-on').map(el => el.getAttribute('data-cell-id')).join());
+  // The trigger gone from under the pointer: the bar's part, a pen in the panel, an eye.
+  enter(like()); await tick(80);
+  check('a place pointed at dulls the rest', dull() > 0 && cued() > 0, `${dull()} ${cued()}`);
+  Shell.select([]); await tick(200);
+  check('… and what began it gone, the preview ends: nothing’s left dulled or lit', dull() === 0 && cued() === 0, `${dull()} ${cued()}`);
+  Shell.select([fund.id]); await tick(250);
+  const pen = $$('.insp .pen').find(p => !p.classList.contains('here'));
+  enter(pen); await tick(80);
+  const penCued = dull() > 0;
+  Shell.select([]); await tick(200);
+  check('… so too a pen in the panel, its row gone', penCued && dull() === 0 && cued() === 0, `${penCued} ${dull()} ${cued()}`);
+  Shell.select([fund.id]); await tick(250);
+  const eye = $$('.insp .onchart').find(p => p.closest('.row'));
+  if (eye) { enter(eye); await tick(80); Shell.select([]); await tick(200); check('… and an eye', dull() === 0 && cued() === 0, `${dull()} ${cued()}`); }
+  Shell.select([fund.id]); await tick(250);
+  const fieldRow = $$('.insp .ent > .row').find(r => r.querySelector('.onchart.on'));
+  if (fieldRow) { enter(fieldRow); await tick(80); const lit = $$('.dc-field.lit').length; Shell.select([]); await tick(200); check('… and a row that lights its field on the box', lit > 0 && !$$('.dc-field.lit').length, `${lit} ${$$('.dc-field.lit').length}`); }
+  // The pair: the one the pen isn't at takes it; the one it's at opens what else it could go to.
+  Shell.select([fund.id]); await tick(250);
+  like().click(); await tick(120);
+  check('a click on the place the pen’s at opens its list, the place ticked', !!$('.float .menu-item[aria-checked="true"]') && txt($('.float .menu-item[aria-checked="true"]')).length > 0);
+  await closeMenus();
+  $('[data-fb="own"]').click(); await tick(120);
+  const toOwn = $('[data-fb="own"]').getAttribute('aria-pressed') === 'true';
+  like().click(); await tick(120);
+  check('… and on the other, it moves there, no list', toOwn && like().getAttribute('aria-pressed') === 'true' && !$('.float .menu-item'), `${toOwn} ${like().getAttribute('aria-pressed')}`);
+  FormatBar.pen.home(); await tick(80);
+  // A row pointed at: what it governs lit, nothing dulled; a style of words, the words.
+  Shell.select([]); await tick(200);
+  const rows = () => $$('.insp .row.out'), rowOf = cap => rows().find(r => txt(r.querySelector('.cap')) === cap);
+  const box = rowOf('Funds') ?? rows().find(r => r.querySelector('svg.sw')), names = rowOf('Names');
+  enter(box); await tick(80);
+  const boxLit = [cued(), dull()], boxWide = $('.dc-marks path.dc-cue')?.getBBox().width;
+  leave(box); await tick(80);
+  check('a Styles row pointed at lights what it governs, nothing dulled', boxLit[0] > 0 && boxLit[1] === 0 && cued() === 0, boxLit.join());
+  if (names) { enter(names); await tick(80); const litWords = cued(), wordsWide = $('.dc-marks path.dc-cue')?.getBBox().width; const boxes = $$('.dc-marks path.dc-cue').length; leave(names); await tick(80);
+    check('… and a row of words, those words, not the boxes they’re in', litWords > 0 && wordsWide < boxWide + 200 && !!boxes, `${litWords} ${wordsWide}`); }
+  // Menus: Arrange fits, the undo list always opens, the master's on the page's own.
+  $('[data-fb="arrange"]').click(); await tick(120);
+  const arr = $('.float .menu')?.getBoundingClientRect(), arrItems = $$('.float .menu-item').map(txt);
+  check('Arrange stays on the window, its aligns a row, the master no longer in it', !!arr && arr.bottom <= innerHeight && arrItems.includes('Align') && !arrItems.includes('Align left') && !arrItems.some(t => t.startsWith('Edit master')), arrItems.join());
+  await closeMenus();
+  $('.titlebar .undo-list').click(); await tick(120);
+  const undoSays = $$('.float .menu.undolist .menu-item').map(txt);
+  check('the arrow beside Undo always opens, History a row away', undoSays.includes('History'), undoSays.join());
+  await closeMenus();
+  check('a template’s own type is a face the deck can carry, and the legal ones say nothing', ['blank', 'org-chart', 'family-tree'].every(id => { const t = Templates.of(id).rows.find(r => r.label === 'Theme Fonts')?.value; return t && Scene.FONTS.some(f => f.name === t.heading) && Scene.FONTS.some(f => f.name === t.body); }) && ['company', 'fund-structure'].every(id => !Templates.of(id).rows.some(r => r.label === 'Theme Fonts')));
+}
+
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);
 // The format bar's are on the sample as it opens, so in a window of their own, whose checks count here; so are the templates'.
 const framed = async which => {
@@ -3747,7 +3816,7 @@ const framed = async which => {
   f.remove();
 };
 window.__out = out;
-Shell.ready.then(() => location.search.includes('format') ? format().finally(() => { window.__done = true; }) : location.search.includes('templates') ? templates().catch(e => check('the templates run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : run().then(() => framed('format')).then(() => framed('templates')))
+Shell.ready.then(() => location.search.includes('format') ? format().finally(() => { window.__done = true; }) : location.search.includes('templates') ? templates().catch(e => check('the templates run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : location.search.includes('craft') ? craft().catch(e => check('the craft checks run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : run().then(() => framed('format')).then(() => framed('templates')).then(() => framed('craft')))
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

@@ -8,6 +8,8 @@ Templates.register({
     const person = { kind: 'Person' }, field = (edge, type = 'text') => ({ out: { field: type }, ...t.entry(edge, {}) });
     t.kind('Person', { Name: 'text', Gender: ['Woman', 'Man'], Born: 'date', Died: 'date', Birthplace: 'text', 'Maiden Name': 'text' });
     t.undated();
+    // (Its own type, as warm as its colours, a face every copy of Office has, so the deck carries it.)
+    t.note('Theme Fonts', { kind: 'View' }, { heading: 'Palatino Linotype', body: 'Palatino Linotype' });
     t.note('Order', person, { by: 'Born' });
     const parent = t.relation('Parent Of', ['Parent', 'Child'], { kinds: [['Person', 'Person']], lists: { Parent: 'Parents', Child: 'Children' } });
     // (A divorce doesn't take a marriage off a family's tree: its line stays, drawn as ended, and each still has the other, as former.)
