@@ -1780,6 +1780,17 @@ function aboutAnything() {
   const F = fam.s, f = id => F.byId.get(id), { g1, g2, a, b, c, inlaw, ip1, ip2, k1, k2 } = fam.made;
   const between2 = (p, q) => Math.max(p.x - q.x - q.w, q.x - p.x - p.w);
   check('spouses stand side by side on one rank', f(g1).y === f(g2).y && f(b).y === f(inlaw).y && between2(f(g1), f(g2)) > 0 && between2(f(g1), f(g2)) < 200 && between2(f(b), f(inlaw)) > 0 && between2(f(b), f(inlaw)) < 200, j([f(g1).x, f(g1).w, f(g2).x]));
+  // On a page that's placed, one added beside its mate has the room their line has, the row sliding apart where another stood next to it; and one kept loosely, that nothing related, goes to its relatives once related.
+  {
+    const pl = chart('family-tree', tx => ({ anna: person(tx, 'Anna'), bea: person(tx, 'Bea'), xavier: person(tx, 'Xavier'), una: person(tx, 'Una') })), { anna, bea, xavier, una } = pl.made, vw = pl.s.view, at = (id, p) => tx.note('Position', { id, kind: 'Person' }, p, { view: vw });
+    const tx = pl.wb.edit({ chart: pl.c, who: WHO });
+    at(xavier, { x: 700, y: 60, w: 120, hand: true }); at(anna, { x: 60, y: 200, w: 120, kept: true }); at(bea, { x: 200, y: 200, w: 120, kept: true }); at(una, { x: 700, y: 420, w: 120, kept: true, loose: true });
+    const max = person(tx, 'Max'); tx.add('record', { args: [{ edge: 'Spouse', at: anna }, { edge: 'Partner', at: max }], tag: true }); tx.add('record', { args: [{ edge: 'Parent', at: anna }, { edge: 'Child', at: una }], tag: true });
+    tx.commit();
+    const N = pl.wb.notes(pl.c), S = pl.wb.schema(pl.c), R = Formulas.computeState(pl.wb.asOf(pl.c, DAY2), N.definitions(S), { relations: N.relations(S), schema: S }), sc = Scene.of(pl.wb, pl.c, vw, DAY2, { state: R.records, computed: R }), of = id => sc.byId.get(id);
+    check('one added beside its mate on a placed page has the room their line has, and the row slides apart for it', of(max).y === of(anna).y && of(max).x - of(anna).x - of(anna).w >= 40 - 0.5 && of(max).x - of(anna).x - of(anna).w < 60 && of(bea).x >= of(max).x + of(max).w - 0.5, j([of(anna).x, of(anna).w, of(max).x, of(max).w, of(bea).x]));
+    check('… and one kept loosely, once related, leaves its row for its relatives', of(una).y > of(anna).y + of(anna).h - 1 && Math.abs(of(una).x + of(una).w / 2 - of(anna).x - of(anna).w / 2) < of(anna).w, j([of(una).x, of(una).y, of(anna).x, of(anna).y]));
+  }
   check('generations align: children a row under their parents, an in-law’s parents a row over the in-law, whatever else stands over them', f(ip1).y === f(g1).y && f(a).y === f(inlaw).y && f(k1).y > f(inlaw).y, j([f(ip1).y, f(g1).y]));
   const [p1, p2] = [lineTo(F, b, k1)?.points, lineTo(F, inlaw, k1)?.points], gapMid = (Math.max(f(b).x, f(inlaw).x) + Math.min(f(b).x + f(b).w, f(inlaw).x + f(inlaw).w)) / 2;
   check('one line comes down from the pair to each child: each parent’s from its own side, along the line between them, down its middle', p1 && p2 && Math.abs(p1[1][0] - gapMid) < 6 && Math.abs(p2[1][0] - gapMid) < 6 && j(p1.slice(1)) === j(p2.slice(1)), j([p1, p2]));
