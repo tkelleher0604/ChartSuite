@@ -2360,7 +2360,7 @@ function mount(el) {
       ...(one?.geometry === 'table' ? hand.tableItems(one, ro) : text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []), ...inCorner,
       ...(fielded ? [...(worded ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => f ? editField(f.m, f.it) : edit(one.id) }] : []),
         ...(f ? [{ label: fieldName(f.it), items: fieldRows(f) }] : []),
-        { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }, { label: 'Add footnote', keys: '$mod+Alt+KeyF', disabled: ro, run: () => footnote(one) }] : []), '-'] : []),
+        ...(showItems(bound).length ? [{ label: 'Show on chart', disabled: ro, items: showItems(bound) }] : []), ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }, { label: 'Add footnote', keys: '$mod+Alt+KeyF', disabled: ro, run: () => footnote(one) }] : []), '-'] : []),
       ...(pictured ? [{ label: 'Crop', disabled: ro, run: () => hand.crop(one.id) }, { label: 'Change picture…', disabled: ro, run: () => hand.changePicture(one.id) }, { label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }, '-'] : []),
       ...(free.length && !ms.some(m => m.type === 'box') && !pictured && !one?.geometry?.startsWith?.('group') ? [...(one?.geometry === 'table' ? [] : [{ label: 'Set as default', disabled: ro || !one, run: () => hand.setDefault() }]), ...(one ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }, ...(one.geometry !== 'line' && one.geometry !== 'table' && scene.view !== Scene.MASTER ? [{ label: 'Add footnote', keys: '$mod+Alt+KeyF', disabled: ro, run: () => footnote(one) }] : [])] : []), '-'] : []),
       // What a structure chart is made of: its owner and its holding (or what else its first lists call them), as a list's + asks.
@@ -2368,7 +2368,8 @@ function mount(el) {
       // What's between it and another box: asked for, a tick in the two's panel relates them; Viewing, it reads what's there, and makes nothing.
       ...(one?.type === 'box' ? [{ label: ro ? 'With…' : 'Relate…', run: () => relating(one, undefined, null, ro) }] : []),
       // A relation recorded, as its panel's ⋯ has it: renamed where it's seen; given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
-      ...(one?.type === 'line' && !ro ? [{ label: `Rename ${App.notes.peek().nameOf(App.state.peek(), one.record)}…`, run: () => Shell.parts.peek().inspector?.renameLine?.(one.record) }, { label: App.lineNamed(one.record) ? 'Hide name' : 'Show name', run: () => App.nameLine(one.record, !App.lineNamed(one.record)) }] : []),
+      // (Its name, on its lines or not: one row, for the lines of a stem taken together as for one.)
+      ...(ms.length && ms.every(m => m.type === 'line') && !ro ? [{ label: `Rename ${App.notes.peek().nameOf(App.state.peek(), ms[0].record)}…`, run: () => Shell.parts.peek().inspector?.renameLine?.(ms[0].record) }, { label: App.lineNamed(ms[0].record) ? 'Hide name' : 'Show name', run: () => App.nameLine(ms[0].record, !App.lineNamed(ms[0].record)) }] : []),
       ...(one?.type === 'line' && App.isDated.peek() && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: App.interposeWord(one.record), disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
       // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line. (One row, so the menu fits the window it opens in.)

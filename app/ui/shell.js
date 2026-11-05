@@ -534,7 +534,7 @@ const Shell = (() => {
     for (let t; (t = w.nextNode());) { if (n <= t.length) return getSelection().collapse(t, n); n -= t.length; }
     getSelection().collapse(el, el.childNodes.length);
   }
-  function Field({ q, onQuery, at }) {
+  function Field({ q, onQuery, at, ph = 'Find' }) {
     const ref = useRef();
     useLayoutEffect(() => {
       const el = ref.current, markup = typeset(q);
@@ -544,7 +544,7 @@ const Shell = (() => {
       if (n !== null) caretAt(el, n);
     }, [q]);
     const read = e => { if (!e.isComposing) onQuery(e.currentTarget.textContent.replace(/[\n ]/g, ' ')); };
-    return html`<div class="menu-find" ref=${ref} contenteditable="plaintext-only" role="searchbox" aria-label="Find" aria-activedescendant=${at} spellcheck="false" data-placeholder="Find"
+    return html`<div class="menu-find" ref=${ref} contenteditable="plaintext-only" role="searchbox" aria-label="Find" aria-activedescendant=${at} spellcheck="false" data-placeholder=${ph}
       onInput=${read} onCompositionEnd=${read} onKeyDown=${e => { if (e.key === 'Enter') e.preventDefault(); }} onFocus=${e => caretAt(e.currentTarget, Infinity)} />`;
   }
 
@@ -599,7 +599,7 @@ const Shell = (() => {
     // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
     const at = active >= 0 && items[active] ? mi(active) : null;
     return html`<div class=${'menu' + (f.cls ? ' ' + f.cls : '')} role="menu" tabindex="-1" aria-activedescendant=${f.search ? null : at} onKeyDown=${onKey}>
-      ${f.search ? html`<${Field} q=${q} at=${at} onQuery=${t => { setQ(t); setAct(-1); }} />` : null}
+      ${f.search ? html`<${Field} q=${q} at=${at} ph=${f.ph} onQuery=${t => { setQ(t); setAct(-1); }} />` : null}
       ${items.map((it, i) => it === '-' ? html`<div class="menu-sep" role="separator" />`
         : it.head ? html`<div class="menu-head" role="presentation">${it.head}</div>`
         : it.seg ? html`<div class=${'menu-seg' + (i === active ? ' on' : '')} id=${mi(i)} role="radiogroup">${it.seg.map(s => html`<button tabindex="-1" role="radio" aria-checked=${!!s.pressed} aria-pressed=${!!s.pressed} onClick=${s.run}>${s.label}</button>`)}</div>`

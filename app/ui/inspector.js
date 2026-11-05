@@ -668,7 +668,8 @@ function addItems(at, anchor) {
   const lists = recs()[at].kind ? listItems(at, anchor) : listItems(at, anchor).filter(x => /^Responsible/.test(x.label));
   // (What goes where the pen is: the words a box or line says, and a footnote, for what's drawn on the chart shown.)
   const onPage = charted() && hostIn(at) === at && Canvas.active.peek()?.scene() ? [{ label: 'Text', names: ['Free text', 'Words', 'Label'], run: start('text') }, { label: 'Footnote', names: ['Note', 'Endnote', 'Citation'], run: start('footnote') }] : [];
-  return [{ label: 'Check…', names: ['Rule', 'Test', 'Compliance'], run: start('check') }, { label: 'New yes-or-no', names: ['Tag', 'Yes or no', 'Checkbox', 'Flag'], run: start('tag') }, { label: 'New value', names: ['Value', 'Field', 'Text', 'Number', 'Date'], run: start('field') }, { label: 'New choice', names: ['Choice', 'Dropdown', 'Option', 'List'], run: start('choice') }, ...onPage, '-',
+  // (What's named as it's typed follows what's there by that name: never a File Number lost under New value, by a Field it nearly spells.)
+  return [{ label: 'Check…', asked: true, run: start('check') }, { label: 'New yes-or-no', asked: true, run: start('tag') }, { label: 'New value', asked: true, run: start('field') }, { label: 'New choice', asked: true, run: start('choice') }, ...onPage, '-',
     ...(lists.length ? [...lists, '-'] : []), ...items, ...(items.length ? ['-'] : []),
     // (A connection is of what's on the page, never of a line: what a line's said to be of, a document's, is under Documents.)
     ...(recs()[at].args ? [] : [{ label: 'Connection…', names: ['Relation', 'Relate', 'Link'], run: () => menu(anchor, others(), { search: true, more: newOne }) }]), ...(recs()[at].kind && !linkOf(at) ? [{ label: 'Document…', run: () => linkAdd(anchor, at) }] : [])];
@@ -713,7 +714,7 @@ function listsOf(id, docs = false) {
 }
 // Adding to a list, from Add or from the list's own +: one way, a search of who, by name: one the chart has, or a new one
 // typed, of a kind the other side can be; then it's related, pending, its amount and day asked (App.relating).
-const addTo = (anchor, id, l) => menu(anchor, q => whoFor(id, l, q), { search: true });
+const addTo = (anchor, id, l) => menu(anchor, q => whoFor(id, l, q), { search: true, ph: `New ${one(l.name).toLowerCase()}` });
 const listItems = (id, anchor) => listsOf(id).map(l => ({ label: `${l.name}…`, run: () => addTo(anchor, id, l) }));
 // Who can be in a list: each record the chart has that fits its other side, by name, as typed, but those it has already;
 // and a new one of each kind the side can be, named as typed.

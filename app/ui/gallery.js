@@ -7,7 +7,7 @@ const Gallery = (() => {
   const LIKE = 'like';
   const drawings = new Map();
   // One room for every card's drawing, in the scene's own units, so a box is one size in all of them: what won't fit makes its own room, and is smaller.
-  const FRAME = { w: 620, h: 400 };
+  const FRAME = { w: 560, h: 340 };
   // A name, short, and what its brackets say apart: "Fund structure (Investment Company Act)".
   const shortName = n => n.replace(/\s*\([^)]*\)\s*$/, ''), noteOf = n => /\(([^)]*)\)\s*$/.exec(n)?.[1] ?? null;
   // A template's card: its example records in a workbook of their own, drawn as they'd be, furniture aside. In no log, and the layouts

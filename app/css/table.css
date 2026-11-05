@@ -347,6 +347,8 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .hist-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 20px; border-bottom: 1px solid var(--rule); }
 .hist-head > .title { flex: 1; font: var(--t15); }
 .hist-head > .menu-seg { margin: 0; width: 168px; }
+.hist-name { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 20px; border-bottom: 1px solid var(--rule); background: var(--paper); }
+.hist-name > input { flex: 1; min-width: 0; }
 .hist-filter { padding: 4px 8px 4px 20px; border-bottom: 1px solid var(--rule); background: var(--paper); }
 .hist-filter > .of { padding: 4px 0 2px; font-weight: 500; overflow-wrap: anywhere; }
 .hist-filter > .by { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: var(--row); margin-left: -8px; }

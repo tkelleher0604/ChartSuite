@@ -131,9 +131,9 @@ const Tour = (() => {
   function roomOf(el) {
     const r = el.getBoundingClientRect(), panel = el.closest('[data-region="inspector"]')?.getBoundingClientRect();
     if (panel) return { x: panel.left, y: r.top, left: panel.left, right: panel.right, top: r.top, bottom: r.bottom, width: panel.width, height: r.height };
-    const bar = el.closest('[data-region="format"], [data-region="title"], [data-region="tools"]') && document.querySelector('#view .formulabar');
-    const low = Math.max(r.bottom, bar?.getBoundingClientRect().bottom ?? 0);
-    return { x: r.left, y: r.top, left: r.left, right: r.right, top: r.top, bottom: low, width: r.width, height: low - r.top };
+    const inBar = el.closest('[data-region="format"], [data-region="title"], [data-region="tools"]'), bar = inBar && document.querySelector('#view .formulabar');
+    const low = Math.max(r.bottom, bar?.getBoundingClientRect().bottom ?? 0), left = inBar ? Math.max(r.left, Math.min(600, innerWidth - 300)) : r.left;
+    return { x: left, y: r.top, left, right: Math.max(r.right, left + 1), top: r.top, bottom: low, width: Math.max(r.right, left + 1) - left, height: low - r.top };
   }
 
   function Layer() {

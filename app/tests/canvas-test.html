@@ -2285,7 +2285,7 @@ async function stillAsMade() {
   check('History says each change as it was made, nothing of the boxes kept where they stood', !says.some(s => /^Moved Larkspur Credit GP|^Moved Larkspur Capital|, and \d+ more/.test(s)), says.join(' | '));
   // The Key keeps its corner as the chart is edited (gui2 D-16): a change keeps it where it's drawn on the sheet, which
   // History doesn't say; Tidy places it afresh, as it does the chart.
-  const keyMark = () => sc().marks.find(m => m.geometry === 'legend'), keyAt = () => [keyMark().x * sc().page.scale, keyMark().y * sc().page.scale], keyRow = () => App.wb.rows(App.chart.peek()).find(r => r.geometry === 'legend');
+  const keyMark = () => sc().marks.find(m => m.geometry === 'legend'), keyAt = () => [keyMark().x * sc().page.scale, keyMark().y * sc().page.scale], keyRow = () => App.wb.rows(App.chart.peek()).find(r => r.geometry === 'legend' && r.view === sc().view);
   const k0 = keyAt(), f3 = box('Larkspur Credit Fund');
   await dot(f3, 'e', [f3.x + f3.w + 200, f3.y + f3.h + 110]);
   await name('State of Ohio Public Employees Deferred Compensation Retirement Trust');
@@ -3175,9 +3175,14 @@ async function templates() {
   App.newChart(); await tick(300); await until(() => !document.querySelector('.titlebar input')); key('Escape'); await tick(60);
   document.activeElement?.blur?.();
   const like = App.chart.peek(), likeRows = wb().rows(like).filter(r => !('chart' in r));
-  App.begin({ template: 'fund-structure', name: 'From the template' }); await tick(300);
-  const tmpl = App.chart.peek(), tmplRows = wb().rows(tmpl).filter(r => !('chart' in r)), a = said(likeRows), b = said(tmplRows), onlyA = a.filter(x => !b.includes(x)), onlyB = b.filter(x => !a.includes(x));
+  App.begin({ template: 'fund-structure', name: 'From the template' }); await tick(500);
+  $('.dc-edit')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(100);
+  // (Of Like this chart's pages, those the template brings too; and what orders them, which is each its own.)
+  const likePages = App.wb.rows(like).filter(r => 'note' in r && r.label === 'Name' && r.pattern.kind === 'View').map(r => r.value), tmplPages = wb().rows(App.chart.peek()).filter(r => 'note' in r && r.label === 'Name' && r.pattern.kind === 'View').map(r => r.value), onlyLike = likePages.filter(n => !tmplPages.includes(n));
+  const bothHave = l => !/^note Order .*"View"/.test(l) && !onlyLike.some(n => l.includes(n));
+  const tmpl = App.chart.peek(), tmplRows = wb().rows(tmpl).filter(r => !('chart' in r)), a = said(likeRows).filter(bothHave), b = said(tmplRows).filter(bothHave), onlyA = a.filter(x => !b.includes(x)), onlyB = b.filter(x => !a.includes(x));
   check('the fund template is the sample’s chart less its records, so the two can’t drift', like !== sample && tmpl !== like && !onlyA.length && !onlyB.length, `${onlyA.slice(0, 3).join(' | ')} ::: ${onlyB.slice(0, 3).join(' | ')}`);
+  check('Like this chart brings the chart’s pages, empty', likePages.includes('40 Act') && !App.wb.rows(like).some(r => 'record' in r && r.kind !== 'View' && !r.tree), likePages.join());
   check('… and it has no record but its views', !tmplRows.some(r => 'record' in r && r.kind !== 'View'));
   check('… a template is one change, in History as any is', wb().changes().filter(c => c.chart === tmpl).length === 1);
   // Each of them: what it brings, none naming what's in the app's code.
@@ -3208,12 +3213,12 @@ async function templates() {
   check('still nothing to attend to, with a kind and no relation', !App.needs.peek().length);
   // Two boxes, a new relation: on top as they stand; said of the side it's named for.
   const sam = (() => { let id; App.change(tx => { id = tx.add('record', { kind: 'Person' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: 'Sam Okoye' }); }); return id; })(); await tick(200);
-  Shell.emit('relate-open', [ana, sam]); Shell.select([ana, sam]); await tick(200);
+  Shell.emit('relate-open', Object.assign([ana, sam], { way: 'across' })); await tick(200);
   const typeIn = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
   const cells = () => $$('.rr.new input.cell');
   check('with nothing to offer, the form’s open by itself, its name having the keys', document.activeElement === cells()[0] && !!$('.rr.new .form-acts'), document.activeElement?.tagName);
   typeIn(cells()[0], 'Reports To'); await tick(40); typeIn(cells()[1], 'Manager'); await tick(40); typeIn(cells()[2], 'Report'); await tick(120);
-  check('the form asks how the two stand, as they stand on the page: across, side by side', $$('.rr.new .sel').some(x => /Side by side/.test(txt(x))), $$('.rr.new .sel').map(txt).join());
+  check('the form asks how the two stand, first as the dot was dragged: across, side by side', $$('.rr.new .sel').some(x => /Side by side/.test(txt(x))), $$('.rr.new .sel').map(txt).join());
   $$('.rr.new .sel')[0].click(); await tick(60);
   check('… or either above, by what it is', menuItems().join() === 'Manager above,Report above,Side by side,Neither above', menuItems().join());
   $$('.float .menu-item')[0].click(); await tick(120);
@@ -3228,7 +3233,7 @@ async function templates() {
   check('… said on its line', sc().byId.get(rel)?.texts?.some(t => /Reports To/.test(t.text)), j2(sc().byId.get(rel)?.texts?.map(t => t.text)));
   Shell.parts.peek().undo.undo(); await tick(200);
   // A second relation behaves as the first, and English from one place.
-  check('plurals and singulars from one place', Tree.plural('Wife') === 'Wives' && Tree.singular('Wives') === 'Wife' && Tree.plural('Child') === 'Children' && Tree.singular('Children') === 'Child' && Tree.plural('Half') === 'Halves' && Tree.singular('Lives') === 'Life' && Tree.plural('Entity') === 'Entities' && Tree.singular('Owners') === 'Owner' && Tree.singular('Statuses') === 'Status' && Tree.singular('Analyses') === 'Analysis' && Tree.plural('Assets') === 'Assets');
+  check('plurals and singulars from one place', Tree.plural('Wife') === 'Wives' && Tree.singular('Wives') === 'Wife' && Tree.plural('Child') === 'Children' && Tree.singular('Children') === 'Child' && Tree.plural('Half') === 'Halves' && Tree.singular('Lives') === 'Life' && Tree.plural('Entity') === 'Entities' && Tree.singular('Owners') === 'Owner' && Tree.singular('Statuses') === 'Status' && Tree.singular('Analyses') === 'Analysis' && Tree.plural('Assets') === 'Assets' && Tree.singular('Spouses') === 'Spouse' && Tree.singular('Status') === 'Status' && Tree.singular('Taxes') === 'Tax' && Tree.texts('Born') === 'Born' && Tree.texts('Died') === 'Died' && Tree.texts('Name') === 'Names');
   check('the next pair offers it first', (() => { const r = App.notes.peek().relations(App.schema.peek()); return r.some(x => x.name === 'Reports To'); })());
   check('a right-click adds what the page draws', Shell.parts.peek().inspector.adds(ana).map(x => x.label).join() === 'Add manager…,Add report…', Shell.parts.peek().inspector.adds(ana).map(x => x.label).join());
   // The gallery.

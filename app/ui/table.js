@@ -767,8 +767,6 @@ const Table = (() => {
         formatter: formatter(c),
         editable: cell => !App.readOnly.peek() && !locked() && !cell.getRow().getData()._ended && (c.type === 'list' ? !c.fx && !c.choice && !!meta(cell)?.at : c.type === 'edge' || !!meta(cell)?.at || c.key === '$out'),
         editor: !editable ? false : c.type === 'choice' || c.type === 'edge' ? chooser(c) : editor(c, put),
-        // (The arrow a dropdown's cell shows opens its list, as an arrow does.)
-        ...((c.type === 'choice' || c.type === 'edge') && { cellClick: (e, cell) => { const r = cell.getElement().getBoundingClientRect(); if (e.clientX >= r.right - 24 && canEdit(cell) && !App.readOnly.peek() && !table?.modules.edit?.currentCell) { ranged = cellsOf(); atEnd = true; cell.edit(true); if (!table.modules.edit.currentCell) atEnd = false; } } }),
         accessorClipboard: (v, d) => plain(typeOf(c, d), v), accessorDownload: (v, d) => csvSafe(plain(typeOf(c, d), v)),
       };
     });
@@ -933,7 +931,9 @@ const Table = (() => {
     // narrow first column had wrapped, so the grid ran on three times its rows' height, blank.
     t.rowManager.normalizeHeight = function () { this.renderer.rerenderRows(); };
     t.on('cellEditCancelled', () => back());
-    t.on('cellClick', (e, cell) => { if (e.target.closest('.tag, .cant') && !cell.getRow().getData()._ended) flip(cell); });
+    t.on('cellClick', (e, cell) => { if (e.target.closest('.tag, .cant') && !cell.getRow().getData()._ended) flip(cell);
+      // (The arrow a dropdown's cell shows opens its list, as an arrow does.)
+      else { const col = columnOf(cell), r = cell.getElement().getBoundingClientRect(); if (col?.type === 'choice' && e.clientX >= r.right - 24 && canEdit(cell) && !App.readOnly.peek() && !table?.modules.edit?.currentCell) setTimeout(() => { if (table !== t || table.modules.edit?.currentCell) return; ranged = cellsOf(); atEnd = true; cell.edit(true); if (!table.modules.edit.currentCell) atEnd = false; }, 40); } });
     t.on('rangeChanged', range => { remember(range); soon(); tally(); });
     t.on('rangeAdded', range => { remember(range); if (quiet.has(range)) quiet.delete(range); else soon(); tally(); });
     t.on('rangeRemoved', tally);
@@ -1066,6 +1066,8 @@ const Table = (() => {
       reds = red;
       t.restoreRedraw();
       ok = true;
+      // (The first rows of an empty table: its columns, fitted to nothing, are fitted to them.)
+      if (!had.size && m.data.length) relayout();
     }).finally(() => {
       if (flight === f) flight = null;
       if (t !== table) return;
@@ -1829,7 +1831,7 @@ const Table = (() => {
     // What it's at: the records it writes over, those it adds at, and those it ends.
     const needs = [...new Set([...Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]), ...x.ends])].filter(id => id in entered);
     App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, asking: asked.length > 0 || !!x.ends.length, ...(x.left.length && { note: `Left out: ${x.left.map(leftWord).join('; ')}` }), cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
-      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : over.length ? App.day.peek() : App.begins() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
+      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : over.length && App.isDated.peek() ? App.day.peek() : App.begins() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
   // Rows deleted, as one change pending: the records entered there, and what's at them, each ended as App.deleting says.
@@ -2599,7 +2601,8 @@ const Table = (() => {
   function strip() {
     if (!rowEl || !el || !table || !ready || !el.classList.contains('adds')) return;
     const h = table.rowManager.element, tb = table.rowManager.tableElement;
-    const y = Math.min(tb.getBoundingClientRect().bottom, h.getBoundingClientRect().bottom) - el.getBoundingClientRect().top;
+    // (An empty table has its new row all the same, right under its headings.)
+    const y = (table.getRows('active').length ? Math.min(tb.getBoundingClientRect().bottom, h.getBoundingClientRect().bottom) : h.getBoundingClientRect().top) - el.getBoundingClientRect().top;
     rowEl.style.top = `${Math.round(y)}px`;
     el.style.setProperty('--lead', `${table.getColumns().find(c => c.getField())?.getWidth() ?? 240}px`);
   }

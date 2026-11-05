@@ -291,7 +291,8 @@ const ends = (w, s) => w.length >= s.length && w.slice(-s.length).toLowerCase() 
 const plural = w => { const hit = IRREGULAR.find(([one, many]) => ends(w, one) && !ends(w, many)); if (hit) return swapEnd(w, hit[0], hit[1]); if (IRREGULAR.some(([, many]) => ends(w, many))) return w; return /(^|\s)man$/i.test(w) ? w.replace(/an$/i, 'en') : /[^aeiou]y$/i.test(w) ? w.slice(0, -1) + 'ies' : /sis$/i.test(w) ? w.slice(0, -2) + 'es' : /[^su]s$/i.test(w) ? w : /(s|x|z|ch|sh)$/i.test(w) ? w + 'es' : w + 's'; };
 // What a field says of many, for a row of its texts: a noun's plural (Names); an act or a state as it is, not being counted (Born, Died, Married).
 const texts = w => /(^|\s)(\w+ed|born)$/i.test(w) ? w : plural(w);
-const singular = w => { const hit = IRREGULAR.find(([, many]) => ends(w, many)); if (hit) return swapEnd(w, hit[1], hit[0]); if (/(^|\s)men$/i.test(w)) return w.replace(/en$/i, 'an'); return [w.replace(/ies$/i, 'y'), w.replace(/es$/i, 'is'), w.replace(/es$/i, ''), w.replace(/s$/i, '')].find(x => x !== w && same(plural(x), w)) ?? w; };
+const singular = w => { const hit = IRREGULAR.find(([, many]) => ends(w, many)); if (hit) return swapEnd(w, hit[1], hit[0]); if (/(^|\s)men$/i.test(w)) return w.replace(/en$/i, 'an');
+  return /[^aeiou]ies$/i.test(w) ? w.slice(0, -3) + 'y' : /yses$/i.test(w) ? w.slice(0, -2) + 'is' : /(ss|x|z|ch|sh)es$/i.test(w) || /[^aou\s]uses$/i.test(w) ? w.slice(0, -2) : /(is|us|ss)$/i.test(w) ? w : /s$/i.test(w) ? w.slice(0, -1) : w; };
 
 // ---- Links: what a document's address points at, from the address alone ----
 

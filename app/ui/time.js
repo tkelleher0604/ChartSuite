@@ -1252,7 +1252,7 @@ const Time = (() => {
         <div class="menu-seg">${[['all', 'Changes'], ['deleted', 'Deleted']].map(([x, label]) => html`<button aria-pressed=${m === x} onClick=${() => { mode.value = x; }}>${label}</button>`)}</div>
         <button class="btn icon" aria-label="Close" data-tip="Close" data-keys="Esc" onClick=${close}>${Shell.icon('x')}</button>
       </div>
-      ${Store.who() || signing.value ? null : html`<label class="hist-name"><span>Your name, to sign what you change</span><input class="cell" spellcheck=${false} aria-label="Your name" onKeyDown=${e => { if (e.key === 'Enter') e.target.blur(); }} onBlur=${e => { const t = Tree.clean(e.target.value); if (t) { Shell.store.set('name', t); signing.value = t; } }} /></label>`}
+      ${Store.who() || signing.value ? null : html`<label class="hist-name"><span>Your name</span><input class="cell" spellcheck=${false} aria-label="Your name" onKeyDown=${e => { if (e.key === 'Enter') e.target.blur(); }} onBlur=${e => { const t = Tree.clean(e.target.value); if (t) { Shell.store.set('name', t); signing.value = t; } }} /></label>`}
       ${m === 'all' || of.length || rule ? html`<div class="hist-filter">
         ${of.length || rule ? html`<div class="of">Changes to ${rule ? rule.name : of.map(nameOf).join(', ')}</div>` : null}
         <div class="by">${m === 'all' ? html`<button class="btn ghost dd" aria-haspopup="menu" onClick=${kinds}>${KINDS.find(([x]) => x === k)[1]}</button>` : null}
