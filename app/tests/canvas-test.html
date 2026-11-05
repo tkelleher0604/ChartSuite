@@ -3717,6 +3717,51 @@ async function pagesMean() {
   const copy = App.addView('Finance team', undefined, rulePage); await on(copy);
   check('A page copied keeps its rule', App.ruleOf(copy)?.filters?.[0]?.values?.[0] === 'Finance' && boxes().join() === want('bea', 'dee', 'fay', 'gus'), boxes().join());
   await framesHold();
+  await rowsAndChecks();
+  await changesSince();
+  // ---- A check's look is the chart's; a relation's Above makes no second row (dendra.md, Styles) ----
+  async function rowsAndChecks() {
+    const page = App.addView('Checks'), other = App.addView('Checks too'); await on(page);
+    const tag = { args: [{ edge: 'Good Standing', loc: { kind: 'Person' } }] }, no = { out: { tag: false }, args: [{ edge: 'Good Standing', loc: {} }] };
+    App.change(tx => { tx.add('spec', { tree: { out: { tag: true }, ...tag } }); tx.note('Check', tag, true); tx.add('record', { at: ids.bea, edge: 'Good Standing', tag: false }); tx.add('record', { at: ids.ana, edge: 'Good Standing', tag: true }); tx.note('Outline', no, '#c00000'); tx.note('Caption', no, 'Not in good standing'); }, { dated: false }); await tick(300);
+    const box = id => sc().byId.get(id), keyed = () => sc().legend?.some(r => r.caption === 'Not in good standing');
+    check('A look at a check’s No, in no view, is a style of the page', !!App.notes.peek().failing(no) && App.notes.peek().styles(page).some(s => s.outputs.some(o => o.pattern.out?.tag === false)), JSON.stringify(App.notes.peek().styles(page).map(s => s.key)));
+    check('… a failing box shows it, over what its kind gives, with a Key row', box(ids.bea)?.settings.Outline.value === '#c00000' && box(ids.ana)?.settings.Outline.value !== '#c00000' && keyed(), `${box(ids.bea)?.settings.Outline.value} ${keyed()}`);
+    await on(other);
+    check('… on every page, new ones as those made before', box(ids.bea)?.settings.Outline.value === '#c00000' && keyed(), box(ids.bea)?.settings.Outline.value);
+    const already = first; await on(already);
+    check('… and on the page first made, which never heard of it', box(ids.bea)?.settings.Outline.value === '#c00000', box(ids.bea)?.settings.Outline.value);
+    const yes = Tree.entryAt(App.state.peek(), ids.bea, 'Good Standing');
+    App.change(tx => { tx.remove(yes); tx.add('record', { at: ids.bea, edge: 'Good Standing', tag: true }); }, { dated: false }); await tick(300);
+    check('… cleared, it goes on every page', box(ids.bea)?.settings.Outline.value !== '#c00000', box(ids.bea)?.settings.Outline.value);
+    Shell.parts.peek().undo.undo(); await tick(200);
+    // Above.
+    await on(page);
+    const rows = () => Scene.groupsOf(App.notes.peek(), page).filter(g => g.caption === 'Reports to' || g.caption === 'Reports To').length, n0 = rows();
+    App.change(tx => tx.note('Above', { args: [{ edge: 'Report', loc: { kind: 'Person' } }, { edge: 'Manager', loc: { kind: 'Person' } }] }, 'Report', { view: page }), { dated: false }); await tick(250);
+    check('Saying how a relation stands makes no second row of its name', n0 === 1 && rows() === 1, `${n0} ${rows()}`);
+    Shell.parts.peek().undo.undo(); await tick(200);
+    // A free shape selected stays with its page.
+    Shell.select([sc().marks.find(m => m.role === 'title').id]); await tick(120);
+    await on(other);
+    check('A free shape selected is left behind with its page', !Shell.selection.peek().length, Shell.selection.peek().join());
+  }
+  // ---- Changes since (dendra.md, Changes): every change a chart with no dates made, moves too, and a name for what's gone ----
+  async function changesSince() {
+    const page = App.addView('Compared'); await on(page);
+    const had = Tree.index(App.state.peek()).relations.get(ids.dee).find(r => App.state.peek()[r].args?.some(a => a.at === ids.bea));
+    App.change(tx => { ids.joe = person(tx, 'Joe', 'Sales'); reports(tx, ids.joe, ids.ana); tx.remove(had); reports(tx, ids.dee, ids.cam); }, { dated: false }); await tick(250);
+    App.change(tx => tx.add('record', { at: ids.eli, edge: 'End Date', field: 'date', value: '2026-01-01' }), { dated: false }); await tick(250);
+    Time.showChanges(page, { since: '2025-01-01' }); await tick(500);
+    const of = w => sc().marks.filter(m => m.change === w && m.type === 'box').map(m => m.texts.find(t => t.text)?.text);
+    check('Changes on a chart with no dates: a hire with no date is New', of('New').includes('Joe'), of('New').join());
+    check('… a move marks who moved', of('Changed').includes('Dee'), of('Changed').join());
+    check('… who’s gone is Gone', of('Gone').includes('Eli'), of('Gone').join());
+    Shell.select([]); await tick(150);
+    const said = $$('.insp .marked').map(txt).join(' | ');
+    check('… each by its name in the panel, never “undefined”', /Eli/.test(said) && !/undefined/.test(said), said);
+    Time.showChanges(page, null); await tick(250);
+  }
   // ---- Frames are containers (dendra.md, Frames) ----
   async function framesHold() {
     const page = App.addView('Frames'); await on(page);

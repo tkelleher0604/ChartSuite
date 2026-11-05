@@ -631,11 +631,13 @@ function comparing(wb, chart, view, day, opts) {
     const row = `${what}|${record}`;
     state[`·${row}`] = changeRows.get(row) ?? changeRows.set(row, { at: record, edge: CHANGES, choice: what }).get(row);
   };
+  const runsElsewhere = id => JSON.stringify(opts.state[id]?.args) !== JSON.stringify(then[id]?.args);
   for (const [id, m] of is) {
     const w = was.get(id);
     if (!w) { mark(m.record, 'New'); continue; }
     const had = new Map(w.texts.filter(t => !t.blank).map(t => [t.id, t])), has = new Set(m.texts.filter(t => !t.blank).map(t => t.id));
-    let differs = KEYED[m.type].some(p => JSON.stringify(m.settings[p]?.value) !== JSON.stringify(w.settings[p]?.value));
+    // (A line that runs between others now, its record the same, has changed too.)
+    let differs = KEYED[m.type].some(p => JSON.stringify(m.settings[p]?.value) !== JSON.stringify(w.settings[p]?.value)) || (m.type === 'line' && runsElsewhere(id));
     for (const t of m.texts) if (!t.blank) {
       const o = had.get(t.id);
       if (!o) differs = true;
@@ -652,7 +654,7 @@ function comparing(wb, chart, view, day, opts) {
   }
   // A line that's come or gone has moved the box at its lower end, where that box stands on both days and is marked for nothing else: who moved reads as changed, not only the lines.
   const lowerOf = (st, r) => { const t = treeOf(st, r), above = t && N.value('Above', Tree.bare(t), view), low = st[r]?.args?.find(a => above && !same(a.edge, above)); return above && above !== 'none' && above !== 'level' && st[r].args.length === 2 ? low?.at : null; };
-  for (const [id, m] of [...is, ...was]) if (m.type === 'line' && (marks.get(id) === 'New' || marks.get(id) === 'Gone')) {
+  for (const [id, m] of [...is, ...was]) if (m.type === 'line' && (marks.get(id) === 'New' || marks.get(id) === 'Gone' || runsElsewhere(id))) {
     const low = lowerOf(is.has(id) ? opts.state : then, id);
     if (low && is.has(low) && was.has(low) && !marks.has(low)) mark(low, 'Changed');
   }
@@ -2256,8 +2258,8 @@ function outputName(N, p) {
 // those under none after them all, so none reads as under the name before it. `only`, a set of output keys,
 // takes those outputs alone, as the Key takes what's drawn.
 // → [{ style, order, name, key, outputs: [pattern], swatch, caption, off }]
-// Whether a style's output has a row: it says a look; or it shows a field, its look being there to give, whatever's said of it yet (Departments, Names), where showing or hiding alone is a filter.
-const hasRow = o => Object.keys(o.formats).some(k => k !== 'Shown') || (o.formats.Shown === true && o.pattern.args?.length === 1 && !o.pattern.out?.tag && !('choice' in (o.pattern.out ?? {})));
+// Whether a style's output has a row: it says a look (how a relation stands, Above, is none, and gives no second row of the same name); or it shows a field, its look being there to give, whatever's said of it yet (Departments, Names), where showing or hiding alone is a filter.
+const hasRow = o => Object.keys(o.formats).some(k => k !== 'Shown' && k !== 'Above') || (o.formats.Shown === true && o.pattern.args?.length === 1 && !o.pattern.out?.tag && !('choice' in (o.pattern.out ?? {})));
 function groupsOf(N, view, only = null) {
   const out = [], own = p => { const c = N.resolve('Caption', p, view); return c && key(c.note.pattern) === key(p) ? c.value : null; };
   const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;

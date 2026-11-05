@@ -1975,6 +1975,8 @@ const App = (() => {
   });
   // The chart's master being edited (dendra.md, The master): the page draws only that, till it's closed, or another page or chart is shown.
   effect(() => { Shell.view.value; chart.value; if (mastering.peek()) mastering.value = false; });
+  // (A free shape is its page's: selected, it's left behind with it, though a record selected goes on being so.)
+  effect(() => { const v = Shell.view.value, sel = Shell.selection.peek(), keep = sel.filter(id => { const r = shown.peek().item(chart.peek(), id)?.[0]; return !r || !('shape' in r) || r.view === v; }); if (keep.length !== sel.length) Shell.select(keep); });
   const pageMaster = (id, on) => change(tx => tx.note('Master', { id, kind: 'View' }, on ? undefined : false), { dated: false, keep: false, say: `${on ? 'Put the master back on' : 'Left the master off'} ${views.peek().find(v => v.id === id)?.name ?? 'this page'}` });
   const hasMaster = id => notes.peek().resolve('Master', { id, kind: 'View' })?.value !== false;
   const scene = computed(() => {
