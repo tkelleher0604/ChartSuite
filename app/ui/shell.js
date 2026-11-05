@@ -438,6 +438,12 @@ const Shell = (() => {
     floats.value = [...floats.peek(), { ...f, id, close }];
     return close;
   }
+  // What's pointed at, gone from under the pointer, sends no word of its going: `end` once `el` has left the page, so a preview ends with what began it. → what stops watching.
+  function whileThere(el, end) {
+    const watch = new MutationObserver(() => { if (!el.isConnected) { watch.disconnect(); end(); } });
+    watch.observe(document.body, { childList: true, subtree: true });
+    return () => watch.disconnect();
+  }
   const menu = (anchor, items, o = {}) => openFloat({ kind: 'menu', anchor, items, ...o });
   const popover = (anchor, draw, o = {}) => openFloat({ kind: 'pop', anchor, draw, ...o });
   const closeAll = () => floats.peek().forEach(x => x.close());
@@ -447,7 +453,9 @@ const Shell = (() => {
   function place(anchor, el, placement, gap = 4) {
     const ref = anchor instanceof Element ? anchor : virtual(anchor), hangs = anchor instanceof Element && /^(top|bottom)/.test(placement);
     const room = hangs ? [size({ padding: 8, apply: ({ availableHeight }) => el.style.setProperty('--room', `${Math.max(120, Math.floor(availableHeight))}px`) })] : [];
-    const update = () => computePosition(ref, el, { strategy: 'fixed', placement, middleware: [offset(gap), flip({ padding: 8 }), ...room, shift({ padding: 8, crossAxis: !hangs })] })
+    // (Clear of the window by 8 px, or as near as the bars' own first control stands, which a menu lines up with.)
+    const clear = { top: 8, right: 8, bottom: 8, left: 4 };
+    const update = () => computePosition(ref, el, { strategy: 'fixed', placement, middleware: [offset(gap), flip({ padding: clear }), ...room, shift({ padding: clear, crossAxis: !hangs })] })
       .then(({ x, y }) => { el.style.left = x + 'px'; el.style.top = y + 'px'; });
     if (!(anchor instanceof Element)) { update(); return () => {}; }
     return autoUpdate(ref, el, update);
@@ -886,16 +894,9 @@ const Shell = (() => {
   function chartMenu() {
     const wb = part('workbook'), items = [];
     if (wb) items.push({ label: 'Rename', disabled: App.readOnly.value, run: nameChart }, ...wb.menu(), '-');
-    const themes = { order: 30, seg: THEMES.map(([label, t]) => ({ label, pressed: theme.value === t, run: () => setTheme(t) })) };
-    // Editing or Viewing, as the title bar's switch says it.
-    const modes = { order: 5, seg: [['Editing', false], ['Viewing', true]].map(([label, on]) => ({ label, pressed: App.viewing.value === on, run: () => App.setViewing(on) })) };
-    const acts = many('action').filter(a => a.menu === 'chart').map(a => ({ order: a.order ?? 25, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
-    for (const it of [...acts, modes, themes].sort((a, b) => a.order - b.order)) {
-      if (it.seg && items.length && items[items.length - 1] !== '-') items.push('-');
-      items.push(it);
-      if (it.seg) items.push('-');
-    }
-    if (items[items.length - 1] === '-') items.pop();
+    const acts = many('action').filter(a => a.menu === 'chart').map(a => ({ order: a.order ?? 25, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run })).sort((a, b) => a.order - b.order);
+    // In its three: the file, what the chart holds and the window's own, and help.
+    acts.forEach((it, i) => { if (i && (it.order >= 10 && acts[i - 1].order < 10 || it.order >= 30 && acts[i - 1].order < 30)) items.push('-'); items.push(it); });
     return items;
   }
   // A name cut short is shown whole on hover, as the formula bar's is.
@@ -908,8 +909,10 @@ const Shell = (() => {
   // Undo's list: the steps it can take back, the latest first, by their words; picking one undoes back to there, and pointing
   // at one lights it and the later ones it takes too, as Office's does.
   const undoList = e => {
-    const u = part('undo'), lit = signal(0), words = u.steps(), points = words.map((_, i) => on => { lit.value = on ? i + 1 : 0; });
-    menu(e.currentTarget, () => words.map((label, i) => ({ label, lit: i < lit.value, run: () => u.undoTo(i + 1), point: points[i] })), { cls: 'undolist', placement: 'bottom-end' });
+    const u = part('undo'), lit = signal(0), words = u?.steps() ?? [], points = words.map((_, i) => on => { lit.value = on ? i + 1 : 0; });
+    // (It always opens: with nothing to take back it says so, and History, which goes back further, is a row away.)
+    const history = () => [...words.length ? ['-'] : [{ label: 'Nothing to undo', disabled: true }], ...many('action').filter(a => a.id === 'history').map(a => ({ label: a.name, run: a.run }))];
+    menu(e.currentTarget, () => [...words.map((label, i) => ({ label, lit: i < lit.value, run: () => u.undoTo(i + 1), point: points[i] })), ...history()], { cls: 'undolist', placement: 'bottom-end' });
   };
   function TitleBar() {
     const u = part('undo'), t = time.value;
@@ -924,7 +927,7 @@ const Shell = (() => {
         <button class="btn icon" aria-label=${away.value ? 'Show panel' : 'Hide panel'} data-tip=${away.value ? 'Show panel' : 'Hide panel'} data-keys=${keyLabel('$mod+Backslash')}
           aria-pressed=${!away.value} onClick=${() => wide.peek() ? narrow() : setShut(!away.peek())}>${icon('panel')}</button>
         <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+KeyZ')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
-        <button class="btn icon undo-list" aria-label="Undo list" data-tip="Undo list" aria-haspopup="menu" disabled=${!u?.canUndo()} onClick=${undoList}>${icon('chevron')}</button>
+        <button class="btn icon undo-list" aria-label="Undo list" data-tip="Undo list" aria-haspopup="menu" onClick=${undoList}>${icon('chevron')}</button>
         <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+KeyY')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
         <span class="sep" />
         ${part('workbook') ? html`<span class=${'mode' + (App.viewing.value ? ' viewing' : '')}><button class="btn ghost dd" aria-haspopup="menu" onClick=${modeMenu}>${App.viewing.value ? 'Viewing' : 'Editing'}</button></span>` : null}
@@ -1267,7 +1270,7 @@ const Shell = (() => {
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
     register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart, firstBox, roved, land, enter, keyed: () => keyed, usingKeys,
-    widen, narrow, wide, gliding, showPanel, theme, setTheme, html, h, signal, computed, effect, parts: reg,
+    widen, narrow, wide, gliding, showPanel, theme, setTheme, whileThere, html, h, signal, computed, effect, parts: reg,
     // (And of what fails or can't say, which, by name, the rarest first: fourteen missing documents don't hide the one limit broken.)
     problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n), which: c.k === 'error' || c.k === 'cant' ? (() => { const say = part('needs'), m = new Map(); for (const it of needs()) if (it.kind === c.k) { const w = say?.(it)?.what; if (w) m.set(w, (m.get(w) ?? 0) + 1); } return [...m].sort((a, b) => a[1] - b[1]).map(([w]) => w); })() : [] })), listProblems: kind => listOf(kind),
     aside: c => { aside.value = c; },

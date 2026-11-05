@@ -2112,14 +2112,17 @@ const App = (() => {
       });
       return html`<div class="settings">
         ${field('name', 'Your name')}
+        <div class="field"><span>Theme</span><div class="menu-seg" role="radiogroup" aria-label="Theme">${[['Light', 'light'], ['Dark', 'dark']].map(([label, t]) => html`<button type="button" role="radio" aria-checked=${Shell.theme.value === t} aria-pressed=${Shell.theme.value === t} onClick=${() => Shell.setTheme(t)}>${label}</button>`)}</div></div>
         <div class="field"><span>SharePoint</span><span class="account">${me
           ? html`<span class="who">${me.name}</span><button type="button" class="btn" onClick=${() => go(SharePoint.signOut())}>Sign out</button>`
           : html`<button type="button" class="btn" onClick=${() => { keep(); go(SharePoint.signIn()); }}>Sign in</button>`}</span></div>
         <details ref=${connection} open=${opening}><summary>Connection</summary><div class="settings">${field('tenant', 'Tenant ID')}${field('client', 'Client ID')}${field('library', 'Library')}</div></details>
       </div>`;
     }
+    // (The theme shows as it's pressed; Cancel takes it back with the rest.)
+    const themeWas = Shell.theme.peek();
     return Shell.dialog({ title: 'Settings', width: 480, actions: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, primary: true }], body: () => html`<${Body} />` })
-      .then(ok => { if (ok) { store.set('name', Tree.clean(v.name) || null); keep(); } return ok; });
+      .then(ok => { if (ok) { store.set('name', Tree.clean(v.name) || null); keep(); } else if (Shell.theme.peek() !== themeWas) Shell.setTheme(themeWas); return ok; });
   }
   // With no library set, saving to one goes where one is set, and saves once it is.
   const toLibrary = () => SharePoint.settings().library ? saved(Store.saveAs('library')) : settings(true).then(ok => { if (ok && SharePoint.settings().library) saved(Store.saveAs('library')); });
