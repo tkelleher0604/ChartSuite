@@ -1371,7 +1371,8 @@ const FormulaBar = (() => {
   }
   // Who a check moves, in words: "Helen V. Ortiz would start failing", "3 would stop failing"; "Can't say of Priya N. Raman". `done`, once it's made.
   const MOVES = [['plus', 'would start failing', 'starts failing', 'start failing', 'take'], ['minus', 'would stop failing', 'stops failing', 'stop failing', 'add'], ['cant', '', '', '', 'change', 'Can’t say of '], ['untested', 'would no longer be tested', 'is no longer tested', 'are no longer tested', 'change'], ['passes', 'would pass', 'passes', 'pass', 'add']];
-  const moves = (d, done = false) => MOVES.filter(([k]) => d.of[k]?.length).map(([k, would, did, plural_, cls, pre = '']) => { const of = d.of[k], n = of.length, words = done ? (n === 1 ? did : plural_) : would, who = n === 1 ? of[0].who : String(n); return { k, cls, of, pre, who, words, said: `${pre}${who}${words ? ` ${words}` : ''}` }; });
+  // (What it can't say for want of the figure the bar is asking for isn't news yet: left blank and made, it's said then.)
+  const moves = (d, done = false) => MOVES.filter(([k]) => d.of[k]?.length && !(k === 'cant' && !done && App.pending.peek()?.value && App.pending.peek().value.v == null)).map(([k, would, did, plural_, cls, pre = '']) => { const of = d.of[k], n = of.length, words = done ? (n === 1 ? did : plural_) : would, who = n === 1 ? of[0].who : String(n); return { k, cls, of, pre, who, words, said: `${pre}${who}${words ? ` ${words}` : ''}` }; });
   // A rule that says nothing of anyone, though it could say both yes and no, applies to no one, which isn't everyone being fine (dendra.md, Definitions: Not tested). → what to say, or null.
   function nobody(Rv, def) {
     if (Rv.rows?.[def]?.length) return null;
@@ -1537,15 +1538,30 @@ const FormulaBar = (() => {
     if (p?.from === 'bar') pending.value = { ...p, flaws: [], nobody: null, unread: true };
   }
   // A first formula for what has none: nothing's written till it's Done, as one change, and a rule's rows open on its one row to
-  // type in, the `=` it starts with already there. `pattern`, what it covers.
-  function define(pattern) {
+  // type in, the `=` it starts with already there. `pattern`, what it covers; `text`, what's been typed of it already.
+  function define(pattern, text = '= ') {
     const n = N(), specs = n.fitting(App.schema.peek(), pattern), t = specs[0], rel = pattern.args?.length > 1;
     if (!t || App.readOnly.peek()) return;
     const type = 'field' in t.out ? 'field' : 'choice' in t.out ? 'choice' : 'tag', st = R.peek().records, key = newKey();
     // A record of what it's at: where what's typed is looked up, as it's looked up at one of the records a rule gives.
     const at = rel ? null : Object.keys(st).find(x => !('field' in st[x]) && Tree.fits(st, x, t.args[0].loc)) ?? null;
     const fresh = { id: NEW, name: rel ? n.name(pattern) : pattern.args[0].edge, covers: [...new Set(specs.map(Tree.paramKey))], rows: [], type, at, isRelation: rel, ...(type === 'field' && { datatype: t.out.field }), ...(type === 'choice' && { options: [...new Set(specs.map(s => s.out.choice))] }), ...(rel && { edges: n.edges(pattern) }) };
-    batch(() => { whyNote.value = ''; draft.value = { def: NEW, fresh, pattern, keep: new Set(), rows: [{ key, label: '', formula: '= ' }] }; writing.value = NEW; open.value = true; wanted.value = true; aim.value = key; });
+    batch(() => { whyNote.value = ''; draft.value = { def: NEW, fresh, pattern, keep: new Set(), rows: [{ key, label: '', formula: text }] }; writing.value = NEW; open.value = true; wanted.value = true; aim.value = key; });
+  }
+  // A value typed with = is a rule, as in a spreadsheet, and never the words: its rows open on what's typed, for every record like this one, and Done makes it,
+  // one change. A name new to the chart is made first, of the kind of value what's typed gives. One with a rule already has its rule's page opened, not written
+  // over. → whether it was taken.
+  function typed(at, edge, text, datatype = null) {
+    const Rv = R.peek(), t = Tree.treeOf(Rv.records, at);
+    if (App.readOnly.peek() || !t) return false;
+    const have = Object.values(App.schema.peek()).find(s => s.args?.length === 1 && Tree.same(s.args[0].edge, edge) && Tree.narrower(t, s.args[0].loc));
+    const gives = () => { let v = null; try { v = Formulas.evaluateAt(Rv, text, at); } catch {} return typeof v === 'string' ? 'text' : v?.t === 'date' ? 'date' : /%/.test(text) ? 'percent' : 'number'; };
+    const spec = have ?? { out: { field: datatype ?? gives() }, args: [{ edge, loc: Tree.specOf(t) }] }, p = Tree.bare(spec);
+    if (N().resolve('Formula', p)) { Shell.select([Shell.general(p)]); Shell.toast(`${edge} has a rule already: here it is`); return true; }
+    if (!have) App.change(tx => { tx.add('spec', { tree: spec }); tx.says(`Added the value ${edge}`); }, { dated: false, say: `Added the value ${edge}` });
+    Shell.select([Shell.general(p)]);
+    define(p, `= ${text.replace(/^\s*=\s*/, '')}`);
+    return true;
   }
   // Enter, or Done: the draft made, as one change, saying what it changed. A row that doesn't read says why, the cursor where it
   // goes wrong; a rule that reads but doesn't work (flawsIn) says so, and is made only by Save anyway, apart from Done.
@@ -2371,6 +2387,6 @@ const FormulaBar = (() => {
   // What `=` and `←` say, pointed at.
   const startSaid = kind => kind === 'implies' ? '← implied by: yes where what follows holds, and says nothing elsewhere' : '= gives what follows, yes or no or a value';
   Shell.register('broken', Broken);
-  return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, define, into, light: ids => { lit.value = ids; },
+  return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, define, typed, into, light: ids => { lit.value = ids; },
     reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, because, between, pickLine, isntHere, whyIsnt, emptyLists, isntOn, model, finder, pending, draft, hover, open, saying, brokenSaid, startSaid, limit, notOn, blankSaid, nobody };
 })();

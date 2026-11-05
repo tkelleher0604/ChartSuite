@@ -1294,6 +1294,8 @@ function mount(el) {
       { label: `Not ${r?.edge ?? it.blank.edge}`, checked: r?.tag === false, run: () => r?.tag !== false && put({ tag: false }) }]);
     const raw = r ? Tree.format(r.field, r.value) : '';
     openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, (text, keys) => {
+      // (= begins a rule, as in a spreadsheet, and never the words.)
+      if (/^\s*=\s*\S/.test(text) && FormulaBar.typed(r?.at ?? it.blank.at, r?.edge ?? it.blank.edge, Tree.clean(text), kind.datatype)) return;
       const v = Tree.parse(kind.datatype ?? Tree.classify(text), text);
       if (v === undefined || Tree.clean(text) === '' || (r && v === r.value)) return;
       put({ field: kind.datatype ?? Tree.classify(text), value: v }, !!keys);
@@ -1849,7 +1851,7 @@ function mount(el) {
         App.showMade(tx, [id], view);
       })) return;
       Shell.store.set('kind', now);
-      if (relate) Shell.emit('relate-open', [relate, id]); else Shell.select([id]);
+      if (relate) Shell.emit('relate-open', Object.assign([relate, id], { made: true })); else Shell.select([id]);
     }, { box: { kinds: choice, kind, pick: k => { now = k; } }, escaped: () => guide?.remove() });
   }
   const addAt = e => { if (!still()) create(lastKind(), graph.clientToLocal(e.clientX, e.clientY)); };
@@ -2059,7 +2061,7 @@ function mount(el) {
     const lit = FormatBar.lit?.();
     if (lit?.marks?.size > 1 && lit.marks.has(cell.id)) { Shell.select([...lit.marks]); return setTimeout(() => Shell.menu(at, markItems())); }
     const multi = sel.isSelected(cell) && sel.getSelectedCells().length > 1, f = (k === 'box' || k === 'line') && sel.isSelected(cell) && !multi ? fieldUnder(at.x, at.y) : null;
-    if (f?.it && f.m.id === cell.id) { pickField(f); return Shell.menu(at, [...markItems(), '-', { head: fieldName(f.it) }, ...fieldItems(f).filter(x => x !== '-' && x.label !== 'Copy' && x.label !== 'Format')]); }
+    if (f?.it && f.m.id === cell.id) { pickField(f); return Shell.menu(at, markItems(f)); }
     pickField(null);
     // A line is taken as a click takes it, with the lines drawn along it there.
     if (edge && k === 'line' && !sel.isSelected(cell)) { pressed = { id: cell.id, p: [p.x, p.y], was: [], more: false }; sel.reset(cell); } else take(cell);
@@ -2068,47 +2070,50 @@ function mount(el) {
   for (const name of ['node:contextmenu', 'edge:contextmenu', 'blank:contextmenu']) graph.on(name, contextOf);
   const ORDER = () => [{ label: 'Bring to front', keys: '$mod+Shift+]', run: () => order('front') }, { label: 'Bring forward', keys: '$mod+]', run: () => order('forward') },
     { label: 'Send backward', keys: '$mod+[', run: () => order('backward') }, { label: 'Send to back', keys: '$mod+Shift+[', run: () => order('back') }];
-  // What applies to what's selected: its text and fields first, then its look, then what it's like and related to,
-  // then hiding and deleting it, its order and grouping, and the clipboard.
-  function markItems() {
+  // What applies to what's selected, and with `f`, the field it was opened on, that field's, one row of its own under Edit text.
+  function markItems(f = null) {
     const ms = selected(), one = ms.length === 1 ? ms[0] : null, bound = ms.filter(m => m.type === 'box' || m.type === 'line'), ro = still();
     // The footer: its words, its font and its page's setup; the page places it.
-    if (ms.length && ms.every(footOf)) return [...(one?.role === 'footer' ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => edit(one.id) }] : []), ...formatItems(ms, ro), { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', { label: 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) }];
+    if (ms.length && ms.every(footOf)) return [...(one?.role === 'footer' ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => edit(one.id) }] : []), ...formatItems(ms, ro), '-', { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', { label: 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) }];
     // The Key: in a corner by name, or where the page places it.
     const inCorner = one?.geometry === 'legend' && !keyRow() && !ro ? [{ label: 'Put in a corner', items: [['Top left', 'top', 'left'], ['Top right', 'top', 'right'], ['Bottom left', 'bottom', 'left'], ['Bottom right', 'bottom', 'right']].map(([label, v, h]) => {
       const now = rowOf(one.id)?.corner; return { label, checked: now?.v === v && now?.h === h && (now.dx ?? scene.page.margin * scene.page.scale) === scene.page.margin * scene.page.scale, run: () => App.change(tx => keyCorner(tx, one.id, [v, h]), { dated: false, say: `Put the Key in the ${label.toLowerCase()} corner` }) }; }).concat(['-', { label: 'Where the page places it', checked: !rowOf(one.id)?.corner && rowOf(one.id)?.x == null, run: () => App.change(tx => keyCorner(tx, one.id, null), { dated: false, say: 'Let the page place the Key' }) }]) }, '-'] : [];
     const text = one?.type === 'shape' && !['line', 'picture', 'group'].includes(one.geometry), fielded = bound.length && bound.length === ms.length;
     const worded = one && (one.type === 'box' || (one.type === 'line' && one.texts?.some(isField)));
     const free = ms.filter(m => m.type === 'shape' && m.geometry !== 'legend' && !m.role), pictured = one?.geometry === 'picture';
-    // In one order: what it says; how it looks; what it's made of and related to; how it stands on the page; the clipboard; and what takes it away, last, so nothing goes by a slip.
+    // In one order: what it says; what it's made of and related to; the clipboard; how it looks and stands on the page; what's shown of it; and what takes it away, last, so nothing goes by a slip.
     return [
       ...(text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []), ...inCorner,
-      ...(fielded ? [...(worded ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => edit(one.id) }] : []),
+      ...(fielded ? [...(worded ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => f ? editField(f.m, f.it) : edit(one.id) }] : []),
+        ...(f ? [{ label: fieldName(f.it), items: fieldRows(f) }] : []),
         { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }] : []), '-'] : []),
-      ...formatItems(ms, ro),
-      ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
       ...(pictured ? [{ label: 'Crop', disabled: ro, run: () => hand.crop(one.id) }, { label: 'Change picture…', disabled: ro, run: () => hand.changePicture(one.id) }, { label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }, '-'] : []),
       ...(free.length && !ms.some(m => m.type === 'box') && !pictured && !one?.geometry?.startsWith?.('group') ? [{ label: 'Set as default', disabled: ro || !one, run: () => hand.setDefault() }, ...(one ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }] : []), '-'] : []),
       // What a structure chart is made of: its owner and its holding (or what else its first lists call them), as a list's + asks.
-      ...(one?.type === 'box' && !ro ? [...addsOf(one), { label: 'Relate…', run: () => relating(one) }] : []),
-      // What's between it and another box, which makes nothing, so reading asks it too.
-      ...(one?.type === 'box' ? [{ label: 'With…', run: () => relating(one, undefined, null, true) }] : []),
+      ...(one?.type === 'box' && !ro ? addsOf(one) : []),
+      // What's between it and another box: asked for, a tick in the two's panel relates them; Viewing, it reads what's there, and makes nothing.
+      ...(one?.type === 'box' ? [{ label: ro ? 'With…' : 'Relate…', run: () => relating(one, undefined, null, ro) }] : []),
       // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: 'Insert an entity between…', disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
       // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line. (One row, so the menu fits the window it opens in.)
       ...(one?.type === 'box' ? (deals => deals.length ? [{ label: 'Transactions', items: deals }] : [])([...(App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []), ...stakeItems(one)]) : []),
-      // Their own History.
-      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }, '-'] : []),
+      ...(one?.type === 'box' || one?.type === 'line' ? ['-'] : []),
+      { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !(clip?.items.length || clip?.field || clip?.free !== undefined), run: () => paste() },
+      ...(placeable().length ? [{ label: ms.every(m => m.type === 'box') ? 'Duplicate as a new box…' : 'Duplicate', keys: '$mod+KeyD', disabled: ro, run: duplicate }] : []),
+      '-',
+      ...formatItems(ms, ro),
+      ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
       { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(free.length || ms.some(m => m.geometry === 'group') ? [{ label: 'Flip and turn', disabled: ro, items: FLIPS() }] : []),
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
         : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
-      ...(placeable().length ? [{ label: ms.every(m => m.type === 'box') ? 'Duplicate as a new box…' : 'Duplicate', keys: '$mod+KeyD', disabled: ro, run: duplicate }] : []),
-      '-', { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !(clip?.items.length || clip?.field || clip?.free !== undefined), run: () => paste() },
       '-',
+      // Their own History.
+      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }] : []),
       ...(bound.length ? [{ label: 'Hide in this view', disabled: ro && !App.seeing(), run: () => App.seeing() ? App.see(viewOf(), bound.map(m => m.record), false) : remove() }] : []),
       ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
+      ...(bound.length ? ['-'] : []),
       // (On the Key, what it deletes, the row selected or the Key, in its own label.)
       { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
       // What the word for an act hides, offered plainly: a mistake is taken back as never held.
@@ -2140,7 +2145,7 @@ function mount(el) {
     const bar = typeof FormatBar !== 'undefined' ? FormatBar : {}, open = what => () => bar.open ? bar.open(what) : document.querySelector(`.fb [data-fb="${what}"]`)?.click();
     const boxy = ms.some(m => m.type === 'box' || (m.type === 'shape' && m.geometry !== 'line'));
     return [{ label: 'Format', items: [...(boxy ? [{ label: 'Fill…', disabled: ro, run: open('fill') }] : []), { label: 'Outline…', disabled: ro, run: open('outline') }, { label: 'Font…', disabled: ro, run: open('font') },
-      ...(bar.copyLook ? ['-', { label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : [])] }, '-'];
+      ...(bar.copyLook ? ['-', { label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : [])] }];
   }
   // The group whose note decides a field, where it's a group's: one beside an output, or at the entry wherever it is,
   // as the Key and Styles group them; null for a box's own, or where none says.
@@ -2164,26 +2169,19 @@ function mount(el) {
     const rec = treeOf(f.m.record), e = f.it.blank ? { args: [{ edge: name, loc: rec }] } : treeOf(f.it.id);
     for (const p of s.own ? [rec] : s.outputs) { const [pattern, param] = fieldAt(e, rec, scopeAt(p, name), name); tx.note(label, pattern, v, { view, ...(param && { param }) }); }
   }
-  // A field's own: typed in, hidden from this box or from all like it, its text's look.
-  function fieldItems(f) {
+  // A field's own: cleared, hidden from this box or from all like it, shown in every box or with its name.
+  function fieldRows(f) {
     // All like it: the group whose note shows the field here, so hiding it there takes back what showed it; else the
     // scope's group, or the narrowest.
     const ro = still(), s = scopeNow(canvas), all = groupOfNote(f.m, f.it.shownBy) ?? (s.own ? groupsAt(scene, f.m).find(x => x.marks.size > 1) : s);
-    const t = f.it.look;
-    const restyle = (label, v) => App.change(tx => styleField(tx, f, label, v, s), { dated: false });
     return [
-      { label: f.it.free ? 'Edit text' : 'Edit', keys: 'Enter', disabled: ro, run: () => editField(f.m, f.it) },
       { label: 'Clear contents', keys: 'Delete', disabled: ro || !clears(f), run: () => clearField(f) },
       '-', { label: f.m.type === 'line' ? 'Hide from this line' : 'Hide from this box', disabled: ro, run: () => hideField(f, { own: true }) },
       ...(all ? [{ label: `Hide from ${named(all)}`, disabled: ro, run: () => hideField(f, all),
         // Pointed at, the boxes it reaches are cued on the chart, as the scope's are (the format bar's cue).
         point: on => canvas.cue?.(on && all.marks ? [...all.marks] : null) }] : []),
-      ...(f.it.free ? [] : [{ label: 'In every box that has it', checked: fields.everywhere(fieldName(f.it)), disabled: ro, run: () => fields.setEverywhere(fieldName(f.it), !fields.everywhere(fieldName(f.it))) },
+      ...(f.it.free ? [] : ['-', { label: 'In every box that has it', checked: fields.everywhere(fieldName(f.it)), disabled: ro, run: () => fields.setEverywhere(fieldName(f.it), !fields.everywhere(fieldName(f.it))) },
         { label: 'With its name', checked: fields.captioned(fieldName(f.it)), disabled: ro, run: () => fields.setCaptioned(fieldName(f.it), !fields.captioned(fieldName(f.it))) }]),
-      '-', { label: 'Format', disabled: ro, items: [
-        { label: 'Bold', checked: !!t.Bold, run: () => restyle('Bold', !t.Bold) }, { label: 'Italic', checked: !!t.Italic, run: () => restyle('Italic', !t.Italic) },
-        { label: 'Underline', checked: !!t.Underline, run: () => restyle('Underline', !t.Underline) }] },
-      '-', { label: 'Copy', keys: '$mod+C', run: () => copyField(f) },
     ];
   }
   // The page's own right-click: what can be put on it, right there; and how it's set up.

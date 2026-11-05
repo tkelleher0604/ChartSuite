@@ -354,7 +354,7 @@ function drag(e, onDrop, onClick) {
 // Text, and a title, wrap, as many lines as they take; a title's name keeps its suffix (Scene.bind). With `preview`,
 // what keeping it would change (out → a change), the formula bar redlines that while it's typed, as it does a value
 // typed in the bar, so the chart is laid out ahead as Enter leaves it.
-function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', title, label, due, held = null, reads, looks, children }) {
+function Field({ r, datatype, put, rule, preview, fx, over, id, auto, ph, cls = '', title, label, due, held = null, reads, looks, children }) {
   const doc = datatype === 'document', shown = r ? T.format(r.field, r.value) : '', raw = r ? (doc ? r.value : shown) : '';
   // What's typed, null while nothing is; kept in a ref too, as a blur can come after the record has gone. `held`, what
   // was typed, pending (App.put): shown as typed is, till it's made or discarded, and typed over again.
@@ -375,6 +375,8 @@ function Field({ r, datatype, put, preview, fx, over, id, auto, ph, cls = '', ti
   const typing = () => typed.current !== null && T.clean(typed.current) !== T.clean(raw), dirty = now !== null && T.clean(now) !== T.clean(raw);
   // Keeps what's typed, where it reads; false where it doesn't. Typed back to what it was, what's pending of it goes.
   const done = keys => {
+    // (= begins a rule, as in a spreadsheet: `rule`, where the field can have one, takes what's typed to the formula bar.)
+    if (rule && typed.current !== null && /^\s*=\s*\S/.test(typed.current) && rule(T.clean(typed.current))) { type(null); return false; }
     const out = outOf(typed.current === null ? null : T.clean(typed.current)), back = held !== null && typed.current !== null;
     if (out === false) { type(null); if (back) put(false); return true; }
     if (out === undefined) { setBad(true); return false; }
@@ -606,7 +608,7 @@ function Output({ id, slot, label }) {
         flip=${() => (held ? set(false) : ruled ? emit('why-open', id) : flip(id, slot))} change=${ruled || held ? null : () => putChange(id, slot, flipped(id))}>${more}</${TagBox}>`
     : type === 'choice' ? html`<${Choice} r=${held ? { ...r, ...held } : r} was=${held ? r.choice : null} id=${id} fx=${f && !held} over=${o} put=${out => (held && T.same(out.choice, r.choice) ? set(false) : set(out, { auto: true }))} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}
         hint=${!r && recs()[slot.at]?.kind ? namedOption(nameOf(slot.at), k.options ?? []) : null}>${more}</${Choice}>`
-    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} preview=${out => putChange(id, slot, out)} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}
+    : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} rule=${t => FormulaBar.typed(r?.at ?? slot.at, r?.edge ?? slot.edge, t, r?.field ?? k.datatype)} preview=${out => putChange(id, slot, out)} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}
         held=${held ? T.format(held.field, held.value) : null}>${more}</${Field}>`;
 }
 
@@ -677,7 +679,9 @@ function whoFor(id, l, q) {
     const hay = T.norm(`${placeName(b)} ${recs()[b].args ? '' : shortOf(b)}`);
     if (!words.every(word => hay.includes(word))) continue;
     seen.add(b);
-    out.push({ label: placeName(b), detail: recs()[b].kind ?? nameOf(b), rank: recs()[b].args && !App.transferable(b)?.amount ? 1 : 0, run: () => joinTo(id, b, w, x) });
+    // (A name typed whole comes first: "Fund III" is Fund III, before Fund III-A and Fund III Blocker.)
+    const exact = words.length && (T.same(placeName(b), q) || (!recs()[b].args && T.same(shortOf(b), q)));
+    out.push({ label: placeName(b), detail: recs()[b].kind ?? nameOf(b), rank: exact ? -1 : recs()[b].args && !App.transferable(b)?.amount ? 1 : 0, run: () => joinTo(id, b, w, x) });
   }
   out.sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
   // The kinds a new one can be, in one order, as Insert offers them, the one its name says first.
@@ -838,13 +842,23 @@ function copied(e, it, at) {
 // An entry's row. Its grip drags it, and clicked opens its menu, as the context-menu key does from its value; dragged
 // onto the chart, by its grip or its label, it shows there. A tag is a checkbox row, its box before its name, as the
 // two-box panel draws one; its entries beneath it. Pointed at, its field on the chart lights, and the other way round.
+// What's under a row folds under it, a place in the schema at a time: shut at one entity's Jurisdiction, it's shut at every entity's, and stays so. What's gone
+// to from elsewhere, a field selected on the chart or a row Find aims at, opens what it's in.
+const foldedRows = signal(new Set(JSON.parse(Shell.store.get('folded') || '[]')));
+const foldKey = id => { const st = recs(), path = T.pathOf(st, id); return T.norm([st[path[0]]?.kind ?? '', ...path.slice(1).map(x => st[x].edge)].join('|')); };
+const foldRow = (id, on) => { const k = foldKey(id), now = new Set(foldedRows.peek()); if (on) now.add(k); else now.delete(k); foldedRows.value = now; Shell.store.set('folded', now.size ? JSON.stringify([...now]) : null); };
+const wantedIn = id => { const c = charted() ? Canvas.active.value : null; return [c?.field?.()?.it?.id, aim.value].some(y => y && y !== id && !!recs()[y] && T.pathOf(recs(), y).includes(id)); };
 function Entry({ it, at, depth }) {
   const r = it.id ? recs()[it.id] : null, f = !!r && fx(it.id), sibs = () => slots(at).filter(s => s.id).map(s => s.id);
+  const under = r && !('field' in r) ? slots(it.id).length : 0, shut = under > 0 && foldedRows.value.has(foldKey(it.id)) && !wantedIn(it.id);
   const tag = r ? boxed(it.id) : it.na || (!it.error && !it.unsure && kindAt(tree(at), it.edge).type === 'tag'), day = ending(at, it.edge), end = day !== r?.value ? day : null;
-  const keyMenu = e => { if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); } };
+  const keyMenu = e => {
+    if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); }
+    else if (under && e.target === e.currentTarget && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); foldRow(it.id, e.key === 'ArrowLeft'); }
+  };
   // A press on its label takes the keys to the row, so Ctrl+C copies it, and may drag it onto the chart.
   const press = e => { if (e.target.closest('input, textarea, button')) return; const row = e.currentTarget.closest('.row'); row.tabIndex = -1; row.focus({ preventScroll: true }); carry(e, it); };
-  const k = html`<div class="k" onPointerDown=${press}><${Label} it=${it} fx=${f} /></div>`, v = end
+  const k = html`<div class="k" onPointerDown=${press}><${Label} it=${it} fx=${f} />${under ? html`<button class=${'subfold' + (shut ? ' shut' : '')} tabindex="-1" aria-expanded=${!shut} aria-label=${`${shut ? 'Open' : 'Fold'} what’s under ${it.edge}`} data-tip=${shut ? 'Open' : 'Fold'} onClick=${e => { e.stopPropagation(); foldRow(it.id, !shut); }}>${icon('chevron')}${shut ? html`<span>${under}</span>` : null}</button>` : null}</div>`, v = end
     ? html`<div class="v redline">${r ? html`<s class="del date">${short(r.value)}</s>` : null}<span class="add date">${short(end)}</span></div>`
     : html`<div class="v ctl"><${Output} id=${it.id} slot=${it} label=${it.edge} /></div>`;
   const light = on => fields()?.light(on ? fieldKey(it, at) : null);
@@ -858,7 +872,7 @@ function Entry({ it, at, depth }) {
       <${OnChart} it=${it} at=${at} />
     </div>
     ${r && overrides(it.id) ? html`<${TypedOver} id=${it.id} depth=${depth} />` : null}
-    ${r && !('field' in r) ? html`<${Entries} at=${it.id} depth=${depth + 1} />` : null}
+    ${r && !('field' in r) && !shut ? html`<${Entries} at=${it.id} depth=${depth + 1} />` : null}
   </div>`;
 }
 // What a value typed over a rule says, under it, so no reader can miss that it isn't what the rule says; and the way back to the rule.
@@ -903,7 +917,7 @@ function Draft({ d, depth }) {
   const value = html`<div class="v ctl">${tag ? html`<span class="cellbox"><span class="tag" aria-hidden="true" /></span>`
       : k.type === 'choice' && k.options?.length ? html`<${Choice} options=${k.options} label=${T.clean(edge) || 'Choice'} put=${finish} />`
       : k.type === 'choice' ? html`<span class="cellbox"><input class="cell" placeholder="New options" aria-label="New options" ref=${el => d.edge && el && !el.dataset.on && (el.dataset.on = 1, el.focus())} onKeyDown=${e => { const os = optionsTyped(e.target.value); if (e.key !== 'Enter' || !os.length) return; if (os.length > 1) several(os); else finish({ choice: os[0] }); }} /></span>`
-      : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} label=${T.clean(edge) || 'Value'} put=${finish} />`}</div>`;
+      : html`<${Field} datatype=${k.datatype ?? null} auto=${!!d.edge} label=${T.clean(edge) || 'Value'} put=${finish} rule=${t => { const e = named(); if (!e) return false; draft.value = null; return FormulaBar.typed(d.at, e, t, k.datatype ?? null); }} />`}</div>`;
   return html`<div class=${'row draft' + (tag ? ' chk' : '') + (dated ? ' asks-recurs' : '')} ref=${box} style=${`--depth:${depth}`} onFocusOut=${leave} onKeyDown=${key} onInput=${typing}>${tag ? [value, name] : [name, value]}
     ${dated ? html`<label class="recurs"><input type="checkbox" checked=${recurs} onMouseDown=${e => e.preventDefault()} onChange=${e => setRecurs(e.target.checked)} />Changes over time</label>` : null}</div>`;
 }
@@ -1743,6 +1757,7 @@ function Prose({ text, put, label, cls = 'desc', auto, done }) {
 // offered). A side fills a relation's parameter through itself or a record located in it that fits there (a
 // fund is a GP's Partnership through its Entity Type). Every side is said by the place rule (Notes.placed),
 // so none twice.
+let guessing = null;   // the two a box made by a drag has just joined, till their panel takes it up
 function RelateView({ a, b }) {
   const r = recs(), n = N(), [picks, setPicks] = useState({}), none = useRef(null), still = App.readOnly.value;
   // A relation added is a change pending (begin), ticked and redlined here until Enter, its amount and its day asked
@@ -1835,7 +1850,7 @@ function RelateView({ a, b }) {
       : chosen ? { choice: '…', role: role(x.name, null, x.options, o => relate(x, slot, { choice: o })) } : {};
     // A role still to choose says which relation it's of, where two read alike ("is a … of"): Membership, Position.
     return html`<div class=${'rr' + (d ? ' adding' : '')} key=${x.key} data-key=${x.key}>
-      <span class="ctl">${d ? html`<button class="tag yes" role="checkbox" aria-checked="true" aria-label=${x.name} onClick=${() => App.discard()} />`
+      <span class="ctl">${d ? html`<span class="cellbox"><span class="hug"><button class="tag yes" role="checkbox" aria-checked="true" aria-label=${x.name} onClick=${() => App.discard()} /></span></span>`
         : !tag ? null : slot ? html`<${TagBox} label=${x.name} still=${x.key === settled} flip=${() => relate(x, slot, { tag: true })} />` : html`<span class="tag" aria-disabled="true" />`}</span>
       <span class="nm">${sentence(x.s, slot ? n.placed(r, null, slot.args).map(s => s.edge) : n.edges(x.s), say, said)}</span>
       <span class="val">${d && 'field' in d.out ? T.format(d.out.field, d.out.value) : tag || !slot || chosen ? null : html`<${Field} datatype=${x.s.out.field} label=${x.name} ph=${x.name} put=${out => out && relate(x, slot, out)} />`}</span>
@@ -1893,6 +1908,14 @@ function RelateView({ a, b }) {
   // What else could hold, once asked for; at once where nothing did.
   const ghost = (label, run) => html`<div class="rr new"><button class="btn ghost add-entry" onClick=${run}>${icon('plus')}${label}</button></div>`;
   none.current ??= !holds.length;
+  // A box just made off this one by a drag up or down: the best of these, an owner's solid line, is taken for meant, pending as Add holding's is; its
+  // tick or Discard takes it back, and the rest stay offered. (Across, nothing says which it would be.)
+  useLayoutEffect(() => {
+    if (guessing !== `${a}|${b}`) return;
+    guessing = null;
+    const x = could[0], slot = x && slotOf(x);
+    if (slot && upright && !dashed(x) && 'tag' in x.s.out) relate(x, slot, { tag: true });
+  }, [a, b]);
   return html`<div class="insp" data-tour="pair">
     <header class="ih"><h2 class="ih-title">${name(a)} <span class="and">and</span> ${name(b)}</h2></header>
     ${holds.length || after.length ? html`<div class="relate">${holds.map(heldRow)}${after.map(laterRow)}</div>` : null}
@@ -2272,9 +2295,16 @@ function rulesList(anchor = { x: 40, y: 44 }) {
   const part = (head, xs) => xs.length ? [{ head }, ...xs.sort(by)] : [];
   // Every value typed over a rule, on the one list: whose, what the rule says, why and who said so.
   const R = App.computed.peek(), overs = Object.keys(R.covered).filter(x => !R.covered[x].agrees && recs()[x]).map(x => { const o = App.overOf(x), r = recs()[x]; return { label: `${r.args ? segment(x) : `${r.edge} · ${bound(N().whereOf(recs(), r))}`}`, detail: `${T.outputText(r)}; the rule ${ruleSays(x)}`, tip: [`${T.outputText(r)}; the rule ${ruleSays(x)}`, o?.why].filter(Boolean).join(' · '), names: ['Typed over', 'Override', 'Overrides', 'Waiver', 'Exception', o?.why ?? ''], run: () => { select([r.args ? x : objectOf(x)]); emit('why-open', x); } }; });
-  menu(anchor, [...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations), ...part('Typed over', overs)], { search: true });
+  menu(anchor, [...(App.readOnly.peek() ? [] : [...newRules(), '-']), ...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations), ...part('Typed over', overs)], { search: true });
 }
-Shell.register('action', { id: 'rules', name: 'Rules', names: ['Checks', 'Check', 'Definitions', 'Formulas', 'List of rules', 'Relations', 'Overrides', 'Typed over', 'Waivers'], menu: 'chart', order: 11, run: () => setTimeout(() => rulesList()) });
+// A rule begun from the list: of what, then named in that kind's panel, as Add begins one there. A check goes on to its rule; a value's is what's typed after =.
+const NEW_RULES = [['New check', 'check', ['Check', 'Add a check', 'Test', 'Compliance']], ['New rule', 'field', ['Rule', 'Add a rule', 'Formula', 'New formula', 'Definition', 'Calculation']]];
+function newRules() {
+  const kinds = [...T.index(recs()).kinds].map(([, ids]) => ids.filter(x => !T.isView(recs()[x]))).filter(ids => ids.length);
+  const at = ids => { const here = Shell.selection.peek().map(x => recs()[x] && objectOf(x)).find(x => x && ids.includes(x)); return here ?? ids[0]; };
+  return NEW_RULES.map(([label, type, names]) => ({ label: `${label}…`, names, items: kinds.map(ids => ({ label: recs()[ids[0]].kind, run: () => { const x = at(ids); Shell.showPanel?.(); select([x]); setTimeout(() => { draft.value = { at: x, type }; }); } })) }));
+}
+Shell.register('action', { id: 'rules', name: 'Rules', names: ['Checks', 'Check', 'Definitions', 'Formulas', 'List of rules', 'Relations', 'Overrides', 'Typed over', 'Waivers', 'New rule', 'New check', 'Add a rule'], menu: 'chart', order: 11, run: () => setTimeout(() => rulesList()) });
 // A relation no rule gives is reopened from Find too, by its name, as a rule is: its page names it, and its roles.
 Shell.register('find', { items: () => {
   const n = N(), given = new Set(n.notes('Formula').filter(x => x.pattern.args?.length > 1).map(x => T.norm(n.name(x.pattern))));
@@ -2446,7 +2476,7 @@ preactSignals.effect(() => {
 // The two-box panel asked for (a handle dropped on a box, a box made from one, Relate…) is seen, the panel brought back if
 // it was put away.
 // (By the keys, they go with it, to the first tick or the first thing to fill: the two are chosen so as to say how. The tour teaches the way there itself.)
-on('relate-open', d => { Shell.showPanel?.(); select(d); if (Shell.usingKeys.peek() && !document.querySelector('.tour-card')) setTimeout(() => document.querySelector('.insp[data-tour="pair"] .relate .rr :is(button.tag, button.sel, input)')?.focus()); });
+on('relate-open', d => { guessing = d.made ? d.join('|') : null; Shell.showPanel?.(); select(d); if (Shell.usingKeys.peek() && !document.querySelector('.tour-card')) setTimeout(() => { if (!App.pending.peek()) document.querySelector('.insp[data-tour="pair"] .relate .rr :is(button.tag, button.sel, input)')?.focus(); }); });
 // A relation just added offers its entries while its two boxes stay selected.
 on('select', () => { fresh.value = null; if (ticked.peek().size) ticked.value = new Set(); if (offered.peek().length) offered.value = []; });
 // A definition opened from the formula bar widens the inspector, since its statute set out wide is what the

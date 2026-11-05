@@ -303,6 +303,21 @@ const Shell = (() => {
     e.preventDefault(); e.stopImmediatePropagation();
     if (e.key !== 'Tab' && a.closest('.cells')) a.dispatchEvent(new KeyboardEvent('keydown', { key: e.key, code: e.code, shiftKey: e.shiftKey, bubbles: true, cancelable: true }));
   }, true);
+  // A chord with nothing to take it is the view's, and the keys go there with it: Ctrl+A, on nothing or on a button, selects what's on the
+  // page, never the window's own words. (The clipboard's chords need only the keys there, for what they fire goes where the keys are.)
+  addEventListener('keydown', e => {
+    if (!started || !isLive || e.defaultPrevented || !(e.ctrlKey || e.metaKey)) return;
+    const a = document.activeElement, all = e.code === 'KeyA' && !e.altKey && !e.shiftKey;
+    if (a?.matches?.(TYPED) || a?.closest?.('[data-region="view"]') || !(all || orphan())) return;
+    if (document.querySelector('dialog[open], .tour-card') || floats.peek().length) { if (all) e.preventDefault(); return; }
+    enter('view');
+    const at = document.activeElement;
+    if (all) e.preventDefault();
+    if (!at || at === a || at === document.body || /^Key[CXV]$/.test(e.code)) return;
+    e.stopImmediatePropagation();
+    const again = new KeyboardEvent('keydown', { key: e.key, code: e.code, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey, bubbles: true, cancelable: true });
+    if (!at.dispatchEvent(again)) e.preventDefault();
+  }, true);
   // (What's selected changing can take away what had them, a panel's link, and what had them can let go: they don't wait for a key to come back.)
   on('select', () => { if (keyed && isLive) land(); });
   document.addEventListener('focusout', e => { if (keyed && isLive && !e.relatedTarget) land(); });

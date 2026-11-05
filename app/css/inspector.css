@@ -94,6 +94,13 @@ button.lk.hint { margin-left: 8px; color: var(--accent-ink); white-space: nowrap
 .typed > .btn { justify-self: start; margin: 6px 0 0 -8px; }
 .grip { position: absolute; left: calc(var(--depth, 0) * 16px + 2px); top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: grab; display: grid; place-items: center; }
 .grip > svg { width: 14px; height: 14px; }
+/* What's under a row folds: its chevron beside its name, quiet till the row's pointed at, and saying how many while it's shut. */
+.subfold { display: inline-flex; align-items: center; gap: 2px; height: 16px; margin-left: 2px; padding: 0 2px; border: 0; border-radius: 3px; background: none; font: var(--t12); color: var(--ink-3); vertical-align: -2px; cursor: default; }
+.subfold > svg { width: 12px; height: 12px; transition: transform var(--quick) var(--ease); }
+.subfold.shut > svg { transform: rotate(-90deg); }
+.subfold:not(.shut) { opacity: 0; }
+.row:hover .subfold, .row:focus-within .subfold, .subfold:focus-visible { opacity: 1; }
+.subfold:hover { color: var(--ink); background: var(--hover); }
 .row:hover > .grip, .grip:focus-visible { opacity: 1; }
 .grip:hover { color: var(--ink); background: var(--hover); }
 /* An entry as a field on the chart: lit while its field there is pointed at or selected; and at its end, Show on chart,
@@ -176,8 +183,8 @@ textarea.cell { field-sizing: content; height: auto; min-height: var(--row); pad
 .insp .row > .v .sel.dd > span::after { content: none; }
 .insp .row > .v .sel.dd::after { content: ""; flex: none; width: 10px; height: 6px; margin: 7px 8px 0 0; background: var(--chev) no-repeat center; }
 .insp .row > .v .sel:disabled::after { visibility: hidden; }
-/* (Where what its name says is offered beside it, there's room for that.) */
-.insp .row > .v .sel.dd:has(+ .hint) { width: auto; flex: none; gap: 0; }
+/* (What its name says is offered where the value will go, the chevron kept at the column's end.) */
+.insp .row > .v .hug:has(> .sel.dd) + .hint { order: -1; flex: 0 1 auto; min-width: 0; margin: 0 4px 0 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* A tag: hovering shows the other state, and redlines the label. */
 .v.ctl .tag { cursor: default; }

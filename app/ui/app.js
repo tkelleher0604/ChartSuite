@@ -1457,7 +1457,8 @@ const App = (() => {
   function failsOf(R2) {
     if (!R2) return [];
     if (failing.has(R2)) return failing.get(R2);
-    const key = a => a.error ? `${a.id} ${a.error.message}` : a.id, now = new Set(needs.peek().filter(a => a.kind === 'error' || a.kind === 'broken').map(key)), N = notes.peek(), recs = R2.records, st = state.peek();
+    // (A check already failing is new to no one, whatever id working it out again gives it: it's known by what it checks and where.)
+    const was = result.peek().records, keyIn = rs => a => a.error ? `${a.id} ${a.error.message}` : `${rs[a.id]?.edge}|${Tree.objectOf(rs, a.id)}`, key = keyIn(R2.records), now = new Set(needs.peek().filter(a => a.kind === 'error' || a.kind === 'broken').map(keyIn(was))), N = notes.peek(), recs = R2.records, st = state.peek();
     const about = a => Tree.objectOf(recs, a.error ? a.error.args?.[0]?.at ?? a.error.at : a.id);
     const figure = a => { const s = !a.error && typeof FormulaBar !== 'undefined' && FormulaBar.sentenceIn?.(R2, a.id); return s && [...s.matchAll(/\(([^()]*, not [^()]*)\)/g)].at(-1)?.[1]; };
     // A relation in words, as the two-box panel and the formula bar say it, each side by its short name.

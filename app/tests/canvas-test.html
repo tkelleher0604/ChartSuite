@@ -81,6 +81,8 @@ const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: Stri
 // (A little under what's asked: the page is near what a run of the suite gives it.)
 const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.9));
 const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
+// What a click there lands on: what's travelling lands first, for frames can stall in a headless run while its clock goes on.
+const hitAt = (x, y) => { for (const a of document.getAnimations()) if (a.effect?.target?.closest?.('.dc')) a.finish(); cv()?.root.classList.remove('flying'); return document.elementFromPoint(x, y); };
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const txt = el => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
 const cv = () => Canvas.active.peek(), sc = () => cv().scene();
@@ -564,7 +566,7 @@ async function run() {
   // ---- A click on a line selects what's drawn where it's clicked: on a trunk, every line drawn along it; on a
   // line's own leg, that line; on 40 Act, a line landing on a frame, every relation it draws ----
   const clickAt = async (x, y) => {
-    const c = g.localToGraph(x, y), r0 = cv().root.getBoundingClientRect(), cx = r0.left + c.x, cy = r0.top + c.y, el = document.elementFromPoint(cx, cy);
+    const c = g.localToGraph(x, y), r0 = cv().root.getBoundingClientRect(), cx = r0.left + c.x, cy = r0.top + c.y, el = hitAt(cx, cy);
     for (const type of ['mousedown', 'mouseup', 'click']) el?.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, buttons: type === 'mousedown' ? 1 : 0, view: window }));
     await tick(100);
     return el?.closest('.x6-edge')?.getAttribute('data-cell-id') ?? `not a line: ${el?.closest('[data-cell-id]')?.getAttribute('data-cell-id') ?? el?.tagName}`;
@@ -605,7 +607,7 @@ async function run() {
       const xs = it.lines.map(l => l.x - (t.Align === 'center' ? l.w / 2 : t.Align === 'right' ? l.w : 0)), y = Math.min(...it.lines.map(l => l.y)) - t.Size * Scene.PT * 0.5;
       return [m.x + Math.min(...xs) + Math.max(...it.lines.map(l => l.w)) / 2, m.y + y]; };
     const press = async ([x, y], type = 'click') => {
-      const c = cv().graph.localToGraph(x, y), r0 = cv().root.getBoundingClientRect(), cx = r0.left + c.x, cy = r0.top + c.y, el = document.elementFromPoint(cx, cy);
+      const c = cv().graph.localToGraph(x, y), r0 = cv().root.getBoundingClientRect(), cx = r0.left + c.x, cy = r0.top + c.y, el = hitAt(cx, cy);
       const evs = type === 'click' ? ['mousedown', 'mouseup', 'click'] : ['contextmenu'];
       for (const t of evs) el?.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: type === 'click' ? 0 : 2, buttons: t === 'mousedown' ? 1 : 0, view: window }));
       await tick(120);
@@ -632,6 +634,8 @@ async function run() {
     // Hiding it is its menu's (or the eye's): Hide from this box, one change, keyed to nothing; Clear contents is the one keyed Delete.
     Shell.select(['fund']); await tick(200);
     if (at) { await press(at); await press(at, 'contextmenu'); }
+    // (One row of the box's menu, named for the field.)
+    $$('.float .menu-item').find(x => txt(x.querySelector('.label')) === 'Jurisdiction')?.click(); await tick(120);
     const fieldMenu = $$('.float .menu-item').map(x => [txt(x.querySelector('.label')), txt(x.querySelector('kbd'))]);
     const keyed = Object.fromEntries(fieldMenu);
     check('a field’s menu keys Delete to Clear contents, and hiding it to nothing', keyed['Clear contents'] === Shell.keyLabel('Delete') && 'Hide from this box' in keyed && !keyed['Hide from this box'], JSON.stringify(fieldMenu));
@@ -1011,9 +1015,10 @@ async function run() {
   // typed in the date control, each laid out while the window is idle (here, at once), so Enter draws the scene laid
   // out then, the day's working-out too, and draws it as it is ----
   {
-    const idly = f => { const idle = window.requestIdleCallback, frame = window.requestAnimationFrame;
-      window.requestIdleCallback = g => g({ timeRemaining: () => 50, didTimeout: false }); window.requestAnimationFrame = g => g(performance.now());
-      try { f(); } finally { window.requestIdleCallback = idle; window.requestAnimationFrame = frame; } };
+    // (Each frame and idle moment in turn, at once, flat, as a flight's watch goes on asking for frames for as long as it's left to.)
+    const idly = f => { const idle = window.requestIdleCallback, frame = window.requestAnimationFrame, due = [];
+      window.requestIdleCallback = g => { due.push(() => g({ timeRemaining: () => 50, didTimeout: false })); }; window.requestAnimationFrame = g => { due.push(() => g(performance.now())); };
+      try { f(); for (let n = 0; due.length && n < 20000; n++) due.shift()(); } finally { window.requestIdleCallback = idle; window.requestAnimationFrame = frame; } };
     const laid = [], worked = [], steps0 = Scene.steps, workOn0 = App.workOn;
     Scene.steps = (...a) => (function* () { const s = yield* steps0(...a); laid.push(s); return s; })();
     App.workOn = d => { const R = workOn0(d); worked.push(R); return R; };
@@ -1036,6 +1041,9 @@ async function run() {
       Shell.parts.peek().undo.undo(); Shell.select([]); await tick(160);
       $('.titlebar .asof .dd')?.click(); await tick(120);
       const field = $('.date-pop .date-top input');
+      // (What's laid out ahead waits for what's travelling, which the frames of a headless run may not have landed.)
+      for (const a of document.getAnimations()) if (a.effect?.target?.closest?.('.dc')) a.finish();
+      await tick(0);
       idly(() => { field.value = 'June 30, 2025'; field.dispatchEvent(new Event('input', { bubbles: true })); });
       const day = laid.find(s => s.view === charts()[0].id && s.day === '2025-06-30'), R = worked.at(-1);
       field?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(200);
@@ -1172,7 +1180,7 @@ async function run() {
     App.discard(); await tick(120);
     const boxAt = m => { const c = cv().graph.localToGraph(m.x + m.w / 2, m.y + 4), r0 = cv().root.getBoundingClientRect(); return [r0.left + c.x, r0.top + c.y]; };
     const [bx, by] = boxAt(sc().byId.get(plain));
-    document.elementFromPoint(bx, by)?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: bx, clientY: by, button: 2, view: window })); await tick(150);
+    hitAt(bx, by)?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: bx, clientY: by, button: 2, view: window })); await tick(150);
     const boxMenu = Object.fromEntries($$('.float .menu-item').map(x => [txt(x.querySelector('.label')), txt(x.querySelector('kbd'))]));
     check('a box’s menu keys Delete to Delete…, named for what it records (Dissolve…), and Hide in this view to nothing, with History beside them', boxMenu[`${App.deleteVerb([plain])}…`] === Shell.keyLabel('Delete') && 'Hide in this view' in boxMenu && !boxMenu['Hide in this view'] && 'History' in boxMenu, JSON.stringify(boxMenu));
     $$('.float .menu-item').find(x => txt(x.querySelector('.label')) === 'History')?.click(); await tick(250);
@@ -1677,7 +1685,7 @@ async function layered() {
   const svg = Export.svg(sc(), {}), at = s => svg.indexOf(s);
   check('… and the PDF’s page draws it first', svg.includes('Blocker') && svg.indexOf(sc().byId.get('blocker').texts[0].lines[0].text.split('&')[0]) > 0, '');
   // Picked by what shows, and dragged.
-  const r = cv().root.getBoundingClientRect(), g = cv().graph.localToGraph(sc().byId.get(band).x + 6, sc().byId.get(band).y + 6), el = document.elementFromPoint(r.left + g.x, r.top + g.y);
+  const r = cv().root.getBoundingClientRect(), g = cv().graph.localToGraph(sc().byId.get(band).x + 6, sc().byId.get(band).y + 6), el = hitAt(r.left + g.x, r.top + g.y);
   check('a shape behind boxes is picked by any part of it that shows', el?.closest('[data-cell-id]')?.getAttribute('data-cell-id') === band, el?.closest('[data-cell-id]')?.getAttribute('data-cell-id'));
   Shell.select([band]); await tick(150);
   const n1 = App.wb.changes().length;
@@ -1748,9 +1756,9 @@ async function pickings() {
   check('(a stretch lines share)', !!run, '');
   if (!run) return;
   const scr = () => { const q = g.localToGraph(run.at[0], run.at[1]); return [R().left + q.x, R().top + q.y]; };
-  const on = () => { const [x, y] = scr(), el = document.elementFromPoint(x, y); return { el: el?.closest('[data-cell-id]') ?? el, x, y }; };
+  const on = () => { const [x, y] = scr(), el = hitAt(x, y); return { el: el?.closest('[data-cell-id]') ?? el, x, y }; };
   const mouse = (t, o, b = 0) => o.el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: o.x, clientY: o.y, button: b, buttons: t === 'mouseup' ? 0 : 1, view: window }));
-  const click = async () => { const o = on(), target = document.elementFromPoint(o.x, o.y); const p = { ...o, el: target }; mouse('mousedown', p); mouse('mouseup', p); mouse('click', p); await tick(220); };
+  const click = async () => { const o = on(), target = hitAt(o.x, o.y); const p = { ...o, el: target }; mouse('mousedown', p); mouse('mouseup', p); mouse('click', p); await tick(220); };
   const picked = () => [...Shell.selection.peek()].sort();
   await click();
   check('a click on a shared run, nothing selected, picks the run', JSON.stringify(picked()) === JSON.stringify(run.all), JSON.stringify([picked(), run.all]));
@@ -1766,7 +1774,7 @@ async function pickings() {
   // A right-click among several: the box's menu, on a name too.
   const [a, b] = ['blocker', 'corvane'].map(id => sc().byId.get(id));
   Shell.select([a.id, b.id]); await tick(200);
-  const rightClickAt = async (m, it) => { const l = it ? it.lines[0] : null, q = g.localToGraph(m.x + (l ? l.x : 6), m.y + (l ? l.y - 3 : 6)), [x, y] = [R().left + q.x, R().top + q.y], el = document.elementFromPoint(x, y); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2, buttons: 2, view: window })); await tick(250); };
+  const rightClickAt = async (m, it) => { const l = it ? it.lines[0] : null, q = g.localToGraph(m.x + (l ? l.x : 6), m.y + (l ? l.y - 3 : 6)), [x, y] = [R().left + q.x, R().top + q.y], el = hitAt(x, y); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2, buttons: 2, view: window })); await tick(250); };
   await rightClickAt(a, a.texts[0]);
   let items = menuItems();
   check('a right-click on a name in a selection of several gives the box menu', items.some(s => s.startsWith('Hide in this view')) && items.some(s => s.startsWith('Show only these')) && !items.some(s => s.startsWith('Clear contents')), items.join(' | '));
@@ -1774,7 +1782,7 @@ async function pickings() {
   Shell.select([a.id]); await tick(200);
   await rightClickAt(sc().byId.get(a.id), sc().byId.get(a.id).texts[0]);
   items = menuItems();
-  check('one on a name in a box selected alone gives the box’s menu, and the name’s items at its end', items.some(s => s.startsWith('Hide in this view')) && items.findIndex(s => s.startsWith('Clear contents')) > items.findIndex(s => s.startsWith('Hide in this view')), items.join(' | '));
+  check('one on a name in a box selected alone gives the box’s menu, and the name’s own in one row under Edit text', items.some(s => s.startsWith('Hide in this view')) && items[1]?.startsWith('Name') && !items.some(s => s.startsWith('Clear contents')), items.join(' | '));
   await closeMenus(); Shell.select([]); await tick(150);
   // The Key's Delete.
   const key = sc().marks.find(m => m.geometry === 'legend');
@@ -1786,7 +1794,7 @@ async function pickings() {
     const row = key.rows[0];
     Shell.select([`${key.id}#${row.key}`]); await tick(200);
     const qq = g.localToGraph(key.x + row.x + 40, key.y + row.y + 4), xy = [R().left + qq.x, R().top + qq.y];
-    document.elementFromPoint(...xy).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: xy[0], clientY: xy[1], button: 2, buttons: 2, view: window })); await tick(250);
+    hitAt(...xy).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: xy[0], clientY: xy[1], button: 2, buttons: 2, view: window })); await tick(250);
     check('… on a row of it selected, that it’s the row', menuItems().some(s => s.startsWith('Delete the row')), menuItems().join(' | '));
     await closeMenus(); Shell.select([]); await tick(150);
   }
@@ -2151,7 +2159,7 @@ async function drag(m, dx, dy) {
   const mouse = (t, [x, y], on = document) => on.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: t === 'mouseup' ? 0 : 1, view: window }));
   mouse('mousedown', [x, y], el.querySelector('path, rect') ?? el);
   for (let i = 1; i <= 10; i++) { mouse('mousemove', [x + dx * i / 10, y + dy * i / 10]); await tick(16); }
-  mouse('mouseup', [x + dx, y + dy], document.elementFromPoint(x + dx, y + dy) ?? document.body); await tick(400);
+  mouse('mouseup', [x + dx, y + dy], hitAt(x + dx, y + dy) ?? document.body); await tick(400);
 }
 
 async function stillAsMade() {
@@ -2172,7 +2180,7 @@ async function stillAsMade() {
     const hr = h.getBoundingClientRect(), from = [hr.left + hr.width / 2, hr.top + hr.height / 2], end = scr(...to);
     pointer('pointerdown', from, h); await tick(30);
     for (let i = 1; i <= 8; i++) { pointer('pointermove', [from[0] + (end[0] - from[0]) * i / 8, from[1] + (end[1] - from[1]) * i / 8], window); await tick(16); }
-    pointer('pointerup', end, document.elementFromPoint(...end) ?? window, 0); await tick(300);
+    pointer('pointerup', end, hitAt(...end) ?? window, 0); await tick(300);
     return true;
   }
   const tickRow = async words => { const r = $$('.rr').find(e => txt(e.querySelector('.nm')).includes(words)); r?.querySelector('[role=checkbox]')?.click(); await tick(700); return !!r; };

@@ -323,6 +323,48 @@ async function run() {
     dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })); await tick(60);
     check('… and Esc makes nothing, the box it began from selected again', Shell.selection.peek()[0] === start && !cv.root.classList.contains('relating'), Shell.selection.peek().join());
     Shell.select([]); await tick(60);
+    // Ctrl+A with the keys on nothing, or on a button, is the page's, never the window's own words.
+    const selectAll = target => { const e = new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', ctrlKey: true, bubbles: true, cancelable: true }); target.dispatchEvent(e); return e.defaultPrevented; };
+    document.activeElement?.blur();
+    check('Ctrl+A with the keys on nothing selects the page’s boxes and isn’t the browser’s', selectAll(document.body) && Shell.selection.peek().length > 10 && cv.root.contains(document.activeElement), `${Shell.selection.peek().length} on ${document.activeElement?.tagName}`);
+    Shell.select([]); await tick(60);
+    const tab = $('.sheets button'); tab.focus();
+    check('… nor from a tab just clicked', selectAll(tab) && Shell.selection.peek().length > 10, `${Shell.selection.peek().length} on ${document.activeElement?.tagName}`);
+    Shell.select([]); await tick(60);
+    const find = $('.titlebar input'); find?.focus();
+    if (find) { const e = new KeyboardEvent('keydown', { key: 'a', code: 'KeyA', ctrlKey: true, bubbles: true, cancelable: true }); find.dispatchEvent(e); check('… but in a field it’s the field’s', !e.defaultPrevented && document.activeElement === find && !Shell.selection.peek().length, Shell.selection.peek().length); }
+    cv.root.focus(); await tick(60);
+    // A box made off another by a drag up or down: the owner's line pending, its figure asked; a drag across says nothing of which.
+    const boxes = cv.scene().marks.filter(m => m.type === 'box'), hi = boxes.find(m => m.id === start) ?? boxes[0];
+    const made = App.change(tx => { const id = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: 'Guessed Co' }); tx.note('Position', { id, kind: 'Entity' }, { x: hi.x, y: hi.y + 200, loose: true }, { view: Shell.view.peek() }); App.showMade(tx, [id], Shell.view.peek()); window.__made = id; });
+    await tick(120);
+    Shell.emit('relate-open', Object.assign([hi.id, window.__made], { made: true })); await until(() => App.pending.peek(), 800);
+    check('a box dragged out of another below it starts as its holding, the line pending and its figure asked', App.pending.peek()?.relate?.a === hi.id && App.pending.peek()?.value?.v === null && !!$('.insp[data-tour="pair"] .rr.adding'), JSON.stringify(App.pending.peek()?.relate ?? null));
+    const bad = $('.insp[data-tour="pair"] .rr.adding .tag'), top = bad?.getBoundingClientRect().top - bad?.closest('.rr').getBoundingClientRect().top;
+    check('… its tick in line with its words, as every row’s is', top >= 5, top);
+    check('… and no “can’t say” before its figure’s been asked', !/Can.t say of/.test(txt($('.fxbar'))), txt($('.fxbar')));
+    App.discard({ quiet: true }); await tick(100);
+    check('… and Discard leaves the two to choose for themselves', !App.pending.peek() && !!$('.insp[data-tour="pair"] .relate .rr'), '');
+    Shell.parts.peek().undo.undo(); await tick(150); Shell.select([]); await tick(60);
+    check('… and Undo takes the box back', !(window.__made in App.state.peek()), window.__made);
+    // What's under a row folds, a place in the schema at a time.
+    const foldable = boxes.find(m => App.state.peek()[m.record]?.kind === 'Entity') ?? hi;
+    Shell.select([foldable.id]); await tick(120);
+    const sub = $('.insp .row .subfold'), rowOf = sub?.closest('.row'), edge = rowOf && txt(rowOf.querySelector('.lbl')), under = () => $$('.insp .row').length, rowsBefore = under();
+    sub?.click(); await tick(80);
+    check('a row’s chevron folds what’s under it, saying how many', !!sub && under() < rowsBefore && !!$('.insp .row .subfold.shut span'), `${rowsBefore} → ${under()}`);
+    const alike = boxes.find(m => m.id !== foldable.id && App.state.peek()[m.record]?.kind === App.state.peek()[foldable.record]?.kind);
+    Shell.select([alike.id]); await tick(120);
+    check('… and it’s shut at every one of its kind', $$('.insp .row .subfold.shut').some(b => txt(b.closest('.row').querySelector('.lbl')) === edge), edge);
+    $$('.insp .row .subfold.shut').find(b => txt(b.closest('.row').querySelector('.lbl')) === edge)?.click(); await tick(80);
+    check('… until it’s opened', !$$('.insp .row .subfold.shut').some(b => txt(b.closest('.row').querySelector('.lbl')) === edge), edge);
+    Shell.select([]); await tick(60);
+    // A value typed with = is a rule, and the Rules list begins one.
+    Shell.select([foldable.id]); await tick(120);
+    const typedEntry = 'Far Off Sum', tookRule = FormulaBar.typed(foldable.record, typedEntry, '=1+1');
+    await tick(150);
+    check('a value typed with = opens its rule on what was typed, the value new to the chart a figure', tookRule && FormulaBar.open.value && FormulaBar.draft.value?.rows?.[0]?.formula === '= 1+1' && Object.values(App.schema.peek()).some(s => s.args?.[0]?.edge === typedEntry && s.out?.field === 'number'), JSON.stringify(FormulaBar.draft.value?.rows ?? null));
+    FormulaBar.discard?.(); await tick(100); FormulaBar.open.value = false; Shell.select([]); await tick(60);
   }
   check('Nothing threw', !errors.length, errors.join(' / '));
 }

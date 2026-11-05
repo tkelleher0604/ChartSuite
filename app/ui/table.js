@@ -562,6 +562,8 @@ const Table = (() => {
     const bad = () => { input.classList.add('bad'); input.dataset.why = Tree.notA(typeOf(c, cell.getRow().getData())); input.setAttribute('aria-invalid', 'true'); return false; };
     const keep = o => {
       if (done) return true;
+      // (= begins a rule, as in Excel, and never the words: for a value of its own column, in the formula bar.)
+      if (/^\s*=\s*\S/.test(input.value) && ruleTyped(cell, input.value)) { done = true; cancel(); return true; }
       if (!readable(cell, input.value)) return bad();
       done = true;
       cancel();
@@ -1248,6 +1250,7 @@ const Table = (() => {
   // What typing `raw` into a cell writes: { put: [id, record] }, a value entered; { gone: id }, one cleared; { side:
   // [row, edge, name] }, a relation's side moved; or { list: [row, column, names] }, a list's relatives named. Null where
   // it writes nothing; false where it can't be read.
+  const ruleTyped = (cell, raw) => { const c = columnOf(cell), m = atCell(cell), r = m?.id && App.state.peek()[m.id], at = r?.at ?? m?.at, edge = r?.edge ?? c?.path?.at(-1); return !!at && !!edge && !['edge', 'list'].includes(c.type) && c.key !== '$why' && FormulaBar.typed(at, edge, clean(raw), r?.field ?? null); };
   function writing(cell, raw) {
     const c = columnOf(cell), m = atCell(cell), st = App.state.peek(), r = m?.id && st[m.id], entered = !!m?.id && m.id in App.entered.peek(), row = cell.getRow().getData().id;
     if (!c || !m) return null;
@@ -2777,12 +2780,13 @@ const Table = (() => {
   function keydown(e) {
     if (!table || table.modules.edit?.currentCell || e.target.closest('.tabulator-header') || locked()) return;
     const cell = table.modules.selectRange?.getActiveCell()?.getComponent(), mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
-    if (!cell) return;
     const rows = table.getRows('active'), cols = table.getColumns().filter(c => c.getField()), r0 = table.getRanges()[0];
     const to = (a, b = a) => { e.preventDefault(); if (a && b) table.addRange(a, b); };
+    // (Everything is everything, whether a cell's been placed yet or not.)
+    if (k === 'a' && mod && !e.shiftKey && !e.altKey) return rows.length && to(rows[0].getCell(cols[0]), rows.at(-1).getCell(cols.at(-1)));
+    if (!cell) return;
     if (e.key === ' ' && mod && !e.shiftKey) { const cs = r0.getColumns().filter(c => c.getField()); return rows.length && to(rows[0].getCell(cs[0]), rows.at(-1).getCell(cs.at(-1))); }
     if (e.key === ' ' && e.shiftKey && !mod) { const rs = r0.getRows(); return to(rs[0]?.getCell(cols[0]), rs.at(-1)?.getCell(cols.at(-1))); }
-    if (k === 'a' && mod && !e.shiftKey && !e.altKey) return rows.length && to(rows[0].getCell(cols[0]), rows.at(-1).getCell(cols.at(-1)));
     if (e.key === 'Home' || e.key === 'End') {
       const row = mod ? rows[e.key === 'Home' ? 0 : rows.length - 1] : cell.getRow();
       to(row.getCell(cols[e.key === 'Home' ? 0 : cols.length - 1]));
