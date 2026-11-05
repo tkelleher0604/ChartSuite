@@ -931,9 +931,9 @@ function SizeBox({ v, disabled, why }) {
 // The look a mark has: what it draws by, its box's or its line's, and its first text's; a weight as the slide has it,
 // as the bar writes it. Never what it is or where, as PowerPoint's painter copies none of them: not its shape or its corners,
 // its record's Format, its frame, its layer or its route.
-const BOX_LOOK = ['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Valign'];
-const LINE_LOOK = ['Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'];
-const TEXT_LOOK = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing'];
+const BOX_LOOK = ['Fill', 'Gradient', 'Pattern', 'Picture', 'Transparency', 'Outline', 'Weight', 'Dash', 'Compound', 'Line Gradient', 'Line Transparency', 'Shadow', 'Glow', 'Soft Edge', 'Reflection', 'Inner Shadow', 'Bevel', 'Turn 3D', 'Valign'];
+const LINE_LOOK = ['Outline', 'Weight', 'Dash', 'Compound', 'Line Gradient', 'Line Transparency', 'Arrow', 'Arrowhead'];
+const TEXT_LOOK = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Text Gradient', 'Text Outline', 'Align', 'Spacing'];
 const LOOK = new Set([...BOX_LOOK, ...LINE_LOOK, ...TEXT_LOOK]);
 const kindOf = m => m.type === 'line' || m.geometry === 'line' ? 'line' : 'box';
 const textValue = (it, l) => { const v = it?.look?.[l]; return l === 'Size' ? shown(v) : v; };

@@ -718,9 +718,9 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
   // A line, glued where it starts and ends; and with `label` ([its texts, where they're placed from]) its label:
   // the two grouped, named as the line is. Its `alt` text is the group's, or the connector's where it's alone.
   // → its rects.
-  const connector = (points, s, ends, name, { label = null, alt } = {}) => {
+  const connector = (points, s, ends, name, { label = null, alt, link = null } = {}) => {
     const draw = () => {
-      put(id => cxn(id, name, points, s, ends?.map((b, i) => glue(scene.byId.get(b), points, i)), { X, Y, k, alt: label ? null : alt }));
+      put(id => cxn(id, name, points, s, ends?.map((b, i) => glue(scene.byId.get(b), points, i)), { X, Y, k, alt: label ? null : alt, link }));
       return [...points.map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])];
     };
     return label ? group(name, draw, alt) : draw();
@@ -774,7 +774,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
       });
     }
     // A free line is a connector glued to what it's glued to, named so, and it follows that in PowerPoint; or a line.
-    if (m.geometry === 'line') return connector(m.points, s, m.ends ?? null, m.name ?? (m.ends ? 'Connector' : 'Line'), { alt: m.alt });
+    if (m.geometry === 'line') return connector(m.points, s, m.ends ?? null, m.name ?? (m.ends ? 'Connector' : 'Line'), { alt: m.alt, link: m.link });
     if (m.geometry === 'picture') {
       // Cropped, as PowerPoint holds it: the whole picture's size, and the part of it shown, its frame on the slide. Named, and said to a reader, as the panel has it.
       const c = m.crop && { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = c ? L(m.w) / (1 - (c.left + c.right) / 100) : L(m.w), fh = c ? L(m.h) / (1 - (c.top + c.bottom) / 100) : L(m.h);
@@ -866,7 +866,7 @@ function grouped(id, name, rects, alt) {
 // three, 2, 4 and 5 for two, four and five), its legs set by the adjustments, so it stays square when what it joins is
 // moved, a line bent by a hand as any other; a route no connector draws is a freeform. An elbow whose first leg is
 // upright is one whose first leg runs across, turned a quarter.
-function cxn(id, name, ps, s, ends, { X, Y, k, alt }) {
+function cxn(id, name, ps, s, ends, { X, Y, k, alt, link = null }) {
   const q = ps.map(([x, y]) => [E(X(x)), E(Y(y))]);
   // A detour whose ends line up has no width for its adjustments to be fractions of: its far end a tenth of a point out of
   // line gives it one, too little to see, as PowerPoint's own hold such a line. A box moved there, PowerPoint routes it afresh.
@@ -875,7 +875,7 @@ function cxn(id, name, ps, s, ends, { X, Y, k, alt }) {
   const elbow = s.Connector === 'elbow' && (legs > 1 || !dx || !dy), upright = legs > 1 ? q[1][0] === x0 : elbow && !dx;
   const square = legs === 1 || q.slice(1).every((p, i) => (i % 2 === 0) === upright ? p[0] === q[i][0] : p[1] === q[i][1]);
   const line = ln(s, k, `${['start', 'both'].includes(s.Arrow) ? headEnd('headEnd', Scene.headOf(s, 'start')) : ''}${['end', 'both'].includes(s.Arrow) ? headEnd('tailEnd', Scene.headOf(s, 'end')) : ''}`);
-  const nv = (tag, inner) => `<p:nv${tag}Pr>${cNvPr(id, name || 'Line', alt)}<p:cNv${tag}Pr>${inner}</p:cNv${tag}Pr><p:nvPr/></p:nv${tag}Pr>`;
+  const nv = (tag, inner) => `<p:nv${tag}Pr>${cNvPr(id, name || 'Line', alt, link)}<p:cNv${tag}Pr>${inner}</p:cNv${tag}Pr><p:nvPr/></p:nv${tag}Pr>`;
   if (legs > 5 || !square || (legs > 1 && (!dx || !dy)) || (!dx && !dy)) {
     const x = Math.min(...q.map(p => p[0])), y = Math.min(...q.map(p => p[1])), w = Math.max(...q.map(p => p[0])) - x, h = Math.max(...q.map(p => p[1])) - y;
     return `<p:sp>${nv('Sp', '')}<p:spPr>${xfrm(x, y, w, h)}${freeform(q.map(([px, py]) => [px - x, py - y]), w, h)}<a:noFill/>${line}</p:spPr></p:sp>`;
