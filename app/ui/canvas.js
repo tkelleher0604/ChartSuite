@@ -581,12 +581,12 @@ function mount(el) {
     // (The relate handles keep clear of them, from the click that selects it.)
     if (near) showHandles(near);
   };
-  // The grips of what's selected show as the pointer nears it; at rest, its one quiet outline.
-  function gripsNear(e) {
+  // The grips of what's selected show as the pointer nears its edge; at rest, and with the pointer on what's in it, its one quiet outline.
+  function gripsNear(e, onWords = false) {
     let on = false;
     if (transform.widgets.size) {
-      const p = graph.clientToLocal(e.clientX, e.clientY), r = 22 / graph.zoom();
-      for (const [cell] of transform.widgets) { const q = cell.getPosition(), s = cell.getSize(); if (p.x > q.x - r && p.x < q.x + s.width + r && p.y > q.y - r && p.y < q.y + s.height + r) on = true; }
+      const p = graph.clientToLocal(e.clientX, e.clientY), z = graph.zoom(), r = 22 / z, inner = 8 / z;
+      for (const [cell] of transform.widgets) { const q = cell.getPosition(), s = cell.getSize(), inside = p.x > q.x && p.x < q.x + s.width && p.y > q.y && p.y < q.y + s.height; if (p.x > q.x - r && p.x < q.x + s.width + r && p.y > q.y - r && p.y < q.y + s.height + r && !(inside && onWords) && !(p.x > q.x + inner && p.x < q.x + s.width - inner && p.y > q.y + inner && p.y < q.y + s.height - inner)) on = true; }
     }
     root.classList.toggle('near-grips', on);
   }
@@ -1770,7 +1770,8 @@ function mount(el) {
     const h = hovered && fieldIn(scene.byId.get(hovered.box), hovered.id);
     // What was pointed at and is drawn no longer (a blank typed into) is pointed at no longer, till the pointer moves.
     if (hovered && !h) { hovered = null; tipFor(null); root.classList.remove('on-field'); }
-    if (h && hovered.id !== field?.id) draw(fieldRect(scene.byId.get(hovered.box), h), 'hover');
+    // (Only in what's selected: a click on any other takes the box, so its words aren't what's on offer yet.)
+    if (h && hovered.id !== field?.id && sel.isSelected(graph.getCellById(hovered.box) ?? {})) draw(fieldRect(scene.byId.get(hovered.box), h), 'hover');
     if (litKey) for (const m of scene.marks) for (const it of m.texts ?? []) if (rowKey(it) === litKey && it.lines?.length) draw(fieldRect(m, it), 'lit');
     const d = dropOn && scene.byId.get(dropOn);
     if (d) draw(d, 'drop', 4);
@@ -1813,7 +1814,7 @@ function mount(el) {
     hovered = f?.it && !dragging ? { box: f.m.id, id: f.it.id } : null;
     root.classList.toggle('on-field', !!hovered);
     root.classList.toggle('on-body', !!f && !f.it && f.m.type === 'box' && sel.isSelected(graph.getCellById(f.m.id) ?? {}));
-    if (was?.id !== hovered?.id || was?.box !== hovered?.box) { paintFields(); tipFor(hovered ? f : null); }
+    if (was?.id !== hovered?.id || was?.box !== hovered?.box) { paintFields(); tipFor(hovered && sel.isSelected(graph.getCellById(hovered.box) ?? {}) ? f : null); }
   }
   function pickField(f) {
     field = f?.it && isField(f.it) ? { box: f.m.id, id: f.it.id } : null;
@@ -2173,14 +2174,16 @@ function mount(el) {
     let best = null, bd = Infinity;
     for (const m of scene.marks) {
       if (m.type !== 'box') continue;
-      const reach = transform.widgets.has(graph.getCellById(m.id)) ? STANDOFF + 12 : 12, r = reach / z;
+      const gripped = transform.widgets.has(graph.getCellById(m.id)), reach = gripped ? STANDOFF + 12 : 12, r = reach / z;
       if (p.x < m.x - r || p.x > m.x + m.w + r || p.y < m.y - r || p.y > m.y + m.h + r) continue;
       const o = outlineOf(m), d = Math.min(...o.map((a, i) => toSegment([p.x, p.y], a, o[(i + 1) % o.length]))) * z;
+      // (Inside a box selected, only right at its edge: further in, the pointer's on what's in it.)
+      if (gripped && d > 8 && p.x > m.x && p.x < m.x + m.w && p.y > m.y && p.y < m.y + m.h) continue;
       if (d <= reach && d < bd) { best = m; bd = d; }
     }
     return best;
   }
-  // Pointing at a box shows its handles, as Lucidchart's do, and at a field, that it's one (see Fields).
+  // Pointing at a box shows its handles, as Lucidchart's do; at a field of the box selected, that it's one (see Fields). One thing at a time: near its edge, what takes hold of its edge; on its words, the words.
   root.addEventListener('pointermove', e => {
     pointerAt = { x: e.clientX, y: e.clientY };
     if (scene) { gripsNear(e); dotsNear(e); }
@@ -2190,8 +2193,9 @@ function mount(el) {
     const onCell = graph.getCellById(e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id') ?? '');
     if (e.target.closest?.('.x6-widget-transform')) { showHandles([...transform.widgets.keys()].map(c => scene.byId.get(c.id)).find(x => x?.type === 'box' && x.shape !== 'triangle') ?? null); return hover(null); }
     if (onCell?.getData()?.kind === 'shape') { const fs = scene.byId.get(onCell.id); showHandles(hand?.gluable(fs) && !sel.isSelected(onCell) && !e.buttons ? fs : null); return hover(null); }
-    const f = e.buttons || pointing || root.classList.contains('relating') ? null : fieldUnder(e.clientX, e.clientY);
-    showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' ? f.m : null));
+    const f = e.buttons || pointing || root.classList.contains('relating') ? null : fieldUnder(e.clientX, e.clientY), mine = f?.m.type === 'box' && transform.widgets.has(graph.getCellById(f.m.id));
+    if (mine && f.it) gripsNear(e, true);
+    showHandles(e.buttons || (mine && f.it) ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' && !mine ? f.m : null));
     hover(f);
   });
   root.addEventListener('pointerleave', e => { root.classList.remove('near-grips'); if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); } });
@@ -2515,14 +2519,14 @@ function mount(el) {
     for (const c of sel.getSelectedCells()) if (c.isNode()) {
       const m = scene.byId.get(c.id);
       if (!m || m.points) continue;
-      outline(m, 'dc-group dc-shaped', 2);
-      if (m.rotate) marks.lastChild.setAttribute('transform', `${marks.lastChild.getAttribute('transform')} rotate(${m.rotate} ${m.w / 2 + 2} ${m.h / 2 + 2})`);
+      outline(m, 'dc-group dc-shaped', 0);
+      if (m.rotate) marks.lastChild.setAttribute('transform', `${marks.lastChild.getAttribute('transform')} rotate(${m.rotate} ${m.w / 2} ${m.h / 2})`);
     }
-    // A pen pointed at: each mark it would reach lit, as a group is. And at rest, what's in reach of the pen, a thin outline.
+    // A pen pointed at: each mark it would reach lit on its own edge, so there's one rule and not two. And at rest, what's in reach of the pen, a faint tint.
     const drawnOf = ids => ids && new Set([...ids].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
     const cuedHere = drawnOf(cued), reachHere = drawnOf(inReach);
-    for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 3);
-    if (!cuedHere) for (const id of reachHere ?? []) outline(scene.byId.get(id), 'dc-reach', 3);
+    for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 0);
+    if (!cuedHere) for (const id of reachHere ?? []) outline(scene.byId.get(id), 'dc-reach', 0);
     // A selected line is traced in the accent, as Office marks one.
     for (const c of sel.getSelectedCells()) if (c.isEdge()) { const m = scene.byId.get(c.id); if (m?.points) outline(m, 'dc-sel'); }
     bendGrips();
