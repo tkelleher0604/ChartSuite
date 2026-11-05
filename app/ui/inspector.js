@@ -1218,6 +1218,8 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
   : label === 'Shadow' ? shadowSaid(v) : label === 'Arrowhead' ? headSaid(v) : label === 'Dash' ? DASHES[v] ?? upper(String(v))
   : label === 'Gradient' ? (v?.stops?.length ? html`<i class="chip" style=${`background:linear-gradient(${(v.angle ?? 0) + 90}deg,${v.stops.map(([at, c]) => `${c} ${at}%`).join(',')})`} />Gradient, ${v.angle ?? 0}°` : 'None')
   : label === 'Pattern' ? (Shapes.PATTERNS.find(p => p[0] === v?.prst)?.[1] ?? 'None')
+  : label === 'Points' ? 'Its own' : label === 'Picture' ? (v?.tile ? 'Texture' : 'Picture') : label === 'Glow' ? `${v.size ?? 8} pt` : label === 'Soft Edge' ? `${v} pt` : label === 'Reflection' ? `${v.size ?? 50}%` : label === 'Inner Shadow' ? shadowSaid(v) : label === 'Bevel' ? upper(String(v.type ?? 'circle')) : label === 'Turn 3D' ? `${v.x ?? 0}°, ${v.y ?? 0}°, ${v.z ?? 0}°`
+  : label === 'Columns' ? `${v.n}` : label === 'Tabs' ? `${v.join(', ')} pt` : label === 'First Line' ? `${v} pt` : label === 'Line Gradient' || label === 'Text Gradient' ? `Gradient, ${v?.angle ?? 0}°` : label === 'Text Outline' ? `${v.weight ?? 0.75} pt` : label === 'Line Transparency' ? `${Math.round(v)}%`
   : label === 'Inset' ? `${v.l ?? 7.2}, ${v.t ?? 3.6}, ${v.r ?? 7.2}, ${v.b ?? 3.6} pt` : label === 'Indent' ? `${v} pt` : label === 'Layer' ? (v > 0 ? 'Brought forward' : v < 0 ? 'Sent back' : 'As it was made') : label === 'Tail' ? 'Moved' : label === 'Connector' ? upper(String(v))
   : label === 'Shape' ? (typeof FormatBar !== 'undefined' && FormatBar.shapeName?.(v)) || SHAPES[v] || upper(String(v)) : upper(String(v));
 function LookSection({ look, reset, named }) {

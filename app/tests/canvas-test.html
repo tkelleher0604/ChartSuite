@@ -863,13 +863,13 @@ async function run() {
   Shell.select(['halvard']); await tick(120); cv().root.focus();
   $('[data-fb="font"]').click(); await tick(150);
   const fontHeads = $$('.float .fonts .menu-head').map(txt), faces = $$('.float .fonts .menu-item .label'), away = $$('.float .fonts .menu-item.away');
-  check('the font menu opens on its field, then This chart, then Sans serif, Serif and Monospace, each name in its own face', document.activeElement === $('.float .fonts .find')
-    && fontHeads.join() === 'This chart,Sans serif,Serif,Monospace' && faces.length >= 40 && faces.every(f => f.style.fontFamily.includes(txt(f).split(' ')[0])), fontHeads.join());
+  check('the font menu opens on its field, then the theme fonts, This chart, then Sans serif, Serif and Monospace, each name in its own face', document.activeElement === $('.float .fonts .find')
+    && fontHeads.join() === 'Theme fonts,This chart,Sans serif,Serif,Monospace' && faces.length >= 40 && faces.filter(f => !/…$/.test(txt(f))).every(f => f.style.fontFamily.includes(txt(f).split(' · ').at(-1).split(' ')[0])), fontHeads.join());
   check('… a font not on this computer greyed and said so on hover', away.every(e => e.dataset.tip === 'Not on this computer') && $$('.float .fonts .menu-item:not(.away)').every(e => !e.dataset.tip), `${away.length} away`);
   const findFont = async q => { const f = $('.float .fonts .find'); f.value = q; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(150); };
   await findFont('gara');
-  check('… typing finds a font by its name, and draws the selection in it, changing nothing', $$('.float .fonts .menu-item').map(txt).join() === 'Garamond'
-    && sc().byId.get('halvard').texts[0].look.Font === 'Garamond' && lookOf('halvard').Font === 'Arial', $$('.float .fonts .menu-item').map(txt).join());
+  check('… typing finds a font by its name, and draws the selection in it, changing nothing', $$('.float .fonts .list .menu-item').map(txt).join() === 'Garamond'
+    && sc().byId.get('halvard').texts[0].look.Font === 'Garamond' && lookOf('halvard').Font === 'Arial', $$('.float .fonts .list .menu-item').map(txt).join());
   $('.float .fonts .find').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(200);
   check('… and Enter sets it', lookOf('halvard').Font === 'Garamond' && !$('.float .fonts'), lookOf('halvard').Font);
   Shell.parts.peek().undo.undo(); await tick(150);
@@ -2774,6 +2774,8 @@ async function format() {
   $$('.float .shapes button').find(b => b.getAttribute('aria-label') === 'Rounded rectangle').click(); await tick(300);
   check('… its Rounding there once it’s rounded', !$('.float .slider input[type=range]').disabled);
   // ---- Shadow, by which way it's thrown and each thing typed ----
+  await closeMenus();
+  $('[data-fb="effects"]').click(); await tick(150);
   $$('.float .throw button').find(b => b.getAttribute('aria-label') === 'Top left').click(); await tick(300);
   const shadowNow = () => Scene.shadowOf(sc().byId.get('northpine').settings.Shadow.value);
   check('a shadow thrown a way it’s named', shadowNow()?.angle === 225 && shadowNow().distance > 0 && !!$('.float .throw button[aria-pressed="true"]'), JSON.stringify(shadowNow()));

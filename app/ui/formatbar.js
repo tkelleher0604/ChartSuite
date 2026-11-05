@@ -59,7 +59,7 @@ const colorName = c => c === 'none' ? 'None' : typeof c === 'string' ? NAMES.get
 // half point where none does.
 const page = () => Canvas.active.peek()?.scene()?.page;
 const shown = v => typeof v === 'number' ? Math.round(Scene.toSlide(page(), v) * 100) / 100 : v;
-const TEXT_LABELS = new Set(['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Align', 'Spacing', 'Format']);
+const TEXT_LABELS = new Set(['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Text Gradient', 'Text Outline', 'Align', 'Spacing', 'Format']);
 // What part of a text can be given while it's typed; the rest, its paragraph's or its shape's, go to the whole.
 const RUN_LABELS = new Set(['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Base']);
 let current = null; // { canvas, scopes, scope, marks }
@@ -522,7 +522,7 @@ const arrowGlyph = a => html`<svg class="ln" viewBox="0 0 40 10"><path d="M4 5h3
 const HEAD_PATHS = { triangle: 'M28 1l10 4-10 4z', stealth: 'M27 1l11 4-11 4 3-4z', open: 'M28 1l10 4-10 4', oval: 'M28 5a5 4 0 1 0 10 0a5 4 0 1 0-10 0z', diamond: 'M28 5l5-4 5 4-5 4z' };
 const headGlyph = t => html`<svg class="ln" viewBox="0 0 40 10"><path d="M2 5h${t === 'none' ? 36 : 28}" stroke-width="1.3" />${HEAD_PATHS[t] ? html`<path d=${HEAD_PATHS[t]} stroke-width="1.1" fill=${t === 'open' ? 'none' : 'currentColor'} />` : null}</svg>`;
 const frameGlyph = f => html`<svg class="ln" viewBox="0 0 40 14"><path d=${f === 'bracket' ? 'M2 13V3h36v10' : 'M2.5 1.5h35v11h-35z'} stroke-width="1.2" stroke-dasharray=${f === 'dashed' ? '4 3' : null} /></svg>`;
-const shapeGlyph = (g, corner) => html`<svg class="glyph" viewBox="-1 -1 20 16"><path d=${Scene.path(g, 18, 14, corner)} /></svg>`;
+const shapeGlyph = (g, corner) => html`<svg class="glyph" viewBox="-1 -1 20 16"><path d=${Scene.path(g, 18, 14, corner, g === 'freeform' ? value('Points') : undefined)} /></svg>`;
 // A shadow, thrown the way it says.
 const shadowGlyph = (dx, dy) => html`<svg class="glyph sh" viewBox="-4 -4 26 22"><path d=${`M${1 + dx * 3} ${1 + dy * 3}h16v12h-16z`} class="shade" /><path d="M1 1h16v12H1z" /></svg>`;
 const ALIGN_ICON = { left: 'align-left', center: 'align-center', right: 'align-right' };
@@ -687,7 +687,40 @@ const litOn = (g, page) => (g.style ? marksOf(page, g) : g.marks);
 const FillPop = ({ close, of }) => html`<${Palette} label="Fill" none close=${close}>
   <${Sub} label="Gradient" of=${of} items=${gradientItems} />
   <${Sub} label="Pattern" of=${of} items=${patternItems} />
+  <button class="menu-item" onClick=${() => { close?.(); pickFillPicture(); }}><span class="label">Picture…</span></button>
+  <${Sub} label="Texture" of=${of} items=${textureItems} />
+  ${value('Picture') ? html`<button class="menu-item" onClick=${() => { close?.(); apply('Picture', null); }}><span class="label">Take the picture off</span></button>` : null}
   <${Slider} label="Transparency" k="Transparency" v=${Math.round(value('Transparency') ?? 0)} /></${Palette}>`;
+// A picture or a texture filling it, which a gradient and a pattern give way to, as each does to the other.
+const fillIs = (label, v) => applyAll([[label, v], ...['Picture', 'Gradient', 'Pattern'].filter(l => l !== label && value(l)).map(l => [l, null])]);
+function pickFillPicture() {
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+  input.onchange = () => { const f = input.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => fillIs('Picture', { src: r.result }); r.readAsDataURL(f); };
+  input.click();
+}
+const tiles = new Map();
+const tileOf = id => tiles.get(id) ?? tiles.set(id, Shapes.textureTile(id)).get(id);
+function textureItems() {
+  const now = value('Picture');
+  return [{ label: 'None', checked: !now?.tile, run: () => apply('Picture', null), point: on => on ? preview('Picture', null) : preview() }, '-', ...Shapes.TEXTURES.map(([id, label]) => { const o = { src: tileOf(id), tile: true, tw: 96, th: 96 }; return { label, checked: now?.src === o.src, run: () => fillIs('Picture', o), point: on => on ? preview('Picture', o) : preview() }; })];
+}
+// A setting's choices where what it holds is an object: which it has by what it says.
+const looksLike = (label, list, now, glyphOf = null) => list.map(([v, text]) => ({ label: text, checked: JSON.stringify(now ?? null) === JSON.stringify(v ?? null), ...(glyphOf && { glyph: glyphOf(v) }), run: () => apply(label, v), point: on => on ? preview(label, v) : preview() }));
+const inkNow = () => { const c = String(value('Outline') ?? ''); return /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : '#4472c4'; };
+const COMPOUNDS = [['single', 'Single'], ['double', 'Double'], ['thick-thin', 'Thick and thin'], ['thin-thick', 'Thin and thick'], ['triple', 'Triple']];
+function lineGradientItems() {
+  const from = inkNow(), now = value('Line Gradient') ?? null, of = (to, angle) => ({ angle, stops: [[0, from], [100, to]] });
+  return looksLike('Line Gradient', [[null, 'None'], [of(shaded(from, 0.4, 0.6), 0), 'Lighter, across'], [of(shaded(from, 0.5, 0), 0), 'Darker, across'], [of(shaded(from, 0.4, 0.6), 90), 'Lighter, down'], [of('#ffffff', 0), 'To white, across']], now);
+}
+// Shape Effects, as PowerPoint's: each drawn on the chart as it's pointed at, one change as it's picked.
+function glowItems() { const c = inkNow(); return looksLike('Glow', [[null, 'None'], ...[5, 8, 11, 18].map(size => [{ size, color: c, transparency: 60 }, `${size} pt`])], value('Glow')); }
+const softItems = () => choices('Soft Edge', [[0, 'None'], [1, '1 pt'], [2.5, '2.5 pt'], [5, '5 pt'], [10, '10 pt'], [25, '25 pt']], value('Soft Edge') ?? 0);
+const reflectionItems = () => looksLike('Reflection', [[null, 'None'], [{ size: 35, transparency: 48, distance: 0, blur: 0.5 }, 'Tight, touching'], [{ size: 55, transparency: 50, distance: 0, blur: 0.5 }, 'Half, touching'], [{ size: 90, transparency: 50, distance: 0, blur: 0.5 }, 'Full, touching'], [{ size: 35, transparency: 48, distance: 4, blur: 1 }, 'Tight, 4 pt off'], [{ size: 55, transparency: 50, distance: 4, blur: 1 }, 'Half, 4 pt off']], value('Reflection'));
+const innerItems = () => looksLike('Inner Shadow', [['none', 'None'], ...[[45, 'Inside, top left'], [135, 'Inside, top right'], [225, 'Inside, bottom right'], [315, 'Inside, bottom left'], [90, 'Inside, top'], [270, 'Inside, bottom']].map(([angle, name]) => [{ blur: 5, distance: 3, angle, color: '#000000', transparency: 50 }, name]), [{ blur: 9, distance: 0, angle: 0, color: '#000000', transparency: 50 }, 'Inside, all round']], value('Inner Shadow') ?? 'none');
+const bevelItems = () => looksLike('Bevel', [[null, 'None'], ...[['circle', 'Round'], ['relaxedInset', 'Relaxed inset'], ['coolSlant', 'Cool slant'], ['angle', 'Angle'], ['softRound', 'Soft round'], ['convex', 'Convex'], ['slope', 'Slope'], ['artDeco', 'Art deco']].map(([type, name]) => [{ type, w: 6, h: 6 }, name])], value('Bevel'));
+const turn3dItems = () => looksLike('Turn 3D', [[null, 'None'], [{ x: 45, y: 35, z: 0 }, 'Isometric, left down'], [{ x: 315, y: 35, z: 0 }, 'Isometric, right down'], [{ x: 30, y: 0, z: 0 }, 'Turned left'], [{ x: 330, y: 0, z: 0 }, 'Turned right'], [{ x: 0, y: 30, z: 0 }, 'Tilted back'], [{ x: 0, y: 330, z: 0 }, 'Tilted forward']], value('Turn 3D'));
+const EffectRows = ({ of }) => html`<div class="menu-sep" />
+  <${Sub} label="Glow" of=${of} items=${glowItems} /><${Sub} label="Soft edges" of=${of} items=${softItems} /><${Sub} label="Reflection" of=${of} items=${reflectionItems} /><${Sub} label="Inner shadow" of=${of} items=${innerItems} /><${Sub} label="Bevel" of=${of} items=${bevelItems} /><${Sub} label="3-D rotation" of=${of} items=${turn3dItems} />`;
 // A gradient, as PowerPoint's: none, or linear, from the fill to a color lighter or darker of it, or to white; by which way it runs. Its stops say how, and its Fill is what it
 // starts from, so a gradient taken off leaves the fill it had.
 function gradientItems() {
@@ -731,6 +764,9 @@ function OutlinePop({ close, of }) {
     ${mixed ? html`<div class="menu-head">${mixed}</div>` : null}
     <div class="menu-item withfield"><${Sub} label="Weight" of=${of} items=${() => choices('Weight', WEIGHTS.map(w => [w, `${w} pt`]), weight, weightGlyph)} /><${Typed} label="Weight" v=${now} unit="pt" min=${0.25} step=${0.25} put=${x => apply('Weight', x)} tries=${x => x === null ? preview() : preview('Weight', x)} /></div>
     <${Sub} label="Dashes" of=${of} items=${() => { const d = differs('Dash'); return [...(d ? [{ head: d }] : []), ...choices('Dash', DASH_NAMES, d ? null : value('Dash'), lineGlyph)]; }} />
+    <${Sub} label="Compound" of=${of} items=${() => choices('Compound', COMPOUNDS, value('Compound') ?? 'single')} />
+    <${Sub} label="Gradient" of=${of} items=${lineGradientItems} />
+    <${Slider} label="Transparency" k="Line Transparency" v=${Math.round(value('Line Transparency') ?? 0)} />
     ${lines ? html`<${Sub} label="Arrows" of=${of} items=${arrowItems} />
       <${Sub} label="Route" of=${of} items=${() => choices('Connector', [['elbow', 'Elbow'], ['straight', 'Straight']], value('Connector'))} />` : null}
     ${framed ? html`<${Sub} label="Frame" of=${of} items=${() => choices('Frame', [['none', 'None'], ['dashed', 'Dashed box'], ['solid', 'Box'], ['bracket', 'Bracket']], value('Frame') ?? 'none', frameGlyph)} />` : null}
@@ -766,16 +802,20 @@ function readNow() {
   const s = scopesOf(c);
   current = { canvas: c, ...s, scope: scopeOf(s.scopes, chosen.peek()), field: fieldOf(c) };
 }
-function ShapePop() {
+function ShapePop({ close, of }) {
   readNow();
   const [picked, setPicked] = useState(null);
   const now = picked ?? value('Shape') ?? current?.marks[0]?.geometry ?? 'rect', rounded = now === 'rounded';
   return html`<div class="picker shape">
     <div class="gallery" data-grid=".shapes > button" role="group" aria-label="Shape" onPointerLeave=${() => preview()}>${Shapes.gallery().map(g => html`<div class="menu-head">${g.head}</div><div class="shapes">${g.shapes.map(([id, name]) => html`<button aria-label=${name} data-tip=${name} aria-pressed=${now === id} autofocus=${now === id} onPointerEnter=${() => preview('Shape', id)} onFocus=${e => { if (e.currentTarget.matches(':focus-visible')) preview('Shape', id); }} onClick=${() => { setPicked(id); apply('Shape', id); }}>${shapeGlyph(id)}</button>`)}</div>`)}</div>
     <${Slider} label="Rounding" k="Corner" v=${Math.round(value('Corner') ?? Scene.CORNER)} max="50" disabled=${!rounded} />
-    <div class="menu-sep" />
-    <${ShadowPicker} />
+    ${current?.marks.length === 1 ? html`<button class="menu-item" onClick=${() => { close?.(); Canvas.active.peek()?.editPoints(); }}><span class="label">Edit points</span></button>` : null}
   </div>`;
+}
+// Effects, as PowerPoint's Shape Effects: its shadow, its other effects, each its own.
+function EffectsPop({ of }) {
+  readNow();
+  return html`<div class="picker shape"><${ShadowPicker} /><${EffectRows} of=${of} /></div>`;
 }
 // Paragraph: the text's alignment across, its place down the box, and its line spacing.
 // On a free shape or text box, as PowerPoint's Paragraph and Text Box panes: bullets and numbers, how far it's indented, its inner margins (points, as printed, each side typed), and Shrink on
@@ -789,7 +829,11 @@ const ParagraphPop = () => { readNow(); const ms = current?.marks ?? [], free = 
   ${rich ? html`<div class="row"><span class="k">Raised</span><div class="seg"><button aria-pressed=${!rich.Base} onClick=${() => apply('Base', undefined)}>Normal</button><button aria-pressed=${rich.Base === 'up'} onClick=${() => apply('Base', 'up')}>Superscript</button><button aria-pressed=${rich.Base === 'down'} onClick=${() => apply('Base', 'down')}>Subscript</button></div></div>` : null}
   ${free ? html`<div class="menu-sep" />
     <div class="row"><span class="k">Bullets</span>${seg('Bullet', [['none', 'None'], ['bullet', 'Bullets'], ['number', 'Numbers']], value('Bullet') ?? 'none')}</div>
+    <div class="row"><span class="k">Direction</span>${seg('Direction', [['across', 'Across'], ['down', 'Down'], ['up', 'Up']], value('Direction') ?? 'across')}</div>
+    <label class="menu-item"><span class="label">Columns</span><${Typed} label="Columns" v=${value('Columns')?.n ?? 1} max=${6} min=${1} put=${x => apply('Columns', x > 1 ? { n: x, gap: value('Columns')?.gap ?? 7.2 } : null)} /></label>
     <label class="menu-item"><span class="label">Indent</span><${Typed} label="Indent" v=${value('Indent') ?? 0} unit="pt" max=${200} step=${1} put=${x => apply('Indent', x || null)} /></label>
+    <label class="menu-item"><span class="label">First line</span><${Typed} label="First line" v=${value('First Line') ?? 0} unit="pt" min=${-200} max=${200} step=${1} put=${x => applyAll(x < 0 && !(value('Indent') > 0) ? [['First Line', x], ['Indent', -x]] : [['First Line', x || null]])} /></label>
+    <label class="menu-item"><span class="label">Tab stops</span><input class="cell tabs" aria-label="Tab stops" spellcheck="false" placeholder="72, 144" value=${(value('Tabs') ?? []).join(', ')} onChange=${e => { const list = e.currentTarget.value.split(/[,\s]+/).map(parseFloat).filter(v => v > 0).sort((a, b) => a - b); apply('Tabs', list.length ? list : null); }} onKeyDown=${e => { e.stopPropagation(); if (e.key === 'Enter') e.currentTarget.blur(); }} /></label>
     <div class="menu-head">Inner margins</div>
     ${[['Left', 'l', 7.2], ['Top', 't', 3.6], ['Right', 'r', 7.2], ['Bottom', 'b', 3.6]].map(([label, k, d]) => html`<label class="menu-item"><span class="label">${label}</span><${Typed} label=${`Inner margin, ${label}`} v=${side(k, d)} unit="pt" max=${200} step=${0.5} put=${setSide(k)} /></label>`)}
     <label class="menu-item check"><input type="checkbox" checked=${!!value('Shrink')} onChange=${e => apply('Shrink', e.target.checked)} /><span class="label">Shrink text on overflow</span></label>` : null}
@@ -1096,7 +1140,10 @@ function insertMenu(e, c) {
     ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
     ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].filter(([g]) => !mastering || !['legend', 'frame'].includes(g)).map(([g, name]) =>
       item(name, () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g), close))}
-    ${item('Table', () => tablePick(e.currentTarget ?? document.querySelector('.fb [data-fb="insert"]'), c), close)}
+    ${item('Table', () => tablePick(document.querySelector('.fb [data-fb="insert"]'), c), close)}
+    ${item('Icon', () => iconPick(document.querySelector('.fb [data-fb="insert"]'), c), close)}
+    ${item('Freeform', () => c.draw('freeform'), close)}
+    ${item('Curve', () => c.draw('curve'), close)}
     <div class="menu-sep" />
     <div class="gallery">${Shapes.gallery().map(g => html`<div class="menu-head">${g.head}</div><div class="shapes">${g.shapes.map(([id, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); c.draw(id); }}>${shapeGlyph(id)}</button>`)}</div>`)}</div>
     ${typeof Table === 'undefined' || mastering ? null : html`<div class="menu-sep" />${item('Import…', () => Table.importFile(), close)}`}
@@ -1112,6 +1159,20 @@ function TablePick({ c, close }) {
   </div>`;
 }
 const tablePick = (at, c) => Shell.popover(at, close => html`<${TablePick} c=${c} close=${close} />`, { placement: 'bottom-start' });
+// Lucide's icons, found by typing: each comes in as a shape of its own, its strokes a freeform's, so it takes an outline and a weight, its points can be edited, and in a deck it's PowerPoint's own.
+const iconNames = () => iconNames.all ??= typeof lucide === 'undefined' ? [] : Object.keys(lucide).filter(k => Array.isArray(lucide[k]) && lucide[k][0] === 'svg' && /^[A-Z]/.test(k)).sort();
+const spaced = k => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+function IconPick({ c, close }) {
+  const [q, setQ] = useState(''), words = q.trim().toLowerCase().split(/\s+/).filter(Boolean), found = iconNames().filter(k => { const s = spaced(k).toLowerCase(); return words.every(w => s.includes(w)); }).slice(0, 120);
+  const take = k => { close(); const s = c.scene().page.scale ?? 1, side = Math.round(48 / s); c.insert('freeform', { w: side, h: side, alt: spaced(k), name: spaced(k), format: { Fill: 'none', Outline: inkOfChart(c), Weight: 1.5, Points: Shapes.iconPoints(lucide[k]) } }); };
+  return html`<div class="iconpick" role="dialog" aria-label="Icon">
+    <input class="find" type="text" placeholder="Find an icon" aria-label="Find an icon" spellcheck="false" autocomplete="off" autofocus value=${q} onInput=${e => setQ(e.currentTarget.value)} onKeyDown=${e => { if (e.key === 'Enter' && found[0]) { e.preventDefault(); take(found[0]); } }} />
+    <div class="grid" data-grid="button">${found.map(k => html`<button type="button" key=${k} aria-label=${spaced(k)} data-tip=${spaced(k)} onClick=${() => take(k)}><svg class="i lu" viewBox="0 0 24 24" aria-hidden="true">${lucide[k][2].map(([t, a]) => h(t, a))}</svg></button>`)}${!found.length ? html`<div class="menu-none">No match</div>` : null}</div>
+  </div>`;
+}
+// (Ink a chart already uses: its title's, or else a dark blue.)
+const inkOfChart = c => { const t = c.scene().marks.find(m => m.role === 'title')?.texts?.[0]?.look?.Color; return /^#[0-9a-f]{6}$/i.test(t ?? '') ? t : '#1f3864'; };
+const iconPick = (at, c) => Shell.popover(at, close => html`<${IconPick} c=${c} close=${close} />`, { placement: 'bottom-start' });
 function picture(c) {
   const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
   input.onchange = () => {
@@ -1128,9 +1189,12 @@ function picture(c) {
 const opener = {
   fill: at => pop(at, (close, of) => html`<${FillPop} close=${close} of=${of} />`),
   outline: at => pop(at, (close, of) => html`<${OutlinePop} close=${close} of=${of} />`),
-  color: at => pop(at, close => html`<${Palette} label="Color" close=${close} />`),
+  color: at => pop(at, (close, of) => html`<${Palette} label="Color" close=${close}>
+    <${Sub} label="Gradient" of=${of} items=${() => { const c = String(value('Color') ?? '#1f3864'), from = /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : '#1f3864', g = (to, angle) => ({ angle, stops: [[0, from], [100, to]] }); return looksLike('Text Gradient', [[null, 'None'], [g(shaded(from, 0.4, 0.6), 90), 'Lighter, down'], [g(shaded(from, 0.5, 0), 90), 'Darker, down'], [g(shaded(from, 0.4, 0.6), 0), 'Lighter, across']], value('Text Gradient')); }} />
+    <${Sub} label="Text outline" of=${of} items=${() => { const c = inkNow(); return looksLike('Text Outline', [[null, 'None'], ...[0.25, 0.5, 0.75, 1, 1.5].map(weight => [{ color: c, weight }, `${weight} pt`])], value('Text Outline')); }} /></${Palette}>`),
   font: at => pop(at, close => html`<${Fonts} close=${close} />`),
-  shape: at => pop(at, close => html`<${ShapePop} close=${close} />`),
+  shape: at => pop(at, (close, of) => html`<${ShapePop} close=${close} of=${of} />`),
+  effects: at => pop(at, (close, of) => html`<${EffectsPop} of=${of} />`),
   paragraph: at => pop(at, () => html`<${ParagraphPop} />`),
 };
 
@@ -1410,6 +1474,7 @@ function Bar() {
       ['middle', 'Align middle', 'AlignCenterHorizontal', 'KeyM'], ['bottom', 'Align bottom', 'AlignEndHorizontal', 'KeyB']].map(([a, label, icon, k]) => ({ label, icon, keys: `Alt+Shift+${k}`, disabled: !placeable, run: aligning(a, () => c.align(a)) })),
     '-', { label: 'Distribute across', icon: 'AlignHorizontalDistributeCenter', disabled: placeable < 3, run: aligning(0, () => c.distribute('across')) },
     { label: 'Distribute down', icon: 'AlignVerticalDistributeCenter', disabled: placeable < 3, run: aligning(0, () => c.distribute('down')) },
+    { label: 'Distribute along the line', disabled: !c.lineAmong?.(), run: aligning(0, () => c.alongLine()) },
     { label: 'Same width', disabled: placeable < 2, run: aligning(0, () => c.match('width')) }, { label: 'Same height', disabled: placeable < 2, run: aligning(0, () => c.match('height')) },
   ];
   const free = s.marks.some(m => m.geometry === 'group' || (m.type === 'shape' && m.geometry !== 'legend' && !m.role));
@@ -1480,14 +1545,15 @@ function Bar() {
     <button class="btn dd" aria-label="Text color" data-fb="color" ...${writes('Text color', !texty)} onClick=${e => opener.color(e.currentTarget)}>${glyph.color(texty ? value('Color') : '#000000')}</button>
     <button class="btn dd" aria-label="Paragraph" data-fb="paragraph" ...${writes('Alignment and spacing', !texty)} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
     <span class="sep" />
-    <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape and shadow', !boxy)} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
+    <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape', !boxy)} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
+    <button class="btn dd" aria-label="Effects" data-fb="effects" ...${writes('Shadow, glow, reflection and more', !boxy)} onClick=${e => opener.effects(e.currentTarget)}>${Shell.icon('Sparkles')}</button>
     <button class="btn dd" aria-label="Fill" data-fb="fill" ...${writes('Fill', !boxy)} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-fb="outline" ...${writes('Outline', none || textStyle || footOnly)} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle && !footOnly ? value('Outline') : 'none')}</button>
     <span class="sep" />
     <button class="btn dd wide" data-fb="align" ...${writes(null, none)} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
     <button class="btn dd wide" data-fb="order" ...${writes(null, !layered)} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
     <button class="btn wide" data-fb="group" ...${writes(null, grouping.disabled)} onClick=${grouping.run}>${grouping.label}</button>
-    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [...aligns.map(a => a === '-' || a.head ? a : { ...a, disabled: a.disabled || none || ro }), '-', { label: 'Flip and turn', disabled: !free || ro, items: flips }, { label: 'Order', disabled: !layered || ro, items: orders }, grouping, { label: 'Selection pane', keys: 'Alt+F10', run: () => c.pane() }, '-', { label: 'Edit master', run: () => { App.mastering.value = !App.mastering.peek(); }, checked: App.mastering.peek() }, ...(App.mastering.peek() ? [] : [{ label: 'Leave the master off', checked: !App.hasMaster(view), disabled: ro, run: () => App.pageMaster(view, !App.hasMaster(view)) }]), '-', tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, { label: 'Filter…', disabled: !App.canAsk(), run: () => c.filter() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', Canvas.aidsRow()])}>
+    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [...aligns.map(a => a === '-' || a.head ? a : { ...a, disabled: a.disabled || none || ro }), '-', { label: 'Flip and turn', disabled: !free || ro, items: flips }, { label: 'Merge shapes', disabled: !c.mergeable?.() || ro, items: [['union', 'Union'], ['combine', 'Combine'], ['fragment', 'Fragment'], ['intersect', 'Intersect'], ['subtract', 'Subtract']].map(([k, label]) => ({ label, run: () => c.merge(k) })) }, { label: 'Order', disabled: !layered || ro, items: orders }, grouping, { label: 'Selection pane', keys: 'Alt+F10', run: () => c.pane() }, '-', { label: 'Edit master', run: () => { App.mastering.value = !App.mastering.peek(); }, checked: App.mastering.peek() }, ...(App.mastering.peek() ? [] : [{ label: 'Leave the master off', checked: !App.hasMaster(view), disabled: ro, run: () => App.pageMaster(view, !App.hasMaster(view)) }]), '-', tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, { label: 'Filter…', disabled: !App.canAsk(), run: () => c.filter() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', Canvas.aidsRow()])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
     <button class="btn" data-fb="tidy" ...${writes(tidy.label === 'Tidy' ? null : tidy.label, tidy.disabled)} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label.replace(/ \D+$/, '')}<span class="wide">${tidy.label.match(/ \D+$/)?.[0]}</span></button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
@@ -1534,13 +1600,18 @@ function mount(el) {
     ['format.color', 'Text color…', null, () => open('color'), edit, ['Font color', 'Font colour', 'Text colour']],
     ['format.fill', 'Fill…', null, () => open('fill'), edit, ['Fill color', 'Background', 'Shading', 'Transparency']],
     ['format.outline', 'Outline…', null, () => open('outline'), edit, ['Border', 'Line color', 'Line weight', 'Dashes', 'Arrows']],
-    ['format.shape', 'Change shape…', null, () => open('shape'), edit, ['Shape', 'Shadow', 'Rounded corners']],
+    ['format.shape', 'Change shape…', null, () => open('shape'), edit, ['Shape', 'Rounded corners']],
+    ['format.effects', 'Effects…', null, () => open('effects'), edit, ['Shadow', 'Glow', 'Soft edges', 'Reflection', 'Inner shadow', 'Bevel', '3-D rotation', '3D', 'Shape effects']],
     ['format.paragraph', 'Paragraph…', null, () => open('paragraph'), edit, ['Align text', 'Alignment', 'Line spacing', 'Bullets', 'Numbering', 'Indent', 'Inner margins', 'Shrink text', 'Autofit']],
     ['draw.flipH', 'Flip across', null, () => Canvas.active.peek().flip('h'), edit, ['Flip', 'Flip horizontal', 'Mirror']],
     ['draw.flipV', 'Flip upside down', null, () => Canvas.active.peek().flip('v'), edit, ['Flip', 'Flip vertical', 'Mirror']],
     ['draw.turnR', 'Turn right 90°', null, () => Canvas.active.peek().turnBy(90), edit, ['Rotate right', 'Rotate 90']],
     ['draw.turnL', 'Turn left 90°', null, () => Canvas.active.peek().turnBy(-90), edit, ['Rotate left', 'Rotate 90']],
     ['draw.pane', 'Selection pane', 'Alt+F10', () => Canvas.active.peek().pane(), onScreen, ['Selection', 'Layers', 'Objects', 'Hide', 'Lock', 'Reorder', 'Rename a shape', 'What’s buried']],
+    ...[['union', 'Union'], ['combine', 'Combine'], ['fragment', 'Fragment'], ['intersect', 'Intersect'], ['subtract', 'Subtract']].map(([k, word]) => [`draw.merge.${k}`, `Merge shapes: ${word}`, null, () => Canvas.active.peek().merge(k), edit, ['Merge', 'Merge shapes', 'Boolean', word]]),
+    ['draw.points', 'Edit points', null, () => Canvas.active.peek().editPoints(), edit, ['Points', 'Freeform', 'Vertex', 'Reshape']],
+    ['draw.link', 'Link…', null, () => Canvas.active.peek().link?.(), edit, ['Hyperlink', 'URL', 'Link a shape']],
+    ['draw.along', 'Distribute along the line', null, () => Canvas.active.peek().alongLine(), edit, ['Along a line', 'Space along']],
     ['draw.master', 'Edit master', null, () => { App.mastering.value = !App.mastering.peek(); }, onScreen, ['Master', 'Slide master', 'Logo on every page', 'Every page', 'Confidentiality line', 'Letterhead', 'Furniture']],
     ['draw.masteroff', 'Leave the master off this page', null, () => App.pageMaster(Shell.view.peek(), !App.hasMaster(Shell.view.peek())), () => onScreen() && !App.readOnly.peek() && !App.mastering.peek(), ['No master', 'Hide master', 'Show master']],
     ['look.fonts', 'Theme fonts…', null, () => defineFonts(), () => onScreen() && !App.readOnly.peek(), ['Theme fonts', 'Heading font', 'Body font', 'Fonts']],
@@ -1574,6 +1645,9 @@ function mount(el) {
       ...[['text', 'Text box'], ['frame', 'Frame'], ['legend', 'Key', 'Legend'], ['picture', 'Picture', 'Logo'], ['line', 'Line', 'Connector'], ['arrow-line', 'Arrow', 'Connector']].map(([g, name, also]) => ({ label: `Insert ${word(name)}`, detail: 'Action',
         names: [name, `Add ${word(name)}`, `Draw ${word(name)}`, ...(also ? [also] : [])], run: () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g) })),
       { label: 'Insert table', detail: 'Action', names: ['Table', 'Add table', 'Cap table', 'Grid'], run: () => tablePick(document.querySelector('.fb [data-fb="insert"]'), c) },
+      { label: 'Insert icon', detail: 'Action', names: ['Icon', 'Add icon', 'Symbol', 'Pictogram'], run: () => iconPick(document.querySelector('.fb [data-fb="insert"]'), c) },
+      { label: 'Insert freeform', detail: 'Action', names: ['Freeform', 'Draw freeform', 'Polygon', 'Scribble'], run: () => c.draw('freeform') },
+      { label: 'Insert curve', detail: 'Action', names: ['Curve', 'Draw curve', 'Bezier'], run: () => c.draw('curve') },
       ...Shapes.list.map(([g, name]) => ({ label: `Insert ${word(name)}`, detail: 'Action', names: [name, `Add ${word(name)}`, 'Shape'], run: () => c.draw(g) }))];
   } }));
   return () => { stopSel(); stopCue(); stopBrush(); stopCorners(); stopFollow(); actions.forEach(off => off()); disarm(); document.removeEventListener('pointerover', pointed); document.removeEventListener('pointerdown', painting, true); document.removeEventListener('pointermove', dropMove, { capture: true });
@@ -1625,7 +1699,7 @@ function open(what, at) {
 }
 
 Shell.register('formatbar', { mount, relist: () => listHouses() });
-return { defineFonts, apply, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
+return { defineFonts, applyPairs: applyAll, apply, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
   copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim, aimedAt, lit, litOn, selectDiffers,
   reachOf: reachOfRow };
 })();

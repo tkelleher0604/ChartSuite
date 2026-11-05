@@ -59,7 +59,8 @@ function attach(x) {
     root.focus({ preventScroll: true });
     return true;
   }
-  function disarm() { armed = null; const u = unarm; unarm = null; u?.(); root.classList.remove('drawing'); }
+  let traced = false;
+  function disarm() { armed = null; traced = false; const u = unarm; unarm = null; u?.(); root.classList.remove('drawing'); }
   // Default look of a free shape new on this chart, by family (see Set as default), and what its shape asks for itself.
   const newLook = (g, format) => ({ ...opening(g), ...defaults()[family(g)], ...format });
   function draw(a, down) {
@@ -115,16 +116,19 @@ function attach(x) {
     if (!armed) return;
     if (e.button !== 0) return disarm();
     if (e.target.closest?.('.dc-kind, .dc-kinds, .dc-complete')) return;
+    // (Being traced point by point, the trace has it.)
+    if (traced) return;
     e.preventDefault(); e.stopPropagation();
     // (A text box begun by Insert, its first letter not yet typed, makes nothing as the pointer leaves it.)
     const a = armed;
     over.querySelector('.dc-edit')?.blur();
+    if (a.geometry === 'freeform' || a.geometry === 'curve') { traced = true; return trace(a, e); }
     draw(a, e);
   }, true);
   // (The press that draws isn't X6's as well.)
   root.addEventListener('mousedown', e => { if (armed || drawingNow) { e.preventDefault(); e.stopPropagation(); } }, true);
   // Enter, armed: where a new shape goes with no hand to say, in free room near the middle of the screen.
-  root.addEventListener('keydown', e => { if (armed && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); const a = armed; disarm(); x.insert(a.geometry, { ...a.opts, format: newLook(a.geometry, a.opts.format) }); } }, true);
+  root.addEventListener('keydown', e => { if (armed && !traced && e.key === 'Enter' && armed.geometry !== 'freeform' && armed.geometry !== 'curve') { e.preventDefault(); e.stopPropagation(); const a = armed; disarm(); x.insert(a.geometry, { ...a.opts, format: newLook(a.geometry, a.opts.format) }); } }, true);
 
   // ---- A line's ends: a handle on each of a line selected, dragged anywhere, to any box or free shape ----
   function paintEnds() {
@@ -590,7 +594,7 @@ function attach(x) {
   }, true);
 
   // Painted with the selection, a line's ends, a picture's crop handles and a group's turning handle.
-  function paint() { paintEnds(); paintCrop(); paintTurn(); paintCell(); }
+  function paint() { paintEnds(); paintCrop(); paintTurn(); paintCell(); paintPoints(); paintPins(); }
   // A group's handle over it, dragged: it turns as a free shape's does, by degrees, Shift by 15; the shapes go round its middle as one.
   function paintTurn() {
     marks.querySelectorAll('.dc-turn').forEach(n => n.remove());
@@ -661,6 +665,252 @@ function attach(x) {
   };
   addEventListener('keydown', fromPanel);
 
+  // ---- A freeform and a curve, drawn point by point: a click a point, a press and drag a run of them as the hand goes (a freeform's), Enter or a double-click to end, a click on its first point to close it, Esc to let it go ----
+  function trace(a, down) {
+    const curved = a.geometry === 'curve', pts = [], start = local(down), ghost = svg('path', { class: 'dc-draft', fill: 'none' }), near = 8 / zoom();
+    let hover = [start.x, start.y], pressed = true, ran = false, lastAt = [down.clientX, down.clientY], lastT = down.timeStamp;
+    pts.push([start.x, start.y]);
+    drawingNow = true;
+    const nodesOf = (ps, closed) => Shapes.throughPoints(ps, curved, closed);
+    const paintIt = () => ghost.setAttribute('d', Shapes.path('freeform', 1, 1, 0, { paths: [{ closed: false, nodes: nodesOf([...pts, ...(pressed ? [] : [hover])], false) }] }));
+    const finish = closed => {
+      cleanup();
+      const ps = pts.filter((p, i) => !i || Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) > 1 / zoom());
+      if (ps.length < 2) return;
+      const raw = { paths: [{ closed, nodes: nodesOf(ps, closed) }] }, b = Shapes.boundsOf(raw), w = Math.max(b.w, 1), h = Math.max(b.h, 1);
+      x.insert('freeform', { x: round(b.x), y: round(b.y), w: round(w), h: round(h), format: { ...newLook('freeform', closed ? {} : { Fill: 'none' }), Points: Shapes.refit(raw, { x: b.x, y: b.y, w, h }) } });
+    };
+    const move = e => {
+      const p = local(e);
+      hover = [p.x, p.y];
+      if (pressed && !curved) {
+        // A freeform's press and drag draws as the hand goes.
+        if (ran || Math.hypot(e.clientX - lastAt[0], e.clientY - lastAt[1]) > 3) { ran = true; const q = pts.at(-1); if (Math.hypot(p.x - q[0], p.y - q[1]) > 2 / zoom()) pts.push(hover); }
+      }
+      paintIt();
+    };
+    const press = e => {
+      if (e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      const p = local(e), first = pts[0], twice = e.timeStamp - lastT < 400 && Math.hypot(e.clientX - lastAt[0], e.clientY - lastAt[1]) < 6;
+      lastAt = [e.clientX, e.clientY]; lastT = e.timeStamp;
+      if (pts.length > 2 && Math.hypot(p.x - first[0], p.y - first[1]) < near) return finish(true);
+      if (twice) return finish(false);
+      pts.push([p.x, p.y]); pressed = true; ran = false; paintIt();
+    };
+    const up = () => { pressed = false; if (ran) { ran = false; } paintIt(); };
+    const keys = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cleanup(); } else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); finish(false); } };
+    const cleanup = () => { removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); root.removeEventListener('pointerdown', press, true); removeEventListener('keydown', keys, true); ghost.remove(); drawingNow = false; disarm(); };
+    addEventListener('pointermove', move, true); addEventListener('pointerup', up, true); root.addEventListener('pointerdown', press, true); addEventListener('keydown', keys, true);
+    paintIt();
+  }
+
+  // ---- Edit points: any shape's outline as points to drag, a shape that isn't a freeform becoming one as it's first changed; a double-click on the outline adds one, on a point takes it away, its right-click says the rest ----
+  let pointing = null;
+  const ofMark = m => { const s = m.settings ? Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value])) : m.look, g = m.shape ?? m.geometry; return g === 'freeform' && (s.Points ?? m.look?.Points) ? s.Points ?? m.look.Points : Shapes.pointsOf(g === 'text' ? 'rect' : g, m.w, m.h, s.Corner, s.Tail); };
+  function editPoints(id) {
+    if (x.still()) return Shell.toast(App.whyNot());
+    const m = id ? scene().byId.get(id) : x.selectedNow()[0];
+    if (!m || !(m.type === 'box' || (m.type === 'shape' && !['line', 'picture', 'group', 'legend', 'table'].includes(m.geometry) && !m.role))) return Shell.toast('Select a shape first', { ms: 2500 });
+    pointing = { id: m.id, P: JSON.parse(JSON.stringify(ofMark(m))), at: null };
+    paintPoints();
+  }
+  function endPoints() { pointing = null; marks.querySelectorAll('.dc-pts').forEach(n => n.remove()); }
+  // Where a point of a frame falls on the page, and back, as it's turned and flipped.
+  const framing = m => { const a = (m.rotate ?? 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), cx = m.x + m.w / 2, cy = m.y + m.h / 2, fx = m.flip?.h ? -1 : 1, fy = m.flip?.v ? -1 : 1;
+    return { to: (u, v) => { const dx = (u - 0.5) * m.w * fx, dy = (v - 0.5) * m.h * fy; return [cx + dx * c - dy * s, cy + dx * s + dy * c]; }, from: (px, py) => { const dx = px - cx, dy = py - cy; return [(dx * c + dy * s) * fx / m.w + 0.5, (-dx * s + dy * c) * fy / m.h + 0.5]; } }; };
+  function paintPoints() {
+    marks.querySelectorAll('.dc-pts').forEach(n => n.remove());
+    if (!pointing) return;
+    const m = scene().byId.get(pointing.id);
+    if (!m || !x.selectedNow().some(q => q.id === m.id)) return endPoints();
+    const z = zoom(), f = framing(m), r = 4 / z, P = pointing.P, d = P.paths.map(({ nodes, closed }) => { const seq = closed ? [...nodes, nodes[0]] : nodes, pt = (u, v) => f.to(u, v).join(','); return `M${pt(nodes[0][0], nodes[0][1])} ${seq.slice(1).map((b, i) => { const a = seq[i]; return a[4] != null || b[2] != null ? `C${pt(a[4] ?? a[0], a[5] ?? a[1])} ${pt(b[2] ?? b[0], b[3] ?? b[1])} ${pt(b[0], b[1])}` : `L${pt(b[0], b[1])}`; }).join(' ')}${closed ? ' Z' : ''}`; }).join(' ');
+    svg('path', { class: 'dc-pts outline', d, fill: 'none', 'stroke-width': 1.25 / z });
+    // (A wide, unseen line along it, to add a point by.)
+    const hit = svg('path', { class: 'dc-pts hit', d, fill: 'none', 'stroke-width': 10 / z });
+    hit.addEventListener('dblclick', e => { e.stopPropagation(); addPoint(local(e), m); });
+    hit.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); const q = local(e); Shell.menu({ x: e.clientX, y: e.clientY }, [{ label: 'Add point', run: () => addPoint(q, m) }, { label: 'Done', run: endPoints }]); });
+    hit.addEventListener('mousedown', e => e.stopPropagation());
+    P.paths.forEach((path, pi) => path.nodes.forEach((q, i) => {
+      const [nx, ny] = f.to(q[0], q[1]), picked = pointing.at?.[0] === pi && pointing.at?.[1] === i;
+      if (picked) for (const [a, b] of [[2, 3], [4, 5]]) if (q[a] != null) { const [hx, hy] = f.to(q[a], q[b]); svg('path', { class: 'dc-pts arm', d: `M${nx},${ny} L${hx},${hy}`, 'stroke-width': 1 / z }); const c = svg('circle', { class: 'dc-pts ctl', cx: hx, cy: hy, r: r * 0.8, 'stroke-width': 1 / z }); grabPoint(c, m, pi, i, a); }
+      const c = svg('rect', { class: `dc-pts node${picked ? ' on' : ''}`, x: nx - r, y: ny - r, width: 2 * r, height: 2 * r, 'stroke-width': 1.25 / z });
+      grabPoint(c, m, pi, i, 0);
+      c.addEventListener('dblclick', e => { e.stopPropagation(); removePoint(pi, i, m); });
+      c.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); pointing.at = [pi, i]; paintPoints(); Shell.menu({ x: e.clientX, y: e.clientY }, [{ label: 'Delete point', keys: 'Delete', run: () => removePoint(pi, i, m) }, { label: 'Smooth point', run: () => setSmooth(pi, i, m, true) }, { label: 'Corner point', run: () => setSmooth(pi, i, m, false) }, '-', { label: path.closed ? 'Open the path here' : 'Close the path', run: () => toggleClosed(pi, i, m) }, '-', { label: 'Done', run: endPoints }]); });
+    }));
+  }
+  // A press on a point or a handle, and the drag: a point takes its handles with it, a smooth point's handles stay in line unless Alt is down.
+  function grabPoint(el, m, pi, i, which) {
+    el.addEventListener('mousedown', e => e.stopPropagation());
+    el.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      pointing.at = [pi, i];
+      const f = framing(m), q0 = [...pointing.P.paths[pi].nodes[i]];
+      let moved = false;
+      const move = ev => {
+        moved = true;
+        const p = local(ev), [u, v] = f.from(p.x, p.y), q = pointing.P.paths[pi].nodes[i];
+        if (!which) { const du = u - q0[0], dv = v - q0[1]; q[0] = u; q[1] = v; for (const [a, b] of [[2, 3], [4, 5]]) if (q0[a] != null) { q[a] = q0[a] + du; q[b] = q0[b] + dv; } }
+        else { q[which] = u; q[which + 1] = v; const [oa, ob] = which === 2 ? [4, 5] : [2, 3]; if (!ev.altKey && q[oa] != null) { const L = Math.hypot(q0[oa] - q0[0], q0[ob] - q0[1]), dx = q[0] - u, dy = q[1] - v, D = Math.hypot(dx, dy) || 1; q[oa] = q[0] + dx / D * L; q[ob] = q[1] + dy / D * L; } }
+        paintPoints();
+      };
+      const up = () => { removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); if (moved) putPoints(m); else paintPoints(); };
+      addEventListener('pointermove', move, true); addEventListener('pointerup', up, true);
+    });
+  }
+  function addPoint(p, m) {
+    const f = framing(m), [u, v] = f.from(p.x, p.y);
+    let best = null;
+    pointing.P.paths.forEach((path, pi) => { const ns = path.nodes, n = path.closed ? ns.length : ns.length - 1; for (let i = 0; i < n; i++) { const a = ns[i], b = ns[(i + 1) % ns.length]; for (let t = 0; t <= 1; t += 0.05) { const w = [(1 - t) ** 3, 3 * (1 - t) ** 2 * t, 3 * (1 - t) * t * t, t ** 3], X = w[0] * a[0] + w[1] * (a[4] ?? a[0]) + w[2] * (b[2] ?? b[0]) + w[3] * b[0], Y = w[0] * a[1] + w[1] * (a[5] ?? a[1]) + w[2] * (b[3] ?? b[1]) + w[3] * b[1], d = Math.hypot((X - u) * m.w, (Y - v) * m.h); if (!best || d < best.d) best = { d, pi, i, t, X, Y }; } } });
+    if (!best) return;
+    const ns = pointing.P.paths[best.pi].nodes, a = ns[best.i], b = ns[(best.i + 1) % ns.length], curved = a[4] != null || b[2] != null, node = [best.X, best.Y];
+    // (On a curve, a de Casteljau split, so the curve doesn't change for it.)
+    if (curved) { const t = best.t, L = (P, Q) => [P[0] + (Q[0] - P[0]) * t, P[1] + (Q[1] - P[1]) * t], p0 = [a[0], a[1]], p1 = [a[4] ?? a[0], a[5] ?? a[1]], p2 = [b[2] ?? b[0], b[3] ?? b[1]], p3 = [b[0], b[1]], q0 = L(p0, p1), q1 = L(p1, p2), q2 = L(p2, p3), r0 = L(q0, q1), r1 = L(q1, q2); a[4] = q0[0]; a[5] = q0[1]; b[2] = q2[0]; b[3] = q2[1]; node.push(r0[0], r0[1], r1[0], r1[1]); }
+    ns.splice(best.i + 1, 0, node);
+    pointing.at = [best.pi, best.i + 1];
+    putPoints(m);
+  }
+  function removePoint(pi, i, m) {
+    const path = pointing.P.paths[pi];
+    if (path.nodes.length <= 2) return Shell.toast('A path has two points at least', { ms: 2500 });
+    path.nodes.splice(i, 1);
+    pointing.at = null;
+    putPoints(m);
+  }
+  function setSmooth(pi, i, m, on) {
+    const ns = pointing.P.paths[pi].nodes, q = ns[i];
+    if (on) { const a = ns[(i - 1 + ns.length) % ns.length], b = ns[(i + 1) % ns.length], dx = (b[0] - a[0]) / 6, dy = (b[1] - a[1]) / 6; q[2] = q[0] - dx; q[3] = q[1] - dy; q[4] = q[0] + dx; q[5] = q[1] + dy; }
+    else q.length = 2;
+    putPoints(m);
+  }
+  function toggleClosed(pi, i, m) {
+    const path = pointing.P.paths[pi];
+    if (path.closed) { path.nodes = [...path.nodes.slice(i), ...path.nodes.slice(0, i)]; path.closed = false; } else path.closed = true;
+    putPoints(m);
+  }
+  // Written as one change: a free shape's frame round what it now draws, where it stood; a box keeps its frame, and takes its Points at the pen, as a look does.
+  function putPoints(m) {
+    const P = pointing.P, say = 'Edited the points';
+    if (m.type === 'box') { FormatBar.applyPairs([['Shape', 'freeform'], ['Points', P]]); pointing.P = JSON.parse(JSON.stringify(P)); return setTimeout(paintPoints); }
+    const b = Shapes.boundsOf(P), w = Math.max(b.w, 1e-3), h = Math.max(b.h, 1e-3), fitted = Shapes.refit(P, { x: b.x, y: b.y, w, h }), row = x.rowOf(m.id), f = framing(m), [cx, cy] = f.to(b.x + w / 2, b.y + h / 2), W = m.w * w, H = m.h * h;
+    const c = App.change(tx => tx.update(m.id, { geometry: 'freeform', x: round(cx - W / 2), y: round(cy - H / 2), w: round(W), h: round(H), format: { ...row.format, Shape: undefined, Points: fitted } }), { dated: false, say });
+    if (c) { pointing.P = JSON.parse(JSON.stringify(fitted)); setTimeout(paintPoints); } else endPoints();
+  }
+  root.addEventListener('keydown', e => {
+    if (!pointing) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endPoints(); }
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && pointing.at) { e.preventDefault(); e.stopPropagation(); removePoint(pointing.at[0], pointing.at[1], scene().byId.get(pointing.id)); }
+  }, true);
+
+  // ---- Merge Shapes: what's selected of free shapes as one, or in pieces, in the look of the first picked, as PowerPoint's. Its curves are flattened fine enough to print, its points editable as any freeform's ----
+  const mergeable = () => { const ms = x.selectedNow().filter(m => m.type === 'shape' && !['line', 'picture', 'group', 'legend', 'table'].includes(m.geometry) && !m.role); return ms.length > 1 && ms.length === x.selectedNow().length ? ms : null; };
+  function ringsOf(m) {
+    const f = framing(m), P = m.geometry === 'freeform' ? m.look.Points : Shapes.pointsOf(m.geometry === 'text' ? 'rect' : m.geometry, m.w, m.h, m.look.Corner, m.look.Tail);
+    return Shapes.flatten(P, m.w, m.h).filter(r => r.ring.length > 2).map(r => r.ring.map(([px, py]) => f.to(px / m.w, py / m.h)));
+  }
+  function merge(kind) {
+    if (x.still()) return Shell.toast(App.whyNot());
+    const ms = mergeable();
+    if (!ms) return Shell.toast(x.selectedNow().some(m => m.type === 'box') ? 'A box is a record, so it doesn’t merge: its shape says what it is' : 'Select two shapes or more first', { ms: 3500 });
+    const parts = Shapes.merge(kind, ms.map(ringsOf));
+    if (!parts.length) return Shell.toast('Nothing’s left of those: they don’t overlap', { ms: 3000 });
+    const first = x.rowOf(ms[0].id), { flip, rotate, ends, kept, shape, id: _id, ...base } = first, made = [];
+    App.change(tx => {
+      for (const m of ms) tx.remove(m.id);
+      parts.forEach((rings, i) => { const f = Shapes.framed(rings); made.push(tx.add('shape', { ...base, view: x.viewOf(), geometry: 'freeform', x: round(f.x), y: round(f.y), w: round(f.w), h: round(f.h), ...(i && { text: '' }), format: { ...base.format, Shape: undefined, Points: f.Points } })); });
+    }, { dated: false, say: `${{ union: 'Merged', combine: 'Combined', fragment: 'Fragmented', intersect: 'Intersected', subtract: 'Subtracted from' }[kind]} ${ms.length} shapes` });
+    Shell.select(made);
+  }
+
+  // ---- Distribute along a line: what's selected evenly along a free line selected with it, each middle on it ----
+  const lineAmong = () => { const ms = x.selectedNow(), l = ms.filter(m => m.geometry === 'line'); return l.length === 1 && ms.length >= 3 ? l[0] : null; };
+  function alongLine() {
+    if (x.still()) return Shell.toast(App.whyNot());
+    const l = lineAmong();
+    if (!l) return Shell.toast('Select a line and two or more things to go along it', { ms: 3000 });
+    const ms = x.selectedNow().filter(m => m !== l && (m.type === 'box' || m.type === 'shape') && m.geometry !== 'line'), legs = l.points.slice(1).map((p, i) => [l.points[i], p]), len = legs.reduce((a, [p, q]) => a + Math.hypot(q[0] - p[0], q[1] - p[1]), 0);
+    const at = d => { for (const [p, q] of legs) { const L = Math.hypot(q[0] - p[0], q[1] - p[1]); if (d <= L || q === legs.at(-1)[1]) return [p[0] + (q[0] - p[0]) * d / (L || 1), p[1] + (q[1] - p[1]) * d / (L || 1)]; d -= L; } return l.points.at(-1); };
+    const proj = m => { const c = [m.x + m.w / 2, m.y + m.h / 2]; let best = 0, seen = 0, least = Infinity; for (const [p, q] of legs) { const L = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, t = Math.max(0, Math.min(1, ((c[0] - p[0]) * (q[0] - p[0]) + (c[1] - p[1]) * (q[1] - p[1])) / (L * L))), d = Math.hypot(c[0] - (p[0] + (q[0] - p[0]) * t), c[1] - (p[1] + (q[1] - p[1]) * t)); if (d < least) { least = d; best = seen + t * L; } seen += L; } return best; };
+    const sorted = [...ms].sort((a, b) => proj(a) - proj(b)), places = new Map(sorted.map((m, i) => { const [cx, cy] = at(sorted.length > 1 ? i * len / (sorted.length - 1) : len / 2); return [m.id, { x: cx - m.w / 2, y: cy - m.h / 2 }]; }));
+    x.moveTo(places);
+  }
+
+  // ---- Pinned: a box Tidy goes around, a pin on it to say so (never printed) ----
+  const pinned = id => { const t = x.treeOf(id); return !!t && App.notes.peek().resolve('Pinned', t, x.viewOf())?.value === true; };
+  function setPinned(ms, on) { App.change(tx => { for (const m of ms) tx.note('Pinned', x.treeOf(m.record), on ? true : undefined, { view: x.viewOf() }); }, { dated: false, keep: false, say: `${on ? 'Pinned' : 'Unpinned'} ${ms.length === 1 ? x.called(ms[0]) : `${ms.length} boxes`}` }); }
+  function paintPins() {
+    marks.querySelectorAll('.dc-pin').forEach(n => n.remove());
+    const N = App.notes.peek(), sc = scene(), z = zoom();
+    for (const p of N.notes('Pinned')) if (p.view === sc.view && p.value === true && p.pattern.id) { const m = sc.marks.find(q => q.type === 'box' && q.record === p.pattern.id); if (m) svg('path', { class: 'dc-pin', transform: `translate(${m.x + m.w - 7 / z} ${m.y - 7 / z}) scale(${0.5 / z})`, d: 'M12 17v5M9 10.76V6h6v4.76l2 3.24H7zM8 2h8', 'stroke-width': 2 }); }
+  }
+
+  // ---- A link on a shape, as PowerPoint's: a web address, or a page of this chart; Ctrl+click follows it ----
+  async function setLink(id) {
+    const m = id ? scene().byId.get(id) : x.selectedNow()[0];
+    if (!m || m.type !== 'shape') return Shell.toast('Select a shape first', { ms: 2500 });
+    const row = x.rowOf(m.id), pages = App.views.peek().filter(v => v.layout === 'chart'), now = { url: row.link?.url ?? '', view: row.link?.view ?? '' };
+    const go = await Shell.dialog({ title: 'Link', width: 420, body: () => html`<div class="ex palette-def">
+      <label class="row"><span class="k">Address</span><input class="cell" type="text" autofocus value=${now.url} aria-label="Address" spellcheck="false" placeholder="https://" onInput=${e => { now.url = e.currentTarget.value.trim(); }} /></label>
+      <label class="row"><span class="k">Or a page</span><${Shell.Pick} label="Page" value=${now.view} onPick=${v => { now.view = v; }} options=${[['', 'None'], ...pages.map(v => [v.id, v.name])]} /></label></div>`,
+      actions: [...(row.link ? [{ label: 'Take it off', value: 'off' }] : []), { label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }] });
+    if (!go) return;
+    const link = go === 'off' ? undefined : now.view ? { view: now.view } : now.url ? { url: /^[a-z]+:/i.test(now.url) ? now.url : `https://${now.url}` } : undefined;
+    App.change(tx => tx.update(m.id, { link }), { dated: false, keep: false, say: link ? `Linked ${x.called(m)}` : `Took the link off ${x.called(m)}` });
+  }
+  x.gEl.addEventListener('click', e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const id = e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id'), m = id && scene().byId.get(id), l = m?.link;
+    if (!l) return;
+    e.preventDefault(); e.stopPropagation();
+    if (l.view) Shell.show(l.view); else window.open(l.url, '_blank', 'noopener');
+  }, true);
+  graph.on('node:mouseenter', ({ node }) => { const l = scene().byId.get(node.id)?.link; if (l) root.title = `Ctrl+click: ${l.url ?? App.views.peek().find(v => v.id === l.view)?.name ?? ''}`; });
+  graph.on('node:mouseleave', () => { root.title = ''; });
+
+  // A picture off the clipboard, as Insert's picture is.
+  function pastePicture(file) {
+    const r = new FileReader();
+    r.onload = () => { const img = new Image(); img.onload = () => { const w = Math.min(240, img.width), k = w / img.width; const id = x.insert('picture', { src: r.result, w, h: Math.round(img.height * k) }); if (id) Shell.toast('Pasted the picture', { ms: 2000 }); }; img.src = r.result; };
+    r.readAsDataURL(file);
+  }
+
+  // The menu's, for what's selected: Edit points, Merge shapes, Link, Pin; each said only where it can be asked.
+  const MERGES = [['union', 'Union'], ['combine', 'Combine'], ['fragment', 'Fragment'], ['intersect', 'Intersect'], ['subtract', 'Subtract']];
+  function shapeItems(ms, one, ro) {
+    const editable = one && (one.type === 'box' || (one.type === 'shape' && !['line', 'picture', 'group', 'legend', 'table'].includes(one.geometry) && !one.role)), boxes = ms.filter(m => m.type === 'box');
+    return [
+      ...(editable ? [{ label: 'Edit points', disabled: ro, run: () => editPoints(one.id) }] : []),
+      ...(mergeable() ? [{ label: 'Merge shapes', disabled: ro, items: MERGES.map(([k, label]) => ({ label, run: () => merge(k) })) }] : []),
+      ...(one?.type === 'shape' && !one.role ? [{ label: 'Link…', disabled: ro, run: () => setLink(one.id) }] : []),
+      ...(boxes.length ? [{ label: boxes.every(m => pinned(m.record)) ? 'Unpin' : 'Pin', disabled: ro, run: () => setPinned(boxes, !boxes.every(m => pinned(m.record))) }] : []),
+    ];
+  }
+
+  // ---- Measured with Alt, as Figma's: with something selected, Alt and a point at another says how far it is, side by side; at nothing, how far from the page's edges ----
+  let measuring = false;
+  const clearMeasure = () => { marks.querySelectorAll('.dc-measure').forEach(n => n.remove()); };
+  function measureAt(e) {
+    clearMeasure();
+    const ms = x.selectedNow().filter(m => m.w != null);
+    if (!e.altKey || !ms.length) return;
+    const a = x.extent(ms), z = zoom(), sc = scene(), p = local(e), hit = [...sc.marks].reverse().find(m => !ms.includes(m) && m.w != null && m.type !== 'line' && m.geometry !== 'group' && !m.master && p.x >= m.x && p.x <= m.x + m.w && p.y >= m.y && p.y <= m.y + m.h);
+    const b = hit ?? { x: 0, y: 0, w: sc.page.w, h: sc.page.h }, inside = !hit, sheet = v => `${Math.round(Math.abs(v) * x.scale() / Scene.PT * 10) / 10} pt`;
+    const say = (x1, y1, x2, y2) => { if (Math.hypot(x2 - x1, y2 - y1) < 0.5) return; svg('path', { class: 'dc-gap dc-measure', d: `M${x1},${y1} L${x2},${y2}`, 'stroke-width': 1.25 / z }); const t = svg('text', { class: 'dc-gap dc-measure', x: (x1 + x2) / 2 + 4 / z, y: (y1 + y2) / 2 - 4 / z, 'font-size': 11 / z }); t.textContent = sheet(Math.hypot(x2 - x1, y2 - y1)); };
+    svg('rect', { class: 'dc-measure dc-measured', x: b.x, y: b.y, width: b.w, height: b.h, 'stroke-width': 1 / z, fill: 'none' });
+    const cy = Math.max(a.y, b.y) < Math.min(a.y + a.h, b.y + b.h) ? (Math.max(a.y, b.y) + Math.min(a.y + a.h, b.y + b.h)) / 2 : a.y + a.h / 2, cx = Math.max(a.x, b.x) < Math.min(a.x + a.w, b.x + b.w) ? (Math.max(a.x, b.x) + Math.min(a.x + a.w, b.x + b.w)) / 2 : a.x + a.w / 2;
+    if (inside) { say(0, a.y + a.h / 2, a.x, a.y + a.h / 2); say(a.x + a.w, a.y + a.h / 2, sc.page.w, a.y + a.h / 2); say(a.x + a.w / 2, 0, a.x + a.w / 2, a.y); say(a.x + a.w / 2, a.y + a.h, a.x + a.w / 2, sc.page.h); return; }
+    if (b.x >= a.x + a.w) say(a.x + a.w, cy, b.x, cy); else if (a.x >= b.x + b.w) say(b.x + b.w, cy, a.x, cy);
+    if (b.y >= a.y + a.h) say(cx, a.y + a.h, cx, b.y); else if (a.y >= b.y + b.h) say(cx, b.y + b.h, cx, a.y);
+    // (Over one another: how far in, each way.)
+    if (b.x < a.x + a.w && a.x < b.x + b.w && b.y < a.y + a.h && a.y < b.y + b.h) { say(a.x, cy, b.x, cy); say(a.x + a.w, cy, b.x + b.w, cy); say(cx, a.y, cx, b.y); say(cx, a.y + a.h, cx, b.y + b.h); }
+  }
+  const altMove = e => { if (e.altKey && !armed && root.contains(e.target)) { measuring = true; measureAt(e); } else if (measuring) { measuring = false; clearMeasure(); } };
+  const altUp = e => { if (e.key === 'Alt' && measuring) { measuring = false; clearMeasure(); } if (e.key === 'Alt') e.preventDefault(); };
+  addEventListener('pointermove', altMove, true);
+  addEventListener('keyup', altUp, true);
+
   // ---- The chart's master, being edited: its page is all that's drawn, with a bar that says so and closes it, as Esc does with nothing selected ----
   const masterEl = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-masterhost' }));
   let wasMastering = false;
@@ -727,8 +977,8 @@ function attach(x) {
       </div></div>`;
   }
 
-  return { editCell, tableItems, newTable, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook,
-    destroy() { stopMaster(); render(null, masterEl); removeEventListener('pointermove', heldKeys, true); removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
+  return { editPoints, endPoints, merge, mergeable, alongLine, lineAmong, shapeItems, pastePicture, setLink, editCell, tableItems, newTable, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook,
+    destroy() { stopMaster(); render(null, masterEl); removeEventListener('pointermove', altMove, true); removeEventListener('keyup', altUp, true); removeEventListener('pointermove', heldKeys, true); removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
 }
 return { attach };
 })();

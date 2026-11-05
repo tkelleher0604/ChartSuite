@@ -154,17 +154,20 @@ function freeSpot(scene, w, h, near, { bands = false, gap = 16, lane = 24, last 
 // alone, and only in a box selected, pointed at or in the scope chosen; elsewhere its room is empty, as it prints
 // (dendra.md, Fields).
 function textMarkup(it, red, faint) {
-  const t = it.blank ? { ...it.look, Color: BLANK, Bold: false, Underline: false } : it.look, tone = c => red === 'appear' ? BLUE : red === 'go' ? RED : c;
+  const t = it.blank ? { ...it.look, Color: BLANK, Bold: false, Underline: false } : it.look, tone0 = c => red === 'appear' ? BLUE : red === 'go' ? RED : c;
+  // WordArt's: a gradient for its fill, a line round its letters.
+  const wash = t['Text Gradient']?.stops?.length && !red && !it.blank ? `url(#${gradient(t['Text Gradient'])})` : null, rim = t['Text Outline'] && !red && !it.blank ? { stroke: t['Text Outline'].color ?? '#000000', 'stroke-width': px(t['Text Outline'].weight ?? 0.75), 'paint-order': 'stroke fill' } : null, tone = c => wash ?? tone0(c);
   return {
     tagName: 'text', attrs: {
       'font-family': Scene.fontFamily(t.Font), 'font-size': px(t.Size), 'font-weight': t.Bold ? 700 : 400,
       'font-style': t.Italic || it.computed || it.blank ? 'italic' : 'normal', 'text-anchor': ANCHOR[t.Align] ?? 'middle', 'data-text': it.id, ...(faint && { opacity: FAINT }),
-      ...(it.blank && { class: 'dc-blank' }),
+      ...(it.blank && { class: 'dc-blank' }), ...rim, ...(it.turn && { transform: it.turn }),
     },
     children: it.lines.flatMap(l => {
       const r = l.red ?? it.redline ?? red;
       const deco = [t.Underline && 'underline', (t.Strike || r === 'go') && 'line-through'].filter(Boolean).join(' ');
       const mark = l.bullet ? [{ tagName: 'tspan', attrs: { x: l.bulletAt, y: l.y, fill: tone(t.Color), 'text-anchor': 'start' }, textContent: l.bullet }] : [];
+      if (l.tabs) return [...mark, ...l.tabs.map(sp => ({ tagName: 'tspan', attrs: { x: l.x + sp.at, y: l.y, fill: tone(t.Color), 'text-anchor': 'start', ...(deco && { 'text-decoration': deco }) }, textContent: sp.text }))];
       if (!l.spans) return [...mark, { tagName: 'tspan', attrs: { x: l.x, y: l.y, fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(t.Color), ...(deco && { 'text-decoration': deco }), ...(l.ink && { 'data-ink': '' }) }, textContent: l.text }];
       // Part of it in another look: its spans one after another along the line, a superscript raised as PowerPoint raises one.
       let off = 0;
@@ -219,11 +222,36 @@ const zoomedTo = d => { if (d !== screenPerPage) { screenPerPage = d; writeWeigh
 // A box's or shape's body: its shape (a rounded rectangle's corners as its Corner says), its fill as transparent
 // as its Transparency, its outline, and its Shadow.
 function bodyMarkup(shape, w, h, s, red, extra = {}) {
-  const stroke = red === 'appear' ? BLUE : red === 'go' ? RED : paint(s.Outline), clear = Math.min(100, Math.max(0, s.Transparency ?? 0));
-  return { tagName: 'path', selector: 'body', attrs: { d: Scene.path(shape, w, h, s.Corner, s.Tail), fill: s.Gradient?.stops?.length && !red ? `url(#${gradient(s.Gradient)})` : s.Pattern?.prst && !red ? `url(#${hatch(s.Pattern, paint(s.Fill))})` : paint(s.Fill), ...(clear && { 'fill-opacity': 1 - clear / 100 }),
-    stroke, 'stroke-width': px(s.Weight), class: crisp(px(s.Weight)), 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': 'miter',
-    ...(Scene.shadowOf(s.Shadow) && { filter: `url(#${shadow(drawnAt, Scene.shadowOf(s.Shadow))})` }), ...extra } };
+  const stroke = red ? (red === 'appear' ? BLUE : RED) : s['Line Gradient']?.stops?.length ? `url(#${gradient(s['Line Gradient'])})` : paint(s.Outline), clear = Math.min(100, Math.max(0, s.Transparency ?? 0)), d = Scene.outlineOf(shape, w, h, s);
+  const fill = s.Picture?.src && !red ? `url(#${picture(s.Picture, w, h, paint(s.Fill))})` : s.Gradient?.stops?.length && !red ? `url(#${gradient(s.Gradient)})` : s.Pattern?.prst && !red ? `url(#${hatch(s.Pattern, paint(s.Fill))})` : paint(s.Fill);
+  const lineClear = s['Line Transparency'] > 0 ? { 'stroke-opacity': 1 - s['Line Transparency'] / 100 } : null, line = { stroke, 'stroke-width': px(s.Weight), class: crisp(px(s.Weight)), 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) ?? (red === 'go' ? '4 3' : null), 'stroke-linejoin': s.Points?.round ? 'round' : 'miter', ...(s.Points?.round && { 'stroke-linecap': 'round' }), ...lineClear };
+  const compound = s.Compound && s.Compound !== 'single' && paint(s.Outline) !== 'none' && !red, reflecting = s.Reflection && !red;
+  const fx = !red && Shapes.hasEffect(s) ? { filter: `url(#${effects(drawnAt, s)})` } : Scene.shadowOf(s.Shadow) ? { filter: `url(#${shadow(drawnAt, Scene.shadowOf(s.Shadow))})` } : null;
+  const main = { tagName: 'path', selector: 'body', attrs: { d, fill, ...(clear && { 'fill-opacity': 1 - clear / 100 }), ...(compound ? { stroke: 'none' } : line), ...fx, ...extra } };
+  if (!compound && !reflecting) return main;
+  const parts = [main];
+  if (compound) parts.push({ tagName: 'path', attrs: { d, fill: 'none', ...line, filter: `url(#${hollow(s.Compound, px(s.Weight))})`, 'pointer-events': 'none', ...(extra.transform && { transform: extra.transform }) } });
+  if (reflecting) {
+    const r = s.Reflection, off = 2 * h + px(r.distance ?? 0) / drawnAt;
+    parts.unshift({ tagName: 'path', attrs: { d, fill, stroke, 'stroke-width': px(s.Weight), transform: `translate(0 ${off}) scale(1 -1)${extra.transform ? ` ${extra.transform}` : ''}`, mask: `url(#${reflectionOf(r)})`, 'pointer-events': 'none' } });
+  }
+  return { tagName: 'g', children: parts };
 }
+// What a line has beyond its color and weight: how transparent, a gradient along what it runs, a compound's gaps.
+function lineLook(ps, s) {
+  const g = s['Line Gradient'], out = {};
+  if (g?.stops?.length) { const xs = ps.map(p => p[0]), ys = ps.map(p => p[1]), b = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }, id = `dc-lgrad-${Shapes.hashed(JSON.stringify([g, b]))}`; out.stroke = `url(#${defined(id, () => Shapes.lineGradientDef(id, g, b))})`; }
+  if (s['Line Transparency'] > 0) out.strokeOpacity = 1 - s['Line Transparency'] / 100;
+  if (s.Compound && s.Compound !== 'single') out.filter = `url(#${hollow(s.Compound, px(s.Weight))})`;
+  return out;
+}
+// A definition of the document's own that shadows are in, one for each look: all of a body's effects as one filter, its reflection's fade, a compound line's gaps, a picture filling it.
+const madeDefs = new Set();
+const defined = (id, def) => { if (!madeDefs.has(id) || !document.getElementById(id)) { madeDefs.add(id); defsHere().insertAdjacentHTML('beforeend', def()); } return id; };
+const effects = (at, s) => { const id = `dc-fx-${Math.round(at * 1000)}-${Shapes.hashed(Shapes.effectKey(s))}`; return defined(id, () => Shapes.effectDef(id, s, px(1) / at)); };
+const reflectionOf = r => { const id = `dc-refl-${Shapes.hashed(JSON.stringify(r))}`; return defined(id, () => Shapes.reflectionMask(id, r)); };
+const hollow = (c, W) => { const id = `dc-cmpd-${c}-${Math.round(W * 100)}`; return defined(id, () => Shapes.compoundDef(id, c, W)); };
+const picture = (o, w, h, bg) => { const id = `dc-pic-${Shapes.hashed(o.src)}-${Math.round(w)}-${Math.round(h)}-${o.tile ? 't' : 's'}-${String(bg).replace('#', '')}`; return defined(id, () => Shapes.pictureDef(id, o, w, h, bg)); };
 // PowerPoint's outer shadow, as a filter for a page drawn at a scale: its distance, blur and color, each the sheet's, as a
 // weight is, however much smaller the chart is drawn. One filter for each scale and shadow, in a page of the document's own,
 // which every canvas's drawing refers to.
@@ -295,7 +323,9 @@ function cellsOf(scene, ink = null) {
   const cells = [], z = new Map(scene.marks.map((m, i) => [m.id, i * 2]));
   // (What's on the chart's master is drawn on a page, and nothing on it can be pressed there: it's edited on the master.)
   const node = (m, kind, markup, extra = {}) => cells.push({ id: m.id, shape: 'dendra', x: m.x, y: m.y, width: Math.max(1, m.w), height: Math.max(1, m.h),
-    zIndex: z.get(m.id), markup: m.master ? [{ tagName: 'g', attrs: { 'pointer-events': 'none' }, children: markup }] : markup, data: { kind: m.master ? 'master' : kind, mark: m.id }, ...(m.rotate && { angle: m.rotate }), ...extra });
+    zIndex: z.get(m.id), markup: inDepth(m, m.master ? [{ tagName: 'g', attrs: { 'pointer-events': 'none' }, children: markup }] : markup), data: { kind: m.master ? 'master' : kind, mark: m.id }, ...(m.rotate && { angle: m.rotate }), ...extra });
+  // (A box or shape turned in depth, its words with it, by the one transform.)
+  const inDepth = (m, markup) => { const t = m.look?.['Turn 3D'] ?? m.settings?.['Turn 3D']?.value; return t ? [{ tagName: 'g', attrs: { transform: Shapes.turned3d(t, m.w, m.h) }, children: markup }] : markup; };
   const red = m => ink?.go.has(m.record) ? 'go' : ink?.appear.has(m.record) ? 'appear' : null;
   // A text as the ink has it: a changed one's new lines under its old, struck; one appearing, blue.
   const inkOn = it => {
@@ -319,7 +349,7 @@ function cellsOf(scene, ink = null) {
         vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: m.runs ? { name: 'runs', args: { runs: m.runs } } : { name: 'normal' },
         attrs: { line: { stroke: r === 'appear' ? BLUE : r === 'go' ? RED : paint(s.Outline), ...widthOf(ps, px(s.Weight), arrow === 'start' || arrow === 'both', arrow === 'end' || arrow === 'both'), strokeDasharray: dashed,
           strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight), ps.slice(-2), Scene.headOf(s, 'end')),
-          sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2), Scene.headOf(s, 'start')), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: short ? 14 : 10, ...(short && { strokeLinecap: 'square' }) } } });
+          sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2), Scene.headOf(s, 'start')), ...(r ? null : lineLook(ps, s)), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: short ? 14 : 10, ...(short && { strokeLinecap: 'square' }) } } });
       if (m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
         zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: textsOf(m).map(it => textMarkup(it, r)) });
     } else if (m.type === 'frame') {
@@ -334,7 +364,7 @@ function cellsOf(scene, ink = null) {
         cells.push({ id: m.id, shape: 'edge', zIndex: z.get(m.id), data: { kind: m.master ? 'master' : 'shape', mark: m.id },
           source: { x: ps[0][0], y: ps[0][1] }, target: { x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] }, vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })),
           attrs: { line: { stroke: paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: Scene.dash(s.Dash, s.Weight), targetMarker: marker(s.Arrow === 'end' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'end')),
-            sourceMarker: marker(s.Arrow === 'start' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'start')), ...(m.master && { pointerEvents: 'none' }) }, wrap: { strokeWidth: m.master ? 0 : 10, ...(m.master && { pointerEvents: 'none' }) } } });
+            sourceMarker: marker(s.Arrow === 'start' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'start')), ...lineLook(ps, s), ...(m.master && { pointerEvents: 'none' }) }, wrap: { strokeWidth: m.master ? 0 : 10, ...(m.master && { pointerEvents: 'none' }) } } });
       } else if (m.geometry === 'legend') node(m, 'shape', legendMarkup(m, s));
       else if (m.geometry === 'picture') node(m, 'shape', [{ tagName: 'g', attrs: { ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) }, children: [m.crop ? croppedImage(m) : { tagName: 'image', attrs: { href: m.src, width: m.w, height: m.h, preserveAspectRatio: 'xMidYMid meet' } }] },
         { tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'transparent', stroke: paint(s.Outline === '#000000' ? 'none' : s.Outline), 'stroke-width': px(s.Weight) } }]);
@@ -344,7 +374,9 @@ function cellsOf(scene, ink = null) {
         const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
         const body = bodyMarkup(geometry, m.w, m.h, s, null, { ...(m.geometry === 'frame' && { 'pointer-events': 'visibleStroke' }), ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) });
         // (The footer and its number are the sheet's, set in Page setup.)
-        node(m, m.role === 'footer' || m.role === 'number' ? 'foot' : 'shape', [body, ...(m.geometry === 'text' || m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.geometry === 'frame' ? 18 : m.h, fill: 'transparent' } }] : []),
+        // (A freeform with no fill is picked by its line and a little more; an icon, by the square it stands in.)
+        const pick = m.geometry !== 'freeform' || paint(s.Fill) !== 'none' ? [] : s.Points?.round ? [{ tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'transparent' } }] : [{ tagName: 'path', attrs: { d: Scene.outlineOf(geometry, m.w, m.h, s), fill: 'none', stroke: 'transparent', 'stroke-width': 10, ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) } }];
+        node(m, m.role === 'footer' || m.role === 'number' ? 'foot' : 'shape', [body, ...pick, ...(m.geometry === 'text' || m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.geometry === 'frame' ? 18 : m.h, fill: 'transparent' } }] : []),
           ...m.texts.map(it => textMarkup(it))]);
       }
     }
@@ -378,7 +410,7 @@ function swatchMarkup(sw, box) {
     return heads.length ? { tagName: 'g', children: [line, ...heads] } : line;
   }
   if (sw.kind === 'frame') return { tagName: 'rect', attrs: { x, y, width: w, height: h, fill: 'none', stroke: '#595959', 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash('dashed', sw.Weight) } };
-  const { selector, ...body } = bodyMarkup(sw.Shape ?? 'rect', w, h, sw, null, { transform: `translate(${x},${y})` });
+  const { selector, ...body } = bodyMarkup(sw.Shape ?? 'rect', w, h, { ...sw, Reflection: null }, null, { transform: `translate(${x},${y})` });
   return body;
 }
 function legendMarkup(m, s) {
@@ -1408,6 +1440,8 @@ function mount(el) {
       else if (e.key === 'Enter') { e.preventDefault(); finish(true, true); }
       // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
       else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
+      // (In a shape's words, a tab, as PowerPoint's: the next stop.)
+      else if (e.key === 'Tab' && multiline && !e.shiftKey) { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
     });
     ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); finish(true); });
     return ed;
@@ -2122,6 +2156,7 @@ function mount(el) {
       ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
       { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(free.length || ms.some(m => m.geometry === 'group') ? [{ label: 'Flip and turn', disabled: ro, items: FLIPS() }] : []),
+      ...hand.shapeItems(ms, one, ro),
       ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
         : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
       '-',
@@ -2830,7 +2865,8 @@ function mount(el) {
   // (Two or more: one box selected is only what was last worked on, and Tidy is of the page.)
   const tidyBoxes = () => { const base = App.scene.peek(), ms = !base || !scene ? [] : placeable().filter(m => m.type === 'box').map(m => base.byId.get(m.id)).filter(Boolean); return ms.length > 1 ? ms : []; };
   const tidySaid = n => `${n} box${n === 1 ? '' : 'es'}`;
-  const tidyName = () => { const n = tidyBoxes().length; return n > 1 ? `Tidy ${tidySaid(n)}` : 'Tidy'; };
+  const tidyName = () => { const n = tidyBoxes().length; return n > 1 ? `Tidy ${tidySaid(n)}` : pinnedHere().size ? 'Tidy around what’s pinned' : 'Tidy'; };
+  const pinnedHere = () => new Set(App.notes.peek().notes('Pinned').filter(p => p.view === viewOf() && p.value === true && p.pattern.id).map(p => p.pattern.id));
   // Whether there's anything to tidy: a selection; with none, a place other than Tidy gave, a box drawn beside Tidy's with none, or a Key over a box: one in a corner Tidy sets the chart clear of, and one a hand put there it gives back to the page.
   const saysKeyOver = sc => Scene.says(sc).some(t => t.startsWith('The Key overlaps'));
   const tidyable = () => { const ns = placedHere(), byTidy = n => Number.isFinite(n.value?.order), key = App.scene.peek()?.marks.find(m => m.geometry === 'legend');
@@ -2840,7 +2876,8 @@ function mount(el) {
   const firstTidy = () => !tidyBoxes().length && !placedHere().some(n => n.label === 'Position' && (Number.isFinite(n.value?.order) || (Number.isFinite(n.value?.x) && !n.value?.kept)));
   // (`only`: one box of its own, as its Reset is.)
   function tidying(only) {
-    const base = App.scene.peek(), some = only ? [base.byId.get(only)].filter(Boolean) : tidyBoxes(), writes = new Map();
+    // (What's pinned stands, and the rest goes around it: dendra.md, Measured and pinned.)
+    const base = App.scene.peek(), pins = pinnedHere(), some = only ? [base.byId.get(only)].filter(Boolean) : tidyBoxes().length ? tidyBoxes() : pins.size ? base.marks.filter(m => m.type === 'box' && !m.revealed && !pins.has(m.record)) : [], writes = new Map();
     for (const m of some.length ? some : base.marks.filter(m => m.type === 'box' && !m.revealed)) writes.set(m.record, { order: round(m.x), ...(some.length && { around: true }) });
     if (some.length) for (const [id, p] of holdsOf(base)) if (!writes.has(id) && treeOf(id)) writes.set(id, p);
     const ws = [...writes].map(([id, value]) => ({ id, t: treeOf(id), value })).filter(w => w.t), keys = new Set(ws.map(w => Tree.key(w.t)));
@@ -3136,7 +3173,12 @@ function mount(el) {
   const mine = () => root.contains(document.activeElement) && !document.activeElement.closest('.dc-edit');
   const clipboard = e => {
     if (!mine()) return;
-    if (e.type === 'paste') { if (!still() && clip && e.clipboardData?.getData('text/plain') === clip.text) { e.preventDefault(); paste(); } return; }
+    if (e.type === 'paste') {
+      // A picture on the clipboard comes in as a picture, in the free room there is.
+      const image = !still() && [...e.clipboardData?.items ?? []].find(i => i.kind === 'file' && i.type.startsWith('image/'));
+      if (image) { e.preventDefault(); return hand.pastePicture(image.getAsFile()); }
+      if (!still() && clip && e.clipboardData?.getData('text/plain') === clip.text) { e.preventDefault(); paste(); } return;
+    }
     // A field selected is copied as a field; cut, it's hidden.
     const f = fieldNow();
     if (!(f ? copyField(f) : copy())) return;
@@ -3222,7 +3264,7 @@ function mount(el) {
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
-    table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
+    table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), link: id => hand.setLink(id), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
     // What's being typed part by part takes a look (Bold, a color, a size) in place of the mark it's in. → whether it did.
     richSet: (label, v) => !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },

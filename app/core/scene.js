@@ -62,12 +62,14 @@ const printed = (it, s) => (it.typedAt === s ? it.look.Size : half(it.look.Size,
 // below and to the right; and its Corner, a rounded rectangle's, is the radius of its corners as a percentage of
 // its shorter side, up to 50, PowerPoint's adjustment of the shape.
 const INK = '#1c2733', RULE = '#3a4653';
-const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: INK, Align: 'center', Spacing: 1, Format: 'value' }, BESIDE_NAME = 8;
+const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: false, Strike: false, Color: INK, 'Text Gradient': null, 'Text Outline': null, Align: 'center', Spacing: 1, Format: 'value' }, BESIDE_NAME = 8;
 const CORNER = 16.667;
+// What a box's or a shape's body can have beyond its fill and its outline (dendra.md, Effects): none of it, by default.
+const BODY = { Picture: null, 'Line Transparency': 0, 'Line Gradient': null, Compound: 'single', Glow: null, 'Soft Edge': 0, Reflection: null, 'Inner Shadow': 'none', Bevel: null, 'Turn 3D': null };
 const DEFAULTS = {
   box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Gradient: null, Pattern: null, Transparency: 0, Outline: RULE, Weight: 0.5, Dash: 'solid', Shadow: 'none', Corner: CORNER, Tail: null, Valign: 'middle',
-    Frame: 'none', Layer: 0, ...TEXT },
-  line: { Shown: false, Outline: RULE, Weight: 0.75, Dash: 'solid', Arrow: 'none', Arrowhead: null, Connector: 'elbow', Above: null, Layer: 0, ...TEXT, Size: 9 },
+    Frame: 'none', Layer: 0, Points: null, ...BODY, ...TEXT },
+  line: { Shown: false, Outline: RULE, Weight: 0.75, Dash: 'solid', Arrow: 'none', Arrowhead: null, Connector: 'elbow', Above: null, Layer: 0, 'Line Transparency': 0, 'Line Gradient': null, Compound: 'single', ...TEXT, Size: 9 },
   text: { Shown: false, ...TEXT },
 };
 const TEXT_PROPS = Object.keys(TEXT);
@@ -78,7 +80,7 @@ const ROOT = ['Font', 'Size'], FOOTER = '·footer', NUMBER = '·number', MASTER 
 const FORMLESS = { Outline: { value: '#7f7f7f', note: null }, Dash: { value: 'square-dot', note: null } };
 // What a swatch shows: the properties of a box or line that tell marks apart, a frame's kind, or a text's
 // look. A frame's caption says on the chart what it is, so the legend leaves frames out.
-const KEYED = { box: ['Shape', 'Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'], frame: ['Frame'],
+const KEYED = { box: ['Shape', 'Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner', 'Points', ...Object.keys(BODY)], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead', 'Line Transparency', 'Line Gradient', 'Compound'], frame: ['Frame'],
   text: ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color'] };
 // A swatch: a box, line, frame or text in the defaults, with what an output's formats give it.
 function swatch(kind, f) {
@@ -164,6 +166,8 @@ function inkOn(b) {
 // ---- Geometry: PowerPoint's preset shapes, one table of them, in Shapes ----
 
 const GEOMETRIES = Shapes.ids, path = (shape, w, h, corner = CORNER, tail) => Shapes.path(shape, w, h, corner, tail), textRect = Shapes.textRect, textArea = Shapes.textArea;
+// A body's outline as its look says: a freeform's by its Points, a rounded rectangle's corners, a callout's tip.
+const outlineOf = (shape, w, h, s) => Shapes.path(shape, w, h, s.Corner ?? CORNER, shape === 'freeform' ? s.Points : s.Tail);
 const INSET = 9.6, PAD = 4.8, BASE = 7 * PT;
 // A box's width where none is entered: about 100 pt, so that a chart's names wrap rather than its page
 // widens; a triangle's a little more, its text sitting in its lower half.
@@ -2007,8 +2011,9 @@ function keyedEver(N, view, rows) {
 // the sheet's, `u` pixels of the page to one of the sheet: a text box's 12 pt, a title's 20, a date's 11 and a Key's 8
 // are those on the slide, however much the chart is drawn smaller; a Key's, `k` times that. A size or weight its row
 // gives is printed as given.
-const SHAPE_DEFAULTS = { Fill: '#ffffff', Gradient: null, Pattern: null, Tail: null, Bullet: 'none', Indent: null, Inset: null, Shrink: false, Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Arrowhead: null, Layer: 0, ...TEXT };
+const SHAPE_DEFAULTS = { Fill: '#ffffff', Gradient: null, Pattern: null, Tail: null, Bullet: 'none', Indent: null, 'First Line': null, Tabs: null, Columns: null, Direction: 'across', Inset: null, Shrink: false, Transparency: 0, Outline: '#000000', Weight: 0.75, Dash: 'solid', Shadow: 'none', Corner: CORNER, Valign: 'middle', Arrow: 'none', Arrowhead: null, Layer: 0, Points: null, ...BODY, ...TEXT };
 const TEXTBOX = { Fill: 'none', Outline: 'none', Align: 'left', Size: 12, Valign: 'top' };
+const SHAPED = new Set(['line', 'picture', 'group', 'legend', 'table', 'text', 'frame']);
 // A table's: its Fill is its heading row's, its Outline its rules', its Color its words'.
 const TABLE = { Fill: '#44546a', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Size: 10, Valign: 'middle' };
 // The page's own texts: its title, its date, its footer and its number.
@@ -2021,7 +2026,9 @@ function freeShape(row, text, u = 1, k = 1) {
   const t = { ...base, ...format, Size: (format.Size ?? base.Size) * u, Weight: (format.Weight ?? base.Weight) * u };
   if (format.Size == null) t.Size = half(t.Size, 1 / u, k < 1);
   if (format.Color == null && tooDark(t) && unread(t.Color, t.Fill)) t.Color = WHITE;
-  const m = { id: shape, type: 'shape', row: id, geometry: row.geometry ?? 'rect', x: row.x ?? 0, y: row.y ?? 0, w: row.w ?? 200 * u, h: row.h ?? 52 * u,
+  // (Another shape picked for it, or its own points, stands in its geometry; a line, a picture, a table and the like is what it is.)
+  const named = row.geometry ?? 'rect', drawnAs = format.Shape && !SHAPED.has(named) ? format.Shape : named;
+  const m = { id: shape, type: 'shape', row: id, geometry: drawnAs, x: row.x ?? 0, y: row.y ?? 0, w: row.w ?? 200 * u, h: row.h ?? 52 * u,
     look: t, settings: Object.fromEntries(Object.entries(t).map(([k, v]) => [k, { value: v, note: null }])), texts: [], ...(row.role && { role: row.role }), ...(row.rotate && { rotate: row.rotate }),
     ...(row.flip && { flip: row.flip }), ...(row.alt && { alt: row.alt }), ...(row.name && { name: row.name }), ...(row.locked && { locked: true }), ...(row.master && { master: true }), ...(row.link && { link: row.link }) };
   if (m.geometry === 'line') {
@@ -2039,7 +2046,9 @@ function freeShape(row, text, u = 1, k = 1) {
     // In from its edges as its Inner margins say (points, as printed), or PowerPoint's own 0.1 in and 0.05 in; in from those as its
     // Indent says; bulleted or numbered, each paragraph's first line starts with its mark, the rest under its words.
     const by = pts => pts * PT * u, ins = t.Inset ? { l: by(t.Inset.l ?? 7.2), r: by(t.Inset.r ?? 7.2), t: by(t.Inset.t ?? 3.6), b: by(t.Inset.b ?? 3.6) } : { l: 9.6 * u, r: 9.6 * u, t: 4.8 * u, b: 4.8 * u }, marked = t.Bullet && t.Bullet !== 'none';
-    const share = textArea(m.geometry), runs = row.runs?.length ? row.runs : null, room = () => Math.max(16 * u, m.w * share - ins.l - ins.r);
+    // Set down or up its side, as PowerPoint's Text Direction: what's across its words is its height, what's down them its width (dendra.md, Words, part by part). In columns, each its share of what's across, and a gap between.
+    const sideways = t.Direction === 'down' || t.Direction === 'up', across = () => sideways ? m.h : m.w, downIt = () => sideways ? m.w : m.h, cols = Math.max(1, Math.round(t.Columns?.n ?? 1)), gap = by(t.Columns?.gap ?? 7.2);
+    const share = textArea(m.geometry), runs = row.runs?.length ? row.runs : null, room = () => Math.max(16 * u, (across() * share - ins.l - ins.r - gap * (cols - 1)) / cols);
     const indentOf = look => t.Indent != null ? by(t.Indent) : marked ? look.Size * PT * 1.5 : 0;
     const lay = look => {
       const width = (m.auto ? Infinity : room()) - indentOf(look), as = widestLook({ runs, look });
@@ -2050,17 +2059,32 @@ function freeShape(row, text, u = 1, k = 1) {
     let look = t, lines = lay(t);
     if (m.auto) m.w = Math.ceil(widest([{ lines }]) + ins.l + ins.r + indentOf(t) + 1);
     // Set in as PowerPoint sets in its text rect (see Shapes).
-    const r = textRect(m.geometry, m.w, m.h, t.Corner), avail = Math.max(16 * u, m.w * share - ins.l - ins.r) - 2 * r.x, tall = m.h - r.top - r.bottom - ins.t - ins.b;
+    const r = textRect(m.geometry, across(), downIt(), t.Corner), wholeWidth = Math.max(16 * u, across() * share - ins.l - ins.r) - 2 * r.x, avail = cols > 1 ? (wholeWidth - gap * (cols - 1)) / cols : wholeWidth, tall = downIt() - r.top - r.bottom - ins.t - ins.b;
     // Shrink on overflow, PowerPoint's: smaller by its steps until it holds, no less than a quarter of its size.
-    if (t.Shrink && !m.auto) for (const f of [0.925, 0.85, 0.775, 0.7, 0.625, 0.55, 0.475, 0.4, 0.325, 0.25]) { if (lines.length * lineHeight(look) <= tall + 0.5) break; look = { ...t, Size: t.Size * f }; lines = lay(look); m.shrunk = f; }
+    if (t.Shrink && !m.auto) for (const f of [0.925, 0.85, 0.775, 0.7, 0.625, 0.55, 0.475, 0.4, 0.325, 0.25]) { if (Math.ceil(lines.length / cols) * lineHeight(look) <= tall + 0.5) break; look = { ...t, Size: t.Size * f }; lines = lay(look); m.shrunk = f; }
     const it = { id: shape, type: 'text', look, settings: m.settings, text, lines, ...(runs && { runs }) };
-    const tb = blockHeight([it]), ind = indentOf(look);
-    if (m.geometry === 'text' && !t.Shrink) m.h = m.auto ? tb + ins.t + ins.b : Math.max(m.h, tb + ins.t + ins.b);
-    else if (tb > tall + 0.5) m.spills = true;
+    const perCol = cols > 1 ? Math.max(1, Math.floor((tall + 0.5) / lineHeight(look))) : Infinity, tb = cols > 1 ? Math.min(perCol, lines.length) * lineHeight(look) : blockHeight([it]), ind = indentOf(look);
+    if (sideways && m.auto) { m.h = tb ? widest([{ lines }]) + ins.l + ins.r + 1 : m.h; m.w = tb + ins.t + ins.b; }
+    else if (m.geometry === 'text' && !t.Shrink && cols === 1) { if (!sideways) m.h = m.auto ? tb + ins.t + ins.b : Math.max(m.h, tb + ins.t + ins.b); else m.w = Math.max(m.w, tb + ins.t + ins.b); }
+    else if (cols > 1 ? lines.length > perCol * cols : tb > tall + 0.5) m.spills = true;
     // At its top, middle or bottom, its margin in from its edge (a frame's caption at its top, 5 pt in).
-    const x0 = (m.w - avail) / 2 + (r.shift ?? 0) + (ins.l - ins.r) / 2;
-    stack(it, x0, avail, m.geometry === 'frame' && look.Valign === 'top' ? 5 * u : valigned(look.Valign, r.top + ins.t - 4.8 * u, m.h - r.bottom - ins.b + 4.8 * u, tb, 4.8 * u));
+    const x0 = (across() - wholeWidth) / 2 + (r.shift ?? 0) + (ins.l - ins.r) / 2;
+    stack(it, x0, avail, m.geometry === 'frame' && look.Valign === 'top' ? 5 * u : valigned(look.Valign, r.top + ins.t - 4.8 * u, downIt() - r.bottom - ins.b + 4.8 * u, tb, 4.8 * u));
     if (ind) { it.indent = ind; for (const l of it.lines) { if (look.Align === 'left') l.x += ind; if (l.bullet) l.bulletAt = look.Align === 'left' ? l.x - ind : (look.Align === 'right' ? l.x - l.w : l.x - l.w / 2) - ind * 0.75; } }
+    // A hanging or a first line: each paragraph's first line out from, or in from, the rest, where it's set from its left.
+    if (t['First Line'] && look.Align === 'left') { let at = 0; const paras = text.split('\n'), ink = s => s.replace(/\s/g, '').length; for (const p of paras) { let need = ink(p), first = true; while (at < it.lines.length && (need > 0 || first)) { const l = it.lines[at++]; if (first) { l.x += by(t['First Line']); first = false; } need -= ink(l.text); } } it.first = by(t['First Line']); }
+    // Lines by the column they fall in, one after another, as PowerPoint runs them on.
+    if (cols > 1) { it.lines.forEach((l, i) => { const c = Math.min(cols - 1, Math.floor(i / perCol)); if (c) { l.x += c * (avail + gap); l.y -= c * perCol * lineHeight(look); } }); it.columns = { n: cols, gap, width: avail }; }
+    // What's after a tab stands at the next stop: those it says, then every inch, as PowerPoint's defaults are.
+    if (text.includes('\t')) {
+      const stops = (t.Tabs ?? []).map(by), inch = by(72);
+      for (const l of it.lines) if (l.text.includes('\t')) {
+        let at = 0;
+        l.tabs = l.text.split('\t').map((part, i) => { if (i) { const next = stops.find(s => s > at + 0.5) ?? (Math.floor(at / inch) + 1) * inch; at = next; } const seg = { text: part, at }; at += measure(part, look); return seg; });
+        l.w = at;
+      }
+    }
+    if (sideways) it.turn = t.Direction === 'down' ? `rotate(90) translate(0 ${-m.w})` : `rotate(-90) translate(${-m.h} 0)`;
     m.texts.push(it);
     m.column = { x: x0, width: avail };
   }
@@ -2537,7 +2561,7 @@ function says(scene, name, paper) {
 }
 
 return {
-  MASTER, fontName, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  MASTER, fontName, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };
