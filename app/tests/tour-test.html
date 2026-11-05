@@ -128,7 +128,7 @@ async function run() {
   // 4. Drag to another: the canvas asks for the two boxes' relations.
   Shell.emit('relate-open', ['fund', 'blocker']); await tick(300);
   check('Dragging from one box to another does step 4', step() === '5 / 7', step());
-  check('… and all like it, chosen for step 3, is given back: a change goes to the selection again', $('[data-fb="like"]')?.getAttribute('aria-pressed') !== 'true', $('[data-fb="like"]')?.outerHTML.slice(0, 80));
+  check('… and the pen, moved for step 3, is given back: it goes by itself', FormatBar.pen.level.peek() === null, $('[data-fb="like"]')?.outerHTML.slice(0, 80));
 
   // 5. What the drag made: the two boxes' panel, shown, pointed at, before anything takes its place.
   await until(() => !!visible('[data-tour="pair"]') && around(visible('[data-tour="pair"]')));

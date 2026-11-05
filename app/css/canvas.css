@@ -24,11 +24,8 @@
 .x6-node.dc-dim > * { stroke-opacity: .22; }
 .x6-node.dc-dim text { fill-opacity: .22; }
 .x6-node.dc-dim image { opacity: .22; }
-/* The format bar's scope while a group is chosen or pointed at: what it doesn't reach dulled whole, fill and all, so
-   what it reaches stands out (see cue). */
+/* A pen pointed at: what it doesn't reach dulled whole, fill and all, so what it would reach stands out (see cue). */
 .dc .x6-cell.dc-dull { opacity: .35; }
-/* After a change, the cue fades, over two seconds, so the change can be seen. */
-.dc.cue-fading .x6-cell, .dc.cue-fading .x6-cell * { transition: opacity 2s var(--ease); }
 /* A blank field's name shows in a box selected, pointed at or in the scope chosen; elsewhere its room is empty, as
    it prints. */
 .dc .x6-cell:not(:hover, .dc-on) text.dc-blank { visibility: hidden; }
@@ -82,8 +79,10 @@
 .dc-hl.deep { --w: 1px; --o: .5; }
 .dc-row, .dc-group { --hue: var(--accent); --w: 1px; --o: 1; }
 .dc-cue { --hue: var(--accent); --w: 1.5px; --o: 1; }
+/* What's in reach of the pen, at rest: a thin outline, others untouched. */
+.dc-reach { --hue: var(--accent); --w: 1px; --o: .75; }
 .dc-sel { --hue: var(--accent); --w: 2px; --o: 1; }
-path:is(.dc-hl, .dc-row, .dc-group, .dc-cue), .x6-edge:is(.dc-hl, .dc-row, .dc-sel, .dc-cue) > path + path {
+path:is(.dc-hl, .dc-row, .dc-group, .dc-cue, .dc-reach), .x6-edge:is(.dc-hl, .dc-row, .dc-sel, .dc-cue, .dc-reach) > path + path {
   fill: none; stroke: var(--hue); stroke-width: var(--w) !important; stroke-opacity: var(--o); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .dc-group { stroke-dasharray: 4 3; }
 path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms var(--ease) 2; }

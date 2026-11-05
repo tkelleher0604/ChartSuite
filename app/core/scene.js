@@ -689,7 +689,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
     // An entry the view's free text may read, or a field shown beside another record, is never inert.
-    const N0 = wb.notes(chart), reads = N0.notes('Text').some(n => n.view === view), fielded = new Set(['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param && n.view === view).map(n => Tree.norm(n.param))));
+    const N0 = wb.notes(chart), reads = ['Text', 'Footnote'].some(l => N0.notes(l).some(n => n.view === view)), fielded = new Set(['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param && n.view === view).map(n => Tree.norm(n.param))));
     const formatsOf = (recs, id) => { const r = recs[id], t = treeOf(recs, id); return r?.at && (reads || fielded.has(Tree.norm(r.edge ?? ''))) ? { Text: true } : t ? N0.formats(t, view) : {}; };
     const d = alike.find(d => d.from[0] === opts.state) ?? (alike[0] && unmoved(alike[0].scene, alike[0].from[0], opts.state, formatsOf) ? alike[0] : null);
     if (d) {
@@ -996,6 +996,23 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   };
   const withWas = (m, texts) => !changes ? texts : [...texts.flatMap(it => changes.was.has(it.id) ? [saidBefore(it, changes.was.get(it.id), m.type === 'line'), it] : [it]), ...(changes.lost.get(m.id) ?? []).map(it => saidBefore(it, it.text))];
   for (const b of boxes) { blanksIn(b); b.texts = withWas(b, [...gather(b.texts), ...freeText(b)]); inkOn(b); }
+  // Footnotes (dendra.md, Footnotes): a Footnote note, its param its name, so a box carries one of each and the narrowest of a name
+  // decides; each read as a free text is, for the box or line it lands on, or a free shape's own. An empty one gives none.
+  const footsOf = new Map(), footRow = shapeRows.find(r => r.role === 'footnotes' && r.view === view && !r.hidden);
+  if (footRow) {
+    const read = (h, v) => String(v?.text ?? '').replace(/\{([^{}\n]+)\}/g, (_, l) => h ? entryText(h.record, l) : '').replace(/\s+/g, ' ').trim();
+    if (N.notes('Footnote').some(n => n.view === view)) for (const id of ids) for (const [param, res] of Object.entries(once(id, 'foot', () => N.fields(tree(id), view, 'Footnote')))) for (const start of own.get(id) ?? []) {
+      const [h, depth] = hostOf(start);
+      if (!h?.texts) continue;
+      const by = footsOf.get(h.id) ?? footsOf.set(h.id, new Map()).get(h.id), r = rankOf(res.note, depth), c = by.get(param);
+      if (!c || beats(r, c.rank)) by.set(param, { ...res, rank: r, param, text: read(h, res.value), field: res.value?.field ?? null });
+    }
+    for (const r of shapeRows) if (r.footnotes?.length && !r.hidden) footsOf.set(r.shape, new Map(r.footnotes.map(f => [f.key, { param: f.key, shape: r.shape, text: read(null, f), value: f, field: null }])));
+    // (Worded for now, to size what the page places; numbered in reading order once the chart's laid out.)
+    const words = [...new Set([...footsOf.values()].flatMap(by => [...by.values()].map(f => f.text)).filter(Boolean))];
+    said.set(footRow.id, words.map((t, i) => `${i + 1} ${t}`).join('\n'));
+    if (!words.length) footsOf.clear();
+  }
   // The key is of what the view draws: what's revealed for a while doesn't change it. While nothing is keyed, as on a
   // new chart's page, a Key isn't drawn, and the page is as it would be without it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
@@ -1011,7 +1028,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const r of footRows) said.set(r.id, r.text);
   // A free shape's text takes the page's Font and Size too, where its own row doesn't say.
   const pageLook = Object.fromEntries(Object.entries(ofPage).map(([l, r]) => [l, r.value]));
-  const onPage = [...shapeRows.filter(r => !r.hidden && (r.geometry !== 'legend' || legendRows.length)), ...footRows].map(r => !r.master && (ofPage.Font || ofPage.Size) ? { ...r, format: { ...pageLook, ...r.format } } : r);
+  const onPage = [...shapeRows.filter(r => !r.hidden && (r.geometry !== 'legend' || legendRows.length) && (r.role !== 'footnotes' || footsOf.size)), ...footRows].map(r => !r.master && (ofPage.Font || ofPage.Size) ? { ...r, format: { ...pageLook, ...r.format } } : r);
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
   // order gives, where no note says. Its label is its own text, then the texts drawn on it; a line revealed
@@ -1165,9 +1182,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const furnished = onPage.filter(r => (r.role === 'title' || r.role === 'date') && placedBy(r)).map(r => freeShape(r, said.get(r.id)));
   const furniture = furnished.reduce((h, m) => h + m.h, 0);
   const { left: ML, right: MR, top: MT, bottom: MB } = sheet.margins;
+  const footRoom = onPage.filter(r => r.role === 'footnotes' && placedBy(r)).reduce((h, r) => h + freeShape({ ...r, w: sheet.w - ML - MR + 2 * INSET }, said.get(r.id)).h, 0);
   // (`plain`: none of the lines it draws is of a relation that says a figure, as a structure chart's say a percentage: see Layout's hanging.)
   const figures = Object.values(wb.schema(chart)).filter(s => s.args?.length === 1 && s.out?.field === 'percent' && s.args[0].loc.args).map(s => Tree.bare(s.args[0].loc));
-  const room = { w: sheet.w - ML - MR, h: sheet.h - MT - MB - (furniture && furniture - INSET - PAD + 32), plain: !lines.some(l => figures.some(p => Tree.narrower(tree(l.record), p))) };
+  const room = { w: sheet.w - ML - MR, h: sheet.h - MT - MB - (furniture && furniture - INSET - PAD + 32) - footRoom, plain: !lines.some(l => figures.some(p => Tree.narrower(tree(l.record), p))) };
   const keyRow = onPage.find(r => r.geometry === 'legend' && placedBy(r));
   if (keyRow) {
     const k = freeShape(keyRow, '');
@@ -1489,6 +1507,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     for (const it of m.texts ?? []) { for (const id of it.records ?? [it.id]) if (!byId.has(id)) byId.set(id, it); if (it.runs?.length) spansIn(it, 1 / s); }
   }
   for (const g of shapes.filter(m => m.geometry === 'group')) Object.assign(g, bounds(g.members.map(id => byId.get(id)).filter(Boolean)));
+  if (footsOf.size) numberFeet([...boxes, ...lines, ...shapes], footsOf, shapes.find(m => m.role === 'footnotes'), onPage.find(r => r.role === 'footnotes'), s, state);
 
   const laid = !preview && !opts.paper ? {
     at: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y }])), boxes: new Map(boxes.map(b => [b.id, { x: b.x, y: b.y, w: b.w, h: b.h }])), lowered: boxes.filter(b => b.laid).map(b => [b.laid.y, b.y - page.offset.y - b.laid.y]),
@@ -1516,6 +1535,60 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const scene = { chart, view, day, page, marks: marksInOrder, byId, styles, legend: legendRows, state, ms: now() - started, ...(changes && { since: changes.since }), ...(palette && { palette }), ...(themed && { themeFonts: themed }) };
   if (!preview) drawnFrom.set(whence, [{ from, scene, laid }, ...drawnFrom.get(whence) ?? []].slice(0, 3));
   return scene;
+}
+// Footnotes numbered, by reading order on the page (down its rows, then across), one number for one text however many marks carry it. Each mark
+// says what it carries, `feet`, and gets its marker, a superscript after its first line, or after the field it was added to; the shape gets its lines, each
+// number a superscript run of its text, so the canvas, the PDF and the deck each draw them as they draw any part of a text. In columns, by its Columns, as any shape's are.
+function numberFeet(marks, foots, shape, row, s, state) {
+  const u = 1 / s, numbers = new Map(), at = m => m.type === 'line' ? m.labelAt ?? { x: m.x ?? 0, y: m.y ?? 0 } : m, read = marks.filter(m => foots.has(m.id) && (m.type !== 'line' || (m.labelAt && !m.merged)));
+  read.sort((a, b) => Math.round(at(a).y * s / 12) - Math.round(at(b).y * s / 12) || at(a).x - at(b).x);
+  for (const m of read) {
+    const fs = [...foots.get(m.id).values()].filter(f => f.text), by = new Map();
+    for (const f of fs) { if (!numbers.has(f.text)) numbers.set(f.text, { n: numbers.size + 1, text: f.text, from: [] }); numbers.get(f.text).from.push(f); (by.get(f.field ?? '') ?? by.set(f.field ?? '', []).get(f.field ?? '')).push(numbers.get(f.text).n); }
+    m.feet = fs.map(f => ({ n: numbers.get(f.text).n, text: f.text, key: f.param }));
+    for (const [field, ns] of by) {
+      const it = (field && m.texts?.find(x => x.lines?.length && same(x.blank?.edge ?? state[x.id]?.edge ?? '', field))) || m.texts?.find(x => x.lines?.length && !x.was);
+      const l = it?.lines?.[0];
+      if (!l) continue;
+      const look = spanLook(it.look, { Base: 'up' }, u), text = ns.sort((a, b) => a - b).join(',');
+      l.spans = [...(l.spans ?? [{ text: l.text, look: it.look, own: false }]), { text, look, base: 'up', own: true, foot: true }];
+      l.footW = measure(text, look);
+      l.w += l.footW;
+    }
+  }
+  if (!shape) return;
+  const list = [...numbers.values()], rows = list.map(f => `${f.n} ${f.text}`), runs = [];
+  let from = 0;
+  for (const f of list) { const d = String(f.n).length; runs.push({ from, to: from + d, Base: 'up' }); from += `${f.n} ${f.text}`.length + 1; }
+  // (Each footnote its own paragraph. In columns, by Columns as any shape's are, just tall enough that they come out about as long.)
+  const text = rows.join('\n'), cols = Math.max(1, Math.round(row?.format?.Columns?.n ?? 1)), lay = (w, o = {}) => freeShape({ ...row, x: shape.x, y: shape.y, w, runs, ...o }, text, u);
+  let made = lay(shape.w);
+  if (cols > 1) {
+    const h = Math.ceil(made.texts[0].lines.length / cols) * lineHeight(made.texts[0].look) + 10 * u;
+    made = lay(shape.w, { h });
+    if (shape.byPage) shape.y += shape.h - h;
+    shape.h = h;
+  }
+  const it = made.texts[0];
+  spansIn(it, u);
+  Object.assign(shape, { texts: [it], feet: list.map(f => ({ n: f.n, text: f.text, from: f.from.map(x => ({ note: x.note?.note ?? null, pattern: x.note?.pattern ?? null, value: x.value, key: x.param, shape: x.shape ?? null })) })) });
+  // Placed by the page, over a chart that stands where it was placed: as far down and left as it's clear of what's drawn, as wide as its words, or across the foot where it can't be.
+  if (shape.byPage) {
+    const gap = 3 * u, taken = marks.filter(m => m !== shape && m.geometry !== 'group' && !m.merged).flatMap(m => m.points ? [...m.points.slice(1).map((p, i) => ({ x: Math.min(p[0], m.points[i][0]), y: Math.min(p[1], m.points[i][1]), w: Math.abs(p[0] - m.points[i][0]), h: Math.abs(p[1] - m.points[i][1]) })), ...(m.labelAt && m.label ? [{ ...m.labelAt, w: m.label.w, h: m.label.h }] : [])] : [m]);
+    const hits = (x, y, w, h) => taken.some(r => x < r.x + r.w + gap && r.x < x + w + gap && y < r.y + r.h + gap && r.y < y + h + gap);
+    if (hits(shape.x, shape.y, shape.w, shape.h)) {
+      const whole = shape.w, x0 = shape.x, foot = shape.y + shape.h, inset = whole - (shape.column?.width ?? whole), step = 6 * u, lh = lineHeight(it.look), one = w => lay(w, { format: { ...row.format, Columns: null } }), natural = Math.min(whole, widest(one(whole).texts) + inset + 2 * u);
+      // (As wide as its words, or else wrapped narrower, in one column, to go where there's room. What's clear of it includes the master's foot.)
+      search: for (const w of [natural, whole * 0.6, whole * 0.45, whole * 0.33, whole * 0.25, whole * 0.2].filter(x => x <= natural)) {
+        const set = one(w), h = set.h, right = x0 + whole - w;
+        for (let y = foot - h; y >= foot - h - 6 * lh; y -= lh) for (let x = x0; x <= right; x += step) if (!hits(x, y, w, h)) {
+          spansIn(set.texts[0], u);
+          Object.assign(shape, { x, y, w, h, texts: set.texts, look: set.look, settings: set.settings });
+          break search;
+        }
+      }
+    }
+  }
 }
 // A free shape from a row not yet kept, as a scene would draw it: how big a new one will be.
 function shapeOf(row, scene) {
@@ -2027,7 +2100,7 @@ const SHAPED = new Set(['line', 'picture', 'group', 'legend', 'table', 'text', '
 // A table's: its Fill is its heading row's, its Outline its rules', its Color its words'.
 const TABLE = { Fill: '#44546a', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Size: 10, Valign: 'middle' };
 // The page's own texts: its title, its date, its footer and its number.
-const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' } };
+const ROLES = { title: { Size: 20, Bold: true }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
 function freeShape(row, text, u = 1, k = 1) {
   const { id, shape, format = {} } = row;
   const base = { ...SHAPE_DEFAULTS, ...(row.geometry === 'text' && TEXTBOX), ...(row.geometry === 'table' && TABLE), ...ROLES[row.role], ...(row.geometry === 'legend' && { Size: 8 * k, Outline: '#7f7f7f', Weight: 0.5, Align: 'left' }),
@@ -2288,7 +2361,9 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     if (l.labelAt && l.label) rects.push({ x: l.labelAt.x, y: l.labelAt.y, w: l.label.w, h: l.label.h, hand });
   }
   const meets = (a, b, pad = 0) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
-  const fits = r => r.x >= ML - 0.5 && r.y >= MT - 0.5 && r.x + r.w <= W - MR + 0.5 && r.y + r.h <= H - MB + 0.5;
+  // (Footnotes the page places take room at its foot, which the chart keeps clear of.)
+  const atFoot = rows.find(r => r.role === 'footnotes' && placedBy(r)), footed = atFoot ? freeShape({ ...atFoot, w: W - ML - MR + 2 * INSET }, said.get(atFoot.id)).h : 0;
+  const fits = r => r.x >= ML - 0.5 && r.y >= MT - 0.5 && r.x + r.w <= W - MR + 0.5 && r.y + r.h <= H - MB - footed + 0.5;
   // What holds the page to it: all of it, where the view keeps no scale or it's just been fit to its page (`fit`); else what the
   // layout places.
   const hx = held?.x ?? 0, hy = held?.y ?? 0, mine = held && !held.fit ? rects.filter(r => !r.hand) : rects, some = mine.length > 0, E = bounds(mine);
@@ -2330,6 +2405,14 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
       places.set(footer.row, { x: atFoot, y: H - MB + PAD });
     }
     if (number) places.set(number.row, { x: W - MR + INSET - number.w * s, y: H - MB + PAD });
+    // Footnotes at the foot of the page, across its margins, just above its footer, which is just under the bottom margin: one a hand moved stands where it was put.
+    const notes = shapes.find(m => m.role === 'footnotes');
+    if (notes) {
+      // (One a hand moved, as far as the right margin from where it was put.)
+      const row = rows.find(r => r.id === notes.row), room = placedBy(row) ? W - ML - MR + 2 * INSET : Math.max(W - MR + INSET - row.x * s, 120), wide = row.w != null ? notes : freeShape({ ...row, w: room * u }, said.get(row.id), u);
+      shapes[shapes.indexOf(notes)] = wide;
+      if (byPage(wide)) places.set(wide.row, { x: ML - INSET, y: H - MB - wide.h * s + INSET });
+    }
     // The chart's top on the sheet: 24 pt under the date, or, placed, where it stands, if that's lower.
     let top = title || date ? y - PAD + 32 : MT, alongside = null;
     // The chart as rects on the sheet: placed, where it stands, moved right as far as keeps it off the left margin; else
@@ -2558,7 +2641,7 @@ function says(scene, name, paper) {
   for (const b of boxes) if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > W + 0.5 || b.y + b.h > H + 0.5) out.push(`${called(b)} runs off the page`);
     else if (b.x < edge || b.y < edge || b.x + b.w > W - edge || b.y + b.h > H - edge) out.push(`${called(b)} is nearer the edge than a printer prints`);
   const over =(a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
-  const WHAT = { legend: 'The Key', picture: 'The picture', table: 'The table', title: 'The title', date: 'The date', footer: 'The footer', number: 'The page number' };
+  const WHAT = { legend: 'The Key', picture: 'The picture', table: 'The table', title: 'The title', date: 'The date', footer: 'The footer', number: 'The page number', footnotes: 'The footnotes block' };
   for (const m of scene.marks) if (m.type === 'shape' && !m.master && !['line', 'group', 'frame'].includes(m.geometry) && (m.look?.Layer ?? 0) >= 0)
     for (const b of boxes) if (over(m, b)) out.push(`${WHAT[m.role] ?? WHAT[m.geometry] ?? `“${m.texts[0]?.text ?? 'A shape'}”`} overlaps ${called(b)}`);
   for (const k of scene.marks) if (k.geometry === 'legend') for (const f of scene.marks) if (f.type === 'frame' && !f.lone && over(k, f)) out.push(`The Key overlaps the ${f.caption.text} frame`);
