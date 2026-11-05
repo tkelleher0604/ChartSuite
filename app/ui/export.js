@@ -478,9 +478,9 @@ const FOOT = { footer: { type: 'ftr', master: 3, layout: 10, id: 3, name: 'Foote
 const NUM_FIELD = '{B6F15528-21DE-4FAA-801E-634DDDAF4B2B}';
 const RUN_LOOK = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color'];
 function footMaster(m, r, k, level) {
-  const f = FOOT[m.role], t = m.texts[0].look, ph = `type="${f.type}" sz="${f.type === 'dt' ? 'half' : 'quarter'}" idx="${level === 'master' ? f.master : f.layout}"`, id = f.id, name = f.name;
+  const f = FOOT[m.role], t = m.texts[0].look, ph = `type="${f.type}" sz="quarter" idx="${level === 'master' ? f.master : f.layout}"`, id = f.id, name = f.name;
   const nv = `<p:nvSpPr><p:cNvPr id="${id}" name="${name} ${id - 1}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph ${ph}/></p:nvPr></p:nvSpPr>`;
-  const run = m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum"><a:rPr lang="en-US"/><a:t>‹#›</a:t></a:fld>` : `<a:r><a:rPr lang="en-US"/><a:t>${esc(m.texts[0].text)}</a:t></a:r>`;
+  const run = m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum"><a:rPr lang="en-US"/><a:t>‹#›</a:t></a:fld>` : `<a:r><a:rPr lang="en-US"/><a:t>${esc(m.texts[0].text.replace(/ /g, ' '))}</a:t></a:r>`;
   if (level === 'layout') return `<p:sp>${nv}<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>${run}</a:p></p:txBody></p:sp>`;
   const font = esc(t.Font), rPr = `sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''}`;
   return `<p:sp>${nv}<p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr wrap="none" rtlCol="0" anchor="t"/><a:lstStyle><a:lvl1pPr algn="${ALIGN[t.Align] ?? 'l'}"><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc><a:defRPr ${rPr}><a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${faceRef(t.Font)}"/><a:cs typeface="${faceRef(t.Font, 'cs')}"/></a:defRPr></a:lvl1pPr></a:lstStyle><a:p>${run}</a:p></p:txBody></p:sp>`;
@@ -491,9 +491,9 @@ function footSlide(id, m, r, k, master) {
   const f = FOOT[m.role], it = m.texts[0], t = it.look, printed = (x, kk) => Math.round(x.Size * kk * 100), same = RUN_LOOK.every(l => l === 'Size' ? printed(master.look, master.k) === printed(t, k) : master.look[l] === t[l]);
   const edge = x => m.role === 'number' ? x.x + x.w : x.x, moved = Math.abs(edge(master.r) - edge(r)) > 0.02 || Math.abs(master.r.y - r.y) > 0.02;
   const font = esc(t.Font), rPr = same ? '<a:rPr lang="en-US" dirty="0"/>' : `<a:rPr lang="en-US" sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ' b="0"'}${t.Italic ? ' i="1"' : ' i="0"'}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"><a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${faceRef(t.Font)}"/><a:cs typeface="${faceRef(t.Font, 'cs')}"/></a:rPr>`;
-  const line = l => m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum">${rPr}<a:t>${esc(l.text)}</a:t></a:fld>` : `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`;
+  const line = l => m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum">${rPr}<a:t>${esc(l.text)}</a:t></a:fld>` : `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`;
   const ps = typed(it).map(ls => `<a:p>${ls.map(line).join(`<a:br>${rPr}</a:br>`)}</a:p>`).join('');
-  return `<p:sp><p:nvSpPr>${cNvPr(id, ROLE[m.role])}<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${f.type}" sz="${f.type === 'dt' ? 'half' : 'quarter'}" idx="${f.layout}"/></p:nvPr></p:nvSpPr><p:spPr>${moved ? xfrm(E(r.x), E(r.y), E(r.w), E(r.h)) : ''}</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${ps}</p:txBody></p:sp>`;
+  return `<p:sp><p:nvSpPr>${cNvPr(id, ROLE[m.role])}<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${f.type}" sz="quarter" idx="${f.layout}"/></p:nvPr></p:nvSpPr><p:spPr>${moved ? xfrm(E(r.x), E(r.y), E(r.w), E(r.h)) : ''}</p:spPr><p:txBody><a:bodyPr wrap="none"/><a:lstStyle/>${ps}</p:txBody></p:sp>`;
 }
 // A shape's name, and with `descr` its alt text; with `link`, where a click on it goes (dendra.md, Links).
 const cNvPr = (id, name, descr, link = null) => `<p:cNvPr id="${id}" name="${esc(name)}"${descr ? ` descr="${esc(descr)}"` : ''}${link ? `>${hlink(link)}</p:cNvPr>` : '/>'}`;
