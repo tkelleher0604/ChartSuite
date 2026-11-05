@@ -3639,10 +3639,11 @@ async function templates() {
   check('… drawn on the new chart’s page', sc().marks.some(m => m.master && m.texts?.some(it => it.text === 'Confidential')), sc().marks.filter(m => m.master).length);
   const kept = wb().charts().find(c => c.chart === blankChart);
   check('the chart it was begun from stands as it was', !!kept && wb().asOf(sample, App.day.peek())['fund']?.kind === 'Entity');
-  await entering(tick, esc);
 }
 // Entering, first try: a list means its relation; whose it is is asked; who stands over whom is moved in one move; a marriage's end stays drawn.
-async function entering(tick, esc) {
+// (In a window of tour-test's: this page's budget has no room for it.)
+async function entering() {
+  const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.5)), esc = el => el?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
   const wb = () => App.wb, st = () => App.state.peek(), sc = () => App.scene.peek(), one = id => App.notes.peek().nameOf(st(), id), toastNow = () => txt($$('.toast').at(-1)), press = (key, el) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   const person = (tx, kind, name) => { const id = tx.add('record', { kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }); return id; };
   const typeIn = async q => { const f = $('.float .menu-find'); f.textContent = q; f.dispatchEvent(new Event('input', { bubbles: true })); await tick(80); };
@@ -3816,7 +3817,7 @@ const framed = async which => {
   f.remove();
 };
 window.__out = out;
-Shell.ready.then(() => location.search.includes('format') ? format().finally(() => { window.__done = true; }) : location.search.includes('templates') ? templates().catch(e => check('the templates run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : location.search.includes('craft') ? craft().catch(e => check('the craft checks run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : run().then(() => framed('format')).then(() => framed('templates')).then(() => framed('craft')))
+Shell.ready.then(() => location.search.includes('format') ? format().finally(() => { window.__done = true; }) : location.search.includes('entering') ? entering().catch(e => check('the entering checks run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : location.search.includes('templates') ? templates().catch(e => check('the templates run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : location.search.includes('craft') ? craft().catch(e => check('the craft checks run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : run().then(() => framed('format')).then(() => framed('templates')).then(() => framed('craft')))
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

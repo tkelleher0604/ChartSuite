@@ -375,7 +375,16 @@ async function run() {
 const errors = [];
 window.onerror = (m, s, l) => { errors.push(`${m} (${(s || '').split('/').pop()}:${l})`); };
 addEventListener('unhandledrejection', e => errors.push(String(e.reason?.stack ?? e.reason)));
-Shell.ready.then(() => run())
+// What comes after the tour, a person's first entries: canvas-test's, in a window of their own, its own budget having no room for them.
+const entering = async () => {
+  const f = document.body.appendChild(Object.assign(document.createElement('iframe'), { src: 'canvas-test.html?entering' }));
+  f.style.cssText = 'position:fixed;left:0;top:0;width:1440px;height:900px;z-index:-1;border:0';
+  for (let i = 0; i < 1500 && !f.contentWindow.__done; i++) await new Promise(r => setTimeout(r, 100));
+  check('the first entries ran', !!f.contentWindow.__done);
+  out.push(...(f.contentWindow.__out ?? []));
+  f.remove();
+};
+Shell.ready.then(() => run()).then(entering)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);
