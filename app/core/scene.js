@@ -3204,6 +3204,27 @@ const reachesBox = (scene, b, p) => { const st = scene.state ?? {}, { entries } 
 // What's amiss with a page, in words, each said once: a typed size it can't hold, by what it's the size of; a box off the
 // sheet; a Key, a shape or a footer over a box, and on another paper a box over a box. `name(box)` is what to call a box
 // (its short name), `paper` this paper's name. Boxes that overlap on the view's own page, or a shape sent behind them, were put so.
+// Who holds a box a page draws that the page doesn't draw (dendra.md, Views: Off the page): a relation with a percentage, its first side off the page and its other on,
+// so what's left on the box looks like the whole of it. Each { rid, holder, held, figure, own }: `figure`, the percentage, or null where it's blank; `own`, off by
+// a note of the holder's own, one by one, and not by what the whole page leaves out of every box of its sort.
+function offPage(scene, recs, N, S) {
+  const specs = Object.values(S).filter(s => s.out?.field === 'percent' && s.args?.length === 1 && s.args[0].loc.args?.length > 1), I = Tree.index(recs), out = [];
+  if (!specs.length) return out;
+  const drawn = id => { const m = scene.byId.get(id); return !!m && m.type === 'box' && !m.revealed; };
+  for (const id in recs) {
+    const r = recs[id];
+    if (r.args?.length !== 2) continue;
+    const t = Tree.treeOf(recs, id), held = t && specs.filter(s => Tree.narrower(t, s.args[0].loc));
+    if (!held?.length) continue;
+    const first = N.edges(t)[0], side = r.args.find(a => Tree.same(a.edge, first)), other = r.args.find(a => a !== side);
+    if (!side || !other) continue;
+    const holder = Tree.objectOf(recs, side.at), on = Tree.objectOf(recs, other.at);
+    if (!holder || !recs[holder]?.kind || drawn(holder) || !drawn(on)) continue;
+    const e = (I.entries.get(id) ?? []).map(x => recs[x]).find(x => x.field === 'percent' && !x.computed), hid = N.resolve('Shown', Tree.treeOf(recs, holder), scene.view);
+    out.push({ rid: id, holder, held: on, figure: e?.value ?? null, own: hid?.value === false && hid.note.pattern.id === holder });
+  }
+  return out;
+}
 function says(scene, name, paper) {
   const p = scene.page, boxes = scene.marks.filter(m => m.type === 'box' && !m.revealed), called = b => name?.(b) ?? b.texts[0]?.text ?? 'A box', out = [], W = p.w, H = p.h;
   for (const f of p.short ?? []) out.push(`${f.what} print at ${+f.printed.toFixed(2)} pt${paper ? ` on ${paper}` : ''}: the chart doesn't fit at ${f.typed}`);
@@ -3233,7 +3254,7 @@ function says(scene, name, paper) {
 return {
   MASTER, LINK, hasRow, fontName, tooDark, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   instance, swatchParts, wholeDesign, overDesign, designAtPattern, tokensIn, reader, readWords, readable, oneOf, partName,
-  toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, DAY, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
+  toSlide, fromSlide, says, offPage, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, DAY, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };
 })();

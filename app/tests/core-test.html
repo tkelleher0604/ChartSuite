@@ -120,7 +120,7 @@ function run(json) {
     && !N.formats(tree('chen')).Shape && N.formats(tree('fund_vehicle'), 'view_main').Fill?.value === '#1f3a5f');
   check('a hidden box is hidden in its view only', N.shown(tree('raman'), 'view_main') === false && N.shown(tree('raman'), 'view_fund3') === false
     && N.resolve('Shown', tree('raman'), 'view_40act')?.note.pattern.id === undefined && N.shown(tree('chen'), 'view_main') === undefined);
-  check('a note at a style pattern reaches every option', N.formats(tree('fund_juris'), 'view_main').Color?.value === '#5f6b78'
+  check('a note at a style pattern reaches every option', N.formats(tree('fund_juris'), 'view_main').Color?.value === '#46515e'
     && N.formats(tree('pos_chen_bdc'), 'view_main').Shown?.value === false);
   check('a box has its own position in each view', N.position(tree('bdc'), 'view_40act').w === 220 && N.position(tree('bdc'), 'view_40act').x === 91 && N.position(tree('bdc'), 'view_main').x === 1362,
     j([N.position(tree('bdc'), 'view_40act'), N.position(tree('bdc'), 'view_main')]));
@@ -155,7 +155,7 @@ function run(json) {
 
   // ---- What formulas.js takes ----
   const defs = N.definitions(S), def = id => defs.find(d => d.id === id);
-  check('every definition covers what it covered', defs.length === 37 && defs.every(d => d.covers.length && d.rows.length),
+  check('every definition covers what it covered', defs.length === 40 && defs.every(d => d.covers.length && d.rows.length),
     defs.filter(d => !d.covers.length).map(d => d.id).join(' '));
   check('a definition’s covers, type and rows', def('def_tax').covers.length === 3 && def('def_tax').type === 'choice' && def('def_tax').options.includes('Partnership')
     && def('def_formation_on_file').covers.length === 5 && def('def_close').rows.length === 7 && def('def_look_through').datatype === 'percent');
@@ -171,7 +171,7 @@ function run(json) {
     j([listOf('Look-Through Ownership').Investor, listOf('Membership').Member]));
   // A check is a definition whose ruled-out records are problems: a Check note at its pattern says so.
   const patternOf = id => N.notes('Formula').find(n => n.note === id).pattern, checked = defs.filter(d => N.check(patternOf(d.id))).map(d => d.id).sort();
-  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range', 'def_limited', 'def_one_survivor'])
+  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_erisa', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range', 'def_limited', 'def_one_survivor', 'def_run'])
     && N.check({ out: { tag: false }, args: [{ edge: 'Ownership Adds Up', loc: tree('gp') }] }) && !N.check(patternOf('def_remote')), j(checked));
   // At an entry typed by hand, a Check note says its "no" needs attention: shown in amber, counted as no error (inspector-test).
   check('Good Standing’s “no” needs attention, and is no check', N.heeds(tree('fund_good')) && !N.check(tree('fund_good')));
@@ -402,6 +402,9 @@ function run(json) {
     check('two records can’t share an argumentation', add({ at: 'fund', edge: 'formation date', field: 'date', value: '2023-01-01' }) === 'formation date is already recorded here.');
     check('the schema’s conditions hold', add({ at: 'northpine', edge: 'EIN', field: 'number', value: 5 }) === 'EIN can’t be both text and a number.');
     check('an entry needs what it’s at', add({ at: 'nothing', edge: 'EIN', field: 'text', value: '1' }) === 'Something it’s at no longer exists.');
+    check('a box can’t relate to itself: nothing owns itself', add({ args: [{ edge: 'Owner', at: 'northpine' }, { edge: 'Owned', at: 'northpine' }], tag: true }) === 'Nothing can be its own Owner.');
+    check('… by way of an entry at it, either', typeof add({ args: [{ edge: 'GP', at: 'fund' }, { edge: 'Partnership', at: 'fund_type' }], tag: true }) === 'string');
+    check('… unless the relation says it can', typeof commit(w, tx => tx.note('Itself', { args: [{ edge: 'Owner', loc: {} }, { edge: 'Owned', loc: {} }] }, true)) === 'object' && typeof add({ args: [{ edge: 'Owner', at: 'northpine' }, { edge: 'Owned', at: 'northpine' }], tag: true }) !== 'string');
     check('a change that removes what isn’t live is refused', w.apply({ id: 'x', who: WHO, when: TODAY, chart: C, removes: ['nope'], adds: [] }) === 'It has changed since.');
     check('a change with nothing in it is none', w.edit({ chart: C, who: WHO }).commit() === null);
   }

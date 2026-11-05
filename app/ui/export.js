@@ -1085,6 +1085,11 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   const scene = (id, paper) => { const d = Time.pageDay(id), R = App.workAt(d); return Scene.of(App.shown.peek(), App.chart.peek(), id, d, { state: R.records, computed: R, seen: App.seenIn(id, R.records), ...(paper && { paper }) }); };
   // A page a look narrows goes as it's shown, and says so: how many of its boxes, by what.
   const narrowed = id => { const d = Time.pageDay(id), R = App.workAt(d), kept = App.seenIn(id, R.records); if (!kept) return null; const as = { state: R.records, computed: R }, on = s => s.marks.filter(m => m.type === 'box' && !m.revealed).length, all = on(Scene.of(App.shown.peek(), App.chart.peek(), id, d, as)), now = on(Scene.of(App.shown.peek(), App.chart.peek(), id, d, { ...as, seen: kept })), by = App.lookOf(id)?.filters ? App.lookWordsOf(id) : []; return `${App.views.peek().find(v => v.id === id)?.name} shows ${now} of ${all} boxes${by.length ? `, filtered by ${by.join(', ')}` : ', by Show only'}.`; };
+  // A page with nothing of its own on it: no box, no line, no shape or text but the page's own furniture.
+  const blankPage = s => !s.marks.some(m => m.type === 'box' || m.type === 'line' || m.type === 'frame' || (m.type === 'shape' && !m.role && !m.master && m.geometry !== 'legend'));
+  // Who holds what a page draws and isn't drawn there; in words, three named: "U.S. Investors’ 71.6% of Fund III and 4 more".
+  const offOf = s => { const R = App.workAt(s.day); return Scene.offPage(s, R.records, App.notes.peek(), App.schema.peek()); };
+  const offSaid = (s, off) => { const recs = App.workAt(s.day).records, N = App.notes.peek(), one = o => { const who = N.shortOf(recs, o.holder), of = /s$/.test(who) ? `${who}’` : `${who}’s`; return `${of} ${o.figure === null ? N.nameOf(recs, o.rid).toLowerCase() : Tree.format('percent', o.figure)} of ${N.shortOf(recs, o.held)}`; }; return `${off.slice(0, 3).map(one).join(', ')}${off.length > 3 ? ` and ${off.length - 3} more` : ''}`; };
   // The chart views, in tab order, each as its scene is on that paper, or on its own page: the one shown is App's there,
   // but for a look at another day than it keeps.
   const views = paper => charts().map(v => {
@@ -1259,8 +1264,9 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     // (A chart with no date to put on one offers no calendar.)
     const dated = useMemo(() => dates(App.computed.peek(), App.notes.peek(), App.day.peek()).length > 0, []);
     const scenes = useMemo(() => drawn ? views(paper) : [], [drawn, paper, fits]);
-    const chosen = scenes.filter(s => ids.includes(s.view));
-    Object.assign(choice, { format, views: ids, paper, all, scenes: chosen });
+    // A page with nothing on it for this chart says so and isn't sent, while there's another to send (dendra.md, Output: A page with nothing on it).
+    const bare = new Set(scenes.filter(blankPage).map(s => s.view)), asked = scenes.filter(s => ids.includes(s.view)), chosen = asked.some(s => !bare.has(s.view)) ? asked.filter(s => !bare.has(s.view)) : asked, left = asked.filter(s => bare.has(s.view));
+    Object.assign(choice, { format, views: drawn ? chosen.map(s => s.view) : ids, paper, all, scenes: chosen });
     const pages = drawn ? sheets(format, chosen) : [], one = pages[full] ?? null;
     const tick = (id, on) => { setFull(null); setIds(now => charts().map(v => v.id).filter(x => x === id ? on : now.includes(x))); };
     const papers = charts().map(v => pageNow(v.id).paper), differ = new Set(papers).size > 1 || papers.includes(null), stay = [...new Set(chosen.map(s => pageNow(s.view).paper))];
@@ -1270,7 +1276,11 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     if (format === 'pptx') said.push(...chosen.flatMap(s => s.marks.filter(m => m.type === 'line' && m.points.length > 6).map(m => ({ t: `The line from ${called(s)(s.byId.get(m.from))} to ${called(s)(s.byId.get(m.to))} has more bends than a PowerPoint connector: in the deck it stays where it’s drawn`, s }))));
     const named = x => chosen.length > 1 ? `${x.s.name}: ${x.t}` : x.t;
     // What's wrong with the chart is said before it goes out, a click from each: what's overdue, in error or blank.
-    const open = Shell.problems().filter(c => c.kind !== 'soon'), broke = FormulaBar.brokenSaid();
+    const open = Shell.problems().filter(c => c.kind !== 'soon' && c.kind !== 'off'), broke = FormulaBar.brokenSaid();
+    // Who a page's boxes are held by that it doesn't draw, page by page: what's left on them looks like the whole (dendra.md, Views: Off the page).
+    const offs = drawn ? chosen.map(s => ({ s, off: offOf(s) })).filter(x => x.off.length) : [];
+    // And of whom what the chart doesn't track is known.
+    const gaps = drawn ? App.untracked.value.filter(x => x.who.length) : [];
     return html`<div class="ex">
       <div class="ex-pick">
         <${Shell.Pick} label="Format" value=${format} onPick=${v => { setFull(null); setFormat(v); }} options=${[...FORMATS.filter(([f]) => f === 'ics' ? format === 'ics' || dated : here).map(([f, name]) => [f, name]), ...others.map((x, i) => [`x${i}`, x.name])]} />
@@ -1279,10 +1289,13 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
           <button type="button" aria-pressed=${all === v} onClick=${() => setAll(v)}>${label}</button>`)}</div>` : null}
       </div>
       ${drawn && charts().length > 1 ? html`<div class="ex-views" role="group" aria-label="Views">${charts().map(v => html`<label>
-        <input type="checkbox" checked=${ids.includes(v.id)} disabled=${ids.length === 1 && ids[0] === v.id} onChange=${e => tick(v.id, e.target.checked)} />${v.name}</label>`)}</div>` : null}
+        <input type="checkbox" checked=${ids.includes(v.id) && !bare.has(v.id)} disabled=${bare.has(v.id) || (ids.length === 1 && ids[0] === v.id)} onChange=${e => tick(v.id, e.target.checked)} />${v.name}${bare.has(v.id) ? html` <span class="ex-none">nothing on it</span>` : null}</label>`)}</div>` : null}
       ${table?.says ? html`<p class="ex-says">${table.says(all)}</p>` : null}
       ${broke ? html`<p class="ex-says ex-broken" role="alert">${broke}</p>` : null}
-      ${open.length ? html`<p class="ex-says ex-off"><span>Still open on this chart: ${open.map((c, i) => html`${i ? ', ' : ''}<span class=${'said-' + c.kind}>${c.said}</span>`)}</span> <button type="button" class="btn" onClick=${() => { close(false); setTimeout(() => Shell.listProblems(open[0].kind)); }}>See them</button></p>` : null}
+      ${open.length ? html`<p class="ex-says ex-off"><span>Still open on this chart: ${open.map((c, i) => html`${i ? ', ' : ''}<span class=${'said-' + c.kind}>${c.said}</span>${c.which?.length ? ` (${c.which.slice(0, 3).join(', ')}${c.which.length > 3 ? ` and ${c.which.length - 3} more` : ''})` : ''}`)}</span> <button type="button" class="btn" onClick=${() => { close(false); setTimeout(() => Shell.listProblems(open[0].kind)); }}>See them</button></p>` : null}
+      ${left.length ? html`<p class="ex-says ex-off">${left.map(s => s.name).join(', ')} ${left.length > 1 ? 'have' : 'has'} nothing on ${left.length > 1 ? 'them' : 'it'} for this chart${chosen.some(s => !bare.has(s.view)) ? ', so it isn’t sent' : ''}.</p>` : null}
+      ${offs.map(({ s, off }) => html`<p class="ex-says ex-off"><span>${s.name} doesn’t draw ${offSaid(s, off)}</span> ${App.readOnly.peek() || !off.some(o => o.own) ? null : html`<button type="button" class="btn" onClick=${() => { Shell.parts.peek().inspector?.showOn(off.filter(o => o.own).map(o => o.holder), s.view); setFits(n => n + 1); }}>Show ${off.filter(o => o.own).length > 1 ? 'them' : 'it'}</button>`}</p>`)}
+      ${gaps.map(x => html`<p class="ex-says ex-off"><span>${x.name} not tracked: ${x.who.slice(0, 3).map(id => App.notes.peek().shortOf(App.state.peek(), id)).join(', ')}${x.who.length > 3 ? ` and ${x.who.length - 3} more` : ''}</span></p>`)}
       ${drawn ? ids.map(narrowed).filter(Boolean).map(t => html`<p class="ex-says ex-off">${t}</p>`) : null}
       ${drawn ? FormatBar.footsOff(chosen).slice(0, 3).map(x => html`<p class="ex-says ex-off"><span>The footnote “${x.text}” is on ${x.from}, not on ${x.on}</span> ${App.readOnly.peek() ? null : html`<button type="button" class="btn" onClick=${() => { x.put(); setFits(n => n + 1); }}>Put it there</button>`}</p>`) : null}
       ${oneOff ? html`<p class="ex-says">${PAPERS[paper]} for this file only. ${stay.length === 1 && stay[0] ? `The page stays ${PAPERS[stay[0]]}.` : 'The pages stay as they are.'}</p>` : null}
