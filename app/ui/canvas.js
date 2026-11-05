@@ -2615,6 +2615,7 @@ function mount(el) {
       // With something selected, a note is about it: the free room nearest beside it, first on its right, on its level.
       if (geometry === 'text' && sel0.length) { const b = sel0.reduce((r, m) => ({ x: Math.max(r.x, m.x + m.w), y: Math.min(r.y, m.y) }), { x: -Infinity, y: Infinity }), ofIt = sel0.find(m => m.y === b.y); besideIt = { left: b.x + 8, y: ofIt.y + ofIt.h / 2 }; }
       const p = spot(s, geometry === 'text' && !row.text && !besideIt ? Math.max(w, ROOM) : w, h, besideIt ? { x: besideIt.left + w / 2, y: besideIt.y } : geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, !besideIt && ['text', 'legend', 'frame'].includes(geometry), !!besideIt);
+      if (geometry === 'table' && !freeSpot(s, w, h, mid)) Shell.toast('The page has no free room: the table is over what’s drawn', { ms: 3500 });
       Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
       if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
     }
@@ -2661,7 +2662,7 @@ function mount(el) {
     if (c) Shell.select([]);
     else if (worked.length) Shell.toast(worked.length > 1 ? 'Formulas work these out' : 'A formula works this out');
   }
-  const SHAPE = { text: 'text box', legend: 'key', picture: 'picture', line: 'line', group: 'group', frame: 'frame' };
+  const SHAPE = { text: 'text box', legend: 'key', picture: 'picture', line: 'line', group: 'group', frame: 'frame', table: 'table', freeform: 'freeform' };
   // A line by its relation, at its place (Notes.segmentOf), as History and the formula bar say it: Ownership: The BDC →
   // Northpine Software, LLC.
   const lineOf = id => { const N = App.notes.peek(), st = App.state.peek(); return `${N.nameOf(st, id)}: ${N.segmentOf(st, id)}`; };
