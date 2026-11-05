@@ -1218,6 +1218,8 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
   : label === 'Shadow' ? shadowSaid(v) : label === 'Arrowhead' ? headSaid(v) : label === 'Dash' ? DASHES[v] ?? upper(String(v))
   : label === 'Gradient' ? (v?.stops?.length ? html`<i class="chip" style=${`background:linear-gradient(${(v.angle ?? 0) + 90}deg,${v.stops.map(([at, c]) => `${c} ${at}%`).join(',')})`} />Gradient, ${v.angle ?? 0}°` : 'None')
   : label === 'Pattern' ? (Shapes.PATTERNS.find(p => p[0] === v?.prst)?.[1] ?? 'None')
+  : label === 'Points' ? 'Its own' : label === 'Picture' ? (v?.tile ? 'Texture' : 'Picture') : label === 'Glow' ? `${v.size ?? 8} pt` : label === 'Soft Edge' ? `${v} pt` : label === 'Reflection' ? `${v.size ?? 50}%` : label === 'Inner Shadow' ? shadowSaid(v) : label === 'Bevel' ? upper(String(v.type ?? 'circle')) : label === 'Turn 3D' ? `${v.x ?? 0}°, ${v.y ?? 0}°, ${v.z ?? 0}°`
+  : label === 'Columns' ? `${v.n}` : label === 'Tabs' ? `${v.join(', ')} pt` : label === 'First Line' ? `${v} pt` : label === 'Line Gradient' || label === 'Text Gradient' ? `Gradient, ${v?.angle ?? 0}°` : label === 'Text Outline' ? `${v.weight ?? 0.75} pt` : label === 'Line Transparency' ? `${Math.round(v)}%`
   : label === 'Inset' ? `${v.l ?? 7.2}, ${v.t ?? 3.6}, ${v.r ?? 7.2}, ${v.b ?? 3.6} pt` : label === 'Indent' ? `${v} pt` : label === 'Layer' ? (v > 0 ? 'Brought forward' : v < 0 ? 'Sent back' : 'As it was made') : label === 'Tail' ? 'Moved' : label === 'Connector' ? upper(String(v))
   : label === 'Design' ? v?.name ?? 'What’s said over its design'
   : label === 'Shape' ? (typeof FormatBar !== 'undefined' && FormatBar.shapeName?.(v)) || SHAPES[v] || upper(String(v)) : upper(String(v));
@@ -1661,14 +1663,28 @@ function ViewPanel() {
 }
 
 // ---- A free shape: its text, its look and its place; the Key: its title, its columns and its rows ----
-const SHAPES = { text: 'Text box', legend: 'Key', line: 'Line', picture: 'Picture', group: 'Group', frame: 'Frame' };
+const SHAPES = { text: 'Text box', legend: 'Key', line: 'Line', picture: 'Picture', group: 'Group', frame: 'Frame', table: 'Table' };
+// A table's own: how many rows and columns, a heading row and bands, and whose entries its {Entry} reads, any box on the page.
+function TableRows({ id, row, m, still }) {
+  const t = row.table, set = (table, say, more = {}) => App.change(tx => tx.update(id, { table, ...more }), { dated: false, keep: false, say }), st = recs(), cols = t.cols.length, n = t.rows.length;
+  const boxes = (App.scene.value?.marks ?? []).filter(b => b.type === 'box').map(b => b.record), names = new Map(boxes.map(b => [N().nameOf(st, b), b]));
+  const rowsTo = v => { const k = Math.max(1, Math.round(v)); return k === n ? null : set({ ...t, rows: k > n ? [...t.rows, ...Array.from({ length: k - n }, () => ({ cells: t.cols.map(() => ({ text: '' })) }))] : t.rows.slice(0, k) }, `Made the table ${k} rows`, { h: Math.round(m.h * (m.table.rows.length + k - n) / m.table.rows.length * 2) / 2 }); };
+  const colsTo = v => { const k = Math.max(1, Math.round(v)); return k === cols ? null : set({ ...t, cols: k > cols ? [...t.cols, ...Array(k - cols).fill(t.cols.reduce((a, b) => a + b, 0) / cols)] : t.cols.slice(0, k), rows: t.rows.map(r => ({ ...r, cells: k > cols ? [...r.cells, ...Array.from({ length: k - cols }, () => ({ text: '' }))] : r.cells.slice(0, k) })) }, `Made the table ${k} columns`); };
+  const number = (label, v, put) => html`<div class="row" data-row=${label.toLowerCase()}><div class="k">${label}</div><div class="v ctl"><input class="cell" type="text" inputmode="numeric" aria-label=${label} value=${v} disabled=${still} onFocus=${e => e.target.select()} onChange=${e => { const x = parseFloat(e.target.value); if (Number.isFinite(x)) put(x); else e.target.value = v; }} onKeyDown=${e => { e.stopPropagation(); if (e.key === 'Enter') e.target.blur(); }} /></div></div>`;
+  return html`<div class="rows">
+    ${number('Rows', n, rowsTo)}${number('Columns', cols, colsTo)}
+    <label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${t.header !== false} disabled=${still} onChange=${e => set({ ...t, header: e.target.checked }, e.target.checked ? 'Gave the table a heading row' : 'Took the heading row off')} />Heading row</span></label>
+    <label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${t.banded !== false} disabled=${still} onChange=${e => set({ ...t, banded: e.target.checked }, e.target.checked ? 'Banded the table' : 'Took the bands off')} />Banded rows</span></label>
+    <div class="row" data-row="of"><div class="k">Reads</div><div class="v ctl"><${Choice} fixed label="Reads" r=${{ choice: t.of ? N().nameOf(st, t.of) : 'Nothing' }} options=${['Nothing', ...names.keys()]} put=${out => { const of = names.get(out?.choice); set({ ...t, of: of ?? undefined }, of ? `Made the table read ${out.choice}` : 'The table reads nothing now'); }} /></div></div>
+  </div>`;
+}
 function ShapeView({ id, part }) {
   const row = App.shown.value.item(App.chart.value, id).at(-1), m = App.scene.value?.byId.get(id), n = N(), v = App.scene.value?.view, still = App.readOnly.value, cv = Shell.parts.peek().canvas?.active?.(), page = App.scene.value?.page;
   if (!row) return null;
   const set =(changes, say) => App.change(tx => tx.update(id, changes), { dated: false, say });
   // A line is a connector where it's glued, and only there. What it's glued to says so, with a way to let go.
   const glued = g => g === 'line' && row.ends?.some(Boolean), gone = id => App.scene.value?.byId.get(id);
-  const g = row.geometry ?? 'rect', name = row.name ?? (glued(g) ? 'Connector' : SHAPES[g] ?? Shapes.name(g) ?? upper(g)), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
+  const g = row.geometry ?? 'rect', name = row.name ?? (glued(g) ? 'Connector' : SHAPES[g] ?? Shapes.name(g) ?? upper(g)), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend', 'table'].includes(g);
   // (A free shape's weight is as printed, in its row; and a line's Connector is its route, whatever it's glued to.)
   const look = Object.entries(row.format ?? {}).filter(([, value]) => value !== null && value !== undefined).map(([label, value]) => ({ label: label === 'Connector' ? 'Route' : label, value: label === 'Weight' ? Scene.fromSlide(page, value) : value, from: null }));
   const lineAt = g === 'line' && m ? { ...m, r: cv?.angleOf?.(m) } : null;
@@ -1692,8 +1708,9 @@ function ShapeView({ id, part }) {
     </div>
     ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
     ${glued(g) ? html`<div class="rows"><div class="row"><div class="k">Glued to</div><div class="v">${row.ends.map(e => e ? (gone(e)?.record ? n.nameOf(recs(), gone(e).record) : gone(e)?.texts?.[0]?.text ?? Shapes.name(gone(e)?.geometry) ?? 'A shape') : null).filter(Boolean).join(' and ')}</div></div></div>` : null}
-    ${m && g !== 'group' && !key && !row.role ? html`<div class="rows"><div class="row" data-row="alt"><div class="k">Alt text</div><div class="v ctl"><${Prose} text=${row.alt ?? ''} label="Alt text" put=${alt => set({ alt: alt || undefined }, alt ? 'Set the alt text' : 'Took the alt text off')} /></div></div></div>` : null}
-    ${m ? html`<${Place} at=${m} keys=${key ? 'xyw' : 'xywh'} put=${(k, x) => cv?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' || g === 'line' ? null : { on: row.lock ?? g === 'picture', set: on => set({ lock: on }) }} turn=${key || row.role ? null : { at: g === 'line' ? Math.round((lineAt?.r ?? 0) * 10) / 10 : row.rotate, set: a => cv?.turn(m.id, a) }} />` : null}
+    ${m && !row.role ? html`<div class="rows"><div class="row" data-row="alt"><div class="k">Alt text</div><div class="v ctl"><${Prose} text=${row.alt ?? ''} label="Alt text" put=${alt => set({ alt: alt || undefined }, alt ? 'Set the alt text' : 'Took the alt text off')} /></div></div></div>` : null}
+    ${g === 'table' && m ? html`<${TableRows} id=${id} row=${row} m=${m} still=${still} />` : null}
+    ${m ? html`<${Place} at=${m} keys=${key ? 'xyw' : 'xywh'} put=${(k, x) => cv?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' || g === 'line' || g === 'table' ? null : { on: row.lock ?? g === 'picture', set: on => set({ lock: on }) }} turn=${key || row.role || g === 'table' ? null : { at: g === 'line' ? Math.round((lineAt?.r ?? 0) * 10) / 10 : row.rotate, set: a => cv?.turn(m.id, a) }} />` : null}
     ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} cv=${cv} />` : null}
     <${LookSection} look=${look} reset=${reset} />
   </div>`;
@@ -2223,7 +2240,17 @@ function chosen(sel) {
     if (rows.at(-1) && 'shape' in rows.at(-1)) return html`<${ShapeView} key=${rid} id=${rid} part=${part} />`;
     if (recs()[rid] || rows.length) return html`<${RecordView} key=${rid} id=${rid} />`;
   }
-  return html`<${ViewPanel} />`;
+  return App.mastering.value ? html`<${MasterView} />` : html`<${ViewPanel} />`;
+}
+// The master's own panel: what Heading and Body are, and which pages draw it.
+function MasterView() {
+  const still = App.readOnly.value, pages = App.views.value.filter(v => v.layout === 'chart');
+  return html`<div class="insp">
+    <${Head} title="Master" />
+    <${Section} title="Theme fonts"><div class="rows">${[['Heading', 'Heading'], ['Body', 'Body']].map(([k, label]) => html`<div class="row" key=${k}><div class="k">${label}</div><div class="v"><span style=${`font-family:${Scene.fontFamily(k)}`}>${Scene.fontName(k)}</span></div></div>`)}
+      <div class="row"><button class="lk" disabled=${still} onClick=${() => FormatBar.defineFonts()}>Change…</button></div></div></${Section}>
+    <${Section} title="Drawn on" n=${pages.filter(v => App.hasMaster(v.id)).length}><div class="rows">${pages.map(v => html`<label class="row lockrow" key=${v.id}><span class="k wide"><input type="checkbox" checked=${App.hasMaster(v.id)} disabled=${still} onChange=${e => App.pageMaster(v.id, e.target.checked)} />${v.name}</span></label>`)}</div></${Section}>
+  </div>`;
 }
 
 // ---- What needs attention: deadlines overdue and due soon, blanks where required, and errors ----
