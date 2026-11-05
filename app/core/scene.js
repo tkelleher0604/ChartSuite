@@ -919,11 +919,12 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const said = designsAt.get(m.id).sort((a, b) => beats(a.rank, b.rank) ? 1 : beats(b.rank, a.rank) ? -1 : 0), top = said.findLast(x => wholeDesign(x.note.value));
     if (!top) return;
     const under = said.slice(said.indexOf(top) + 1), value = under.reduce((d, x) => overDesign(d, x.note.value.over), overDesign(top.note.value, top.note.value.over)), c = m.cand.Shape;
-    if (m.type === 'box' && value.base?.Shape && !value.editing && c && !beats(top.rank, narrowRank(c.note, -c.rank.at(-1)))) { m.settings.Design = { value: null, note: null }; return; }
+    // (As narrow or narrower: a corner's square or rounded is that note's, the parts following it; another form takes the box back.)
+    const shaped = m.type === 'box' && !!c && !beats(top.rank, narrowRank(c.note, -c.rank.at(-1)));
+    if (shaped && !value.editing && !Shapes.boxy(c.value)) { m.settings.Design = { value: null, note: null }; return; }
     m.settings.Design = { value, note: said.at(-1).note };
     m.design = { value, note: top.note, rank: top.rank, overs: [...(top.note.value.over ? [top.note] : []), ...under.map(x => x.note)], parts: [] };
-    // (While it's edited, what a hand gives the box itself is what it's given: see Edit design.)
-    for (const [l, v] of Object.entries(value.base ?? {})) if (l in m.settings && ((l === 'Shape' && !value.editing) || !m.settings[l].note)) m.settings[l] = { value: v, note: top.note };
+    for (const [l, v] of Object.entries(value.base ?? {})) if (l in m.settings && (l === 'Shape' ? !shaped : !m.settings[l].note)) m.settings[l] = { value: v, note: top.note };
   };
   const boxes = [], lines = [];
   for (const m of marks.values()) if (drawn(m) && m.type !== 'text') {
@@ -1049,7 +1050,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const own = { id: l.record, type: 'text', settings: l.settings, look: { ...look(l.settings), Align: 'left' },
       text: keyed ? captioned.get(key(keyed.pattern)) : text, computed: l.computed };
     l.texts = l.revealed ? [] : withWas(l, [own, ...l.texts, ...freeText(l)].filter(it => it.text));
-    for (const it of l.texts) { it.look = { ...it.look, Align: 'left' }; it.lines = linesOf(it, 200); }
+    // A line's label as a small design: a shape behind its words (see Group designs).
+    const chip = l.design?.value.label, of = v => (v === '{Outline}' ? l.settings.Outline.value : v);
+    if (chip && l.texts.length) l.chip = { Fill: 'none', Outline: 'none', Weight: 0.75, Dash: 'solid', Transparency: 0, Shadow: 'none', ...chip, Fill: of(chip.Fill ?? 'none'), Outline: of(chip.Outline ?? 'none') };
+    for (const it of l.texts) { it.look = { ...it.look, Align: 'left', ...(l.chip && tooDark(l.chip) && unread(it.look.Color, l.chip.Fill) && { Color: WHITE }) }; it.lines = linesOf(it, 200); }
     // A line's Position is its label's, where it was dragged to (see Layout.pin).
     const pin = N.resolve('Position', t, view)?.value;
     labelOf(l, l.texts.length === 1 && l.texts[0] === own && !isField(r), Number.isFinite(pin?.along) ? { along: pin.along, dx: pin.dx ?? 0, dy: pin.dy ?? 0 } : undefined);
@@ -1477,6 +1481,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // A weight is the sheet's, as PowerPoint keeps a line's weight when a group is resized: each is drawn at its
   // points on the slide, a frame's at 0.75, however much smaller the chart is drawn.
   for (const m of [...boxes, ...lines]) m.settings.Weight = { ...m.settings.Weight, value: m.settings.Weight.value / s };
+  for (const l of lines) if (l.chip) l.chip.Weight /= s;
   for (const f of frames.values()) f.settings.Weight = { value: DEFAULTS.box.Weight / s, note: null };
   // Every text at the sheet's half point nearest its size, placed again where it was; a line's label at the one at or
   // under its size, so it takes no more room than the layout made for it. A size typed stands as typed; but where
@@ -2111,7 +2116,7 @@ function shapeText(row, computed, day) {
 const TOKEN = /\{([^{}\n]+)\}/g;
 const cleaned = s => s.split('\n').map(x => x.replace(/[ \t]+/g, ' ').trim()).join('\n').trim();
 const tokensIn = text => [...String(text ?? '').matchAll(TOKEN)].map(m => m[1].split('|')[0].trim());
-const wholeDesign = v => !!v && (Array.isArray(v.parts) || !!v.base);
+const wholeDesign = v => !!v && (Array.isArray(v.parts) || !!v.base || !!v.label);
 function overDesign(d, over) {
   if (!over) return d;
   return { ...d, ...(over.base && { base: { ...d.base, ...over.base } }), parts: (d.parts ?? []).map(p => { const o = over.parts?.[p.id]; return !o ? p : { ...p, ...o, ...(o.format && { format: { ...p.format, ...o.format } }) }; }) };
@@ -2192,33 +2197,43 @@ function partFormat(b, { p, item }, s) {
   if (f.Color === undefined && !['line', 'picture'].includes(p.geometry)) { const ground = groundOf(b, { ...p, format: f }), c = given('Color'); if (c && (none(ground) || !unread(c, ground))) f.Color = c; else if (tooDark({ Fill: ground, Transparency: 0 })) f.Color = WHITE; }
   return f;
 }
-// What a part's words keep in from its edges, the sheet's: its Inner margins, or PowerPoint's own.
-const insetOf = (format, u) => { const i = format.Inset, by = pts => pts * PT * u; return i ? { l: by(i.l ?? 7.2), r: by(i.r ?? 7.2), t: by(i.t ?? 3.6), b: by(i.b ?? 3.6) } : { l: 9.6 * u, r: 9.6 * u, t: 4.8 * u, b: 4.8 * u }; };
-// A part as a free shape's row, in a box w × h from where the box is.
+// What a part's words keep in from its edges, the chart's as a box's are: its Inner margins, or PowerPoint's own.
+const insetOf = format => { const i = format.Inset, by = pts => pts * PT; return i ? { l: by(i.l ?? 7.2), r: by(i.r ?? 7.2), t: by(i.t ?? 3.6), b: by(i.b ?? 3.6) } : { l: INSET, r: INSET, t: PAD, b: PAD }; };
+// A part as a free shape's row, in a box w × h from where the box is; a size and a weight as printed, in the page's own units, so it's drawn at the chart's size and its margins with it.
 function partRow(b, pp, w, h, s) {
-  const { id, text, rest, x, y, w: pw, h: ph, points, format, runs, ...row } = pp.p, at = `${b.id}·${id}`, down = pp.down ?? (v => v);
-  return { ...row, id: at, shape: at, geometry: row.geometry ?? 'text', x: (b.x ?? 0) + x * w, y: (b.y ?? 0) + down(y) * h, w: pw * w, h: (down(y + ph) - down(y)) * h, format: partFormat(b, pp, s),
+  const { id, text, rest, x, y, w: pw, h: ph, points, format, runs, square, ...row } = pp.p, at = `${b.id}·${id}`, down = pp.down ?? (v => v);
+  let px = (b.x ?? 0) + x * w, py = (b.y ?? 0) + down(y) * h, fw = pw * w, fh = (down(y + ph) - down(y)) * h;
+  // (A part that's square stays so, in the middle of its frame: a person's circle, however the box is stretched.)
+  if (square) { const side = Math.min(fw, fh); px += (fw - side) / 2; py += (fh - side) / 2; fw = fh = side; }
+  const f = partFormat(b, pp, s), out = { ...row, id: at, shape: at, geometry: row.geometry ?? 'text', x: px, y: py, w: fw, h: fh, format: { ...f, Size: f.Size / s, Weight: (f.Weight ?? 0.75) / s },
     ...(pp.runs && { runs: pp.runs }), ...(points && { points: points.map(([u, v]) => [(b.x ?? 0) + u * w, (b.y ?? 0) + down(v) * h]) }) };
+  // A panel to the corners of a rounded box follows them, so nothing stands out past it, in the deck by PowerPoint's own adjustments.
+  if (out.geometry === 'rect' && b.settings.Shape.value === 'rounded' && !out.format.Corner && !row.rotate) {
+    const near = (p, q) => Math.abs(p - q) < 0.005, T = near(down(y), 0), B = near(down(y + ph), 1), L = near(x, 0), R = near(x + pw, 1), radius = Math.min(w, h) * Math.min(50, b.settings.Corner?.value ?? CORNER) / 100, k = 100 * radius / Math.max(1, Math.min(fw, fh));
+    if (L && R && B !== T) Object.assign(out, { geometry: 'round2', ...(B && { flip: { v: true } }), format: { ...out.format, Corner: k } });
+    else if ((T && B && (L || R))) Object.assign(out, { geometry: 'rounded', format: { ...out.format, Corner: k } });
+  }
+  return out;
 }
 const longestWord = it => Math.max(0, ...String(it.text ?? '').split(/[\s ]+/).map(x => measure(x, widestLook(it))));
 // A box of a design: as wide as it says, but for a width a hand gave it, or a word too long for its part, which is never broken; as tall as it says, or as its parts' words need. A text
 // by its frame: a frame its words don't fit grows to hold them, what's below it moving down by as much and what it stands beside growing with it, and the box with them, as a Figma auto layout's.
 // Each part then takes its share of the box as that leaves it (`down`, from a share as the design has it to a share of this box), so a box taller than that, as tall as its rank, is by share again.
 function sizeDesigned(b, squeeze, at) {
-  const d = b.design.value, parts = b.design.parts, shape = b.settings.Shape.value, s = b.designAt ?? 1, u = 1 / s, hand = b.pos?.hand ? b.pos.w : null, rest = parts.find(x => x.p.rest)?.p, tall = d.h ?? 44;
+  const d = b.design.value, parts = b.design.parts, shape = b.settings.Shape.value, s = b.designAt ?? 1, hand = b.pos?.hand ? b.pos.w : null, rest = parts.find(x => x.p.rest)?.p, tall = d.h ?? 44;
   let w = at ?? (hand ?? d.w ?? WIDTH.box) * squeeze;
-  const restIn = rest ? insetOf(rest.format ?? {}, u) : null;
+  const restIn = rest ? insetOf(rest.format ?? {}) : null;
   for (const pp of parts) pp.down = null;
   if (!hand && at === null) {
-    for (const pp of parts) if (pp.text && !pp.p.rest) { const f = partFormat(b, pp, s), i = insetOf(f, u), t = { ...TEXT, ...f, Size: f.Size * u }; w = Math.max(w, (Math.max(...pp.text.split(/\s+/).map(x => measure(x, t))) + i.l + i.r + 1) / (pp.p.w || 1) / textArea(pp.p.geometry === 'text' ? 'rect' : pp.p.geometry)); }
+    for (const pp of parts) if (pp.text && !pp.p.rest) { const f = partFormat(b, pp, s), i = insetOf(f), t = { ...TEXT, ...f, Size: f.Size / s }; w = Math.max(w, (Math.max(...pp.text.split(/\s+/).map(x => measure(x, t))) + i.l + i.r + 1) / (pp.p.w || 1) / textArea(pp.p.geometry === 'text' ? 'rect' : pp.p.geometry)); }
     for (const it of b.texts) w = Math.max(w, rest ? (longestWord(it) + restIn.l + restIn.r + 1) / (rest.w || 1) : (longestWord(it) + 2 * INSET + 1) / textArea(shape));
   }
   // What each frame's words need beyond it, by the share its foot is at.
   const more = new Map(), wants = (p, h) => { const had = p.h * tall; if (h > had + 0.01) { const foot = +(p.y + p.h).toFixed(4); more.set(foot, Math.max(more.get(foot) ?? 0, h - had)); } };
   for (const pp of parts) if (pp.text && !pp.p.rest) {
-    const row = partRow(b, pp, w, tall, s), m = freeShape({ ...row, ...(row.geometry === 'text' && { h: 1 }) }, pp.text, u), it = m.texts[0];
+    const row = partRow(b, pp, w, tall, s), m = freeShape({ ...row, ...(row.geometry === 'text' && { h: 1 }) }, pp.text, 1), it = m.texts[0];
     if (!it) continue;
-    const r = textRect(row.geometry === 'text' ? 'rect' : row.geometry, m.w, Math.max(m.h, 1), row.format.Corner), i = insetOf(row.format, u), area = textArea(row.geometry === 'text' ? 'rect' : row.geometry);
+    const r = textRect(row.geometry === 'text' ? 'rect' : row.geometry, m.w, Math.max(m.h, 1), row.format.Corner), i = insetOf(row.format), area = textArea(row.geometry === 'text' ? 'rect' : row.geometry);
     wants(pp.p, (blockHeight([it]) + i.t + i.b + r.top + r.bottom) / Math.min(1, area < 1 ? area + 0.15 : 1));
   }
   const room = rest ? rest.w * w - restIn.l - restIn.r : Math.max(32, w * textArea(shape) - 2 * INSET);
@@ -2241,13 +2256,13 @@ function sizeDesigned(b, squeeze, at) {
 // A box's parts, set where it's come to stand: each the free shape its row makes, `of` the box, its words in it, where the canvas, the PDF and the deck draw a free shape's;
 // `rest`, the fields it doesn't name, stacked in that part. The box's `texts` are then all its fields, those in a part `part`, placed from the box's top left, what reads, selects and is typed over a field reads.
 function setParts(b, s) {
-  const u = 1 / s, stack0 = b.texts, inBox = (it, m) => ({ ...it, part: m.part, lines: it.lines.map(l => ({ ...l, x: l.x + m.x - b.x, y: l.y + m.y - b.y, ...(l.bulletAt != null && { bulletAt: l.bulletAt + m.x - b.x }) })) });
+  const stack0 = b.texts, inBox = (it, m) => ({ ...it, part: m.part, lines: it.lines.map(l => ({ ...l, x: l.x + m.x - b.x, y: l.y + m.y - b.y, ...(l.bulletAt != null && { bulletAt: l.bulletAt + m.x - b.x }) })) });
   b.parts = b.design.parts.map(pp => {
-    const row = partRow(b, pp, b.w, b.h, s), m = freeShape(row, pp.p.rest ? '' : pp.text, u);
+    const row = partRow(b, pp, b.w, b.h, s), m = freeShape(row, pp.p.rest ? '' : pp.text, 1);
     Object.assign(m, { of: b.id, part: pp.p.id });
     if (pp.p.rest) {
       const items = stack0.map(it => ({ ...it, rested: true, look: { ...it.look, ...(row.format.Align && { Align: row.format.Align }) } }));
-      const i = insetOf(row.format, u);
+      const i = insetOf(row.format);
       let y = valigned(m.look.Valign, 0, m.h, blockHeight(items), i.t);
       for (const it of items) y = stack(it, i.l, m.w - i.l - i.r, y);
       m.texts = items;
@@ -2267,7 +2282,7 @@ function instance(scene, id, value, N, computed) {
   if (m?.type !== 'box') return null;
   const settings = Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.note?.label === 'Design' ? { value: DEFAULTS.box[k], note: null } : v]));
   for (const [l, v] of Object.entries(value?.base ?? {})) if (l in settings && (l === 'Shape' || !settings[l].note)) settings[l] = { value: l === 'Weight' ? v / s : v, note: null };
-  const texts = (m.fields ?? m.texts).filter(it => !it.part).map(it => ({ ...it, lines: it.lines.map(l => ({ ...l })) }));
+  const texts = (m.fields ?? m.texts).filter(it => !it.part).map(it => ({ ...it, lines: (it.lines ?? []).map(l => ({ ...l })) }));
   const b = { id, type: 'box', record: m.record, x: 0, y: 0, settings, texts, design: { value: value ?? {}, parts: [], rank: [] }, designAt: s };
   if (!value) b.design = null; else designIn(b, reader(scene.state, N, computed, scene.day), () => false, () => false);
   size(b, 1, null, 1);

@@ -1503,8 +1503,85 @@ function freeDrawing() {
   check('… and Office’s are known by PowerPoint’s own values', Shapes.inTheme()('#dae3f3').slot === 'accent1' && Shapes.inTheme()('#000000').slot === 'tx1' && Shapes.inTheme()('#ffffff').slot === 'bg1');
 }
 
+// Group designs (dendra.md): one note at a pattern, the narrowest deciding, its parts free shapes drawn with their box.
+function groupDesigns() {
+  const computed = w => { const N = w.notes(C), S = w.schema(C); return Formulas.computeState(w.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); };
+  const scene = (w, o = {}) => { const R = computed(w); return Scene.of(w, C, MAIN, DAY, { state: R.records, computed: R, ...o }); }, edit = (w, f) => { const tx = w.edit({ chart: C, who: WHO }); const r = f(tx); const c = tx.commit(); if (typeof c === 'string') throw new Error(c); return r; };
+  const preset = id => Shapes.DESIGNS.find(d => d.id === id), wb = Log.open(SAMPLE), plain = scene(wb), LLC = { out: { choice: 'Limited Liability Company' }, args: [{ edge: 'Entity Type', loc: {} }] };
+  check('about twelve designs, each plain data a template can hold', Shapes.DESIGNS.length >= 12 && Shapes.DESIGNS.every(d => d.id && d.name && JSON.stringify(JSON.parse(JSON.stringify(d))) === JSON.stringify(d)));
+  check('a chart with no design draws none', plain.marks.every(m => !m.parts?.length && !m.design));
+  const ofKind = (s, r) => s.marks.filter(m => m.type === 'box' && m.settings.Shape.value !== 'triangle' && m.record === r)[0], R0 = computed(wb).records;
+  const llcs = plain.marks.filter(m => m.type === 'box' && (Tree.index(R0).entries.get(m.record) ?? []).some(e => R0[e].edge === 'Entity Type' && R0[e].choice === 'Limited Liability Company'));
+  check('(the sample has limited liability companies to design)', llcs.length > 3, llcs.length);
+  // At a group: every box it reaches has its parts, and no other does.
+  const w1 = Log.open(SAMPLE);
+  edit(w1, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); });
+  const s1 = scene(w1), one = s1.byId.get(llcs[0].id);
+  check('a design at a pattern reaches every box of it, its parts its marks', llcs.every(m => s1.byId.get(m.id).parts?.length === 2) && s1.marks.filter(m => m.parts?.length).length === llcs.length);
+  check('… each part a free shape’s mark, `of` its box, within it, known by id, not among what’s drawn on its own', one.parts.every(p => p.type === 'shape' && p.of === one.id && p.x >= one.x - 0.01 && p.x + p.w <= one.x + one.w + 0.01 && p.y >= one.y - 0.01 && p.y + p.h <= one.y + one.h + 0.01 && s1.byId.get(p.id) === p) && !s1.marks.some(m => m.of));
+  check('… a field it names is shown there, and not in the box’s stack too', one.parts[0].texts[0]?.text === R0[Tree.entryAt(R0, one.record, 'Name')].value && !one.texts.some(it => it.name && !it.part) && one.texts.find(it => it.name)?.part === one.parts[0].part);
+  check('… the fields it doesn’t name go in its rest', one.parts[1].texts.some(it => /Delaware/.test(it.text)) && one.texts.filter(it => /Delaware/.test(it.text)).every(it => it.part === one.parts[1].part));
+  check('… its base is what the box takes where nothing else says: a style’s fill still fills it', s1.byId.get(llcs[0].id).settings.Fill.value === plain.byId.get(llcs[0].id).settings.Fill.value || s1.byId.get(llcs[0].id).settings.Fill.value === preset('header').base.Fill);
+  check('… its size is the design’s', Math.abs(one.w - preset('header').w) < 30 && one.h >= preset('header').h - 0.5, `${one.w}×${one.h}`);
+  check('… a word never broken, however small its part', s1.marks.filter(m => m.parts).every(m => m.texts.every(it => it.lines.every(l => !l.cut))));
+  const dark = s1.marks.find(m => m.parts?.length && m.settings.Fill.value === preset('header').base.Fill);
+  check('… and white on the band, the box’s fill being dark, dark on the panel', dark.parts[0].texts[0].look.Color === '#ffffff' && dark.parts[1].texts.every(it => it.look.Color !== '#ffffff'), dark?.id);
+  check('… a panel to the corners of a rounded box follows them', dark.parts[1].geometry === 'rect' || (dark.parts[1].geometry === 'round2' && dark.parts[1].flip?.v), dark.parts[1].geometry);
+  check('… the Key’s row has it in miniature', s1.legend.some(r => r.swatch.Design?.id === 'header' && Scene.swatchParts(r.swatch, { x: 0, y: 0, w: 30, h: 11 }).length === 1));
+  // The narrowest decides; an override never forks it.
+  const w2 = Log.open(SAMPLE), own = Tree.treeOf(R0, llcs[0].record);
+  edit(w2, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); tx.note('Design', Tree.treeOf(R0, llcs[1].record), preset('side'), { view: MAIN }); tx.note('Design', own, { over: { parts: { rest: { format: { Fill: '#ffeeaa' } } } } }, { view: MAIN }); });
+  const s2 = scene(w2);
+  check('the narrowest decides: one box’s own over its group’s', s2.byId.get(llcs[1].id).design.value.id === 'side' && s2.byId.get(llcs[2].id).design.value.id === 'header');
+  const shown = s2.byId.get(llcs[0].id);
+  check('what’s said over it at a box is that box’s, only what’s different, its base flowing through', shown.design.value.id === 'header' && shown.parts[1].look.Fill === '#ffeeaa' && s2.byId.get(llcs[2].id).parts[1].look.Fill === '#ffffff' && shown.parts[0].texts.length === 1);
+  const w3 = Log.open(SAMPLE);
+  edit(w3, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); tx.note('Design', own, { over: { parts: { rest: { format: { Fill: '#ffeeaa' } } } } }, { view: MAIN }); });
+  edit(w3, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, { ...preset('header'), parts: preset('header').parts.map(p => p.id === 'name' ? { ...p, format: { ...p.format, Italic: true } } : p) }, { view: MAIN }); });
+  const s3 = scene(w3).byId.get(llcs[0].id);
+  check('edited, the design moves under what’s said over it, which stands', s3.parts[0].texts[0].look.Italic === true && s3.parts[1].look.Fill === '#ffeeaa');
+  // A shape as narrow or narrower takes the box back; a fund keeps its triangle under a design at its kind.
+  const w4 = Log.open(SAMPLE);
+  edit(w4, tx => tx.note('Design', { kind: 'Entity' }, preset('header'), { view: MAIN }));
+  const s4 = scene(w4);
+  check('a Shape note narrower than the design takes the box back from it, whole', plain.byId.get('fund').shape === 'triangle' && s4.byId.get('fund').shape === 'triangle' && !s4.byId.get('fund').parts?.length && !s4.byId.get('fund').design && s4.byId.get('fund').texts.length === plain.byId.get('fund').texts.length);
+  check('… and the rest of its kind have it, a square or rounded box keeping its corners', s4.marks.filter(m => m.parts?.length).length >= llcs.length && s4.byId.get(llcs[0].id).shape === plain.byId.get(llcs[0].id).shape, s4.marks.filter(m => m.parts?.length).length);
+  // Hidden by the pen: its token reads as nothing, the design standing.
+  const w5 = Log.open(SAMPLE), name0 = plain.byId.get(llcs[0].id).texts.find(it => it.name).text;
+  edit(w5, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, { ...preset('rule'), parts: [{ id: 'a', geometry: 'text', x: 0, y: 0, w: 1, h: 0.5, text: '{Name}' }, { id: 'b', geometry: 'text', x: 0, y: 0.5, w: 1, h: 0.5, text: 'Formed {Formation Date}, EIN {EIN}' }] }, { view: MAIN }); tx.note('Shown', Tree.treeOf(R0, Tree.entryAt(R0, llcs[1].record, 'Name')), false, { view: MAIN }); });
+  const s5 = scene(w5), a0 = s5.byId.get(llcs[0].id), a1 = s5.byId.get(llcs[1].id);
+  check('a token reads as Text reads it, a form letter’s field, in the part’s words', a0.parts[0].texts[0].text === name0 && /^Formed \w+ \d+, \d{4}, EIN/.test(a0.parts[1].texts[0].text), a0.parts[1].texts[0]?.text);
+  check('a Shown false at one box makes its token read as nothing, the design standing', !a1.parts[0].texts.length && a1.parts[1].texts.length === 1 && a1.design.value.parts.length === 2);
+  // Overlying records.
+  const w6 = Log.open(SAMPLE), S6 = computed(w6).records, N6 = w6.notes(C), read = Scene.reader(S6, N6, computed(w6), DAY);
+  const jur = 'fund', juris = Tree.entryAt(S6, jur, 'Jurisdiction'), inJ = juris && (Tree.index(S6).entries.get(juris) ?? [])[0];
+  check('{A › B} reads an entry of an entry', !inJ || read(jur, `Jurisdiction › ${S6[inJ].edge}`).text !== '', inJ && S6[inJ].edge);
+  const hold = (Tree.index(S6).relations.get('fund') ?? []).map(id => S6[id]).find(r => r.args?.length === 2), side = hold?.args.find(a => a.at !== 'fund'), other = side && N6.shortOf(S6, Tree.objectOf(S6, side.at) ?? side.at), listName = hold && N6.listName(Tree.treeOf(S6, (Tree.index(S6).relations.get('fund') ?? [])[0]), side.edge);
+  check('{Holdings} reads a relation’s list, by name', !other || read('fund', listName).text.includes(other), `${listName}: ${read('fund', listName ?? '').text}`);
+  check('{Owner.Name} reads the record at a side', !!side && read('fund', `${side.edge}.Name`).text !== '', side && read('fund', `${side.edge}.Name`).text);
+  const f6 = read.formula('=COUNT(Holdings) & " holdings"', 'fund');
+  check('a part’s text may be a formula', /^\d+ holdings$/.test(f6), f6);
+  check('|initials reads a name’s first letters', read(llcs[0].record, 'Name|initials').text.length >= 2 && read(llcs[0].record, 'Name|initials').text === read(llcs[0].record, 'Name|initials').text.toUpperCase(), read(llcs[0].record, 'Name|initials').text);
+  // Boxes grow by their parts' words.
+  const w7 = Log.open(SAMPLE);
+  edit(w7, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, { ...preset('header'), w: 100, h: 40 }, { view: MAIN }); });
+  const big = scene(w7).byId.get(llcs[0].id);
+  check('a text by its frame: words that don’t fit grow the box, the band with them, the rest below it', big.h > 40 && Math.abs(big.parts[1].y - (big.parts[0].y + big.parts[0].h)) < 0.5 && big.parts[0].h > 0.42 * 40 && Math.abs(big.parts[1].y + big.parts[1].h - (big.y + big.h)) < 0.5, JSON.stringify([big.y, big.h, big.parts.map(p => [p.y, p.h])]));
+  // A thumbnail.
+  const thumb = Scene.instance(plain, llcs[0].id, preset('person'), wb.notes(C), computed(wb));
+  check('a gallery’s thumbnail is the box by the renderer’s own hand, in its own words', thumb.parts.length === 3 && thumb.parts[1].texts[0].text === name0 && thumb.x === 0 && thumb.y === 0);
+  // A house style carries them.
+  const w8 = Log.open(SAMPLE);
+  edit(w8, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); tx.note('Designs', { kind: 'View' }, { list: [preset('header')] }); });
+  const look = Notes.houseLook(w8.rows(C), MAIN), back = Notes.lookFrom(JSON.parse(JSON.stringify(look)));
+  check('a house style carries its designs, a file too', back.designs?.[0]?.id === 'header' && back.notes.some(n => n.label === 'Design'));
+  // Drawn again from nothing, the same.
+  const twice = JSON.stringify(scene(Log.open(JSON.parse(JSON.stringify(w1.changes ? { dendra: 1, changes: w1.changes() } : SAMPLE)))).byId.get(llcs[0].id).parts.map(p => [p.x, p.y, p.w, p.h]));
+  check('a design’s parts are what the log says, drawn from nothing the same', twice === JSON.stringify(s1.byId.get(llcs[0].id).parts.map(p => [p.x, p.y, p.w, p.h])), twice);
+}
+
 if (location.search.includes('fresh')) window.drawFresh = json => drawAll(Log.open(json))[1];
-else Promise.resolve().then(run).then(drawnAgain).then(freeDrawing)
+else Promise.resolve().then(run).then(drawnAgain).then(freeDrawing).then(groupDesigns)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

@@ -2892,6 +2892,64 @@ async function format() {
   await closeMenus();
   Shell.parts.peek().undo.undo(); await tick(200);
   Shell.select([]); await tick(150);
+  await designing(st);
+}
+// Group designs (dendra.md): the gallery, the pen, what's said over one, Reset, Make a design, Edit design.
+async function designing(st) {
+  const undo = () => Shell.parts.peek().undo.undo(), changes = () => App.shown.peek().changes().length, box = id => sc().byId.get(id), header = Shapes.DESIGNS.find(d => d.id === 'header');
+  Shell.select(['northpine']); await tick(200);
+  $('[data-fb="design"]').click(); await tick(300);
+  const tiles = $$('.float .tile');
+  check('the Design control opens a gallery of about twelve, each a real thumbnail', tiles.length >= 12 && tiles.every(t => t.querySelector('.art svg')) && $('.float .tile .art')?.textContent.includes('Northpine'), tiles.length);
+  const was = changes(), at = tiles.find(t => t.getAttribute('aria-label') === 'Header band'), w0 = box('northpine').w;
+  at.dispatchEvent(new PointerEvent('pointerenter', { bubbles: false })); await tick(300);
+  check('pointed at, it’s drawn on the chart, and nothing’s written', cv().graph.getCellById('northpine') && !!cv().root.querySelector('[data-cell-id="northpine"] [data-part]') && changes() === was);
+  at.click(); await tick(400);
+  check('clicked, it’s applied at the scope, one change, and the box has its parts', changes() === was + 1 && box('northpine').parts?.length === 2 && !!cv().root.querySelector('[data-cell-id="northpine"] [data-part="rest"]'));
+  Shell.select(['northpine']); await tick(120);
+  check('the format bar’s scope is this box, so only it took it', sc().marks.filter(m => m.parts?.length).length === 1);
+  undo(); await tick(400);
+  check('Undo takes it back whole, at the size it was', !box('northpine').parts && Math.abs(box('northpine').w - w0) < 0.6 && changes() === was + 2);
+  // What's said over it, and Reset.
+  const t = () => Tree.treeOf(App.state.peek(), 'northpine');
+  App.change(tx => tx.note('Design', t(), header, { view: st.id }), { dated: false }); await tick(300);
+  App.change(tx => Designs.say(tx, box('northpine'), 'rest', { format: { Fill: '#ffeeaa' } }, { own: true }), { dated: false }); await tick(300);
+  check('what’s said over a part goes to that part', box('northpine').parts[1].look.Fill === '#ffeeaa' && box('northpine').design.value.id === 'header' && box('northpine').design.overs.length === 1);
+  Designs.reset(box('northpine'), { own: true }); await tick(300);
+  check('Reset to design takes it away', box('northpine').parts[1].look.Fill === '#ffffff' && !box('northpine').design.overs.length);
+  // Edit design: stands on the page, in no log, till Done.
+  Shell.select(['northpine']); await tick(120);
+  const base = changes(), rows = () => App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r && r.view === st.id).length, r0 = rows();
+  Designs.edit(box('northpine')); await tick(500);
+  check('Edit design stands its parts on the page as free shapes, with a bar', rows() === r0 + 2 && /^Editing the design of/.test($('.dc-designbar span')?.textContent ?? '') && [...$$('.dc-designbar button')].map(b => b.textContent).join() === 'Discard,Done', $('.dc-designbar span')?.textContent);
+  check('… the rest of the chart dulled and out of reach', cv().root.querySelector('[data-cell-id="fund"]')?.classList.contains('dc-locked') && !cv().root.querySelector('[data-cell-id="northpine"]')?.classList.contains('dc-locked'));
+  const refused = App.change(tx => tx.add('record', { kind: 'Entity' }), { dated: false });
+  check('… what isn’t drawing waits, saying so', !refused);
+  const part = sc().marks.find(m => m.type === 'shape' && App.shown.peek().item(App.chart.peek(), m.id)[0]?.part === 'name');
+  App.change(tx => tx.update(part.id, { format: { ...App.shown.peek().item(App.chart.peek(), part.id)[0].format, Italic: true } }), { dated: false }); await tick(250);
+  const during = App.shown.peek().changes().length;
+  $$('.dc-designbar button')[0].click(); await tick(500);
+  check('Discard writes nothing, and the log is as it was', changes() === base && rows() === r0 && during > base && !$('.dc-designbar') && !box('northpine').parts[0].texts[0].look.Italic);
+  Designs.edit(box('northpine')); await tick(500);
+  const p2 = sc().marks.find(m => m.type === 'shape' && App.shown.peek().item(App.chart.peek(), m.id)[0]?.part === 'name');
+  App.change(tx => tx.update(p2.id, { format: { ...App.shown.peek().item(App.chart.peek(), p2.id)[0].format, Italic: true } }), { dated: false }); await tick(250);
+  $$('.dc-designbar button')[1].click(); await tick(500);
+  check('Done writes the note, one change, and the box has what was drawn', changes() === base + 1 && rows() === r0 && box('northpine').parts.find(p => p.part === 'name').texts[0].look.Italic === true);
+  undo(); await tick(300);
+  // Make a design.
+  let shape = null;
+  App.change(tx => { shape = tx.add('shape', { view: st.id, geometry: 'rect', x: box('northpine').x, y: box('northpine').y, w: box('northpine').w, h: 20, text: App.notes.peek().nameOf(App.state.peek(), 'northpine'), format: { Fill: '#ddeeff' } }); tx.note('Design', t(), undefined, { view: st.id }); }, { dated: false }); await tick(300);
+  Shell.select(['northpine', shape]); await tick(200);
+  const m0 = changes();
+  Designs.make(); await tick(200);
+  $('.dialog input, dialog input, [role="dialog"] input').value = 'Mine';
+  $('.dialog input, dialog input, [role="dialog"] input').dispatchEvent(new Event('input', { bubbles: true }));
+  [...$$('[role="dialog"] button, .dialog button')].find(b => b.textContent === 'Make').click(); await tick(500);
+  const mine = sc().marks.filter(m => m.design?.value.name === 'Mine'), first = mine.find(m => m.id === 'northpine');
+  check('Make a design: the shapes become its parts, one change, at the box’s group', changes() === m0 + 1 && mine.length > 1 && !App.shown.peek().item(App.chart.peek(), shape).length && first?.parts.length === 1, mine.length);
+  check('… the words kept as tokens where they read as a field', first?.design.value.parts[0].text === '{Name}', first?.design.value.parts[0].text);
+  check('… and it’s in the gallery for the chart', App.notes.peek().value('Designs', { kind: 'View' })?.list.some(d => d.name === 'Mine'));
+  Shell.select([]); await tick(150);
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);

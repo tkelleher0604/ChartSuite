@@ -1033,7 +1033,33 @@ async function drawnByHand() {
   check('… and written, a PDF', blob.size > 2000 && new TextDecoder('latin1').decode(await blob.slice(0, 5).arrayBuffer()) === '%PDF-', blob.size);
 }
 
-Promise.resolve().then(run).then(drawnByHand)
+// Group designs (dendra.md): a box of a design reaches the deck as a native group of editable shapes, its connectors glued to its body, and the PDF as drawn.
+async function designed() {
+  const wb = Log.open(SAMPLE), st0 = wb.asOf(C, DAY), view = Object.keys(st0).find(id => Tree.isView(st0[id]) && !wb.notes(C).value('Layout', { id, kind: 'View' })?.rows);
+  const worked = () => { const N = wb.notes(C), S = wb.schema(C); return Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); };
+  const LLC = { out: { choice: 'Limited Liability Company' }, args: [{ edge: 'Entity Type', loc: {} }] }, tx = wb.edit({ chart: C, who: WHO });
+  tx.note('Shape', LLC, undefined, { view });
+  tx.note('Design', LLC, Shapes.DESIGNS.find(d => d.id === 'header'), { view });
+  if (typeof tx.commit() === 'string') throw new Error('no change');
+  const R = worked(), sc = Scene.of(wb, C, view, DAY, { state: R.records, computed: R }), boxes = sc.marks.filter(m => m.parts?.length);
+  const zip = await JSZip.loadAsync(await Export.write('pptx', [sc], 'Designed', { author: WHO })), x = xml(await zip.file('ppt/slides/slide1.xml').async('string'));
+  const groups = tags(x, 'p:grpSp'), of = g => tags(g, 'p:sp').map(sp => tags(sp, 'a:t').map(t => t.textContent).join(' ')), name = m => m.texts.find(it => it.name).text;
+  const g = groups.find(q => tags(q, 'p:nvGrpSpPr')[0]?.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === name(boxes[0]));
+  check('a box of a design is a native group, named for it', boxes.length > 3 && !!g, name(boxes[0]));
+  // (Its own labels go with it, as any box's do: past the body and the parts, a text box for each.)
+  check('… of its body and each part, an editable shape with its own words', !!g && tags(g, 'p:sp').length >= 3 && !tags(tags(g, 'p:sp')[0], 'a:t').length && of(g)[1].includes(name(boxes[0]).split(' ')[0]) && /Delaware/.test(of(g)[2]), g && of(g).join(' | '));
+  const words = tags(x, 'a:t').map(t => t.textContent).join(' ').replace(/ /g, ' ');
+  check('… what a part’s token reads is what the deck says', boxes.every(m => m.parts.flatMap(p => p.texts).flatMap(it => it.lines).every(l => words.includes(l.text.replace(/ /g, ' ').trim()))), boxes.flatMap(m => m.parts.flatMap(p => p.texts).flatMap(it => it.lines)).filter(l => !words.includes(l.text.replace(/ /g, ' ').trim())).map(l => l.text).join(' | '));
+  const body = tags(g, 'p:sp')[0].getElementsByTagName('p:cNvPr')[0].getAttribute('id'), glued = tags(x, 'a:stCxn').concat(tags(x, 'a:endCxn')).map(e => e.getAttribute('id'));
+  check('… its connectors glued to its body', glued.includes(body), body);
+  const key = groups.find(q => /Key/.test(q.getElementsByTagName('p:cNvPr')[0].getAttribute('name')));
+  check('… and the Key’s swatch of it has its parts too', !!key && tags(key, 'p:sp').filter(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name').length).length > sc.legend.length);
+  const svg = Export.svg(sc);
+  check('the PDF draws it as drawn: the parts’ shapes and their words', boxes.every(m => m.parts.flatMap(p => p.texts).flatMap(it => it.lines).every(l => svg.includes(`>${l.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').trim()}<`) || svg.includes(l.text.trim()))) && svg.includes(`fill="${boxes[0].parts[1].look.Fill}"`));
+  check('a thumbnail is drawn by the same hand', /^<svg/.test(Export.markSvgOf(boxes[0], sc.page.scale)) && Export.markSvgOf(boxes[0], sc.page.scale).includes(name(boxes[0]).split(' ')[0]));
+}
+
+Promise.resolve().then(run).then(drawnByHand).then(designed)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

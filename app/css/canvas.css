@@ -429,5 +429,6 @@ text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-seri
 .picker.designs .menu-head { margin-top: 6px; }
 .picker.designs .acts { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 0; }
 .dc .x6-cell.dc-locked, .dc .x6-cell.dc-locked * { pointer-events: none !important; }
-.dc-over > .dc-designbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 5px 6px 5px 12px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); color: var(--ink); font: var(--t13, var(--t12)); box-shadow: var(--shadow-1, 0 1px 4px rgba(0, 0, 0, .18)); pointer-events: auto; white-space: nowrap; z-index: 3; }
+.dc-over > .dc-designbar { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 5px 6px 5px 12px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); color: var(--ink); font: var(--t13, var(--t12)); box-shadow: var(--shadow-1, 0 1px 4px rgba(0, 0, 0, .18)); pointer-events: auto; white-space: nowrap; z-index: 3; }
 .dc-over > .dc-designbar > span { overflow: hidden; text-overflow: ellipsis; margin-right: 6px; }
+.picker.designs .acts { position: sticky; bottom: -8px; background: var(--surface); padding-bottom: 2px; }

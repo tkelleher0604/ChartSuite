@@ -255,7 +255,7 @@ const App = (() => {
   // (a restore is one), which the toast says was taken back or put back; or why it wasn't.
   const stacks = signal((() => { try { return JSON.parse(sessionStorage.getItem('dendra.undo')) ?? {}; } catch { return {}; } })());
   const stackOf = c => stacks.value[c] ?? { undo: [], redo: [] };
-  const keep = (c, s) => { stacks.value = { ...stacks.peek(), [c]: s }; try { sessionStorage.setItem('dendra.undo', JSON.stringify(stacks.peek())); } catch {} };
+  const keep = (c, s) => { stacks.value = { ...stacks.peek(), [c]: s }; try { if (!sand) sessionStorage.setItem('dendra.undo', JSON.stringify(stacks.peek())); } catch {} };
   const made = c => { lastDiscarded.value = null; const s = stackOf(c.chart); keep(c.chart, { undo: [...s.undo, { id: c.id, act: c.id }], redo: [] }); return c; };
   function step(back) {
     if (Shell.time.peek()?.stood) return refuse();

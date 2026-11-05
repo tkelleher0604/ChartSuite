@@ -320,7 +320,7 @@ function cellsOf(scene, ink = null) {
           strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight), ps.slice(-2), Scene.headOf(s, 'end')),
           sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2), Scene.headOf(s, 'start')), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: short ? 14 : 10, ...(short && { strokeLinecap: 'square' }) } } });
       if (m.texts.length && Number.isFinite(m.labelAt?.x) && Number.isFinite(m.labelAt?.y)) cells.push({ id: `${m.id}·label`, shape: 'dendra', x: m.labelAt.x, y: m.labelAt.y, width: m.label.w || 1, height: m.label.h || 1,
-        zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: textsOf(m).map(it => textMarkup(it, r)) });
+        zIndex: z.get(m.id) + 1, data: { kind: 'label', mark: m.id }, markup: [...(m.chip ? [(({ selector, ...body }) => body)(bodyMarkup(m.chip.Shape ?? 'rect', m.label.w + 8, m.label.h + 2, m.chip, null, { transform: 'translate(-4 -1)' }))] : []), ...textsOf(m).map(it => textMarkup(it, r))] });
     } else if (m.type === 'frame') {
       const d = m.lone ? '' : m.kind === 'bracket' ? `M0.5,${m.h} V${m.h - 5} H${m.w - 0.5} V${m.h}` : `M0,0 H${m.w} V${m.h} H0 Z`;
       node(m, 'frame', [{ tagName: 'path', selector: 'body', attrs: { d, fill: 'none', stroke: '#595959', 'stroke-width': px(m.settings.Weight.value), 'pointer-events': 'visibleStroke',
@@ -2225,7 +2225,7 @@ function mount(el) {
       ...(all ? [{ label: `Hide from ${named(all)}`, disabled: ro, run: () => hideField(f, all),
         // Pointed at, the boxes it reaches are cued on the chart, as the scope's are (the format bar's cue).
         point: on => canvas.cue?.(on && all.marks ? [...all.marks] : null) }] : []),
-      ...(f.it.free ? [] : ['-', { label: 'In every box that has it', checked: fields.everywhere(fieldName(f.it)), disabled: ro, run: () => fields.setEverywhere(fieldName(f.it), !fields.everywhere(fieldName(f.it))) },
+      ...(f.it.free || f.it.of || !st()[f.it.id] ? [] : ['-', { label: 'In every box that has it', checked: fields.everywhere(fieldName(f.it)), disabled: ro, run: () => fields.setEverywhere(fieldName(f.it), !fields.everywhere(fieldName(f.it))) },
         { label: 'With its name', checked: fields.captioned(fieldName(f.it)), disabled: ro, run: () => fields.setCaptioned(fieldName(f.it), !fields.captioned(fieldName(f.it))) }]),
     ];
   }
@@ -2979,7 +2979,8 @@ function mount(el) {
     const o = origin(base.page), out = new Map();
     for (const m of base.marks) if (m.type === 'box' && !m.placed && !m.revealed) {
       const [x, y] = base.page.placed && m.laid ? [m.laid.x, m.laid.y] : [m.x - o.x, m.y - o.y];
-      out.set(m.record, { x: round(x), y: round(y), w: round(m.w), kept: true });
+      // (A box of a design has the design's size: its own isn't kept, so it goes back to what it was with the design taken away.)
+      out.set(m.record, { x: round(x), y: round(y), ...(!m.design && { w: round(m.w) }), kept: true });
     }
     // And the Key the page placed, where it's drawn on the sheet, so it keeps its corner as the chart is edited.
     const key = base.marks.find(m => m.geometry === 'legend' && m.byPage), s = base.page.scale;

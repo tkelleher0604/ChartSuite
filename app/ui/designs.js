@@ -183,7 +183,7 @@ function takes(record) {
   return tx => {
     const { adds, removes } = tx.made(), rows = App.shown.peek().rows(App.chart.peek());
     if (adds.some(r => 'record' in r || 'spec' in r) || rows.some(r => 'record' in r && removes.includes(r.id))) return false;
-    const fine = r => ['Position', 'Scale', 'Bend', 'Shape Defaults'].includes(r.label) || r.pattern?.id === record;
+    const fine = r => ['Position', 'Scale'].includes(r.label) || r.pattern?.id === record;
     const { added, removed } = tx.noted(() => true);
     return added.every(fine) && removed.every(fine);
   };
@@ -192,6 +192,7 @@ function edit(m, given) {
   const c = canvas();
   if (!c || !m || editing.peek()) return;
   if (App.readOnly.peek()) return Shell.toast(App.whyNot());
+  if (App.pending.peek()) return Shell.toast('Make or discard the change pending first');
   const sc = c.scene(), v = sc.view, N = App.notes.peek(), pen = given || !m.design ? FormatBar.scope() : null, patterns = m.design && !given ? [m.design.note.pattern] : patternsAt(m, pen);
   // (Editing what's there, the design and not what's said over it; or one from the gallery; or, for a box with none, its fields in one part to begin from.)
   const { over: _, ...there } = m.design?.note.value ?? {};
@@ -220,10 +221,12 @@ function edit(m, given) {
   bar.className = 'dc-designbar';
   bar.setAttribute('role', 'toolbar');
   const words = bar.appendChild(document.createElement('span')), discard = bar.appendChild(Object.assign(document.createElement('button'), { className: 'btn', type: 'button', textContent: 'Discard' })), done = bar.appendChild(Object.assign(document.createElement('button'), { className: 'btn primary', type: 'button', textContent: 'Done' }));
-  words.textContent = `Editing the design of ${whom(m, said, n)}`;
+  // (A design of this chart's given at other patterns too moves there as well, and it's said.)
+  const also = m.design && !given && !Shapes.DESIGNS.some(x => x.id === d.id) ? sc.marks.filter(b => b.type === 'box' && b.design?.value.id === d.id && b.design.note.note !== m.design.note.note).length : 0, who = `${whom(m, said, n)}${also ? ` and ${also} more` : ''}`;
+  words.textContent = `Editing the design of ${who}`;
   discard.onclick = () => leave(false);
   done.onclick = () => leave(true);
-  editing.value = { box, record: m.record, d, wasId: given ? null : d.id, patterns, view: v, rows0, where, bar, whom: whom(m, said, n) };
+  editing.value = { box, record: m.record, d, wasId: given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id, patterns, view: v, rows0, where, bar, whom: who };
 }
 function leave(keep) {
   const e = editing.peek();
@@ -242,7 +245,7 @@ function leave(keep) {
     looks = others;
     d = { ...e.d, w: round(b.w), h: round(b.h), base: { ...e.d.base, ...(Shape && { Shape }), ...(Corner !== undefined && { Corner }) }, parts };
     delete d.editing; delete d.strip; delete d.names; delete d.over;
-    if (!e.wasId || Shapes.DESIGNS.some(x => x.id === e.wasId)) d.id = Log.newId();
+    if (!e.wasId) d.id = Log.newId();
   }
   e.bar.remove();
   editing.value = null;
@@ -261,7 +264,7 @@ function dropped(q, edge, at) {
   const e = editing.peek();
   if (!e) return null;
   const token = `{${edge}}`, row = App.shown.peek().item(App.chart.peek(), q.id)[0];
-  if (q.type === 'shape' && row) return App.change(tx => tx.update(q.id, { text: row.text ? `${row.text}\n${token}` : token }), { dated: false, say: `Put ${edge} in the part` });
+  if (q.type === 'shape' && row && !row.rest) return App.change(tx => tx.update(q.id, { text: row.text ? `${row.text}\n${token}` : token }), { dated: false, say: `Put ${edge} in the part` });
   const b = canvas().scene().byId.get(e.box), w = Math.round(b.w * 0.8), h = Math.round(b.h * 0.3);
   return App.change(tx => tx.add('shape', { view: e.view, geometry: 'text', part: Log.newId(), x: round(Math.min(at?.x ?? b.x, b.x + b.w - w)), y: round(Math.min(at?.y ?? b.y, b.y + b.h - h)), w, h, text: token, format: { Align: 'center', Valign: 'middle' } }), { dated: false, say: `Put ${edge} in the design` });
 }
@@ -308,6 +311,8 @@ for (const [id, name, names, run, enabled, why] of [
   ['design.edit', 'Edit design', ['Edit component', 'Master', 'Change the design'], () => edit(pick()), () => !!pick() && !editing.peek(), whyNot],
   ['design.reset', 'Reset to design', ['Reset overrides', 'Detach', 'Reset instance', 'Take the overrides off'], () => reset(pick()), () => !!pick()?.design?.overs.length, () => App.readOnly.peek() ? App.whyNot() : 'Select a box with what’s said over its design first'],
   ['design.house', 'Save design to house style…', ['Publish', 'Library', 'House style'], () => saveToHouse(pick()?.design?.value), () => !!pick()?.design, whyNot],
+  ['design.done', 'Done with the design', ['Finish editing the design', 'Close design'], () => leave(true), () => !!editing.peek(), () => 'No design is being edited'],
+  ['design.discard', 'Discard the changes to the design', ['Cancel the design'], () => leave(false), () => !!editing.peek(), () => 'No design is being edited'],
 ]) Shell.register('action', { id, name, names, run, enabled, why });
 
 return { open, say, reset, edit, make, items, dropped, editRow, editing, leave, forRecord };

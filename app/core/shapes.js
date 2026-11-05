@@ -84,7 +84,7 @@ const TABLE = [
   ['snip', 'Snip single corner', 'Rectangles', 'snip1Rect', [3, 2, 1, 0], (w, h) => { const a = Math.min(w, h) * 0.16667; return poly([[0, 0], [w - a, 0], [w, a], [w, h], [0, h]]); }, (w, h) => { const a = Math.min(w, h) * 0.16667; return { x: a / 4, shift: -a / 4, top: a / 2, bottom: 0 }; }],
   ['snip2', 'Snip same side corners', 'Rectangles', 'snip2SameRect', [3, 2, 1, 0], (w, h) => { const a = Math.min(w, h) * 0.16667; return poly([[a, 0], [w - a, 0], [w, a], [w, h], [0, h], [0, a]]); }, (w, h) => { const a = Math.min(w, h) * 0.16667; return { x: a / 2, top: a / 2, bottom: 0 }; }],
   ['round1', 'Round single corner', 'Rectangles', 'round1Rect', FOUR, (w, h) => { const a = Math.min(w, h) * 0.16667; return `M0,0 H${n(w - a)} ${arc(w, a, a)} V${n(h)} H0 Z`; }, (w, h) => { const i = Math.min(w, h) * 0.16667 * 0.29289; return { x: i / 2, shift: -i / 2, top: 0, bottom: 0 }; }],
-  ['round2', 'Round same side corners', 'Rectangles', 'round2SameRect', [3, 2, 1, 0], (w, h) => { const a = Math.min(w, h) * 0.16667; return `M${n(a)},0 H${n(w - a)} ${arc(w, a, a)} V${n(h)} H0 V${n(a)} ${arc(a, 0, a)} Z`; }, (w, h) => { const i = Math.min(w, h) * 0.16667 * 0.29289; return { x: i, top: i, bottom: 0 }; }],
+  ['round2', 'Round same side corners', 'Rectangles', 'round2SameRect', [3, 2, 1, 0], (w, h, c = CORNER) => { const a = Math.min(w, h) * Math.min(50, Math.max(0, c)) / 100; return `M${n(a)},0 H${n(w - a)} ${arc(w, a, a)} V${n(h)} H0 V${n(a)} ${arc(a, 0, a)} Z`; }, (w, h) => { const i = Math.min(w, h) * 0.16667 * 0.29289; return { x: i, top: i, bottom: 0 }; }],
   ['plaque', 'Plaque', 'Rectangles', 'plaque', FOUR, (w, h) => { const a = Math.min(w, h) * 0.16667; return `M0,${n(a)} ${arc(a, 0, a, a, 0)} H${n(w - a)} ${arc(w, a, a, a, 0)} V${n(h - a)} ${arc(w - a, h, a, a, 0)} H${n(a)} ${arc(0, h - a, a, a, 0)} Z`; }, (w, h) => { const i = Math.min(w, h) * 0.16667 * 0.70711; return { x: i, top: i, bottom: i }; }],
   // Brackets and braces, what a chart gathers things with.
   ['leftbracket', 'Left bracket', 'Brackets and braces', 'leftBracket', [1, 1, 1, 1], (w, h) => bracket(w, h, false)],
@@ -160,7 +160,7 @@ const DESIGNS = [
     { id: 'tag', geometry: 'rect', x: 0.42, y: 0, w: 0.58, h: 0.24, text: '{?}', format: { Fill: ACCENT, Outline: 'none', Inset: { l: 2, r: 2, t: 1, b: 1 }, Align: 'center', Valign: 'middle' } }] },
   { id: 'tiers', name: 'Two-tier', w: 148, h: 76, base: { Shape: 'rect', Fill: '#dbe5f1' }, parts: [words('name', 0, 0.5), panelled(0.5, 0.5)] },
   { id: 'card', name: 'Card with a shadow', w: 156, h: 66, base: { Shape: 'rounded', Corner: 8, Outline: 'none', Shadow: { blur: 8, distance: 2.5, angle: 90, color: '#000000', transparency: 70 } }, parts: [words('name', 0.04, 0.5, { Align: 'left', Valign: 'bottom' }), others(0.54, 0.46, { Align: 'left' })] },
-  { id: 'person', name: 'Person', w: 176, h: 60, base: { Shape: 'rect' }, parts: [{ id: 'face', geometry: 'oval', x: 0.04, y: 0.14, w: 0.245, h: 0.72, text: '{Name|initials}', format: { Fill: ACCENT, Outline: 'none', Bold: true, Inset: { l: 0, r: 0, t: 0, b: 0 }, Align: 'center', Valign: 'middle' } },
+  { id: 'person', name: 'Person', w: 176, h: 60, base: { Shape: 'rect' }, parts: [{ id: 'face', geometry: 'oval', square: true, x: 0.04, y: 0.14, w: 0.245, h: 0.72, text: '{Name|initials}', format: { Fill: ACCENT, Outline: 'none', Bold: true, Inset: { l: 0, r: 0, t: 0, b: 0 }, Align: 'center', Valign: 'middle' } },
     words('name', 0.04, 0.5, { Align: 'left', Valign: 'bottom' }, 0.3, 0.7), others(0.54, 0.46, { Align: 'left' }, 0.3, 0.7)] },
   { id: 'ticket', name: 'Ticket', w: 156, h: 66, base: { Shape: 'plaque' }, parts: [words('name', 0.04, 0.5, { Valign: 'bottom' }),
     { id: 'tear', geometry: 'line', x: 0.1, y: 0.56, w: 0.8, h: 0, points: [[0.1, 0.56], [0.9, 0.56]], format: { Outline: '{Outline}', Weight: 0.75, Dash: 'dash' } }, others(0.58, 0.42)] },
@@ -213,7 +213,7 @@ const inTheme = (colors = null) => {
 };
 
 return {
-  TAIL, CALLOUTS, OPEN, OFFICE, SLOTS, PATTERNS, patternDef, gradientDef, swatches, inTheme, shaded, gallery, DESIGNS, ids: TABLE.map(t => t[0]), list: TABLE.map(t => [t[0], t[1]]),
+  TAIL, CALLOUTS, OPEN, OFFICE, SLOTS, PATTERNS, patternDef, gradientDef, swatches, inTheme, shaded, gallery, DESIGNS, boxy: id => id === 'rect' || id === 'rounded' || TABLE.find(t => t[0] === id)?.[2] === 'Rectangles', ids: TABLE.map(t => t[0]), list: TABLE.map(t => [t[0], t[1]]),
   has: id => by.has(id),
   name: id => by.get(id)?.name ?? null,
   prst: id => by.get(id)?.prst ?? 'rect',
