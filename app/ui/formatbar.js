@@ -408,9 +408,17 @@ function placesOf(c, s, w) {
   if (w.list || w.end) { const g = place(c, s, w); return g ? [g] : []; }
   return [];
 }
+// (Every row of a page asks, as it's drawn: worked out once for what's selected, where the pen is and what's drawn.)
+let penKept = null;
+function penNow() {
+  const c = Canvas.active.peek(), sc = c?.scene(), sel = Shell.selection.peek(), l = level.peek(), a = aimed.peek(), f = Canvas.fieldPicked?.peek(), st = App.state.peek(), was = penKept;
+  if (was && was.sc === sc && was.sel === sel && was.l === l && was.a === a && was.f === f && was.st === st) return was;
+  const s = sc ? scopesOf(c) : null;
+  return penKept = { sc, sel, l, a, f, st, row: s ? penRow(c, s, scopeOf(s.scopes)) : null, record: s?.marks.length === 1 && !s.aim ? s.marks[0].record : null };
+}
 const pen = {
   // The row the pen stands in now.
-  row() { const c = Canvas.active.peek(); if (!c?.scene()) return null; const s = scopesOf(c), now = scopeOf(s.scopes); if (s.rowOf?.of !== now) s.rowOf = { of: now, row: penRow(c, s, now) }; return s.rowOf.row; },
+  row() { return penNow().row; },
   // What a click on a row's pen would go to, and whether it's there already.
   next(w) {
     const c = Canvas.active.peek();
@@ -436,7 +444,7 @@ const pen = {
   // Back to going by itself: Esc with nothing selected.
   home() { const had = !!level.peek() || !!aimed.peek(); level.value = null; if (aimed.peek()) aim(null); settled = { sel: null, loc: null }; return had; },
   // Whether the one mark selected draws this record: a page's pens are of what's selected.
-  on(id) { const c = Canvas.active.peek(); if (!c?.scene()) return false; const s = scopesOf(c); return s.marks.length === 1 && s.marks[0].record === id && !s.aim; },
+  on(id) { return penNow().record === id; },
   level, aimed,
 };
 // The marks a group reaches that keep their own value of a property, entered for them alone in the view,
