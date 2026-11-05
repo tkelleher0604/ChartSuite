@@ -583,12 +583,12 @@ function mount(el) {
     // (The relate handles keep clear of them, from the click that selects it.)
     if (near) showHandles(near);
   };
-  // The grips of what's selected show as the pointer nears it; at rest, its one quiet outline.
-  function gripsNear(e) {
+  // The grips of what's selected show as the pointer nears its edge; at rest, and with the pointer on what's in it, its one quiet outline.
+  function gripsNear(e, onWords = false) {
     let on = false;
     if (transform.widgets.size) {
-      const p = graph.clientToLocal(e.clientX, e.clientY), r = 22 / graph.zoom();
-      for (const [cell] of transform.widgets) { const q = cell.getPosition(), s = cell.getSize(); if (p.x > q.x - r && p.x < q.x + s.width + r && p.y > q.y - r && p.y < q.y + s.height + r) on = true; }
+      const p = graph.clientToLocal(e.clientX, e.clientY), z = graph.zoom(), r = 22 / z, inner = 8 / z;
+      for (const [cell] of transform.widgets) { const q = cell.getPosition(), s = cell.getSize(), inside = p.x > q.x && p.x < q.x + s.width && p.y > q.y && p.y < q.y + s.height; if (p.x > q.x - r && p.x < q.x + s.width + r && p.y > q.y - r && p.y < q.y + s.height + r && !(inside && onWords) && !(p.x > q.x + inner && p.x < q.x + s.width - inner && p.y > q.y + inner && p.y < q.y + s.height - inner)) on = true; }
     }
     root.classList.toggle('near-grips', on);
   }
@@ -1816,7 +1816,8 @@ function mount(el) {
     const h = hovered && fieldIn(scene.byId.get(hovered.box), hovered.id);
     // What was pointed at and is drawn no longer (a blank typed into) is pointed at no longer, till the pointer moves.
     if (hovered && !h) { hovered = null; tipFor(null); root.classList.remove('on-field'); }
-    if (h && hovered.id !== field?.id) draw(fieldRect(scene.byId.get(hovered.box), h), 'hover');
+    // (Only in what's selected: a click on any other takes the box, so its words aren't what's on offer yet.)
+    if (h && hovered.id !== field?.id && sel.isSelected(graph.getCellById(hovered.box) ?? {})) draw(fieldRect(scene.byId.get(hovered.box), h), 'hover');
     if (litKey) for (const m of scene.marks) for (const it of m.texts ?? []) if (rowKey(it) === litKey && it.lines?.length) draw(fieldRect(m, it), 'lit');
     const d = dropOn && scene.byId.get(dropOn);
     if (d) draw(d, 'drop', 4);
@@ -1859,7 +1860,7 @@ function mount(el) {
     hovered = f?.it && !dragging ? { box: f.m.id, id: f.it.id } : null;
     root.classList.toggle('on-field', !!hovered);
     root.classList.toggle('on-body', !!f && !f.it && f.m.type === 'box' && sel.isSelected(graph.getCellById(f.m.id) ?? {}));
-    if (was?.id !== hovered?.id || was?.box !== hovered?.box) { paintFields(); tipFor(hovered ? f : null); }
+    if (was?.id !== hovered?.id || was?.box !== hovered?.box) { paintFields(); tipFor(hovered && sel.isSelected(graph.getCellById(hovered.box) ?? {}) ? f : null); }
   }
   function pickField(f) {
     field = f?.it && isField(f.it) ? { box: f.m.id, id: f.it.id } : null;
@@ -2219,14 +2220,18 @@ function mount(el) {
     let best = null, bd = Infinity;
     for (const m of scene.marks) {
       if (m.type !== 'box') continue;
-      const reach = transform.widgets.has(graph.getCellById(m.id)) ? STANDOFF + 12 : 12, r = reach / z;
+      const gripped = transform.widgets.has(graph.getCellById(m.id)), reach = gripped ? STANDOFF + 12 : 12, r = reach / z;
       if (p.x < m.x - r || p.x > m.x + m.w + r || p.y < m.y - r || p.y > m.y + m.h + r) continue;
       const o = outlineOf(m), d = Math.min(...o.map((a, i) => toSegment([p.x, p.y], a, o[(i + 1) % o.length]))) * z;
+      // (Inside a box selected, only right at its edge: further in, the pointer's on what's in it.)
+      if (gripped && d > 8 && p.x > m.x && p.x < m.x + m.w && p.y > m.y && p.y < m.y + m.h) continue;
       if (d <= reach && d < bd) { best = m; bd = d; }
     }
+    edgeOff = bd;
     return best;
   }
-  // Pointing at a box shows its handles, as Lucidchart's do, and at a field, that it's one (see Fields).
+  let edgeOff = Infinity;
+  // Pointing at a box shows its handles, as Lucidchart's do; at a field of the box selected, that it's one (see Fields). One thing at a time: near its edge, what takes hold of its edge; on its words, the words.
   root.addEventListener('pointermove', e => {
     pointerAt = { x: e.clientX, y: e.clientY };
     if (scene) { gripsNear(e); dotsNear(e); }
@@ -2236,9 +2241,11 @@ function mount(el) {
     const onCell = graph.getCellById(e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id') ?? '');
     if (e.target.closest?.('.x6-widget-transform')) { showHandles([...transform.widgets.keys()].map(c => scene.byId.get(c.id)).find(x => x?.type === 'box' && x.shape !== 'triangle') ?? null); return hover(null); }
     if (onCell?.getData()?.kind === 'shape') { const fs = scene.byId.get(onCell.id); showHandles(hand?.gluable(fs) && !sel.isSelected(onCell) && !e.buttons ? fs : null); return hover(null); }
-    const f = e.buttons || pointing || root.classList.contains('relating') ? null : fieldUnder(e.clientX, e.clientY);
-    showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' ? f.m : null));
-    hover(f);
+    const f = e.buttons || pointing || root.classList.contains('relating') ? null : fieldUnder(e.clientX, e.clientY), mine = f?.m.type === 'box' && transform.widgets.has(graph.getCellById(f.m.id));
+    const edge = e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)), words = mine && f.it && !(edge?.id === f.m.id && edgeOff <= 4);
+    if (words) gripsNear(e, true);
+    showHandles(e.buttons || words ? null : edge ?? (f?.m.type === 'box' && !mine ? f.m : null));
+    hover(mine && f.it && !words ? null : f);
   });
   root.addEventListener('pointerleave', e => { root.classList.remove('near-grips'); if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); } });
   // The dot the pointer is coming to stands up as it nears: the rest stay small, so a box pointed at isn't buried.
@@ -2375,46 +2382,52 @@ function mount(el) {
     const text = one?.type === 'shape' && !['line', 'picture', 'group'].includes(one.geometry), fielded = bound.length && bound.length === ms.length;
     const worded = one && (one.type === 'box' || (one.type === 'line' && one.texts?.some(isField)));
     const free = ms.filter(m => m.type === 'shape' && m.geometry !== 'legend' && !m.role), pictured = one?.geometry === 'picture';
-    // In one order: what it says; what it's made of and related to; the clipboard; how it looks and stands on the page; what's shown of it; and what takes it away, last, so nothing goes by a slip.
+    // About a dozen rows, in one order on everything: what it says; what it's made of and related to; the clipboard; how it looks, and all else (More); and what takes it away, last, so nothing goes by a slip. A row that isn't for this thing isn't there; the rest keep their order.
+    // (What a structure chart is made of: its owner and its holding, or what else its first lists call them, as a list's + asks; many, one row.)
+    const adds = one?.type === 'box' && !ro ? addsOf(one) : [];
+    // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line.
+    const deals = one?.type === 'box' ? [...(App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []), ...stakeItems(one)] : [];
+    const more = [
+      ...(placeable().length ? [{ label: ms.every(m => m.type === 'box') ? 'Duplicate as a new box…' : 'Duplicate', keys: '$mod+KeyD', disabled: ro, run: duplicate }] : []),
+      ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
+      '-',
+      { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
+      ...(free.some(m => m.geometry !== 'table') || ms.some(m => m.geometry === 'group') ? [{ label: 'Flip and turn', disabled: ro, items: FLIPS() }] : []),
+      ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
+        : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
+      ...hand.shapeItems(ms, one, ro),
+      ...(pictured ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }] : []),
+      ...(free.length && !ms.some(m => m.type === 'box') && !pictured && !one?.geometry?.startsWith?.('group') ? [...(one?.geometry === 'table' ? [] : [{ label: 'Set as default', disabled: ro || !one, run: () => hand.setDefault() }]), ...(one ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }] : [])] : []),
+      ...(deals.length ? [{ label: 'Transactions', items: deals }] : []),
+      '-',
+      // Their own History; what's shown of them.
+      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }] : []),
+      ...(bound.length ? [{ label: 'Hide in this view', disabled: ro && !App.seeing(), run: () => App.seeing() ? App.see(viewOf(), bound.map(m => m.record), false) : remove() }] : []),
+      ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
+      // What the word for an act hides, offered plainly: a mistake is taken back as never held.
+      ...(bound.length && bound.some(m => App.endOf(m.record) !== false) ? ['-', { label: 'Delete as a mistake…', danger: true, disabled: !App.canAsk(), run: () => { remove(true); App.neverHeld(); } }] : []),
+    ].filter((it, i, all) => it !== '-' || (i && all[i - 1] !== '-' && i < all.length - 1));
     return [
-      ...(one?.geometry === 'table' ? hand.tableItems(one, ro) : text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []), ...inCorner,
+      ...(one?.geometry === 'table' ? hand.tableItems(one, ro) : text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, ...(one.geometry !== 'line' && scene.view !== Scene.MASTER && free.length ? [{ label: 'Add footnote', keys: '$mod+Alt+KeyF', run: () => footnote(one) }] : []), '-'] : []), ...inCorner,
       ...(fielded ? [...(worded ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => f ? editField(f.m, f.it) : edit(one.id) }] : []),
         ...(f ? [{ label: fieldName(f.it), items: fieldRows(f) }] : []),
         { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }, { label: 'Add footnote', keys: '$mod+Alt+KeyF', disabled: ro, run: () => footnote(one) }] : []), '-'] : []),
-      ...(pictured ? [{ label: 'Crop', disabled: ro, run: () => hand.crop(one.id) }, { label: 'Change picture…', disabled: ro, run: () => hand.changePicture(one.id) }, { label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }, '-'] : []),
-      ...(free.length && !ms.some(m => m.type === 'box') && !pictured && !one?.geometry?.startsWith?.('group') ? [...(one?.geometry === 'table' ? [] : [{ label: 'Set as default', disabled: ro || !one, run: () => hand.setDefault() }]), ...(one ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }, ...(one.geometry !== 'line' && one.geometry !== 'table' && scene.view !== Scene.MASTER ? [{ label: 'Add footnote', keys: '$mod+Alt+KeyF', disabled: ro, run: () => footnote(one) }] : [])] : []), '-'] : []),
-      // What a structure chart is made of: its owner and its holding (or what else its first lists call them), as a list's + asks.
-      ...(one?.type === 'box' && !ro ? addsOf(one) : []),
+      ...(pictured ? [{ label: 'Crop', disabled: ro, run: () => hand.crop(one.id) }, { label: 'Change picture…', disabled: ro, run: () => hand.changePicture(one.id) }, '-'] : []),
+      ...(adds.length > 3 ? [{ label: 'Add', items: adds }] : adds),
       // What's between it and another box: asked for, a tick in the two's panel relates them; Viewing, it reads what's there, and makes nothing.
       ...(one?.type === 'box' ? [{ label: ro ? 'With…' : 'Relate…', run: () => relating(one, undefined, null, ro) }] : []),
       // A relation recorded, as its panel's ⋯ has it: renamed where it's seen; given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
       ...(one?.type === 'line' && !ro ? [{ label: `Rename ${App.notes.peek().nameOf(App.state.peek(), one.record)}…`, run: () => Shell.parts.peek().inspector?.renameLine?.(one.record) }] : []),
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: App.interposeWord(one.record), disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
-      // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line. (One row, so the menu fits the window it opens in.)
-      ...(one?.type === 'box' ? (deals => deals.length ? [{ label: 'Transactions', items: deals }] : [])([...(App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []), ...stakeItems(one)]) : []),
       ...(one?.type === 'box' || one?.type === 'line' ? ['-'] : []),
       { label: 'Copy', keys: '$mod+C', run: copyOut }, { label: 'Paste', keys: '$mod+V', disabled: ro || !(clip?.items.length || clip?.field || clip?.free !== undefined), run: () => paste() },
-      ...(placeable().length ? [{ label: ms.every(m => m.type === 'box') ? 'Duplicate as a new box…' : 'Duplicate', keys: '$mod+KeyD', disabled: ro, run: duplicate }] : []),
       '-',
       ...formatItems(ms, ro),
-      ...(typeof Designs === 'undefined' ? [] : Designs.items(ms, ro)),
-      ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
-      { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
-      ...(free.some(m => m.geometry !== 'table') || ms.some(m => m.geometry === 'group') ? [{ label: 'Flip and turn', disabled: ro, items: FLIPS() }] : []),
-      ...hand.shapeItems(ms, one, ro),
-      ...(ms.some(m => m.geometry === 'group') ? [{ label: 'Ungroup', keys: '$mod+Shift+G', disabled: ro, run: ungroup }]
-        : placeable().length > 1 ? [{ label: 'Group', keys: '$mod+G', disabled: ro, run: group }] : []),
+      { label: 'More', items: more },
       '-',
-      // Their own History.
-      ...(bound.length ? [{ label: 'History', run: () => Time.of(bound.map(m => m.record)) }] : []),
-      ...(bound.length ? [{ label: 'Hide in this view', disabled: ro && !App.seeing(), run: () => App.seeing() ? App.see(viewOf(), bound.map(m => m.record), false) : remove() }] : []),
-      ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
-      ...(bound.length ? ['-'] : []),
       // (On the Key, what it deletes, the row selected or the Key, in its own label.)
       { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : one?.geometry === 'table' ? 'Delete table' : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
-      // What the word for an act hides, offered plainly: a mistake is taken back as never held.
-      ...(bound.length && bound.some(m => App.endOf(m.record) !== false) ? [{ label: 'Delete as a mistake…', danger: true, disabled: !App.canAsk(), run: () => { remove(true); App.neverHeld(); } }] : []),
     ];
   }
   // Flip and turn: as PowerPoint's Rotate list. On what can't, it says why as it's asked.
@@ -2441,7 +2454,9 @@ function mount(el) {
     if (!ms.length) return [];
     const bar = typeof FormatBar !== 'undefined' ? FormatBar : {}, open = what => () => bar.open ? bar.open(what) : document.querySelector(`.fb [data-fb="${what}"]`)?.click();
     const boxy = ms.some(m => m.type === 'box' || (m.type === 'shape' && m.geometry !== 'line'));
-    return [{ label: 'Format', items: [...(ms.some(m => m.type === 'box') ? [{ label: 'Design…', disabled: ro, run: open('design') }] : []), ...(boxy ? [{ label: 'Fill…', disabled: ro, run: open('fill') }] : []), { label: 'Outline…', disabled: ro, run: open('outline') }, { label: 'Font…', disabled: ro, run: open('font') },
+    const designs = typeof Designs === 'undefined' ? [] : Designs.items(ms, ro);
+    return [{ label: 'Format', items: [...(ms.some(m => m.type === 'box') ? [{ label: 'Design…', disabled: ro, run: open('design') }, ...designs, '-'] : []), ...(boxy ? [{ label: 'Fill…', disabled: ro, run: open('fill') }] : []), { label: 'Outline…', disabled: ro, run: open('outline') }, ...(boxy ? [{ label: 'Effects…', disabled: ro, run: open('effects') }] : []), { label: 'Font…', disabled: ro, run: open('font') },
+      ...(!ms.some(m => m.type === 'box') && designs.length ? ['-', ...designs] : []),
       ...(bar.copyLook ? ['-', { label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : [])] }];
   }
   // The group whose note decides a field, where it's a group's: one beside an output, or at the entry wherever it is,
@@ -2491,12 +2506,12 @@ function mount(el) {
     { label: 'New text box', disabled: still(), run: () => insert('text', { x: round(p.x), y: round(p.y) }) },
     { label: 'New line', disabled: still(), run: () => insert('line', { points: [[round(p.x), round(p.y)], [round(p.x + 96 / pageScale()), round(p.y)]] }) },
     { label: 'New arrow', disabled: still(), run: () => insert('arrow-line', { points: [[round(p.x), round(p.y)], [round(p.x + 96 / pageScale()), round(p.y)]] }) }, '-',
-    { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() }, '-',
-    { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, { label: 'Selection pane', keys: 'Alt+F10', run: () => hand.pane(true) }, '-',
-    { label: 'Page setup…', disabled: still(), run: () => Export.setup() }, { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
-    ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-',
-    aidsRow(), '-',
+    { label: 'Paste', keys: '$mod+V', disabled: still() || !clip?.items.length, run: () => paste() },
+    { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, '-',
     { label: 'Tidy', disabled: still(), run: tidy },
+    { label: 'Page setup…', disabled: still(), run: () => Export.setup() },
+    { label: 'More', items: [{ label: 'Selection pane', keys: 'Alt+F10', run: () => hand.pane(true) }, { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
+      ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-', aidsRow()] },
   ];
   const placedAt = (p, w, h) => ({ x: round(clamp(p.x - w / 2, 0, scene.page.w - w)), y: round(clamp(p.y - h / 2, 0, scene.page.h - h)), w, h });
   let pageAt = {};
@@ -2561,14 +2576,14 @@ function mount(el) {
     for (const c of sel.getSelectedCells()) if (c.isNode()) {
       const m = scene.byId.get(c.id);
       if (!m || m.points) continue;
-      outline(m, 'dc-group dc-shaped', 2);
-      if (m.rotate) marks.lastChild.setAttribute('transform', `${marks.lastChild.getAttribute('transform')} rotate(${m.rotate} ${m.w / 2 + 2} ${m.h / 2 + 2})`);
+      outline(m, 'dc-group dc-shaped', 0);
+      if (m.rotate) marks.lastChild.setAttribute('transform', `${marks.lastChild.getAttribute('transform')} rotate(${m.rotate} ${m.w / 2} ${m.h / 2})`);
     }
-    // A pen pointed at: each mark it would reach lit, as a group is. And at rest, what's in reach of the pen, a thin outline.
+    // A pen pointed at: each mark it would reach lit on its own edge, so there's one rule and not two. And at rest, what's in reach of the pen, a faint tint.
     const drawnOf = ids => ids && new Set([...ids].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
     const cuedHere = drawnOf(cued), reachHere = drawnOf(inReach);
-    for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 3);
-    if (!cuedHere) for (const id of reachHere ?? []) outline(scene.byId.get(id), 'dc-reach', 3);
+    for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 0);
+    if (!cuedHere) for (const id of reachHere ?? []) outline(scene.byId.get(id), 'dc-reach', 0);
     // A selected line is traced in the accent, as Office marks one.
     for (const c of sel.getSelectedCells()) if (c.isEdge()) { const m = scene.byId.get(c.id); if (m?.points) outline(m, 'dc-sel'); }
     bendGrips();
@@ -2927,7 +2942,7 @@ function mount(el) {
   // Northpine Software, LLC.
   const lineOf = id => { const N = App.notes.peek(), st = App.state.peek(); return `${N.nameOf(st, id)}: ${N.segmentOf(st, id)}`; };
   const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? lineOf(m.record) : m.type === 'frame' ? `the ${m.caption.text} frame`
-    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : m.role === 'day' ? 'the date' : m.role === 'footnotes' ? 'the footnotes' : `the ${SHAPE[m.geometry] ?? 'shape'}`;
+    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : m.role === 'day' ? 'the date' : m.role === 'footnotes' ? 'the footnotes' : m.name ?? `the ${SHAPE[m.geometry] ?? 'shape'}`;
   const counted = ms => ms.length === 1 ? ms[0].name : ms.every(m => m.type === 'box') ? `${ms.length} boxes` : ms.every(m => m.type === 'line') ? `${ms.length} lines` : `${ms.length} items`;
   function said(hid, gone, view) {
     const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row');

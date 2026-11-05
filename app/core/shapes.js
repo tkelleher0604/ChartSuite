@@ -384,6 +384,7 @@ const patternDef = (id, o, bg) => { const [, , side, d, w] = patternOf(o.prst) ?
 const EFFECTS = ['Glow', 'Soft Edge', 'Inner Shadow', 'Bevel'];
 const hasEffect = s => !!s && (!!s.Glow || s['Soft Edge'] > 0 || (s['Inner Shadow'] && s['Inner Shadow'] !== 'none') || !!s.Bevel);
 const SHADE = { blur: 4, distance: 3, angle: 45, color: '#000000', transparency: 60 };
+const BEVELS = { circle: [0.5, 1.2, 0.55, 22], relaxedInset: [0.25, 0.5, 0.3, 12], coolSlant: [0.12, 1.5, 0.6, 30], angle: [0.08, 0.8, 0.3, 10], softRound: [0.9, 1.6, 0.45, 16], convex: [1.4, 2.6, 0.75, 18], slope: [0.35, 0.8, 0.2, 8], artDeco: [0.05, 2.2, 0.8, 40] };
 const shadeOf = v => !v || v === 'none' ? null : v === 'soft' ? SHADE : { ...SHADE, ...v };
 const effectKey = s => JSON.stringify([s.Shadow ?? null, ...EFFECTS.map(l => s[l] ?? null)]);
 function effectDef(id, s, u) {
@@ -391,8 +392,9 @@ function effectDef(id, s, u) {
   let shape = 'SourceGraphic';
   if (soft > 0) { parts.push(`<feMorphology in="SourceAlpha" operator="erode" radius="${f(soft / 2)}" result="se"/><feGaussianBlur in="se" stdDeviation="${f(soft / 2)}" result="sm"/><feComposite in="SourceGraphic" in2="sm" operator="in" result="soft"/>`); shape = 'soft'; }
   if (b) {
-    const w = Math.max(0.5, (b.w ?? 6) * u), tall = Math.max(0.5, (b.h ?? b.w ?? 6) * u);
-    parts.push(`<feGaussianBlur in="SourceAlpha" stdDeviation="${f(w / 2)}" result="bb"/><feDiffuseLighting in="bb" surfaceScale="${f(tall * 1.2)}" diffuseConstant="1.15" lighting-color="#ffffff" result="bd"><feDistantLight azimuth="235" elevation="55"/></feDiffuseLighting><feBlend in="${shape}" in2="bd" mode="multiply" result="bm"/><feSpecularLighting in="bb" surfaceScale="${f(tall * 1.2)}" specularConstant="0.55" specularExponent="22" lighting-color="#ffffff" result="bs"><feDistantLight azimuth="235" elevation="50"/></feSpecularLighting><feComposite in="bs" in2="bm" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="ba"/><feComposite in="ba" in2="${shape}" operator="in" result="bev"/>`);
+    // (How soft its edge, how deep, how bright its shine: PowerPoint's presets differ by these, so each draws as itself, near enough to choose by, as wide and as tall as it's said. Its flat middle keeps the fill's true color: the lights are set so it takes neither shade nor shine.)
+    const w = Math.max(0.5, (b.w ?? 6) * u), tall = Math.max(0.5, (b.h ?? b.w ?? 6) * u), [edge, depth, shine, tight] = BEVELS[b.type] ?? BEVELS.circle, flat = shine * Math.cos(20 * Math.PI / 180) ** tight;
+    parts.push(`<feGaussianBlur in="SourceAlpha" stdDeviation="${f(w * edge)}" result="bb"/><feDiffuseLighting in="bb" surfaceScale="${f(tall * depth)}" diffuseConstant="1.22" lighting-color="#ffffff" result="bd"><feDistantLight azimuth="235" elevation="55"/></feDiffuseLighting><feBlend in="${shape}" in2="bd" mode="multiply" result="bm"/><feSpecularLighting in="bb" surfaceScale="${f(tall * depth)}" specularConstant="${shine}" specularExponent="${tight}" lighting-color="#ffffff" result="bs"><feDistantLight azimuth="235" elevation="50"/></feSpecularLighting><feComposite in="bs" in2="bm" operator="arithmetic" k1="0" k2="1" k3="1" k4="${f(-flat)}" result="ba"/><feComposite in="ba" in2="${shape}" operator="in" result="bev"/>`);
     shape = 'bev';
   }
   if (i) {

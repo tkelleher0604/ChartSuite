@@ -31,13 +31,13 @@ const WEIGHTS = [0.25, 0.5, 0.75, 1, 1.5, 2.25, 3, 4.5, 6];
 // standard colors.
 const THEME = Shapes.OFFICE;
 const STANDARD = ['#c00000', '#ff0000', '#ffc000', '#ffff00', '#92d050', '#00b050', '#00b0f0', '#0070c0', '#002060', '#7030a0'];
-// And what PowerPoint calls them: a column's color and its place in the theme, and a row's tint or shade of
-// it, which runs darker under White and Light Gray, lighter under Black, and both ways under the rest.
-const COLUMNS = [['White', 'Background 1'], ['Black', 'Text 1'], ['Light Gray', 'Background 2'], ['Blue-Gray', 'Text 2'], ['Blue', 'Accent 1'],
-  ['Orange', 'Accent 2'], ['Gray', 'Accent 3'], ['Gold', 'Accent 4'], ['Blue', 'Accent 5'], ['Green', 'Accent 6']];
-const SHADES = { 0: ['Darker 5%', 'Darker 15%', 'Darker 25%', 'Darker 35%', 'Darker 50%'], 1: ['Lighter 50%', 'Lighter 35%', 'Lighter 25%', 'Lighter 15%', 'Lighter 5%'],
-  2: ['Darker 10%', 'Darker 25%', 'Darker 50%', 'Darker 75%', 'Darker 90%'], accent: ['Lighter 80%', 'Lighter 60%', 'Lighter 40%', 'Darker 25%', 'Darker 50%'] };
-const THEME_NAMES = THEME.map((_, i) => { const col = i % 10, row = Math.floor(i / 10); return [...COLUMNS[col], row ? (SHADES[col] ?? SHADES.accent)[row - 1] : null].filter(Boolean).join(', '); });
+// And what a person calls them: a column's color, and a row's tint or shade of it, which runs darker under White and Light Gray, lighter under Black, and both
+// ways under the rest; beside each, where the chart's own ten stand in a deck's theme, which is the deck's language, not the window's.
+const COLUMNS = [['White', 'Background'], ['Black', 'Text'], ['Light Gray', 'Background 2'], ['Blue-Gray', 'Text 2'], ['Blue', 'Color 1'],
+  ['Orange', 'Color 2'], ['Gray', 'Color 3'], ['Gold', 'Color 4'], ['Sky Blue', 'Color 5'], ['Green', 'Color 6']];
+const SHADES = { 0: ['darker 5%', 'darker 15%', 'darker 25%', 'darker 35%', 'darker 50%'], 1: ['lighter 50%', 'lighter 35%', 'lighter 25%', 'lighter 15%', 'lighter 5%'],
+  2: ['darker 10%', 'darker 25%', 'darker 50%', 'darker 75%', 'darker 90%'], accent: ['lighter 80%', 'lighter 60%', 'lighter 40%', 'darker 25%', 'darker 50%'] };
+const THEME_NAMES = THEME.map((_, i) => { const col = i % 10, row = Math.floor(i / 10); return [COLUMNS[col][0], row ? (SHADES[col] ?? SHADES.accent)[row - 1] : null].filter(Boolean).join(', '); });
 const STANDARD_NAMES = ['Dark Red', 'Red', 'Orange', 'Yellow', 'Light Green', 'Green', 'Light Blue', 'Blue', 'Dark Blue', 'Purple'];
 const NAMES = new Map([...THEME.map((c, i) => [c, THEME_NAMES[i]]), ...STANDARD.map((c, i) => [c, STANDARD_NAMES[i]])].reverse());
 // A color typed by its hex, as "#1F5FBF", "1f5fbf" or "#15b"; null for anything else.
@@ -53,8 +53,15 @@ function chartColors() {
   }
   return [...out].slice(0, 10);
 }
-// PowerPoint's name for a color of its palette ("Blue, Accent 1, Lighter 80%"), where a color is in it twice
-// the theme's; "None" for none; null for any other.
+// The colors a color's menu leads with: those the chart has set for itself (This chart's colors), those last given, and what the page is painted in, the most used first.
+function ownColors() {
+  const said = new Map(), add = c => { const h = hexOf(c); if (h) said.set(h, (said.get(h) ?? 0) + 1); };
+  for (const m of App.scene.peek()?.marks ?? []) { const s = m.look ?? m.settings; for (const l of ['Fill', 'Outline']) add(s?.[l]?.value ?? s?.[l]); for (const it of m.texts ?? []) add(it.look?.Color); }
+  // (Two rows, in the same room however many there are; a third for those given beside a chart's own ten.)
+  const mine = paletteOf()?.colors ?? [];
+  return [...new Set([...mine.map(c => c.toLowerCase()), ...chartColors(), ...[...said].sort((a, b) => b[1] - a[1]).map(([c]) => c)])].slice(0, mine.length ? 15 : 10);
+}
+// A color's name, for a tooltip or a Look row ("Blue, lighter 80%"), where a color is in it twice the theme's; "None" for none; null for any other.
 const colorName = c => c === 'none' ? 'None' : typeof c === 'string' ? NAMES.get(`#${c.replace(/^#/, '').toLowerCase()}`) ?? null : null;
 // A text's size as it prints: the page's size at the page's scale, what was typed where a note gives it, or the sheet's
 // half point where none does.
@@ -767,8 +774,6 @@ const HEAD_PATHS = { triangle: 'M28 1l10 4-10 4z', stealth: 'M27 1l11 4-11 4 3-4
 const headGlyph = t => html`<svg class="ln" viewBox="0 0 40 10"><path d="M2 5h${t === 'none' ? 36 : 28}" stroke-width="1.3" />${HEAD_PATHS[t] ? html`<path d=${HEAD_PATHS[t]} stroke-width="1.1" fill=${t === 'open' ? 'none' : 'currentColor'} />` : null}</svg>`;
 const frameGlyph = f => html`<svg class="ln" viewBox="0 0 40 14"><path d=${f === 'bracket' ? 'M2 13V3h36v10' : 'M2.5 1.5h35v11h-35z'} stroke-width="1.2" stroke-dasharray=${f === 'dashed' ? '4 3' : null} /></svg>`;
 const shapeGlyph = (g, corner) => html`<svg class="glyph" viewBox="-1 -1 20 16"><path d=${Scene.path(g, 18, 14, corner, g === 'freeform' ? value('Points') : undefined)} /></svg>`;
-// A shadow, thrown the way it says.
-const shadowGlyph = (dx, dy) => html`<svg class="glyph sh" viewBox="-4 -4 26 22"><path d=${`M${1 + dx * 3} ${1 + dy * 3}h16v12h-16z`} class="shade" /><path d="M1 1h16v12H1z" /></svg>`;
 const ALIGN_ICON = { left: 'align-left', center: 'align-center', right: 'align-right' };
 
 // The choices of one setting in a popover, each previewed while pointed at: a picked one is made, and
@@ -779,8 +784,8 @@ const choices = (label, list, now, glyphOf = null) => list.map(([v, text]) => ({
   run: () => apply(label, v), point: on => on ? preview(label, v) : preview() }));
 // A row of a popover that opens its submenu, as a menu's does, when it's pointed at, clicked or reached by the
 // keys; the submenu is the popover's, so the popover stays open beside it.
-const Sub = ({ label, items, of, disabled }) => {
-  const open = e => !disabled && Shell.menu(e.currentTarget, items(), { parent: of, placement: 'right-start', gap: 2 });
+const Sub = ({ label, items, pane, of, disabled }) => {
+  const open = e => !disabled && (pane ? Shell.popover(e.currentTarget, pane, { parent: of, placement: 'right-start', gap: 2, onClose: () => preview() }) : Shell.menu(e.currentTarget, items(), { parent: of, placement: 'right-start', gap: 2 }));
   return html`<button class="menu-item sub" aria-haspopup="menu" disabled=${disabled} onPointerEnter=${open} onClick=${open}
     onKeyDown=${e => { if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); open(e); } }}><span class="label">${label}</span></button>`;
 };
@@ -788,8 +793,8 @@ const Sub = ({ label, items, of, disabled }) => {
 // PowerPoint's rule, so the swatches read as its own do and a deck's colors are its theme's. Null where the chart hasn't set them: Office's.
 const SLOT_NAMES = COLUMNS.map(([n, s]) => s), shaded = Shapes.shaded;
 const paletteOf = () => { const p = App.notes.peek().resolve('Palette', { kind: 'View' })?.value; return Array.isArray(p?.colors) && p.colors.length === 10 ? p : null; };
-// The swatches of the chart's own colors, named by where each is in a theme.
-const themeOf = p => { const theme = Shapes.swatches(p.colors), names = theme.map((c, i) => { const col = i % 10, row = Math.floor(i / 10), word = (SHADES[col] ?? SHADES.accent)[row - 1]; return row ? `${SLOT_NAMES[col]}, ${word}` : `${c.toUpperCase()}, ${SLOT_NAMES[col]}`; }); return { theme, names }; };
+// The swatches of the chart's own colors, each with its tints and shades, named by the color it's of.
+const themeOf = p => { const theme = Shapes.swatches(p.colors), names = theme.map((c, i) => { const col = i % 10, row = Math.floor(i / 10), base = p.colors[col], of = colorName(base) ?? base.toUpperCase(); return row ? `${of}, ${(SHADES[col] ?? SHADES.accent)[row - 1]}` : of; }); return { theme, names }; };
 // A dialog of the ten: each a color typed or picked, under what a deck's theme calls it, for this chart. One change; a house style carries it.
 async function definePalette() {
   if (App.readOnly.peek()) return Shell.toast(App.whyNot());
@@ -819,26 +824,25 @@ function Slider({ label, k, v, max = 100, step = 1, unit = '%', disabled }) {
     <input type="range" min="0" max=${max} step=${step} value=${v} aria-label=${label} disabled=${disabled} onInput=${e => { e.currentTarget.nextElementSibling.firstChild.value = String(read(e)); preview(k, read(e)); }}
       onChange=${e => apply(k, read(e))} /><${Typed} label=${label} v=${v} unit=${unit} max=${max} step=${step} disabled=${disabled} put=${x => apply(k, x)} tries=${x => x === null ? preview() : preview(k, x)} /></label>`;
 }
-// PowerPoint's palette: the theme's colors, its standard colors and the chart's own; then More colors, any color
-// by its hex, drawn as it's typed and made with Enter; then what else the popover sets (a fill's Transparency, an
-// outline's Weight and Dashes); and last No fill (or outline).
+// A color's menu: the chart's own, first and large (see ownColors); then More colors, with PowerPoint's whole palette beside it and any color by its hex,
+// drawn as it's typed and made with Enter; then what else the popover sets (a fill's Transparency, an outline's Weight and Dashes); and last No fill (or outline).
 const NONE = { Fill: 'No fill', Outline: 'No outline' };
-function Palette({ label, none, close, children }) {
-  const mixed = differs(label), v = mixed ? '' : String(value(label)).toLowerCase(), own = chartColors(), mine = paletteOf(), table = mine ? themeOf(mine) : { theme: THEME, names: THEME_NAMES };
+function Palette({ label, none, close, of, children }) {
+  const mixed = differs(label), v = mixed ? '' : String(value(label)).toLowerCase(), mine = paletteOf(), table = mine ? themeOf(mine) : { theme: THEME, names: THEME_NAMES };
   // (The color it has, taken again, is no change: it stays with its style, not this box's own.)
-  const swatch = (c, name) => html`<button style=${`background-color:${c}`} aria-pressed=${v === c} autofocus=${v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} onClick=${() => { close?.(); if (v !== c) apply(label, c); }} />`;
+  const swatch = (c, name, focus = true) => html`<button style=${`background-color:${c}`} aria-pressed=${v === c} autofocus=${focus && v === c} aria-label=${name} data-tip=${name} ...${choice(label, c, close)} onClick=${() => { close?.(); if (v !== c) apply(label, c); }} />`;
   // Off the swatches, the chart is drawn in the color typed, while it's being typed.
   const rest = el => { const f = el.querySelector('.hex > input'), c = f === document.activeElement && hexOf(f.value); c ? preview(label, c) : preview(); };
   const typed = e => { const f = e.currentTarget; f.dataset.why = 'Not a color: #1F3864, say'; f.toggleAttribute('aria-invalid', !!f.value.trim() && !hexOf(f.value)); rest(f.closest('.palette')); };
   const entered = e => { const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { e.preventDefault(); e.stopPropagation(); close?.(); apply(label, c); } };
-  // The chart's own colors have their row from the start, so nothing moves down as the first comes.
-  return html`<div class="palette" data-grid=":scope > button" role="group" aria-label=${label} onPointerLeave=${e => rest(e.currentTarget)}>${table.theme.map((c, i) => swatch(c, table.names[i]))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i]))}
-    <i />${own.map(c => swatch(c, c.toUpperCase()))}${Array.from({ length: 10 - own.length }, () => html`<span class="room" />`)}
+  const more = () => html`<div class="palette grid" data-grid=":scope > button" role="group" aria-label="More colors" onPointerLeave=${() => preview()}>${table.theme.map((c, i) => swatch(c, table.names[i], false))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i], false))}</div>`;
+  return html`<div class="palette" role="group" aria-label=${label} onPointerLeave=${e => rest(e.currentTarget)}>
+    <div class=${'own' + (mine ? ' set' : '')} data-grid=":scope > button" onPointerLeave=${e => rest(e.currentTarget.parentElement)}>${ownColors().map(c => swatch(c, colorName(c) ?? c.toUpperCase()))}</div>
     <div class="more">
       ${mixed ? html`<div class="menu-head">${mixed}</div>` : null}
-      <label class="menu-item"><span class="label">More colors</span>
-        <span class="hex">#<input value=${/^#[0-9a-f]{6}$/.test(v) ? v.slice(1).toUpperCase() : ''} maxlength="7" spellcheck="false" autocomplete="off" aria-label="More colors"
-          onFocus=${e => e.currentTarget.select()} onInput=${typed} onKeyDown=${entered} /></span></label>
+      <div class="menu-item withfield"><${Sub} label="More colors" of=${of} pane=${more} />
+        <span class="hex">#<input value=${/^#[0-9a-f]{6}$/.test(v) ? v.slice(1).toUpperCase() : ''} maxlength="7" spellcheck="false" autocomplete="off" aria-label="Color by its hex"
+          onFocus=${e => e.currentTarget.select()} onInput=${typed} onKeyDown=${entered} /></span></div>
       <button class="menu-item" onClick=${() => { close?.(); drop(label); }}><span class="label">Eyedropper</span>${Shell.icon('Pipette')}</button>
       <button class="menu-item" onClick=${() => { close?.(); definePalette(); }}><span class="label">${mine ? 'Change this chart’s colors…' : 'Set this chart’s colors…'}</span></button>
       ${children}
@@ -920,12 +924,13 @@ const litOn = (g, page) => (g.style ? marksOf(page, g) : g.marks);
 // ---- The popovers ----
 
 // Fill: the palette, then how transparent it is.
-const FillPop = ({ close, of }) => html`<${Palette} label="Fill" none close=${close}>
+const FillPop = ({ close, of }) => html`<${Palette} label="Fill" none close=${close} of=${of}>
   <${Sub} label="Gradient" of=${of} items=${gradientItems} />
+  <${Sub} label="Gradient options" of=${of} pane=${() => html`<${StopsPop} label="Gradient" />`} />
   <${Sub} label="Pattern" of=${of} items=${patternItems} />
   <button class="menu-item" onClick=${() => { close?.(); pickFillPicture(); }}><span class="label">Picture…</span></button>
   <${Sub} label="Texture" of=${of} items=${textureItems} />
-  ${value('Picture') ? html`<button class="menu-item" onClick=${() => { close?.(); apply('Picture', null); }}><span class="label">Take the picture off</span></button>` : null}
+  <button class="menu-item" disabled=${!value('Picture')} onClick=${() => { close?.(); apply('Picture', null); }}><span class="label">Take the picture off</span></button>
   <${Slider} label="Transparency" k="Transparency" v=${Math.round(value('Transparency') ?? 0)} /></${Palette}>`;
 // A picture or a texture filling it, which a gradient and a pattern give way to, as each does to the other.
 const fillIs = (label, v) => applyAll([[label, v], ...['Picture', 'Gradient', 'Pattern'].filter(l => l !== label && value(l)).map(l => [l, null])]);
@@ -936,27 +941,37 @@ function pickFillPicture() {
 }
 const tiles = new Map();
 const tileOf = id => tiles.get(id) ?? tiles.set(id, Shapes.textureTile(id)).get(id);
+// A look tried on what it'd go to, drawn small by the renderer's own hand, for a tile: the first thing the pen has that can be drawn as itself, or, with nothing like that, a plain box.
+const PLAIN_TILE = { type: 'shape', geometry: 'rect', w: 96, h: 60, texts: [], look: { Fill: '#dbe3ef', Outline: '#2c4c7c', Weight: 0.75, Dash: 'solid' } };
+function drawer({ below = 0 } = {}) {
+  const sc = current?.canvas.scene(), drawable = x => x?.type === 'box' || (x?.type === 'shape' && !['line', 'picture', 'group', 'legend', 'table'].includes(x.geometry) && !x.role);
+  const m = current?.marks.find(drawable) ?? [...current?.scope?.marks ?? []].map(id => sc?.byId.get(id)).find(drawable);
+  const b = (m?.type === 'box' ? Scene.instance(sc, m.id, m.design?.value ?? null, App.notes.peek(), App.computed.peek()) : m) ?? PLAIN_TILE, scale = m ? sc.page.scale ?? 1 : 1;
+  return over => Export.tileSvg(b, over, scale, below ? b.h * below : 0);
+}
 function textureItems() {
-  const now = value('Picture');
-  return [{ label: 'None', checked: !now?.tile, run: () => apply('Picture', null), point: on => on ? preview('Picture', null) : preview() }, '-', ...Shapes.TEXTURES.map(([id, label]) => { const o = { src: tileOf(id), tile: true, tw: 96, th: 96 }; return { label, checked: now?.src === o.src, run: () => fillIs('Picture', o), point: on => on ? preview('Picture', o) : preview() }; })];
+  const now = value('Picture'), draw = drawer(), clear = { Gradient: null, Pattern: null };
+  return [{ label: 'None', checked: !now?.tile, art: draw({ ...clear, Picture: null }), run: () => apply('Picture', null), point: on => on ? preview('Picture', null) : preview() }, ...Shapes.TEXTURES.map(([id, label]) => { const o = { src: tileOf(id), tile: true, tw: 96, th: 96 }; return { label, art: draw({ ...clear, Picture: o }), checked: now?.src === o.src, run: () => fillIs('Picture', o), point: on => on ? preview('Picture', o) : preview() }; })];
 }
 // A setting's choices where what it holds is an object: which it has by what it says.
 const looksLike = (label, list, now, glyphOf = null) => list.map(([v, text]) => ({ label: text, checked: JSON.stringify(now ?? null) === JSON.stringify(v ?? null), ...(glyphOf && { glyph: glyphOf(v) }), run: () => apply(label, v), point: on => on ? preview(label, v) : preview() }));
+// The same as tiles, each drawn with that choice on it.
+const tiled = (label, list, now, o) => { const draw = drawer(o); return looksLike(label, list, now).map((it, i) => ({ ...it, art: draw({ [label]: list[i][0] }) })); };
 const inkNow = () => { const c = String(value('Outline') ?? ''); return /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : '#4472c4'; };
 const COMPOUNDS = [['single', 'Single'], ['double', 'Double'], ['thick-thin', 'Thick and thin'], ['thin-thick', 'Thin and thick'], ['triple', 'Triple']];
 function lineGradientItems() {
   const from = inkNow(), now = value('Line Gradient') ?? null, of = (to, angle) => ({ angle, stops: [[0, from], [100, to]] });
-  return [...looksLike('Line Gradient', [[null, 'None'], [of(shaded(from, 0.4, 0.6), 0), 'Lighter, across'], [of(shaded(from, 0.5, 0), 0), 'Darker, across'], [of(shaded(from, 0.4, 0.6), 90), 'Lighter, down'], [of('#ffffff', 0), 'To white, across']], now), '-', { label: 'Stops…', run: () => stopsPop('Line Gradient', 'outline', from) }];
+  return looksLike('Line Gradient', [[null, 'None'], [of(shaded(from, 0.4, 0.6), 0), 'Lighter, across'], [of(shaded(from, 0.5, 0), 0), 'Darker, across'], [of(shaded(from, 0.4, 0.6), 90), 'Lighter, down'], [of('#ffffff', 0), 'To white, across']], now);
 }
 // A color for what's set in the look: the chart's, then typed.
 function ColorRow({ label, v, put, tries }) {
-  const own = paletteOf()?.colors.slice(4, 10) ?? THEME.slice(4, 10), hex = String(v ?? '').replace('#', '').toUpperCase();
+  const own = ownColors().slice(0, 6), hex = String(v ?? '').replace('#', '').toUpperCase();
   return html`<div class="menu-item colorrow"><span class="label">${label}</span><span class="chips" onPointerLeave=${() => tries?.(null)}>${own.map(c => html`<button type="button" aria-label=${colorName(c) ?? c} aria-pressed=${String(v).toLowerCase() === c.toLowerCase()} style=${`background:${c}`} onPointerEnter=${() => tries?.(c)} onClick=${() => put(c)} />`)}</span><span class="hex">#<input value=${hex} maxlength="7" spellcheck="false" autocomplete="off" aria-label=${label} onFocus=${e => e.currentTarget.select()} onKeyDown=${e => { e.stopPropagation(); const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { e.preventDefault(); put(c); } }} /></span></div>`;
 }
 // A gradient's stops, as PowerPoint's Format Shape: its bar, a click there a stop more, a stop dragged along it moved, off it or by Delete taken away; the one picked, its color and place; the whole, its angle. Each drawn on the chart as it's changed, one change as it's let go.
-function StopsPop({ label, from }) {
+function StopsPop({ label }) {
   readNow();
-  const now = value(label), [g, setG] = useState(now?.stops?.length >= 2 ? { angle: now.angle ?? 0, stops: now.stops.map(s => [...s]) } : { angle: label === 'Line Gradient' ? 0 : 90, stops: [[0, from], [100, shaded(from, 0.4, 0.6)]] }), [at, setAt] = useState(0), bar = useRef();
+  const base = String(value({ Gradient: 'Fill', 'Text Gradient': 'Color' }[label] ?? 'Outline') ?? ''), from = /^#[0-9a-f]{6}$/i.test(base) ? base.toLowerCase() : '#4472c4', now = value(label), [g, setG] = useState(now?.stops?.length >= 2 ? { angle: now.angle ?? 0, stops: now.stops.map(s => [...s]) } : { angle: label === 'Line Gradient' ? 0 : 90, stops: [[0, from], [100, shaded(from, 0.4, 0.6)]] }), [at, setAt] = useState(0), bar = useRef();
   const sorted = st => [...st].sort((a, b) => a[0] - b[0]), said = o => ({ ...o, stops: sorted(o.stops) }), put = next => { setG(next); apply(label, said(next)); };
   const css = `linear-gradient(90deg, ${sorted(g.stops).map(([p, c]) => `${c} ${p}%`).join(', ')})`, pick = g.stops[at] ?? g.stops[0];
   const place = e => { const b = bar.current.getBoundingClientRect(); return Math.round(Math.max(0, Math.min(100, (e.clientX - b.left) / b.width * 100))); };
@@ -979,8 +994,7 @@ function StopsPop({ label, from }) {
     <div class="row"><button type="button" class="btn" onClick=${() => addAt(Math.round((pick[0] + (sorted(g.stops).find(s => s[0] > pick[0])?.[0] ?? 100)) / 2))}>Add a stop</button><button type="button" class="btn" disabled=${g.stops.length < 3} onClick=${() => out(at)}>Delete it</button></div>
   </div>`;
 }
-const stopsPop = (label, on, from) => pop(document.querySelector(`.fb [data-fb="${on}"]`), () => html`<${StopsPop} label=${label} from=${from} />`);
-// Shape Effects, as PowerPoint's: each drawn on the chart as it's pointed at, one change as it's picked.
+// A glow's color, size and transparency, as PowerPoint's Format Shape.
 function GlowPop() {
   readNow();
   const base = value('Glow') ?? { size: 8, color: inkNow(), transparency: 60 }, set = changes => apply('Glow', { ...base, ...changes }), tries = k => x => x === null ? preview() : preview('Glow', { ...base, [k]: x });
@@ -999,29 +1013,32 @@ function BevelPop() {
     <label class="menu-item"><span class="label">Depth</span><${Typed} label="Depth" v=${base.depth ?? 0} unit="pt" max=${400} put=${x => set({ depth: x || undefined })} /></label>
     <label class="menu-item"><span class="label">Material</span><${Shell.Pick} label="Material" value=${base.material ?? 'warmMatte'} onPick=${v => set({ material: v })} options=${MATERIALS} /></label></div>`;
 }
-function glowItems() { const c = value('Glow')?.color ?? inkNow(); return [...looksLike('Glow', [[null, 'None'], ...[5, 8, 11, 18].map(size => [{ size, color: c, transparency: value('Glow')?.transparency ?? 60 }, `${size} pt`])], value('Glow')), '-', { label: 'Color and size…', run: () => pop(document.querySelector('.fb [data-fb="effects"]'), () => html`<${GlowPop} />`) }]; }
-const softItems = () => choices('Soft Edge', [[0, 'None'], [1, '1 pt'], [2.5, '2.5 pt'], [5, '5 pt'], [10, '10 pt'], [25, '25 pt']], value('Soft Edge') ?? 0);
-const reflectionItems = () => looksLike('Reflection', [[null, 'None'], [{ size: 35, transparency: 48, distance: 0, blur: 0.5 }, 'Tight, touching'], [{ size: 55, transparency: 50, distance: 0, blur: 0.5 }, 'Half, touching'], [{ size: 90, transparency: 50, distance: 0, blur: 0.5 }, 'Full, touching'], [{ size: 35, transparency: 48, distance: 4, blur: 1 }, 'Tight, 4 pt off'], [{ size: 55, transparency: 50, distance: 4, blur: 1 }, 'Half, 4 pt off']], value('Reflection'));
-const innerItems = () => looksLike('Inner Shadow', [['none', 'None'], ...[[45, 'Inside, top left'], [135, 'Inside, top right'], [225, 'Inside, bottom right'], [315, 'Inside, bottom left'], [90, 'Inside, top'], [270, 'Inside, bottom']].map(([angle, name]) => [{ blur: 5, distance: 3, angle, color: '#000000', transparency: 50 }, name]), [{ blur: 9, distance: 0, angle: 0, color: '#000000', transparency: 50 }, 'Inside, all round']], value('Inner Shadow') ?? 'none');
-const bevelItems = () => { const b = value('Bevel'), keep = { w: b?.w ?? 6, h: b?.h ?? 6, ...(b?.depth && { depth: b.depth }), ...(b?.material && { material: b.material }) }; return [...looksLike('Bevel', [[null, 'None'], ...[['circle', 'Round'], ['relaxedInset', 'Relaxed inset'], ['coolSlant', 'Cool slant'], ['angle', 'Angle'], ['softRound', 'Soft round'], ['convex', 'Convex'], ['slope', 'Slope'], ['artDeco', 'Art deco']].map(([type, name]) => [{ type, ...keep }, name])], b), '-', { label: 'Depth and material…', run: () => pop(document.querySelector('.fb [data-fb="effects"]'), () => html`<${BevelPop} />`) }]; };
-const turn3dItems = () => looksLike('Turn 3D', [[null, 'None'], [{ x: 45, y: 35, z: 0 }, 'Isometric, left down'], [{ x: 315, y: 35, z: 0 }, 'Isometric, right down'], [{ x: 30, y: 0, z: 0 }, 'Turned left'], [{ x: 330, y: 0, z: 0 }, 'Turned right'], [{ x: 0, y: 30, z: 0 }, 'Tilted back'], [{ x: 0, y: 330, z: 0 }, 'Tilted forward']], value('Turn 3D'));
+// Shape Effects, as PowerPoint's, every one of them: each a tile of what's selected with it on, drawn on the chart as it's pointed at, one change as it's picked.
+function glowItems() { const g = value('Glow'), c = g?.color ?? inkNow(); return tiled('Glow', [[null, 'None'], ...[5, 8, 11, 18].map(size => [{ size, color: c, transparency: g?.transparency ?? 60 }, `${size} pt`])], g); }
+const softItems = () => tiled('Soft Edge', [[0, 'None'], [1, '1 pt'], [2.5, '2.5 pt'], [5, '5 pt'], [10, '10 pt'], [25, '25 pt']], value('Soft Edge') ?? 0);
+const reflectionItems = () => tiled('Reflection', [[null, 'None'], [{ size: 35, transparency: 48, distance: 0, blur: 0.5 }, 'A third, touching'], [{ size: 55, transparency: 50, distance: 0, blur: 0.5 }, 'Half, touching'], [{ size: 90, transparency: 50, distance: 0, blur: 0.5 }, 'Whole, touching'], [{ size: 35, transparency: 48, distance: 4, blur: 1 }, 'A third, 4 pt off'], [{ size: 55, transparency: 50, distance: 4, blur: 1 }, 'Half, 4 pt off']], value('Reflection'), { below: 1.1 });
+const innerItems = () => tiled('Inner Shadow', [['none', 'None'], ...[[45, 'Top left'], [135, 'Top right'], [225, 'Bottom right'], [315, 'Bottom left'], [90, 'Top'], [270, 'Bottom']].map(([angle, name]) => [{ blur: 5, distance: 3, angle, color: '#000000', transparency: 50 }, name]), [{ blur: 9, distance: 0, angle: 0, color: '#000000', transparency: 50 }, 'All round']], value('Inner Shadow') ?? 'none');
+const bevelItems = () => { const b = value('Bevel'), keep = { w: b?.w ?? 6, h: b?.h ?? 6, ...(b?.depth && { depth: b.depth }), ...(b?.material && { material: b.material }) }; return tiled('Bevel', [[null, 'None'], ...[['circle', 'Round'], ['relaxedInset', 'Soft, inset'], ['coolSlant', 'Slanted'], ['angle', 'Angled'], ['softRound', 'Soft, round'], ['convex', 'Domed'], ['slope', 'Sloped'], ['artDeco', 'Stepped']].map(([type, name]) => [{ type, ...keep }, name])], b); };
+const turn3dItems = () => tiled('Turn 3D', [[null, 'None'], [{ x: 45, y: 35, z: 0 }, 'Corner on, to the left'], [{ x: 315, y: 35, z: 0 }, 'Corner on, to the right'], [{ x: 30, y: 0, z: 0 }, 'Turned left'], [{ x: 330, y: 0, z: 0 }, 'Turned right'], [{ x: 0, y: 30, z: 0 }, 'Tilted back'], [{ x: 0, y: 330, z: 0 }, 'Tilted forward']], value('Turn 3D'));
 const EffectRows = ({ of }) => html`<div class="menu-sep" />
-  <${Sub} label="Glow" of=${of} items=${glowItems} /><${Sub} label="Soft edges" of=${of} items=${softItems} /><${Sub} label="Reflection" of=${of} items=${reflectionItems} /><${Sub} label="Inner shadow" of=${of} items=${innerItems} /><${Sub} label="Bevel" of=${of} items=${bevelItems} /><${Sub} label="3-D rotation" of=${of} items=${turn3dItems} />`;
+  <${Sub} label="Glow" of=${of} items=${glowItems} /><${Sub} label="Glow options" of=${of} pane=${() => html`<${GlowPop} />`} /><${Sub} label="Soft edges" of=${of} items=${softItems} /><${Sub} label="Reflection" of=${of} items=${reflectionItems} /><${Sub} label="Inner shadow" of=${of} items=${innerItems} /><${Sub} label="Bevel" of=${of} items=${bevelItems} /><${Sub} label="Bevel options" of=${of} pane=${() => html`<${BevelPop} />`} /><${Sub} label="3-D rotation" of=${of} items=${turn3dItems} />`;
+// A square throwing a shadow, the Effects button's: what the word means, as the bucket does for Fill.
+const effectsGlyph = html`<svg class="glyph fx" viewBox="0 0 16 16" aria-hidden="true"><path class="shade" d="M5 5h10v10H5z" /><path d="M1.75 1.75h10.5v10.5H1.75z" /></svg>`;
 // A gradient, as PowerPoint's: none, or linear, from the fill to a color lighter or darker of it, or to white; by which way it runs. Its stops say how, and its Fill is what it
 // starts from, so a gradient taken off leaves the fill it had.
 function gradientItems() {
   const now = value('Gradient') ?? null, base = String(value('Fill') ?? '#4472c4'), from = /^#[0-9a-f]{6}$/i.test(base) ? base.toLowerCase() : '#4472c4';
   const ends = [['Lighter', shaded(from, 0.4, 0.6)], ['Darker', shaded(from, 0.5, 0)], ['To white', '#ffffff']], ways = [[90, 'Down'], [0, 'Across'], [45, 'Diagonally down'], [315, 'Diagonally up']];
-  const of = (to, angle) => ({ angle, stops: [[0, from], [100, to]] }), is = g => JSON.stringify(g) === JSON.stringify(now);
-  const set = g => ({ run: () => g && value('Pattern') ? applyAll([['Gradient', g], ['Pattern', null]]) : apply('Gradient', g), point: on => on ? preview('Gradient', g) : preview() });
-  return [{ label: 'None', checked: !now, ...set(null) }, '-', ...ends.flatMap(([word, to]) => ways.slice(0, 2).map(([angle, way]) => ({ label: `${word}, ${way.toLowerCase()}`, checked: is(of(to, angle)), ...set(of(to, angle)) }))), '-',
-    ...ways.map(([angle, way]) => ({ label: way, disabled: !now, checked: now?.angle === angle, ...(now && set({ ...now, angle })) })), '-', { label: 'Stops…', run: () => stopsPop('Gradient', 'fill', from) }];
+  const of = (to, angle) => ({ angle, stops: [[0, from], [100, to]] }), is = g => JSON.stringify(g) === JSON.stringify(now), draw = drawer();
+  const set = g => ({ art: draw({ Gradient: g, Pattern: null, Picture: null }), run: () => g && value('Pattern') ? applyAll([['Gradient', g], ['Pattern', null]]) : apply('Gradient', g), point: on => on ? preview('Gradient', g) : preview() });
+  return [{ label: 'None', checked: !now, ...set(null) }, ...ends.flatMap(([word, to]) => ways.slice(0, 2).map(([angle, way]) => ({ label: `${word}, ${way.toLowerCase()}`, checked: is(of(to, angle)), ...set(of(to, angle)) }))), '-',
+    ...ways.map(([angle, way]) => ({ label: way, disabled: !now, checked: now?.angle === angle, ...(now && { ...set({ ...now, angle }), art: undefined }) }))];
 }
 // A pattern, as PowerPoint's: none, or one of its own, in the outline's color over the fill, which a gradient gives way to.
 function patternItems() {
-  const now = value('Pattern') ?? null, line = String(value('Outline') ?? ''), fg = /^#[0-9a-f]{6}$/i.test(line) ? line.toLowerCase() : '#000000';
-  const set = p => ({ run: () => p && value('Gradient') ? applyAll([['Pattern', p], ['Gradient', null]]) : apply('Pattern', p), point: on => on ? preview('Pattern', p) : preview() });
-  return [{ label: 'None', checked: !now, ...set(null) }, '-', ...Shapes.PATTERNS.map(([prst, label]) => ({ label, checked: now?.prst === prst, ...set({ prst, fg: now?.fg ?? fg }) }))];
+  const now = value('Pattern') ?? null, line = String(value('Outline') ?? ''), fg = /^#[0-9a-f]{6}$/i.test(line) ? line.toLowerCase() : '#000000', draw = drawer();
+  const set = p => ({ art: draw({ Pattern: p, Gradient: null, Picture: null }), run: () => p && value('Gradient') ? applyAll([['Pattern', p], ['Gradient', null]]) : apply('Pattern', p), point: on => on ? preview('Pattern', p) : preview() });
+  return [{ label: 'None', checked: !now, ...set(null) }, ...Shapes.PATTERNS.map(([prst, label]) => ({ label, checked: now?.prst === prst, ...set({ prst, fg: now?.fg ?? fg }) }))];
 }
 // Outline, as PowerPoint's Shape Outline: the palette, then its Weight ▸ and Dashes ▸, a line's Arrows ▸ and Route
 // ▸, a group's Frame ▸, and No outline.
@@ -1045,17 +1062,18 @@ function arrowItems() {
 function OutlinePop({ close, of }) {
   const ms = current?.marks ?? [], lines = ms.some(m => m.type === 'line' || m.geometry === 'line'), framed = current?.scope?.outputs && ms.some(m => m.type === 'box');
   const mixed = differs('Weight'), now = mixed ? '' : +Scene.toSlide(page(), value('Weight') ?? 0.75).toFixed(2), weight = mixed ? null : WEIGHTS.find(w => Math.abs(now - w) < 0.01);
-  return html`<${Palette} label="Outline" none close=${close}>
+  return html`<${Palette} label="Outline" none close=${close} of=${of}>
     <div class="menu-sep" />
     ${mixed ? html`<div class="menu-head">${mixed}</div>` : null}
     <div class="menu-item withfield"><${Sub} label="Weight" of=${of} items=${() => choices('Weight', WEIGHTS.map(w => [w, `${w} pt`]), weight, weightGlyph)} /><${Typed} label="Weight" v=${now} unit="pt" min=${0.25} step=${0.25} put=${x => apply('Weight', x)} tries=${x => x === null ? preview() : preview('Weight', x)} /></div>
     <${Sub} label="Dashes" of=${of} items=${() => { const d = differs('Dash'); return [...(d ? [{ head: d }] : []), ...choices('Dash', DASH_NAMES, d ? null : value('Dash'), lineGlyph)]; }} />
     <${Sub} label="Compound" of=${of} items=${() => choices('Compound', COMPOUNDS, value('Compound') ?? 'single')} />
     <${Sub} label="Gradient" of=${of} items=${lineGradientItems} />
+    <${Sub} label="Gradient options" of=${of} pane=${() => html`<${StopsPop} label="Line Gradient" />`} />
     <${Slider} label="Transparency" k="Line Transparency" v=${Math.round(value('Line Transparency') ?? 0)} />
-    ${lines ? html`<${Sub} label="Arrows" of=${of} items=${arrowItems} />
-      <${Sub} label="Route" of=${of} items=${() => choices('Connector', [['elbow', 'Elbow'], ['straight', 'Straight']], value('Connector'))} />` : null}
-    ${framed ? html`<${Sub} label="Frame" of=${of} items=${() => choices('Frame', [['none', 'None'], ['dashed', 'Dashed box'], ['solid', 'Box'], ['bracket', 'Bracket']], value('Frame') ?? 'none', frameGlyph)} />` : null}
+    <${Sub} label="Arrows" of=${of} disabled=${!lines} items=${arrowItems} />
+    <${Sub} label="Route" of=${of} disabled=${!lines} items=${() => choices('Connector', [['elbow', 'Elbow'], ['straight', 'Straight']], value('Connector'))} />
+    <${Sub} label="Frame" of=${of} disabled=${!framed} items=${() => choices('Frame', [['none', 'None'], ['dashed', 'Dashed box'], ['solid', 'Box'], ['bracket', 'Bracket']], value('Frame') ?? 'none', frameGlyph)} />
     <div class="menu-sep" /></${Palette}>`;
 }
 // Shape: PowerPoint's basic shapes, each a preset of its in the deck, a rounded rectangle's Rounding, and its Shadow. It
@@ -1063,15 +1081,23 @@ function OutlinePop({ close, of }) {
 const SHAPES = Shapes.list;
 // PowerPoint's outer shadows, by which way each is thrown: its angle, clockwise from the right, and whether it has one; the middle, none, all round.
 const THROWN = [[-1, -1, 225, 'Top left'], [0, -1, 270, 'Top'], [1, -1, 315, 'Top right'], [-1, 0, 180, 'Left'], [0, 0, null, 'Centered'], [1, 0, 0, 'Right'], [-1, 1, 135, 'Bottom left'], [0, 1, 90, 'Bottom'], [1, 1, 45, 'Bottom right']];
-function ShadowPicker() {
-  const v = value('Shadow'), o = Scene.shadowOf(v), base = o ?? Scene.shadowOf('soft'), set = changes => apply('Shadow', { ...base, ...changes }), tries = k => x => x === null ? preview() : preview('Shadow', { ...base, [k]: x });
+function ShadowPicker({ of }) {
+  const v = value('Shadow'), o = Scene.shadowOf(v), base = o ?? Scene.shadowOf('soft'), draw = drawer();
   const same = t => !!o && (t[2] === null ? o.distance === 0 : o.distance > 0 && Math.abs(o.angle - t[2]) < 0.5);
   const preset = t => ({ ...base, distance: t[2] === null ? 0 : base.distance || 3, angle: t[2] ?? 0, ...(t[2] === null && { blur: 5 }) });
-  const hex = o ? o.color.slice(1).toUpperCase() : '000000';
   return html`<div class="shadow">
-    <div class="k">Shadow</div>
-    <div class="throw" data-grid=":scope > button" role="group" aria-label="Shadow" onPointerLeave=${() => preview()}>${THROWN.map(t => html`<button aria-label=${t[3]} data-tip=${t[3]} aria-pressed=${same(t)} onPointerEnter=${() => preview('Shadow', preset(t))} onFocus=${e => { if (e.currentTarget.matches(':focus-visible')) preview('Shadow', preset(t)); }} onClick=${() => apply('Shadow', preset(t))}>${shadowGlyph(t[0], t[1])}</button>`)}</div>
+    <div class="menu-head">Shadow</div>
+    <div class="throw" data-grid=":scope > button" role="group" aria-label="Shadow" onPointerLeave=${() => preview()}>${THROWN.map(t => html`<button class="tile" aria-label=${t[3]} data-tip=${t[3]} aria-pressed=${same(t)} onPointerEnter=${() => preview('Shadow', preset(t))} onFocus=${() => { if (document.documentElement.dataset.hand === 'keys') preview('Shadow', preset(t)); }} onClick=${() => apply('Shadow', preset(t))}><span class="art" dangerouslySetInnerHTML=${{ __html: draw({ Shadow: preset(t) }) }} /></button>`)}</div>
     <button class="menu-item noshadow" role="menuitemcheckbox" aria-checked=${!o} onPointerEnter=${() => preview('Shadow', 'none')} onPointerLeave=${() => preview()} onClick=${() => apply('Shadow', 'none')}><span class="label">No shadow</span>${!o ? Shell.icon('check') : null}</button>
+    <${Sub} label="Shadow options" of=${of} pane=${() => html`<${ShadowOptions} />`} />
+  </div>`;
+}
+// What a shadow is, each typed, what it had staying.
+function ShadowOptions() {
+  readNow();
+  const o = Scene.shadowOf(value('Shadow')), base = o ?? Scene.shadowOf('soft'), set = changes => apply('Shadow', { ...base, ...changes }), tries = k => x => x === null ? preview() : preview('Shadow', { ...base, [k]: x });
+  const hex = o ? o.color.slice(1).toUpperCase() : '000000';
+  return html`<div class="shadow options">
     <label class="menu-item"><span class="label">Blur</span><${Typed} label="Blur" v=${base.blur} unit="pt" max=${100} put=${x => set({ blur: x })} tries=${tries('blur')} /></label>
     <label class="menu-item"><span class="label">Distance</span><${Typed} label="Distance" v=${base.distance} unit="pt" max=${200} put=${x => set({ distance: x })} tries=${tries('distance')} /></label>
     <label class="menu-item"><span class="label">Angle</span><${Typed} label="Angle" v=${base.angle} unit="°" max=${359} put=${x => set({ angle: x })} tries=${tries('angle')} /></label>
@@ -1095,13 +1121,13 @@ function ShapePop({ close, of }) {
   return html`<div class="picker shape">
     <div class="gallery" data-grid=".shapes > button" role="group" aria-label="Shape" onPointerLeave=${() => preview()}>${Shapes.gallery().map(g => html`<div class="menu-head">${g.head}</div><div class="shapes">${g.shapes.map(([id, name]) => html`<button aria-label=${name} data-tip=${name} aria-pressed=${now === id} autofocus=${now === id} onPointerEnter=${() => preview('Shape', id)} onFocus=${e => { if (e.currentTarget.matches(':focus-visible')) preview('Shape', id); }} onClick=${() => { setPicked(id); apply('Shape', id); }}>${shapeGlyph(id)}</button>`)}</div>`)}</div>
     <${Slider} label="Rounding" k="Corner" v=${Math.round(value('Corner') ?? Scene.CORNER)} max="50" disabled=${!rounded} />
-    ${current?.marks.length === 1 ? html`<button class="menu-item" onClick=${() => { close?.(); Canvas.active.peek()?.editPoints(); }}><span class="label">Edit points</span></button>` : null}
+    <button class="menu-item" disabled=${current?.marks.length !== 1} onClick=${() => { close?.(); Canvas.active.peek()?.editPoints(); }}><span class="label">Edit points</span></button>
   </div>`;
 }
 // Effects, as PowerPoint's Shape Effects: its shadow, its other effects, each its own.
 function EffectsPop({ of }) {
   readNow();
-  return html`<div class="picker shape"><${ShadowPicker} /><${EffectRows} of=${of} /></div>`;
+  return html`<div class="picker effects"><${ShadowPicker} of=${of} /><${EffectRows} of=${of} /></div>`;
 }
 // Paragraph: the text's alignment across, its place down the box, and its line spacing.
 // On a free shape or text box, as PowerPoint's Paragraph and Text Box panes: bullets and numbers, how far it's indented, its inner margins (points, as printed, each side typed), and Shrink on
@@ -1208,8 +1234,7 @@ function SizeBox({ v, disabled, why }) {
   return html`<span class=${'combo size' + (disabled ? ' off' : '')} data-tip=${why}>
     <input data-fb="size" value=${String(v)} disabled=${disabled} aria-label="Font size" spellcheck="false" autocomplete="off" inputmode="decimal"
       onFocus=${e => e.currentTarget.select()} onKeyDown=${keys} onBlur=${e => { e.currentTarget.value = String(v); }} />
-    <button class="dd" data-fb="sizes" aria-label="Font sizes" disabled=${disabled} onClick=${e => offer(e.currentTarget, STEPS.slice(0, 15).map(z => ({ label: String(z), checked: v === z,
-      run: () => apply('Size', z), tries: ['Size', z] })))} /></span>`;
+    <button class="dd" data-fb="sizes" aria-label="Font sizes" disabled=${disabled} onClick=${e => opener.size(e.currentTarget)} /></span>`;
 }
 
 // ---- The format painter, and Clear formatting ----
@@ -1413,28 +1438,31 @@ function clearStyles(view, notes) {
   App.change(tx => { all.forEach(n => tx.remove(n.note)); tx.says(said); }, { dated: false, say: said });
 }
 
-// Insert: a box of each of the chart's kinds, a record named as it's typed; then the shapes PowerPoint has.
+// Insert: a box of each of the chart's kinds, a record named as it's typed; then the shapes PowerPoint has. Its rows are the same whatever's selected, so each stays under the hand: what can't be now greys, and says why.
 function insertMenu(e, c) {
-  const item = (label, run, close) => html`<button type="button" class="menu-item" role="menuitem" onClick=${() => { close(); run(); }}><span class="label">${label}</span></button>`;
+  const item = (label, run, close, why = null) => html`<button type="button" class="menu-item" role="menuitem" aria-disabled=${why ? 'true' : null} data-tip=${why} onClick=${() => { if (why) return; close(); run(); }}><span class="label">${label}</span></button>`;
   // (In one order, so what's on top now is on top next time: drawing two of a kind moves nothing under the hand.)
   // (What goes where the pen is: words in what's selected, and a footnote, a page's, of what has words: so no table's, and nothing on the master.)
   const kinds = [...Canvas.kinds()].sort(), mastering = c.scene()?.view === Scene.MASTER, ms = c.selected(), one = ms.length === 1 ? ms[0] : null, bound = one?.type === 'box' || one?.type === 'line', noted = !mastering && (bound || (one?.type === 'shape' && !one.role && !['legend', 'group', 'line', 'picture', 'table'].includes(one.geometry)));
   // A shape, a line or an arrow is drawn on the chart by dragging, a click placing it at its size (or Enter, in free room); a text box is typed straight in, or drawn too.
   // One picker for the arrows, top to bottom, and across among the shapes; each shape says its name as the keys land on it.
+  const offMaster = 'Not on the master';
   Shell.popover(e.currentTarget, close => html`<div class="insert" role="menu" data-grid="button">
-    ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
-    ${bound ? item(one.type === 'line' ? 'Text on this line' : 'Text in this box', () => c.addText(one.id), close) : null}${noted ? item('Footnote', () => c.footnote(one.id), close) : null}${noted ? html`<div class="menu-sep" />` : null}
-    ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].filter(([g]) => !mastering || !['legend', 'frame'].includes(g)).map(([g, name]) =>
-      item(name, () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g), close))}
-    ${item('Picture from clipboard', () => pictureOffClipboard(c), close)}
-    ${item('Table', () => tablePick(document.querySelector('.fb [data-fb="insert"]'), c), close)}
-    ${item('Icon', () => iconPick(document.querySelector('.fb [data-fb="insert"]'), c), close)}
-    ${item('Freeform', () => c.draw('freeform'), close)}
-    ${item('Curve', () => c.draw('curve'), close)}
-    ${mastering ? html`<div class="menu-sep" />${[['Footer', 'text'], ['Date', 'date'], ['Page number', 'number']].map(([name, k]) => html`<button class="menu-item" role="menuitemcheckbox" aria-checked=${!!footNote()[k]} onClick=${() => { close(); masterFoot(c, k); }}><span class="label">${name}</span>${footNote()[k] ? Shell.icon('check') : null}</button>`)}` : null}
-    <div class="menu-sep" />
+    <div class="rows">
+      ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
+      ${item(one?.type === 'line' ? 'Text on this line' : 'Text in this box', () => c.addText(one.id), close, bound ? null : 'Select a box first')}${item('Footnote', () => c.footnote(one.id), close, noted ? null : mastering ? offMaster : 'Select what it’s about first')}
+      <div class="menu-sep" />
+      ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].map(([g, name]) =>
+        item(name, () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g), close, mastering && ['legend', 'frame'].includes(g) ? offMaster : null))}
+      ${item('Picture from clipboard', () => pictureOffClipboard(c), close)}
+      ${item('Table', () => tablePick(document.querySelector('.fb [data-fb="insert"]'), c), close)}
+      ${item('Icon', () => iconPick(document.querySelector('.fb [data-fb="insert"]'), c), close)}
+      ${item('Freeform', () => c.draw('freeform'), close)}
+      ${item('Curve', () => c.draw('curve'), close)}
+      ${mastering ? html`<div class="menu-sep" />${[['Footer', 'text'], ['Date', 'date'], ['Page number', 'number']].map(([name, k]) => html`<button class="menu-item" role="menuitemcheckbox" aria-checked=${!!footNote()[k]} onClick=${() => { close(); masterFoot(c, k); }}><span class="label">${name}</span>${footNote()[k] ? Shell.icon('check') : null}</button>`)}` : null}
+      ${typeof Table === 'undefined' ? null : html`<div class="menu-sep" />${item('Import…', () => Table.importFile(), close, mastering ? offMaster : null)}`}
+    </div>
     <div class="gallery">${Shapes.gallery().map(g => html`<div class="menu-head">${g.head}</div><div class="shapes">${g.shapes.map(([id, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); c.draw(id); }}>${shapeGlyph(id)}</button>`)}</div>`)}</div>
-    ${typeof Table === 'undefined' || mastering ? null : html`<div class="menu-sep" />${item('Import…', () => Table.importFile(), close)}`}
   </div>`, { placement: 'bottom-start' });
 }
 // The master's placeholders, as PowerPoint's: its footer, typed where it stands; the day each page shows; its number. On every page, the chart's own Footer note. A placeholder that's there, taken off.
@@ -1453,12 +1481,13 @@ function TablePick({ c, close }) {
   </div>`;
 }
 const tablePick = (at, c) => Shell.popover(at, close => html`<${TablePick} c=${c} close=${close} />`, { placement: 'bottom-start' });
-// Lucide's icons, found by typing, what a chart asks for most first: each comes in as a shape of its own, its strokes a freeform's, so it takes an outline and a weight, its points can be edited, and in a deck it's PowerPoint's own.
-const ICONS_FIRST = ['User', 'Users', 'UserCheck', 'Baby', 'Heart', 'Crown', 'Building', 'Building2', 'Landmark', 'Factory', 'Store', 'House', 'Briefcase', 'Network', 'Scale', 'Gavel', 'Shield', 'Lock', 'FileText', 'FileCheck', 'Banknote', 'DollarSign', 'PiggyBank', 'Handshake', 'Globe', 'MapPin', 'Flag', 'Star', 'Calendar', 'Clock', 'Mail', 'Phone', 'Info', 'CircleCheck', 'CircleX', 'TriangleAlert'];
-const iconNames = () => iconNames.all ??= typeof lucide === 'undefined' ? [] : (all => [...ICONS_FIRST.filter(k => all.includes(k)), ...all.filter(k => !ICONS_FIRST.includes(k))])(Object.keys(lucide).filter(k => Array.isArray(lucide[k]) && lucide[k][0] === 'svg' && /^[A-Z]/.test(k)).sort());
+// Lucide's icons: what a chart asks for, a set chosen for it, whole rows of them; any other found by typing, but for the glyphs of the window's own controls, which mean nothing on a chart. Each comes in as a shape of its own, its strokes a freeform's, so it takes an outline and a weight, its points can be edited, and in a deck it's PowerPoint's own.
+const ICONS_FIRST = ['User', 'Users', 'UserCheck', 'Baby', 'Heart', 'Crown', 'Stethoscope', 'GraduationCap', 'Building', 'Building2', 'Landmark', 'Factory', 'Store', 'House', 'School', 'Hospital', 'Briefcase', 'Network', 'Scale', 'Gavel', 'Stamp', 'Handshake', 'Shield', 'Lock', 'FileText', 'FileCheck', 'Banknote', 'DollarSign', 'Coins', 'PiggyBank', 'Wallet', 'Receipt', 'Globe', 'MapPin', 'Flag', 'Star', 'Calendar', 'Clock', 'Mail', 'Phone', 'Info', 'CircleCheck', 'CircleX', 'TriangleAlert', 'Plane', 'Ship', 'Truck', 'Leaf'];
+const APP_GLYPHS = /^(A[A-Z]|Align|Baseline|Bold|Italic|Underline|Strikethrough|Undo|Redo|Eraser|Paintbrush|PaintBucket|Pipette|Panel|Ellipsis|Chevron|Grip|Ungroup|Group$|ClipboardPaste|BringToFront|SendToBack|LayoutTemplate|Sparkles)/;
+const iconNames = () => iconNames.all ??= typeof lucide === 'undefined' ? [] : Object.keys(lucide).filter(k => Array.isArray(lucide[k]) && lucide[k][0] === 'svg' && /^[A-Z]/.test(k) && !APP_GLYPHS.test(k)).sort();
 const spaced = k => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
 function IconPick({ c, close }) {
-  const [q, setQ] = useState(''), words = q.trim().toLowerCase().split(/\s+/).filter(Boolean), found = iconNames().filter(k => { const s = spaced(k).toLowerCase(); return words.every(w => s.includes(w)); }).slice(0, 120);
+  const [q, setQ] = useState(''), words = q.trim().toLowerCase().split(/\s+/).filter(Boolean), found = words.length ? iconNames().filter(k => { const s = spaced(k).toLowerCase(); return words.every(w => s.includes(w)); }).slice(0, 120) : ICONS_FIRST.filter(k => lucide?.[k]);
   const take = k => { close(); const s = c.scene().page.scale ?? 1, side = Math.round(48 / s); c.insert('freeform', { w: side, h: side, alt: spaced(k), name: spaced(k), format: { Fill: 'none', Outline: inkOfChart(c), Weight: 1.5, Points: Shapes.iconPoints(lucide[k]) } }); };
   return html`<div class="iconpick" role="dialog" aria-label="Icon">
     <input class="find" type="text" placeholder="Find an icon" aria-label="Find an icon" spellcheck="false" autocomplete="off" autofocus value=${q} onInput=${e => setQ(e.currentTarget.value)} onKeyDown=${e => { if (e.key === 'Enter' && found[0]) { e.preventDefault(); take(found[0]); } }} />
@@ -1491,10 +1520,12 @@ function picture(c) {
 const opener = {
   fill: at => pop(at, (close, of) => html`<${FillPop} close=${close} of=${of} />`),
   outline: at => pop(at, (close, of) => html`<${OutlinePop} close=${close} of=${of} />`),
-  color: at => pop(at, (close, of) => html`<${Palette} label="Color" close=${close}>
+  color: at => pop(at, (close, of) => html`<${Palette} label="Color" close=${close} of=${of}>
     <${Sub} label="Gradient" of=${of} items=${() => { const c = String(value('Color') ?? '#1f3864'), from = /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : '#1f3864', g = (to, angle) => ({ angle, stops: [[0, from], [100, to]] }); return looksLike('Text Gradient', [[null, 'None'], [g(shaded(from, 0.4, 0.6), 90), 'Lighter, down'], [g(shaded(from, 0.5, 0), 90), 'Darker, down'], [g(shaded(from, 0.4, 0.6), 0), 'Lighter, across']], value('Text Gradient')); }} />
+    <${Sub} label="Gradient options" of=${of} pane=${() => html`<${StopsPop} label="Text Gradient" />`} />
     <${Sub} label="Text outline" of=${of} items=${() => { const c = inkNow(); return looksLike('Text Outline', [[null, 'None'], ...[0.25, 0.5, 0.75, 1, 1.5].map(weight => [{ color: c, weight }, `${weight} pt`])], value('Text Outline')); }} /></${Palette}>`),
   font: at => pop(at, close => html`<${Fonts} close=${close} />`),
+  size: at => { const v = shown(value('Size')); offer(at, STEPS.slice(0, 15).map(z => ({ label: String(z), checked: v === z, run: () => apply('Size', z), tries: ['Size', z] }))); },
   shape: at => pop(at, (close, of) => html`<${ShapePop} close=${close} of=${of} />`),
   // (A table's is its style's gallery; anything else's, the designs.)
   design: at => { const c = Canvas.active.peek(), t = c?.selected?.().find(m => m.geometry === 'table'); return pop(at, close => t ? html`<${c.StyleGallery} id=${t.id} close=${close} />` : Designs.open(at, close)); },
@@ -1805,8 +1836,10 @@ function Bar() {
     const what = listed([...new Set(kept.flatMap(k => k.notes.map(n => n.label)))]);
     const clear = kept.length ? [{ label: `Clear ${whose} own ${what}`, disabled: ro,
       run: () => App.change(tx => kept.forEach(k => k.notes.forEach(n => tx.remove(n.note))), { say: `Cleared ${whose} own ${what}` }) }, { label: 'Select what differs', run: selectDiffers }] : [];
+    // (A long list is no wall: the selection's and the Styles rows that reach it, and what each of its own fields could reach a row away, unless that's where the pen is.)
+    const many = s.scopes.length > 14 && !own.includes(scope);
     return [s.scopes.filter(x => x.own).map(item), rows.filter(x => !x.name).map(item), headed.flatMap((x, i) => x.style === headed[i - 1]?.style ? [item(x)] : [{ head: x.name }, item(x)]),
-      own.length ? [{ head: 'Same field value' }, ...own.map(item)] : [], clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
+      own.length ? many ? [{ label: 'Same field value', items: own.map(item) }] : [{ head: 'Same field value' }, ...own.map(item)] : [], clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
   };
   // The scope as two parts, PowerPoint's selection on the left and all like it on the right: the group chosen, or
   // else the narrowest, which its ▾ chooses among the rest. A Key row or a frame is its group alone.
@@ -1851,7 +1884,7 @@ function Bar() {
     <span class="sep" />
     <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
     <button class="btn dd" aria-label="Design" data-fb="design" ...${writes('Design', !s.marks.some(m => m.type === 'box' || m.type === 'line' || m.geometry === 'table'))} onClick=${e => opener.design(e.currentTarget)}>${Shell.icon('LayoutTemplate')}</button>
-    <button class="btn dd" aria-label="Effects" data-fb="effects" ...${writes('Shadow, glow, reflection and more', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.effects(e.currentTarget)}>${Shell.icon('Sparkles')}</button>
+    <button class="btn dd" aria-label="Effects" data-fb="effects" ...${writes('Shadow, glow, reflection and more', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.effects(e.currentTarget)}>${effectsGlyph}</button>
     <button class="btn dd" aria-label="Fill" data-fb="fill" ...${writes('Fill', !boxy)} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-fb="outline" ...${writes('Outline', none || textStyle || footOnly)} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle && !footOnly ? value('Outline') : 'none')}</button>
     <span class="sep" />
