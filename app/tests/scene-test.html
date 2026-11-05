@@ -228,9 +228,9 @@ function run() {
       && plain.caption.text === listed(plain.outputs.map(p => Scene.outputName(wb.notes(C), p))), plain.caption.text);
     const sample = fresh();
     const exhibits = ['view_main', 'view_40act', 'view_fund3', 'view_control'].map(v => {
-      const sh = scene(sample, v).marks.filter(m => m.type === 'shape'), text = m => sample.item(C, m.id)[0]?.text ?? '';
+      const drawn = scene(sample, v), sh = drawn.marks.filter(m => m.type === 'shape'), text = m => sample.item(C, m.id)[0]?.text ?? '';
       const asOf = sh.find(m => /^="As of " & TEXT\(@AsOf/.test(text(m)));
-      return { title: sh.some(m => m.geometry === 'text' && m.role === 'title' && m.look.Size >= 16), asOf: asOf?.texts[0]?.text, key: sh.some(m => m.geometry === 'legend' && m.columns === 2) };
+      return { title: sh.some(m => m.geometry === 'text' && m.role === 'title' && m.look.Size * drawn.page.scale >= 16), asOf: asOf?.texts[0]?.text, key: sh.some(m => m.geometry === 'legend' && m.columns === 2) };
     });
     check('every sample chart view is an exhibit: a title, its date and a Key', exhibits.every(e => e.title && e.asOf && e.key), j(exhibits));
     check('… its date worked out as of the view’s day', exhibits.every(e => e.asOf === 'As of October 26, 2026'), j(exhibits.map(e => e.asOf)));
@@ -582,13 +582,13 @@ function run() {
       const s1 = scene(w), t = id => Tree.treeOf(computed(w).records, id);
       check('a scale kept reads as it is, the chart as it stood', s1.page.scale === s0.page.scale && j(boxesOf(s1)) === j(boxesOf(s0)), j([s1.page.scale, s0.page.scale]));
       // A box a hand puts beyond the margins, or off the sheet, stays there: the scale and the rest as they were.
-      edit(w, (tx, N) => tx.note('Position', t('halvard'), { x: s0.page.w + 200, y: s0.page.h - 40, w: 132 }, { view: MAIN }));
+      edit(w, (tx, N) => tx.note('Position', t('halvard'), { x: s0.page.w + 200, y: s0.page.h - 40, w: 132, hand: true }, { view: MAIN }));
       const s2 = scene(w), rest = s => boxesOf(s).filter(b => b[0] !== 'halvard');
       check('a box a hand puts off the sheet stays there, and the page neither moves the chart nor rescales it', s2.page.scale === s0.page.scale && s2.byId.get('halvard').x === s0.page.w + 200 && j(s2.page.offset) === j({ x: 0, y: 0 }) && j(rest(s2)) === j(rest(s1)),
         j({ scale: s2.page.scale, off: s2.page.offset, x: s2.byId.get('halvard').x }));
       check('… and the page says it runs off', Scene.says(s2, b => b.id === 'halvard' ? 'Halvard' : null).includes('Halvard runs off the page'), j(Scene.says(s2)));
       // Sized by hand, the same.
-      edit(w, (tx, N) => tx.note('Position', t('corvane'), { x: s0.page.w - 200, y: s0.page.h - 100, w: 300, h: 200 }, { view: MAIN }));
+      edit(w, (tx, N) => tx.note('Position', t('corvane'), { x: s0.page.w - 200, y: s0.page.h - 100, w: 300, h: 200, hand: true }, { view: MAIN }));
       const s3 = scene(w);
       check('… and a box sized by hand past the margins too', s3.page.scale === s0.page.scale, j(s3.page.scale));
       // Without it, the scale is set afresh: what Fit to page does.
@@ -607,7 +607,8 @@ function run() {
       check('a chart kept where the layout placed it stands, at the scale kept', same.page.scale === s5.page.scale, j([same.page.scale, s5.page.scale]));
       // A place kept beyond the margins was put there, as a box is moved down to make room for one inserted: it stays, the scale as it was, and the page says so.
       const w5 = fresh(), rec5 = computed(w5).records;
-      edit(w5, tx => { tx.note('Scale', { id: MAIN, kind: 'View' }, { scale: s5.page.scale, x: 0, y: 0 }); for (const b of s5.marks.filter(m => m.type === 'box')) tx.note('Position', Tree.treeOf(rec5, b.record), { x: b.x, y: b.id === 'halvard' ? s5.page.h + 30 : b.y, w: b.w, kept: true }, { view: MAIN }); });
+      // (On a page someone has arranged: one place a hand gave. On one nobody has, what's kept says nothing: see below.)
+      edit(w5, tx => { tx.note('Scale', { id: MAIN, kind: 'View' }, { scale: s5.page.scale, x: 0, y: 0 }); for (const b of s5.marks.filter(m => m.type === 'box')) tx.note('Position', Tree.treeOf(rec5, b.record), { x: b.x, y: b.id === 'halvard' ? s5.page.h + 30 : b.y, w: b.w, ...(b.id !== 'fund' && { kept: true }) }, { view: MAIN }); });
       const past = scene(w5);
       check('a place kept past the foot stays there, the scale as it was, and the page says it runs off', past.page.scale === s5.page.scale && past.byId.get('halvard').y >= s5.page.h && Scene.says(past, b => b.id === 'halvard' ? 'Halvard' : null).includes('Halvard runs off the page'), j([past.page.scale, past.byId.get('halvard').y, s5.page.h]));
       edit(w5, tx => tx.note('Scale', { id: MAIN, kind: 'View' }, { scale: s5.page.scale, x: 0, y: 0, fit: true }));
@@ -638,14 +639,14 @@ function run() {
       footed.every(f => f.ok) && footed.slice(3).every(f => f.k[1] < f.rightAligned), j(footed));
     check('… or beside the title, top right, where that draws the chart larger: 40 Act', Math.abs(placed[1].k.x + placed[1].k.w - 1232) < 1 && Math.abs(placed[1].k.y - 48) < 0.5, j(placed[1].k));
     check('nothing drawn overlaps the title, the date or the Key', placed.every(p => !p.chart.some(r => meets(r, p.t) || meets(r, p.d) || meets(r, p.k))));
-    // A short chart starts 24 pt under its date, as every chart does, its Key with it, and the room the page has left is
-    // at its foot: Management and control, on the slide and on Letter, so no band of the page is empty under the title.
+    // A short chart stands in the middle of the room under its title and date, its Key with it: Management and control,
+    // on the slide and on Letter, so no band of the page is empty on one side of it.
     const short = [sc[3], scene(wb, 'view_control', { paper: 'letter' })].map(s => {
       const f = furniture(s), d = sheetOf(s, f.date), ruled = s.marks.filter(m => m.type === 'line').flatMap(l => l.points.map(([x, y]) => ({ x: on(s, x), y: on(s, y), w: 0, h: 0 })));
       const reach = [...s.marks.filter(m => m.type === 'box' || m.type === 'frame').map(m => sheetOf(s, m)), ...ruled, sheetOf(s, f.key)];
       return { above: Math.min(...reach.map(r => r.y)) - (d.y + d.h - 4.8 + 32), below: s.page.sheet.h - 48 - Math.max(...reach.map(r => r.y + r.h)) };
     });
-    check('a short chart starts 24 pt under its title and date, its Key with it, the room left at the page’s foot', short.every(p => Math.abs(p.above) < 1 && p.below > 20), j(short));
+    check('a short chart stands in the middle of the room under its title and date, its Key with it', short.every(p => p.above >= -1 && Math.abs(p.above - p.below) < 2), j(short));
     // A free shape is the page's, as a PowerPoint shape is (dendra.md, Free shapes): a text box put beside the title stands
     // there, and the chart, its page and its Key stand as they stood without it; one put off the page comes back onto it.
     {
@@ -1621,7 +1622,7 @@ function aboutAnything() {
     const m = t2.commit();
     if (typeof m === 'string') throw new Error(m);
     const N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, DAY2), N.definitions(S), { relations: N.relations(S) });
-    return { made, R, s: Scene.of(wb, c, ids.get(v), DAY2, { state: R.records, computed: R }) };
+    return { made, R, s: Scene.of(wb, c, ids.get(v), DAY2, { state: R.records, computed: R }), on: o => Scene.of(wb, c, ids.get(v), DAY2, { state: R.records, computed: R, ...o }) };
   };
   for (const t of Templates.list()) {
     const { s, R } = chart(t.id, tx => Templates.exampleOf(tx, t));
@@ -1632,6 +1633,43 @@ function aboutAnything() {
     else check(`${t.name} brings its own design, plain data, its boxes taking it, and its gallery has it`, JSON.stringify(JSON.parse(JSON.stringify(own.value))) === JSON.stringify(own.value) && s.marks.some(m => m.design?.value.id === own.value.id && m.parts?.length) && t.rows.find(r => r.label === 'Designs')?.value.list[0].id === own.value.id);
   }
   const person = (tx, name, more = {}) => { const id = tx.add('record', { kind: 'Person' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }); for (const [edge, value] of Object.entries(more)) tx.add('record', { at: id, edge, field: 'date', value }); return id; };
+  // Tidy never flattens (dendra.md, The layout): the rows are the relations', whatever's filled, sized or placed. A check per template, its example filled by an answer of two, then sized, then laid out as Tidy lays it out.
+  for (const t of Templates.list()) {
+    const rowsOf = s => { const ys = [...new Set(s.marks.filter(m => m.type === 'box').map(m => Math.round(m.y)))].sort((a, b) => a - b); return j(s.marks.filter(m => m.type === 'box').map(m => [m.id, ys.indexOf(Math.round(m.y))]).sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(x => x[1])); };
+    const K = Object.values(t.example.boxes)[0][0];
+    const redraw = extra => { const wb = Log.open({ dendra: 1, changes: [] }), c = 'c1', tx = wb.edit({ chart: c, who: WHO }); tx.add('chart', { name: t.name }, c); const ids = Templates.begin(tx, t, t.name), vw = ids.get(t.rows.find(r => 'record' in r).record); tx.commit(); const t2 = wb.edit({ chart: c, who: WHO }), made = Templates.exampleOf(t2, t); t2.commit(); const t3 = wb.edit({ chart: c, who: WHO }); extra(t3, made, vw); if (typeof t3.commit() === 'string') throw new Error('extra'); const N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, DAY2), N.definitions(S), { relations: N.relations(S) }); return Scene.of(wb, c, vw, DAY2, { state: R.records, computed: R }); };
+    const before = rowsOf(redraw(() => {}));
+    const answer = (tx, made, vw) => { for (const c of ['Man', 'Woman']) { const tree = { out: { choice: c }, args: [{ edge: 'Sex', loc: { kind: K } }] }; tx.add('spec', { tree }); tx.note('Fill', tree, c === 'Man' ? '#dde8f7' : '#fbe3d6', { view: vw }); } [...made.values()].forEach((id, i) => tx.add('record', { at: id, edge: 'Sex', choice: i % 2 ? 'Man' : 'Woman' })); };
+    check(`${t.name}: boxes filled by an answer stay on the rows their relations say`, rowsOf(redraw(answer)) === before, j([rowsOf(redraw(answer)), before]));
+    check(`${t.name}: and sized, larger, the same rows`, rowsOf(redraw((tx, made, vw) => { answer(tx, made, vw); tx.note('Size', { args: [{ edge: 'Name', loc: {} }] }, 14, { view: vw }); })) === before);
+  }
+  // The page fills (dendra.md, The page): as large as it holds, on any paper, and in the middle of the room under its title.
+  const orgOf = (n, tx) => { const reports = (a, b) => tx.add('record', { args: [{ edge: 'Manager', at: a }, { edge: 'Report', at: b }], tag: true }), ceo = person(tx, 'Priya Raman'), all = [ceo]; let k = 0; for (let i = 0; i < 4 && all.length < n; i++) { const v = person(tx, `Vice President ${++k}`); reports(ceo, v); all.push(v); for (let j = 0; j < 2 && all.length < n; j++) { const m = person(tx, `Dana Whitfield ${++k}`); reports(v, m); all.push(m); for (let q = 0; q < 2 && all.length < n; q++) { const l = person(tx, `Luis Ortega ${++k}`); reports(m, l); all.push(l); } } } return all; };
+  const sheetBox = s => { const bs = s.marks.filter(m => m.type === 'box'), u = s.page.scale, dateFoot = Math.max(...s.marks.filter(m => m.role === 'title' || m.role === 'date').map(m => (m.y + m.h) * u)); return { top: Math.min(...bs.map(b => b.y * u)), foot: Math.max(...bs.map(b => (b.y + b.h) * u)), left: Math.min(...bs.map(b => b.x * u)), right: Math.max(...bs.map(b => (b.x + b.w) * u)), dateFoot, W: s.page.sheet.w, H: s.page.sheet.h }; };
+  const three = chart('org-chart', tx => orgOf(3, tx)), tb = sheetBox(three.s);
+  check('a small chart nobody has arranged is drawn large, its names at 18 pt: not three boxes over a white field', three.s.page.scale === 1.8 && three.s.page.composed === true, three.s.page.scale);
+  check('… and set as a group in the middle of its room, across and down', Math.abs(tb.left - (tb.W - tb.right)) < 2 && Math.abs((tb.top - tb.dateFoot) - (tb.H - 48 - tb.foot)) < 34, j(tb));
+  const quarter = chart('org-chart', tx => orgOf(25, tx));
+  check('a 25-person org on a slide prints its names at 11 pt at the least, where they took 7', quarter.s.page.scale >= 1.1 && quarter.s.marks.filter(m => m.type === 'box').every(b => b.named || b.texts?.length), quarter.s.page.scale);
+  { const bs = quarter.s.marks.filter(m => m.type === 'box'); check('… no two boxes over each other', !bs.some((a, i) => bs.slice(i + 1).some(b => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 0.5 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 0.5))); }
+  const quarterLetter = quarter.on({ paper: 'letter' }), ql = sheetBox(quarterLetter);
+  check('… and on Letter it uses the sheet: no bottom 40% left empty', ql.foot - ql.top > 0.5 * (ql.H - ql.dateFoot - 48) && ql.H - 48 - ql.foot < 0.25 * (ql.H - ql.dateFoot), j(ql));
+  // A design's size is the box's size.
+  {
+    const over = { id: 'over', name: 'Over', w: 100, h: 40, base: { Shape: 'rect' }, parts: [{ id: 'a', geometry: 'rect', x: -0.25, y: 0, w: 1.5, h: 1, format: { Fill: '#123456' } }, { id: 'r', rest: true, geometry: 'text', x: 0, y: 0, w: 1, h: 1, format: { Align: 'center', Valign: 'middle' } }] };
+    const wb = Log.open({ dendra: 1, changes: [] }), c = 'c1', tp = Templates.of('company'), tx = wb.edit({ chart: c, who: WHO }); tx.add('chart', { name: tp.name }, c); const ids = Templates.begin(tx, tp, tp.name), vw = ids.get(tp.rows.find(r => 'record' in r).record); tx.commit();
+    const t2 = wb.edit({ chart: c, who: WHO }), o = name => { const id = t2.add('record', { kind: 'Entity' }); t2.add('record', { at: id, edge: 'Name', field: 'text', value: name }); return id; }, a = o('Holdco'), b = o('Opco'), l = t2.add('record', { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }); t2.add('record', { at: l, edge: 'Percentage', field: 'percent', value: 1 }); t2.note('Design', { kind: 'Entity' }, over, { view: vw }); t2.commit();
+    const N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, DAY2), N.definitions(S), { relations: N.relations(S) }), sc = Scene.of(wb, c, vw, DAY2, { state: R.records, computed: R }), A = sc.byId.get(a), B = sc.byId.get(b), panel = B.parts.find(p => p.part === 'a');
+    check('a design larger than its box grows the box: its outline holds all it draws', Math.abs(B.w - 150) < 1 && panel.x >= B.x - 0.5 && panel.x + panel.w <= B.x + B.w + 0.5, j([B.w, panel.x, panel.w, B.x]));
+    const line = sc.marks.find(m => m.type === 'line');
+    check('… where its line lands, and its percentage stands clear of it', line.points.at(-1)[1] === B.y && (!line.labelAt || line.labelAt.y + line.label.h <= B.y + 0.5) && !Scene.says(sc).some(t => /stands on/.test(t)), j([line.points, line.labelAt, Scene.says(sc)]));
+    const on = { ...sc, marks: sc.marks.map(m => m.type === 'line' && m.labelAt ? { ...m, labelAt: { x: B.x + 2, y: B.y + 2 } } : m) };
+    check('… and Export says of any line’s words on a box that they do', Scene.says(on).some(t => /“100%” stands on /.test(t)), j(Scene.says(on)));
+    // A connector meets a box turned in depth where it's drawn.
+    const t3 = wb.edit({ chart: c, who: WHO }); t3.note('Design', { kind: 'Entity' }, undefined, { view: vw }); t3.note('Turn 3D', { id: b, kind: 'Entity' }, { x: 45, y: 35, z: 0 }, { view: vw }); t3.commit();
+    const R3 = Formulas.computeState(wb.asOf(c, DAY2), wb.notes(c).definitions(wb.schema(c)), { relations: wb.notes(c).relations(wb.schema(c)) }), s3 = Scene.of(wb, c, vw, DAY2, { state: R3.records, computed: R3 }), box3 = s3.byId.get(b), end = s3.marks.find(m => m.type === 'line').points.at(-1);
+    check('a line meets a box turned in depth on its outline as drawn, not short of it', end[1] > box3.y + 1, j([end, box3.y, box3.h]));
+  }
   // Forty people.
   const org = chart('org-chart', tx => {
     const reports = (a, b) => tx.add('record', { args: [{ edge: 'Manager', at: a }, { edge: 'Report', at: b }], tag: true }), ceo = person(tx, 'Chief'), mids = [], leaves = [];

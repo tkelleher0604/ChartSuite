@@ -353,7 +353,7 @@ function cellsOf(scene, ink = null) {
       const short = ps.reduce((n, p, i) => n + (i ? Math.hypot(p[0] - ps[i - 1][0], p[1] - ps[i - 1][1]) : 0), 0) < 16;
       cells.push({ id: m.id, shape: 'edge', zIndex: short ? scene.marks.length * 2 + z.get(m.id) : z.get(m.id), data: { kind: 'line', mark: m.id },
         source: { x: ps[0][0], y: ps[0][1] }, target: { x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] },
-        vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: m.runs ? { name: 'runs', args: { runs: m.runs } } : { name: 'normal' },
+        vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })), router: { name: 'normal' }, connector: m.strokes ?? m.runs ? { name: 'runs', args: { runs: m.strokes ?? m.runs } } : { name: 'normal' },
         attrs: { line: { stroke: r === 'appear' ? BLUE : r === 'go' ? RED : paint(s.Outline), ...widthOf(ps, px(s.Weight), arrow === 'start' || arrow === 'both', arrow === 'end' || arrow === 'both'), strokeDasharray: dashed,
           strokeLinecap: s.Dash === 'dotted' ? 'round' : 'butt', strokeLinejoin: 'miter', targetMarker: marker(arrow === 'end' || arrow === 'both', px(s.Weight), ps.slice(-2), Scene.headOf(s, 'end')),
           sourceMarker: marker(arrow === 'start' || arrow === 'both', px(s.Weight), ps.slice(0, 2), Scene.headOf(s, 'start')), ...(r ? null : lineLook(ps, s)), ...(m.revealed && { opacity: FAINT }) }, wrap: { strokeWidth: short ? 14 : 10, ...(short && { strokeLinecap: 'square' }) } } });
@@ -657,12 +657,13 @@ function mount(el) {
     if (!base) return;
     const view = base.view, s = styledDrawn, r = !s && redDrawn;
     scene = s || (revealIds && !r) ? Scene.of(s?.wb ?? App.shown.peek(), App.chart.peek(), view, base.day,
-      { state: stateNow(), computed: App.computed.peek(), reveal: s?.wb.tidy ? null : revealIds, seen: App.seenIn(view), ahead: !!s, holds: s && !s.wb.tidy ? holdsOf(base) : null }) : r ? r.scene : base;
+      { state: stateNow(), computed: App.computed.peek(), reveal: s?.wb.tidy ? null : revealIds, seen: App.seenIn(view), ahead: !!s, holds: s && !s.wb.tidy && !s.wb.afresh ? holdsAhead(base) : null }) : r ? r.scene : base;
     // A record selected that starts later is drawn faint, with its lines, as what's revealed is.
     const later = App.later?.peek();
     if (later && scene !== base) for (const m of scene.marks) if (later[m.record]) m.revealed = true;
     ink = r ? inked(r, scene, base) : null;
-    tidyLabel.hidden = !s?.wb.tidy;
+    // (What wouldn't change is no preview.)
+    tidyLabel.hidden = !s?.wb.tidy || sameDrawn(base, scene);
     if (s?.wb.tidy) tidyLabel.textContent = `${s.wb.tidy} preview`;
     // (A look pointed at, or let go of, changes as fast as the pointer moves, and is just there; Tidy's, which is rested on, travels.)
     calmDraw = !(s && !s.wb.tidy) && !lookWas;
@@ -2666,7 +2667,7 @@ function mount(el) {
     const lines = before.marks.filter(m => m.type === 'line' && r.go.has(m.record) && !after.byId.has(m.id)).map(l => {
       if (stands(l.from) && stands(l.to)) {
         const at = l.labelAt && { x: l.labelAt.x + dx, y: l.labelAt.y + dy };
-        return { ...l, points: shift(l.points), runs: l.runs?.map(shift), ...(at && l.label && clear({ ...at, w: l.label.w, h: l.label.h }) ? { labelAt: at } : { labelAt: null, texts: [] }) };
+        return { ...l, points: shift(l.points), runs: l.runs?.map(shift), strokes: l.strokes?.map(shift), ...(at && l.label && clear({ ...at, w: l.label.w, h: l.label.h }) ? { labelAt: at } : { labelAt: null, texts: [] }) };
       }
       const ps = way(l);
       return ps && { ...l, points: ps, runs: null, labelAt: null, texts: [] };
@@ -2767,7 +2768,7 @@ function mount(el) {
     if (!base || typeof requestIdleCallback !== 'function') { aheadOf = null; return; }
     if (aheadOf?.wb === wb && aheadOf.state === state && aheadOf.base === base && aheadOf.soon === soon) return;
     const mine = aheadOf = { wb, state, base, soon }, chart = App.chart.peek(), computed = App.computed.peek();
-    const jobs = [...soon && soon !== base.day ? [on(soon, base.view)] : [], ...r ? [redAhead(r, base)] : styled ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true, holds: styled.wb.tidy ? null : holdsOf(base) })] : [],
+    const jobs = [...soon && soon !== base.day ? [on(soon, base.view)] : [], ...r ? [redAhead(r, base)] : styled ? [Scene.steps(wb, chart, base.view, base.day, { state, computed, ahead: true, holds: styled.wb.tidy || styled.wb.afresh ? null : holdsAhead(base) })] : [],
       ...App.views.peek().filter(v => v.layout === 'chart' && v.id !== base.view).map(v => Scene.steps(App.shown.peek(), chart, v.id, base.day, { state: App.state.peek(), computed }))];
     const live = () => aheadOf === mine && App.scene.peek() === base && jobs.length;
     const step = idle => {
@@ -3081,13 +3082,18 @@ function mount(el) {
   const tidySaid = n => `${n} box${n === 1 ? '' : 'es'}`;
   const tidyName = () => { const n = tidyBoxes().length; return n > 1 ? `Tidy ${tidySaid(n)}` : pinnedHere().size ? 'Tidy around what’s pinned' : 'Tidy'; };
   const pinnedHere = () => new Set(App.notes.peek().notes('Pinned').filter(p => p.view === viewOf() && p.value === true && p.pattern.id).map(p => p.pattern.id));
-  // Whether there's anything to tidy: a selection; with none, a place other than Tidy gave, a box drawn beside Tidy's with none, or a Key over a box: one in a corner Tidy sets the chart clear of, and one a hand put there it gives back to the page.
-  const saysKeyOver = sc => Scene.says(sc).some(t => t.startsWith('The Key overlaps'));
-  const tidyable = () => { const ns = placedHere(), byTidy = n => Number.isFinite(n.value?.order), key = App.scene.peek()?.marks.find(m => m.geometry === 'legend');
-    return !!tidyBoxes().length || ns.some(n => (Number.isFinite(n.value?.x) && !byTidy(n)) || Number.isFinite(n.value?.along) || n.label === 'Bend') || (ns.some(byTidy) && !!App.scene.peek()?.marks.some(m => m.type === 'box' && !m.entered && !m.revealed))
-      || (!!key && (!!rowOf(key.id)?.corner || Number.isFinite(rowOf(key.id)?.x)) && saysKeyOver(App.scene.peek())); };
+  // Whether two scenes of a page draw the same: every box, line and label where it was, the Key too, at the same scale. Tidy that would change nothing says so, and writes nothing, and it's no preview.
+  const sameDrawn = (a, b) => {
+    if (a === b) return true;
+    if (a.page.scale !== b.page.scale) return false;
+    const near = (p, q) => Math.abs(p - q) < 1, same = (m, o) => !!o && near(m.x ?? 0, o.x ?? 0) && near(m.y ?? 0, o.y ?? 0) && near(m.w ?? 0, o.w ?? 0) && near(m.h ?? 0, o.h ?? 0)
+      && (m.points?.length ?? 0) === (o.points?.length ?? 0) && (m.points ?? []).every((p, i) => near(p[0], o.points[i][0]) && near(p[1], o.points[i][1])) && near(m.labelAt?.x ?? 0, o.labelAt?.x ?? 0) && near(m.labelAt?.y ?? 0, o.labelAt?.y ?? 0);
+    const drawn = sc => sc.marks.filter(m => (m.type === 'box' && !m.revealed) || m.type === 'line' || m.geometry === 'legend');
+    return drawn(a).length === drawn(b).length && drawn(a).every(m => same(m, b.byId.get(m.id)));
+  };
   // Whether the page has yet to be arranged, nobody having placed a box and Tidy not having been: what's across is then the order they were made in, of no one's choosing, and Tidy is free of it.
-  const firstTidy = () => !tidyBoxes().length && !placedHere().some(n => n.label === 'Position' && (Number.isFinite(n.value?.order) || (Number.isFinite(n.value?.x) && !n.value?.kept)));
+  const firstTidy = () => !tidyBoxes().length && (!!App.scene.peek()?.page.composed || !placedHere().some(n => n.label === 'Position' && (Number.isFinite(n.value?.order) || (Number.isFinite(n.value?.x) && !n.value?.kept))));
+  const saysKeyOver = sc => Scene.says(sc).some(t => t.startsWith('The Key overlaps'));
   // (`only`: one box of its own, as its Reset is.)
   function tidying(only) {
     const base = App.scene.peek(), some = only ? [base.byId.get(only)].filter(Boolean) : tidyBoxes(), writes = new Map();
@@ -3102,8 +3108,9 @@ function mount(el) {
     return { writes: ws, gone: some.length ? placedHere().filter(bentHere) : [...placedHere().filter(n => !keys.has(Tree.key(n.pattern))), ...scaleHere()], n: some.length, key: key?.id, freed };
   }
   let triedTidy = 0;
-  function tidied(only, over = false) {
-    const { writes, gone, key, freed, n } = tidying(only), wb = App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
+  // (`from`, the workbook as a change will leave it, where that change is laid out with it: see relaid.)
+  function tidied(only, over = false, from = null) {
+    const { writes, gone, key, freed, n } = tidying(only), wb = from ?? App.shown.peek(), view = viewOf(), out = new Set(gone.map(n => n.note)), keys = new Set(writes.map(w => Tree.key(w.t)));
     // (Boxes laid out around what stands go around the Key too, where it's drawn.)
     const standing = n ? App.scene.peek().marks.find(m => m.geometry === 'legend') : null;
     // (Each note tried is new, as a look tried is, so nothing worked out from another is kept for it.)
@@ -3118,22 +3125,48 @@ function mount(el) {
     }
     return wbTried;
   }
-  function tidy(o) {
-    const { writes, gone, n, freed } = tidying(o?.only), view = viewOf(), base = App.scene.peek();
+  // What Tidy writes, as the workbook is or as a change will leave it (`from`): → { write(tx), after, ann, n }.
+  function tidyWrites(only, from = null) {
+    const { writes, gone, n, freed } = tidying(only), view = viewOf(), base = App.scene.peek();
     // (What its preview draws, entered: the place of each box it lays out, in a place's terms, and the Key where it set it.)
-    const after = Scene.of(tidied(o?.only, true), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true }), laid = holdsOf(after), keyId = !n && base.marks.find(m => m.geometry === 'legend' && (m.byPage || freed))?.id;
-    const first = !o?.only && firstTidy();
+    const after = Scene.of(tidied(only, true, from), App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true }), laid = holdsOf(after), keyId = !n && base.marks.find(m => m.geometry === 'legend' && (m.byPage || freed))?.id;
+    const first = !only && firstTidy();
     // What's pinned stands where it stood on the sheet, the rest laid out as ever (dendra.md, Measured and pinned): the chart is laid out whole, and it's put back.
-    const pins = !o?.only && !tidyBoxes().length ? pinnedHere() : new Set(), oAfter = after.page.placed ? after.page.offset : { x: 0, y: 0 }, k = base.page.scale / after.page.scale;
+    const pins = !only && !tidyBoxes().length ? pinnedHere() : new Set(), oAfter = after.page.placed ? after.page.offset : { x: 0, y: 0 }, k = base.page.scale / after.page.scale;
     const pinnedAt = id => { const m = base.marks.find(q => q.type === 'box' && q.record === id); return m && { x: round(m.x * k - oAfter.x), y: round(m.y * k - oAfter.y), w: round(m.w * k), h: round(m.h * k) }; };
     const entered = w => { if (pins.has(w.id)) return pinnedAt(w.id) ?? w.value; if (!Number.isFinite(w.value.order) || !laid.has(w.id)) return w.value; const { kept, ...p } = laid.get(w.id); return { ...p, ...w.value, ...(pins.size ? { order: undefined } : {}), ...(first && !pins.size && { order: p.x }) }; };
     // What's laid over a box goes with it; what's tied to nothing stays, which is said.
-    const ann = Scene.annotated(base, after), stays = n || !ann.stay.length ? '' : `; ${ann.stay.length === 1 ? `${called(ann.stay[0])} stays where it was: it’s on no box` : `${ann.stay.length} shapes stay where they were: they’re on no box`}`;
-    if (!App.change(tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null, ...(freed && { x: null, y: null }) }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); for (const [id, c] of ann.rows) tx.update(id, c); }, { say: o?.say ?? `${n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'}${stays}`, keep: false, dated: false })) return;
+    const ann = Scene.annotated(base, after);
+    return { n, after, ann, write: tx => { gone.filter(g => g.label !== 'Scale').forEach(g => tx.remove(g.note)); writes.forEach(w => tx.note('Position', w.t, entered(w), { view })); if (keyId) tx.update(keyId, { kept: laid.get(keyId) ?? null, ...(freed && { x: null, y: null }) }); if (!n) tx.note('Scale', { id: view, kind: 'View' }, laid.page); for (const [id, c] of ann.rows) tx.update(id, c); } };
+  }
+  function tidy(o) {
+    const { write, after, ann, n } = tidyWrites(o?.only), base = App.scene.peek();
+    // (Nothing it would change: it's said, and nothing's written. It's never grey, as a page may look untidy and be as tidy as it goes.)
+    if (!n && !o?.only && sameDrawn(base, after)) return Shell.toast('Already tidy');
+    const stays = n || !ann.stay.length ? '' : `; ${ann.stay.length === 1 ? `${called(ann.stay[0])} stays where it was: it’s on no box` : `${ann.stay.length} shapes stay where they were: they’re on no box`}`;
+    if (!App.change(write, { say: o?.say ?? `${n ? `Tidied ${tidySaid(n)}` : 'Tidied the layout'}${stays}`, keep: false, dated: false })) return;
     if (n) return;
     framed = true; left = null;
     settle();
   }
+  // Text made larger or wider keeps the same tidy chart (dendra.md, The layout): the change, given as `wb`, the workbook as it will leave it, is laid out as Tidy lays out,
+  // each box keeping where it stands across, where the layout placed them, or where what a hand placed would come to overlap, or the page can't hold it as it stands. → { write(tx), after } or null, where the
+  // page is composed as it's drawn anyway, or what a hand placed still stands clear.
+  function relaid(wb) {
+    const base = App.scene.peek(), view = viewOf();
+    if (!base || base.view !== view || base.page.composed || still() || tidyBoxes().length) return null;
+    if (base.marks.some(m => m.type === 'box' && !m.revealed && m.hand)) {
+      // (A triangle by the middle half of it, as its corners are off its neighbours' though its frame isn't.)
+      const boxesOf = sc => sc.marks.filter(m => m.type === 'box' && !m.revealed).map(m => m.shape === 'triangle' ? { ...m, x: m.x + m.w / 4, w: m.w / 2 } : m), over = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
+      const was = new Set(), bs = boxesOf(base);
+      bs.forEach((a, i) => bs.slice(i + 1).forEach(b => { if (over(a, b)) was.add(`${a.id}|${b.id}`); }));
+      const as = Scene.of(wb, App.chart.peek(), view, base.day, { state: App.state.peek(), computed: App.computed.peek(), ahead: true, holds: holdsOf(base) }), now = boxesOf(as);
+      if (!as.page.short?.length && !now.some((a, i) => now.slice(i + 1).some(b => over(a, b) && !was.has(`${a.id}|${b.id}`) && !was.has(`${b.id}|${a.id}`)))) return null;
+    }
+    return tidyWrites(null, wb);
+  }
+  // (Its preview, as making it will draw it.)
+  const relaidLook = wb => relaid(wb) ? { ...tidied(null, true, wb), tidy: null, afresh: true } : wb;
 
   // Tidy for every date: every box the view draws on any day laid out as one chart, those places entered, so each day shows
   // its boxes in one set of places, and only what changed moves. What it reads: the chart's records of every day there's a
@@ -3202,7 +3235,7 @@ function mount(el) {
     for (const m of base.marks) if (m.type === 'box' && !m.placed && !m.revealed) {
       const [x, y] = base.page.placed && m.laid ? [m.laid.x, m.laid.y] : [m.x - o.x, m.y - o.y];
       // (A box of a design has the design's size: its own isn't kept, so it goes back to what it was with the design taken away.)
-      out.set(m.record, { x: round(x), y: round(y), ...(!m.design && { w: round(m.w) }), kept: true });
+      out.set(m.record, { x: round(x), y: round(y), ...(!m.design ? { w: round(m.w) } : m.narrow && { narrow: round(m.narrow) }), kept: true });
     }
     // And the Key the page placed, where it's drawn on the sheet, so it keeps its corner as the chart is edited.
     const key = base.marks.find(m => m.geometry === 'legend' && m.byPage), s = base.page.scale;
@@ -3224,7 +3257,8 @@ function mount(el) {
       const t = treeOf(id);
       if (!t) { const was = rowOf(id)?.kept; if (rowOf(id) && (was?.x !== p.x || was?.y !== p.y)) tx.update(id, { kept: p }); continue; }
       const old = tx.noteAt('Position', t, { view })?.value;
-      if (tx.item(id).length && !done?.has(id) && (old?.loose ?? true)) tx.note('Position', t, { ...p, ...(old?.h != null && { h: old.h }) }, { view });
+      // (Not what this change itself placed, on a page that kept nothing till now.)
+      if (tx.item(id).length && !done?.has(id) && (old?.loose ?? true) && (!Number.isFinite(old?.x) || old.kept || old.loose)) tx.note('Position', t, { ...p, ...(old?.h != null && { h: old.h }) }, { view });
     }
   });
 
@@ -3498,10 +3532,12 @@ function mount(el) {
   let placedNow = new Set();
   function between(tx, at, kind) { const base = App.scene.peek(), places = placesBetween(base, at); placedNow = new Set(places.keys()); for (const [x, p] of places) tx.note('Position', x === at.id ? { id: x, kind } : treeOf(x), p, { view: base.view }); }
   // What a change pending keeps where it stands, and what it places itself, over any place entered.
-  function holdsFor(base) { const h = holdsOf(base), at = App.pending.peek()?.placing?.(); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
+  // (A page nobody has arranged keeps nothing: what's pointed at or pending is laid out as making it will lay it out, afresh.)
+  function holdsAhead(base) { return base.page.composed ? null : holdsOf(base); }
+  function holdsFor(base) { const at = App.pending.peek()?.placing?.(); if (!at && base.page.composed) return null; const h = holdsOf(base); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, reach, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
-    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
+    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, relaid, relaidLook, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
     table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), link: id => hand.setLink(id), pastePicture: f => hand.pastePicture(f), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),

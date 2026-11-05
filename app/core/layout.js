@@ -128,17 +128,17 @@ function placed(boxes, links, clusters, room) {
   }
   return rows(boxes, links);
 }
-// A chart too wide for its room hangs its last rows, as an org chart does (dendra.md, The layout): the boxes of the main
+// A chart too wide for its room to read across a room (`READS`: its names under 14 pt) hangs its last rows, as an org chart does (dendra.md, The layout): the boxes of the main
 // relation that one box alone ranks and that rank nothing, where it ranks only such and at least two, stand in a column
 // under it, HANG in from its left and STACK apart, a line down a spine beside them into each (see routing's `hang`). Only
 // where that draws the chart larger, and with no frames, which set their own rows, in a chart whose lines say no figure
 // (`room.plain`), whose stems a structure chart keeps. → { boxes, links, stacks: Map(stand-in box id → its column) } with
 // each column one box to the layout, its `stem` where its parent stands over it; or null.
-const HANG = 26, STACK = 10;
+const HANG = 26, STACK = 10, READS = 1.4;
 function hanging(boxes, links, clusters, room) {
   if (!room.plain || clusters.length || boxes.length < 3) return null;
   const was = tiers(boxes, links, room, clusters).fit;
-  if (was >= 1) return null;
+  if (was >= READS) return null;
   const by = new Map(boxes.map(b => [b.id, b])), solid = links.filter(l => l.from !== l.to && by.has(l.from) && by.has(l.to)), main = mainOf(solid.filter(l => !l.level));
   const ups = groupBy(solid, l => l.to), downs = groupBy(solid, l => l.from), mated = new Set(solid.filter(l => l.level).flatMap(l => [l.from, l.to]));
   const leaf = id => !downs.has(id) && !mated.has(id) && ups.get(id)?.length === 1 && ups.get(id)[0].trunk === main;
@@ -160,8 +160,8 @@ function hanging(boxes, links, clusters, room) {
 }
 // The tier of each box, its row counted from the top, as a structure chart sets them: what nothing ranks over
 // in the top row, so investors sit in one row above the funds; each other box a row under the lowest box
-// that ranks it, or level with one of its own class that does (boxes a style fills alike, in one frame or in
-// none, like a feeder fund and the fund it invests in, are peers, joined side to side). A class sits in one
+// that ranks it, or level with one of its own class that does (triangles in a chart whose lines say a figure, in one frame or in
+// none, like a feeder fund and the fund it invests in, are peers, joined side to side; no look makes a class). A class sits in one
 // tier wherever the lines allow it: those of its members that rank anything go down to the lowest of them,
 // unless that moves one under another; one that ranks nothing stays under what ranks it. The last line of
 // a loop, as a search from the top meets it, ranks nothing. And tiers are as few as the lines allow: a tier

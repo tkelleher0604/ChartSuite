@@ -17,7 +17,7 @@ Templates.register({
     t.shown('org', field('Name'), { Bold: true, Color: '#1c2733' });
     t.shown('org', t.entry('Title', person), { Color: '#5f6b78' });
     t.style('org', person, 'Person', { Shape: 'rounded', Fill: '#eef2f7', Outline: '#1f3a5f', Weight: 1 });
-    t.design('org', person, { id: 'org-person', name: 'A band over them', base: { Shape: 'rounded' }, parts: [
+    t.design('org', person, { id: 'org-person', name: 'A band over them', h: 56, base: { Shape: 'rounded' }, parts: [
       { id: 'band', geometry: 'rect', x: 0, y: 0, w: 1, h: 0.14, format: { Fill: '{Outline}', Outline: 'none' } },
       { id: 'rest', rest: true, geometry: 'text', x: 0, y: 0.14, w: 1, h: 0.86, format: { Align: 'center', Valign: 'middle' } }] });
     t.style('org', { out: { tag: true }, ...t.entry('Vacant', {}) }, 'Vacant', { Fill: '#ffffff', Outline: '#8a94a0', Dash: 'dashed' });

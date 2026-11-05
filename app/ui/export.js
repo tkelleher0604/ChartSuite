@@ -357,7 +357,7 @@ function markSvg(m, pdf) {
   // (A box of a design: its body, its parts, each as a free shape's drawn, then what's in no part: dendra.md, Group designs.)
   if (m.type === 'box' && m.parts?.length) return deep(g(m.x, m.y, body(m.shape, m.w, m.h, s, null, m)) + m.parts.map(p => markSvg(p, pdf)).join('') + g(m.x, m.y, texts(m.texts.filter(it => !it.part), pdf)));
   if (m.type === 'box') return deep(g(m.x, m.y, body(m.shape, m.w, m.h, s, null, m) + texts(m.texts, pdf)));
-  if (m.type === 'line') return route(m.points, s, m.runs) + (m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, (m.chip ? g(-4, -1, body(m.chip.Shape ?? 'rect', m.label.w + 8, m.label.h + 2, m.chip)) : '') + texts(m.texts, pdf)) : '');
+  if (m.type === 'line') return route(m.points, s, m.strokes ?? m.runs) + (m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, (m.chip ? g(-4, -1, body(m.chip.Shape ?? 'rect', m.label.w + 8, m.label.h + 2, m.chip)) : '') + texts(m.texts, pdf)) : '');
   if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, look(m).Weight)}/>`) + texts([m.caption], pdf));
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
@@ -1078,17 +1078,40 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       else if (r.x != null) tx.update(r.shape, { x: half(m.x), y: half(m.y), ...(r.w != null && { w: half(m.w) }), ...(r.h != null && { h: half(m.h) }), ...(r.points && { points: m.points.map(([x, y]) => [half(x), half(y)]) }) });
     }
   }
-  // Fit to page: what's beyond the margins is brought in, as one change. A box whose middle is off the sheet goes back to the
-  // layout, which places it beside its relatives, among what stands; and the page holds all the rest, the scale it keeps
-  // falling as far as that needs, its note `fit` till the next change keeps it so.
+  // Fit to page: the chart held by its page, as one change, as large as it holds, up as well as down, and in the middle of it. A box whose middle is off the sheet goes back to the
+  // layout, which places it beside its relatives, among what stands; its note `fit` till the next change keeps it so. Wide for its page, with half of it empty below, its rows stand further apart, to as much again and a half.
+  // What's laid over a box goes with it, and what's over nothing stays where it is on the sheet. With nothing of that to do, it's said.
   function fitToPage(id = Shell.view.peek()) {
     if (App.readOnly.peek()) return Shell.toast(App.whyNot());
-    const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), p = now.page, M = p.margins, boxes = now.marks.filter(m => m.type === 'box' && !m.revealed);
-    if (boxes.every(b => b.x >= M.left - 1 && b.y >= M.top - 1 && b.x + b.w <= p.w - M.right + 1 && b.y + b.h <= p.h - M.bottom + 1)) return Shell.toast('The chart already fits its page');
+    const now = id === App.scene.peek()?.view ? App.scene.peek() : scene(id), p = now.page, boxes = now.marks.filter(m => m.type === 'box' && !m.revealed), st = App.state.peek(), N = App.notes.peek();
     const away = b => { const x = b.x + b.w / 2, y = b.y + b.h / 2; return x < 0 || y < 0 || x > p.w || y > p.h; };
+    const chart = App.chart.peek(), wb = App.shown.peek(), at = viewAt(id), noteOf = b => N.position(Tree.treeOf(st, b.record), id);
+    // (The workbook as it would then be, each note new, as anything tried is.)
+    let tries = 0;
+    const tried = (k, top) => {
+      const puts = boxes.filter(b => !away(b) && k !== 1 && Number.isFinite(noteOf(b)?.x)).map(b => { const v = noteOf(b); return [b, { ...v, y: Math.round((top + (v.y - top) * k) * 2) / 2 }]; }), gone = new Set(boxes.filter(away).map(b => Tree.key(Tree.treeOf(st, b.record)))), moved = new Set(puts.map(([b]) => Tree.key(Tree.treeOf(st, b.record))));
+      const rows = [...wb.rows(chart).filter(r => !(r.label === 'Scale' && r.pattern.id === id) && !(r.label === 'Position' && r.view === id && (gone.has(Tree.key(r.pattern)) || moved.has(Tree.key(r.pattern))))),
+        { id: `·fit${++tries}`, note: `·fit${tries}`, label: 'Scale', pattern: at, value: { fit: true } },
+        ...puts.map(([b, value]) => ({ id: `·fit${++tries}`, note: `·fit${tries}`, label: 'Position', pattern: Tree.treeOf(st, b.record), view: id, value }))], notes = Notes.index(rows.filter(r => 'note' in r));
+      return { wb: { ...wb, rows: () => rows, notes: () => notes }, puts };
+    };
+    const draw = w => Scene.of(w, chart, id, now.day, { state: st, computed: App.computed.peek(), ahead: true });
+    let plan = tried(1, 0), after = draw(plan.wb);
+    // (How much of the sheet's height under its title it leaves: rows further apart, only those of a chart placed by notes this page has.)
+    const tops = boxes.filter(b => !away(b) && Number.isFinite(noteOf(b)?.y)).map(b => noteOf(b).y), laid = after.marks.filter(m => m.type === 'box'), H = Math.max(...laid.map(b => b.y + b.h)) - Math.min(...laid.map(b => b.y));
+    const room = after.page.h - after.page.margins.bottom - Math.max(after.page.margins.top, ...after.marks.filter(m => m.role === 'date' || m.role === 'title').map(m => m.y + m.h)) - 32 / after.page.scale;
+    if (tops.length > 1 && new Set(tops.map(Math.round)).size > 1 && H < room * 0.7) {
+      const next = tried(Math.min(1.5, room * 0.9 / H), Math.min(...tops)), stretched = draw(next.wb);
+      if (stretched.page.scale >= after.page.scale) { plan = next; after = stretched; }
+    }
+    const near = (a, b) => Math.abs(a - b) < 1, same = now.page.scale === after.page.scale && boxes.every(b => { const q = after.byId.get(b.id); return q && near(b.x * now.page.scale, q.x * after.page.scale) && near(b.y * now.page.scale, q.y * after.page.scale); });
+    if (same) return Shell.toast('The chart already fills its page');
+    const ann = Scene.annotated(now, after);
     App.change(tx => {
-      tx.note('Scale', viewAt(id), { scale: p.scale, x: p.offset.x, y: p.offset.y, fit: true });
-      for (const b of boxes.filter(away)) tx.note('Position', Tree.treeOf(App.state.peek(), b.record), undefined, { view: id });
+      tx.note('Scale', at, { fit: true });
+      for (const b of boxes.filter(away)) tx.note('Position', Tree.treeOf(st, b.record), undefined, { view: id });
+      for (const [b, v] of plan.puts) tx.note('Position', Tree.treeOf(st, b.record), v, { view: id });
+      for (const [sh, c] of ann.rows) tx.update(sh, c);
     }, { dated: false, keep: false, say: 'Fit the chart to its page' });
     Canvas.active.peek()?.zoom('fit');
   }
