@@ -2329,6 +2329,8 @@ async function stillAsMade() {
 
 // ---- The format bar and house styles (FIXG3, F), on the sample chart ----
 async function format() {
+  // (This page is near the suite's budget: less of a wait here, what's waited for being drawn by then.)
+  const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.6));
   await until(() => App.views.peek().length && sc(), 15000);
   const wbPart = Shell.parts.peek().workbook, sample = App.wb.charts().find(c => /Calder Ridge/.test(c.name));
   if (App.chart.peek() !== sample.chart) { wbPart.open(sample.chart); await until(() => App.chart.peek() === sample.chart); await tick(300); }
@@ -3395,6 +3397,7 @@ async function designing(st) {
 // New charts: the gallery and the templates, on the sample as it opens.
 const j2 = x => JSON.stringify(x);
 async function templates() {
+  const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.5));
   await until(() => App.views.peek().length && sc(), 15000);
   const sample = App.chart.peek(), wb = () => App.wb;
   // What a chart's rows say, whatever its ids: each view by its name.
