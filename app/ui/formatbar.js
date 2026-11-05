@@ -541,7 +541,7 @@ function apply(label, value) {
   const ofFree = !ofFoot && freeSaid(marks, label, value);
   const sceneWas = App.scene.peek();
   // The first change of a session that reaches more than one box says what it reached, with a way to have given it to this one alone.
-  const reach = firstReach(c, scope, label, value), just = reach && (() => { Shell.parts.peek().undo?.undo(); const s = scopesOf(c); penTo(c, s, s.scopes.find(x => x.own)); apply(label, value); });
+  const reach = firstReach(c, scope, label, value), just = reach && (() => { Shell.parts.peek().undo?.undo(); const s = scopesOf(c); penTo(c, s, s.scopes.find(x => x.own)); apply(label, value); Shell.toast(label === 'Fill' && value !== 'none' ? `Filled just ${reach.own}` : Time.looked(label, value, `just ${reach.own}`), { undo: () => Shell.parts.peek().undo?.undo() }); });
   App.change(tx => { write(tx, c, label, value); if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: reach ? [reach.said, ...says].join('; ') : says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null,
     go: () => first.also ? [first.offer, () => App.change(first.also, { dated: false, say: first.done })] : under?.clear ?? (just && reach.own ? [`Just ${reach.own}`, just] : null) });
   if (label === 'Fill' && scope.own) sayLies(sceneWas);
@@ -1266,11 +1266,12 @@ function clearStyles(view, notes) {
 function insertMenu(e, c) {
   const item = (label, run, close) => html`<button type="button" class="menu-item" role="menuitem" onClick=${() => { close(); run(); }}><span class="label">${label}</span></button>`;
   // (In one order, so what's on top now is on top next time: drawing two of a kind moves nothing under the hand.)
-  const kinds = [...Canvas.kinds()].sort();
+  const kinds = [...Canvas.kinds()].sort(), ms = c.selected(), one = ms.length === 1 ? ms[0] : null, bound = one?.type === 'box' || one?.type === 'line', noted = bound || (one?.type === 'shape' && !one.role && !['legend', 'group', 'line', 'picture'].includes(one.geometry));
   // A shape, a line or an arrow is drawn on the chart by dragging, a click placing it at its size (or Enter, in free room); a text box is typed straight in, or drawn too.
   // One picker for the arrows, top to bottom, and across among the shapes; each shape says its name as the keys land on it.
   Shell.popover(e.currentTarget, close => html`<div class="insert" role="menu" data-grid="button">
     ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
+    ${bound ? item(one.type === 'line' ? 'Text on this line' : 'Text in this box', () => c.addText(one.id), close) : null}${noted ? item('Footnote', () => c.footnote(one.id), close) : null}${noted ? html`<div class="menu-sep" />` : null}
     ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].map(([g, name]) =>
       item(name, () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g), close))}
     <div class="menu-sep" />
@@ -1692,6 +1693,9 @@ function mount(el) {
     ['format.clear', 'Clear formatting', '$mod+Space', clearLook],
     ['format.painter', 'Format painter', null, () => arm(true)],
     ['format.scope', 'This box or all like it', '$mod+Shift+KeyA', toggle, can],
+    // What goes where the pen is: free text in the box or on the line selected, and a footnote (Word's key).
+    ['draw.textin', 'Text in this box', null, () => { const c = Canvas.active.peek(), m = c.selected()[0]; if (m?.type === 'box' || m?.type === 'line') c.addText(m.id); }, () => edit() && Canvas.active.peek().selected().length === 1 && ['box', 'line'].includes(Canvas.active.peek().selected()[0].type), ['Add text', 'Free text', 'Text in a box', 'Label']],
+    ['draw.footnote', 'Add a footnote', '$mod+Alt+KeyF', () => Canvas.active.peek().footnote(), edit, ['Footnote', 'Note at the foot', 'Endnote', 'Citation']],
     // The bar's popovers by name, and by the words people look for them by.
     ['format.font', 'Font…', null, () => open('font'), () => onScreen() && !App.readOnly.peek(), ['Typeface', 'Font size']],
     // What every text on the page takes that nothing narrower sets (dendra.md, Notes): the page's, with nothing selected.

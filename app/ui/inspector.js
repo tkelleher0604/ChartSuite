@@ -657,7 +657,9 @@ function addItems(at, anchor) {
     .map(x => ({ label: nameOf(x), detail: recs()[x].kind, run: () => select([at, x]) })).sort((a, b) => a.label.localeCompare(b.label));
   // (An object's lists; of what isn't one, a date's own record, who's Responsible, as its deadline asks.)
   const lists = recs()[at].kind ? listItems(at, anchor) : listItems(at, anchor).filter(x => /^Responsible/.test(x.label));
-  return [{ label: 'Check…', names: ['Rule', 'Test', 'Compliance'], run: start('check') }, { label: 'New yes-or-no', names: ['Tag', 'Yes or no', 'Checkbox', 'Flag'], run: start('tag') }, { label: 'New value', names: ['Value', 'Field', 'Text', 'Number', 'Date'], run: start('field') }, { label: 'New choice', names: ['Choice', 'Dropdown', 'Option', 'List'], run: start('choice') }, '-',
+  // (What goes where the pen is: the words a box or line says, and a footnote, for what's drawn on the chart shown.)
+  const onPage = charted() && hostIn(at) === at && Canvas.active.peek()?.scene() ? [{ label: 'Text', names: ['Free text', 'Words', 'Label'], run: start('text') }, { label: 'Footnote', names: ['Note', 'Endnote', 'Citation'], run: start('footnote') }] : [];
+  return [{ label: 'Check…', names: ['Rule', 'Test', 'Compliance'], run: start('check') }, { label: 'New yes-or-no', names: ['Tag', 'Yes or no', 'Checkbox', 'Flag'], run: start('tag') }, { label: 'New value', names: ['Value', 'Field', 'Text', 'Number', 'Date'], run: start('field') }, { label: 'New choice', names: ['Choice', 'Dropdown', 'Option', 'List'], run: start('choice') }, ...onPage, '-',
     ...(lists.length ? [...lists, '-'] : []), ...items, ...(items.length ? ['-'] : []),
     { label: 'Relation…', run: () => menu(anchor, others(), { search: true }) }, ...(recs()[at].kind && !linkOf(at) ? [{ label: 'Document…', run: () => linkAdd(anchor, at) }] : [])];
 }
@@ -951,7 +953,30 @@ function Entries({ at, depth, offer }) {
   return html`${list.map(it => html`<${Entry} key=${T.norm(it.edge)} it=${it} at=${at} depth=${depth} />`)}
     ${noOne.map(b => { const l = listsOf(at).find(x => T.same(x.name, b.edge)), says = App.notOurs(at, b.edge), stop = App.readOnly.value;
       return html`<div class="ent" key=${'no ' + b.edge}><div class="row" data-key=${'list:' + b.edge} style=${`--depth:${depth}`}><div class="k"><span class="lbl">${b.edge}</span></div><div class="v ctl"><span class="cellbox"><button class="sel dd" disabled=${stop || !l} aria-haspopup="menu" aria-label=${`${b.edge}: ${says ? 'not ours' : 'no one'}`} onClick=${e => menu(e.currentTarget, q => [...(q ? [] : [{ label: says ? 'Ours after all…' : 'Not ours…', run: () => App.sayNotOurs(at, b.edge, !says) }, '-']), ...whoFor(at, l, q)], { search: true })}><span class=${says ? 'notours' : 'ph'}>${says ? 'Not ours' : 'No one'}</span></button></span></div></div></div>`; })}
-    ${d?.at === at ? html`<${Draft} key=${JSON.stringify(d)} d=${d} depth=${depth} />` : null}`;
+    ${d?.at === at ? (d.type === 'text' || d.type === 'footnote' ? html`<${Words} key=${d.type} d=${d} depth=${depth} />` : html`<${Draft} key=${JSON.stringify(d)} d=${d} depth=${depth} />`) : null}`;
+}
+// A free text or a footnote typed in the panel, at the pen: a `{` offers the entries in reach, as a form letter's fields, the arrows moving in them and Enter or Tab
+// putting one in; Enter, then, makes it; Esc, or leaving it empty, makes nothing.
+function Words({ d, depth }) {
+  const [text, setText] = useState(''), [list, setList] = useState([]), [on, setOn] = useState(0), ref = useRef(), c = Canvas.active.peek(), host = d.at;
+  const look = el => { const m = /\{([^{}\n]*)$/.exec(el.value.slice(0, el.selectionStart)), q = m?.[1].toLowerCase(); setOn(0); setList(m ? c.fields.words(host).filter(l => l.toLowerCase().includes(q)) : []); };
+  const put = l => { const el = ref.current, s = el.value, at = el.selectionStart, from = s.slice(0, at).lastIndexOf('{'), now = `${s.slice(0, from)}{${l}}`, to = s.slice(at).replace(/^[^{}\s]*\}?/, ''); el.value = now + to; setText(el.value); setList([]); el.focus(); el.setSelectionRange(now.length, now.length); };
+  const done = () => { const t = T.clean(ref.current?.value ?? text); if (draft.peek() === d) draft.value = null; if (t) (d.type === 'text' ? c.fields.addText : c.fields.addFoot)(host, t); };
+  const key = e => {
+    if (list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setOn(i => (i + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length); }
+    else if (list.length && (e.key === 'Enter' || e.key === 'Tab')) { e.preventDefault(); put(list[on]); }
+    else if (e.key === 'Enter') { e.preventDefault(); done(); }
+    else if (e.key === 'Escape') { e.stopPropagation(); if (list.length) setList([]); else draft.value = null; }
+  };
+  return html`<div class="row draft words" style=${`--depth:${depth}`}><div class="k"><span class="lbl">${d.type === 'text' ? 'Text' : 'Footnote'}</span></div><div class="v ctl"><span class="cellbox"><input class="cell" aria-label=${d.type === 'text' ? 'Text' : 'Footnote'} placeholder=${d.type === 'text' ? 'Text' : 'Footnote'} ref=${el => { ref.current = el; if (el && !el.dataset.on) { el.dataset.on = 1; el.focus(); } }}
+      onInput=${e => { setText(e.target.value); look(e.target); }} onKeyDown=${key} onBlur=${() => setTimeout(() => { if (document.activeElement !== ref.current && !document.querySelector('.words .dc-complete:hover')) done(); })} />
+    ${list.length ? html`<div class="dc-complete" role="listbox">${list.map((l, i) => html`<div class=${'menu-item' + (i === on ? ' on' : '')} role="option" onPointerDown=${e => { e.preventDefault(); put(l); }}>${l}</div>`)}</div>` : null}</span></div></div>`;
+}
+// What a box or line carries at the foot of the page: each by its number, a click typing over it, for all that carry it.
+function Feet({ id }) {
+  const m = App.scene.value?.byId.get(id), c = charted() ? Canvas.active.value : null;
+  if (!m?.feet?.length || !c) return null;
+  return m.feet.map(f => html`<div class="row foot-row" key=${f.key}><div class="k">Footnote ${f.n}</div><div class="v"><button type="button" class="lk" disabled=${App.readOnly.value} onClick=${() => c.fields.footEdit(id, f.key)}>${f.text}</button>${App.readOnly.value ? null : html`<button type="button" class="btn icon foot-x" aria-label=${`Delete footnote ${f.n}`} data-tip="Delete" onClick=${() => c.fields.footDelete(id, f.key)}>${icon('x')}</button>`}</div></div>`);
 }
 
 // ---- Relatives, documents and look: sections, each folding under its heading ----
@@ -1442,7 +1467,7 @@ function RecordView({ id }) {
         ${way ? html`<span class="muted"> › ${way}</span>` : null}</div></div>`; })}
       ${r.kind || boxed(id) ? null : html`<div class="row" data-key=${id}><div class="k"><span class="lbl">${name}</span></div>
         <div class="v ctl"><${Output} id=${id} slot=${r} label=${name} /></div></div>`}
-      ${'field' in r ? null : html`<${Entries} at=${id} depth=${0} /><${AddRow} at=${id} also=${moving} />`}
+      ${'field' in r ? null : html`<${Entries} at=${id} depth=${0} /><${Feet} id=${id} /><${AddRow} at=${id} also=${moving} />`}
     </div>
     <${MergedIn} id=${id} />
     <${Relatives} id=${id} />
@@ -1698,7 +1723,7 @@ function ShapeView({ id, part }) {
   const set =(changes, say) => App.change(tx => tx.update(id, changes), { dated: false, say });
   // A line is a connector where it's glued, and only there. What it's glued to says so, with a way to let go.
   const glued = g => g === 'line' && row.ends?.some(Boolean), gone = id => App.scene.value?.byId.get(id);
-  const g = row.geometry ?? 'rect', name = row.name ?? (glued(g) ? 'Connector' : SHAPES[g] ?? Shapes.name(g) ?? upper(g)), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
+  const g = row.geometry ?? 'rect', name = row.name ?? (row.role === 'footnotes' ? 'Footnotes' : glued(g) ? 'Connector' : SHAPES[g] ?? Shapes.name(g) ?? upper(g)), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend'].includes(g);
   // (A free shape's weight is as printed, in its row; and a line's Connector is its route, whatever it's glued to.)
   const look = Object.entries(row.format ?? {}).filter(([, value]) => value !== null && value !== undefined).map(([label, value]) => ({ label: label === 'Connector' ? 'Route' : label, value: label === 'Weight' ? Scene.fromSlide(page, value) : value, from: null }));
   const lineAt = g === 'line' && m ? { ...m, r: cv?.angleOf?.(m) } : null;
@@ -1714,7 +1739,8 @@ function ShapeView({ id, part }) {
     <${Head} path=${key ? [{ label: name }] : []} title=${key ? row.title ?? 'Key' : name}>${key ? html`<${Field} r=${{ field: 'text', value: row.title ?? 'Key' }} datatype="text" ph="Title" label="Title" title
       put=${out => set({ title: out?.value ?? '' })} />` : null}</${Head}>
     <div class="rows">
-      ${worded ? html`<div class="row"><div class="k">Text</div><div class="v ctl"><${Prose} text=${row.text ?? ''} label="Text" put=${text => set({ text })} /></div></div>` : null}
+      ${row.role === 'footnotes' ? html`<div class="row"><div class="k">Columns</div><div class="v ctl"><${Choice} fixed label="Columns" r=${{ choice: String(row.columns ?? 1) }} options=${['1', '2', '3']} put=${out => set({ columns: +out.choice }, `Set the footnotes in ${out.choice === '1' ? 'one column' : `${out.choice} columns`}`)} /></div></div>
+        ${(m?.feet ?? []).map(f => html`<div class="row foot-row" key=${f.n}><div class="k">Footnote ${f.n}</div><div class="v"><button type="button" class="lk" disabled=${still} onClick=${() => cv?.fields.footEdit(id, f.from[0].key)}>${f.text}</button>${still ? null : html`<button type="button" class="btn icon foot-x" aria-label=${`Delete footnote ${f.n}`} data-tip="Delete" onClick=${() => cv?.fields.footDelete(id, f.from[0].key)}>${icon('x')}</button>`}</div></div>`)}` : worded ? html`<div class="row"><div class="k">Text</div><div class="v ctl"><${Prose} text=${row.text ?? ''} label="Text" put=${text => set({ text })} /></div></div>` : null}
       ${key ? html`<div class="row"><div class="k">Columns</div><div class="v ctl"><${Choice} fixed label="Columns" r=${{ choice: String(row.columns ?? 1) }} options=${['1', '2', '3']}
         put=${out => set({ columns: +out.choice })} /></div></div>
       <div class="row"><div class="k">Corner</div><div class="v ctl"><${Choice} fixed label="Corner" r=${{ choice: row.x != null ? 'Where it was put' : row.corner ? upper(`${row.corner.v} ${row.corner.h}`) : 'Where the page places it' }} options=${[...(row.x != null ? ['Where it was put'] : []), 'Where the page places it', 'Top left', 'Top right', 'Bottom left', 'Bottom right']}

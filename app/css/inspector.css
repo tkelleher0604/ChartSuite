@@ -106,6 +106,12 @@ button.lk.hint { margin-left: 8px; color: var(--accent-ink); white-space: nowrap
 .sect > .pen { top: 18px; }
 .row.out .aa { width: 28px; text-align: center; font: var(--t13, 13px) var(--font, inherit); color: var(--ink-2); }
 .grip.end { left: auto; right: 2px; }
+/* A footnote carried, in the panel; and a free text or a footnote being typed there, what a `{` offers under it. */
+.foot-row > .v { display: flex; align-items: baseline; gap: 4px; }
+.foot-row .lk { text-align: left; }
+.foot-row .foot-x { flex: none; width: 18px; height: 18px; margin-left: auto; opacity: 0; color: var(--ink-3); }
+.foot-row:hover .foot-x, .foot-x:focus-visible { opacity: 1; }
+.words .dc-complete { top: 100%; left: 0; right: 0; }
 .grip { position: absolute; left: calc(var(--depth, 0) * 16px + 2px); top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: grab; display: grid; place-items: center; }
 .grip > svg { width: 14px; height: 14px; }
 /* What's under a row folds: its chevron beside its name, quiet till the row's pointed at, and saying how many while it's shut. */
