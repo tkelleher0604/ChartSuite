@@ -89,13 +89,15 @@ const Templates = (() => {
         if (about) note('Description', entry(edge, at), about);
         if (check) note('Check', entry(edge, at), true);
       },
-      // A chart view and its page: its title, its day, and its Key, but where it says `key: false`, a chart of one kind having nothing for a Key to tell apart.
+      // That the chart keeps no dated record (dendra.md, Notes: Dated): a change is made as it's said, and nothing's asked its day.
+      undated: () => note('Dated', { kind: 'View' }, false),
+      // A chart view and its page: its title, its day, and its Key, but where it says `key: false`, a chart of one kind having nothing for a Key to tell apart; `date: false`, a page no day means anything on.
       page(view, name, order, furniture = {}) {
         out.push({ record: view, kind: 'View' });
         note('Name', { id: view, kind: 'View' }, name);
         note('Order', { id: view, kind: 'View' }, order);
         out.push({ shape: `${view}-title`, view, geometry: 'text', role: 'title', text: '', ...furniture.title });
-        out.push({ shape: `${view}-date`, view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")', ...furniture.date });
+        if (furniture.date !== false) out.push({ shape: `${view}-date`, view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")', ...furniture.date });
         if (furniture.key !== false) out.push({ shape: `${view}-key`, view, geometry: 'legend', title: 'Key', columns: 2, ...furniture.key });
       },
       // A table of a kind's or a relation's records.

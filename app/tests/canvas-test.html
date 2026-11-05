@@ -1095,7 +1095,7 @@ async function run() {
         off.push(`${what}: ${red === base ? 'no redline; ' : ''}${goes && !n ? 'nothing struck; ' : ''}${keyed.length ? `through the Key: ${keyed}; ` : ''}${bad.slice(0, 2).join(', ')}${App.scene.peek() !== red ? ' Enter drew another scene' : ''} ${after.slice(0, 2).join(', ')}`);
       Shell.parts.peek().undo.undo(); await tick(160);
     };
-    const tickRow = async (a, b, re) => { Shell.emit('relate-open', [a, b]); await tick(120); $$('.rr .add-entry').find(x => txt(x) === 'Add a relation')?.click(); await tick(60);
+    const tickRow = async (a, b, re) => { Shell.emit('relate-open', [a, b]); await tick(120); $$('.rr .add-entry').find(x => txt(x) === 'Add a connection')?.click(); await tick(60);
       $$('.rr').find(r => re.test(txt(r.querySelector('.nm'))))?.querySelector('.ctl .tag')?.click(); await tick(60); };
     await show(charts()[0]);
     await pending('a relation added from today', () => tickRow('pension', 'fund', /is an owner of Fund III$/));
@@ -1121,7 +1121,7 @@ async function run() {
     // shows it, so its redline has its line, and Enter draws that
     {
       Shell.emit('relate-open', ['pension', 'bdc']); await tick(120);
-      $$('.rr .add-entry').find(x => txt(x) === 'Add a relation')?.click(); await tick(60); $$('.rr .add-entry').find(x => txt(x) === 'New relation')?.click(); await tick(60);
+      $$('.rr .add-entry').find(x => txt(x) === 'Add a connection')?.click(); await tick(60); $$('.rr .add-entry').find(x => txt(x) === 'New relation')?.click(); await tick(60);
       const ins = $$('.rr.new input'), n0 = App.wb.changes().length;
       for (const [i, v] of ['Lender', 'Lender', 'Borrower'].entries()) { ins[i]?.focus(); if (ins[i]) { ins[i].value = v; ins[i].dispatchEvent(new Event('input', { bubbles: true })); } await tick(10); }
       await tick(160);

@@ -625,7 +625,7 @@ const Shell = (() => {
   const tip = signal(null);
   let tipEl = null, tipTimer = 0;
   // A yes-or-no's box says in words, pointed at, which of its states it's in, so they need no legend (dendra.md, Part 3, States).
-  const tagSaid = t => { const c = t.classList; return c.contains('pend') ? null : c.contains('yes') ? (c.contains('fx') ? 'Yes, worked out' : 'Yes, typed') : c.contains('no') ? (c.contains('fx') ? 'No, worked out' : 'No, typed') : 'Nobody has said'; };
+  const tagSaid = t => { const c = t.classList; return c.contains('pend') ? null : c.contains('yes') ? (c.contains('fx') ? 'Yes, worked out' : 'Yes') : c.contains('no') ? (c.contains('fx') ? 'No, worked out' : 'No') : 'Not answered'; };
   document.addEventListener('pointerover', e => {
     if (e.target.classList?.contains('tag') && !e.target.dataset.tip && !e.target.closest('[data-tip]')) { const s = tagSaid(e.target); if (s) e.target.dataset.tip = s; }
     const el = tipOf(e.target);
@@ -851,7 +851,14 @@ const Shell = (() => {
   // The chart's name is renamed in place, as a sheet's is: from the chart menu, Find, a double-click on it, or
   // as a new chart begins. Enter or leaving keeps what's typed, Esc puts it back; another chart shown ends it.
   const naming = signal(null);
-  const nameChart = () => { const id = part('workbook')?.current(); if (id && !App.readOnly.peek()) { closeAll(); naming.value = id; } };
+  let namedThen = null;
+  const nameChart = o => { const id = part('workbook')?.current(); if (id && !App.readOnly.peek()) { closeAll(); namedThen = o?.then ?? null; naming.value = id; } };
+  // A chart just begun lands naming its first box, of its first kind, the chip beside it saying which: the way in, not a button to find. Esc leaves Add a box.
+  function firstBox(tries = 40) {
+    const c = part('canvas'), drawn = c?.active?.()?.scene?.();
+    if (drawn && App.scene.peek() && current.peek()?.layout === 'chart' && drawn.view === current.peek().id) { if (!App.readOnly.peek() && !App.scene.peek().marks.some(m => m.type === 'box')) c.kinds?.()[0]?.run(); return; }
+    if (tries) setTimeout(() => firstBox(tries - 1), 50);
+  }
   effect(() => { const id = part('workbook')?.current(); if (naming.peek() && naming.peek() !== id) naming.value = null; });
   let refocus = false;
   function Naming() {
@@ -861,6 +868,7 @@ const Shell = (() => {
       naming.value = null; refocus = back;
       const name = Tree.clean(value ?? '');
       if (keep && name && name !== was) part('workbook').rename(id, name);
+      const then = namedThen; namedThen = null; then?.();
     };
     return html`<div class="chartmenu naming">${mark}<input class="name" aria-label="Chart name" value=${text} spellcheck="false" style=${`width:${text.length + 2}ch`}
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onInput=${e => setText(e.target.value)}
@@ -1251,7 +1259,7 @@ const Shell = (() => {
 
   return {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
-    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart, roved, land, enter, keyed: () => keyed, usingKeys,
+    register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart, firstBox, roved, land, enter, keyed: () => keyed, usingKeys,
     widen, narrow, wide, gliding, showPanel, theme, setTheme, html, h, signal, computed, effect, parts: reg,
     problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n) })), listProblems: kind => listOf(kind),
     aside: c => { aside.value = c; },

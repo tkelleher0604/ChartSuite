@@ -7,13 +7,14 @@ Templates.register({
   rows: Templates.rows(t => {
     const person = { kind: 'Person' }, field = (edge, type = 'text') => ({ out: { field: type }, ...t.entry(edge, {}) });
     t.kind('Person', { Name: 'text', Born: 'date', Died: 'date', Birthplace: 'text', 'Maiden Name': 'text' });
+    t.undated();
     t.note('Order', person, { by: 'Born' });
     const parent = t.relation('Parent Of', ['Parent', 'Child'], { kinds: [['Person', 'Person']], lists: { Parent: 'Parents', Child: 'Children' } });
     const married = t.relation('Married To', ['Spouse', 'Partner'], { kinds: [['Person', 'Person']], lists: { Spouse: 'Spouses', Partner: 'Spouses' }, at: { Married: 'date', Ended: 'date' }, above: 'level' });
     t.starts('Married', married, { verb: 'Marry', done: 'Married' });
     t.ends('Ended', married, { verb: 'End', done: 'Ended' });
 
-    t.page('tree', 'Family Tree', 1, { title: { format: { Font: 'Georgia', Bold: false, Color: '#3d2f1f' } }, date: { format: { Size: 10, Color: '#6b6256' } }, key: false });
+    t.page('tree', 'Family Tree', 1, { title: { format: { Font: 'Georgia', Bold: false, Color: '#3d2f1f' } }, date: false, key: false });
     t.shown('tree', field('Name'), { Bold: true, Color: '#2b241b' });
     t.shown('tree', t.entry('Born', person), { Color: '#6b6256', Format: 'label' });
     t.shown('tree', field('Died', 'date'), { Color: '#6b6256', Format: 'label' });

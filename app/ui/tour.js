@@ -1,6 +1,6 @@
 // The tour: seven steps, each done by doing what it teaches, then one card. It runs by itself on the very
 // first launch, once the launch screen is gone, if a chart is drawn; after that, from Tour in the chart menu or
-// Find. Enter skips a step and Skip goes to the last card. Esc leaves what's being done first (a name typed, a
+// Find. Enter skips a step and Skip ends it. Esc leaves what's being done first (a name typed, a
 // menu), as it always does, and otherwise ends the tour, the chart having the keys. Tab from nothing goes to Skip, and
 // from Skip into the window; a step says its act by the keys once they're what's used. A step waits for its event on the shell's bus; or for what it points at to
 // be clicked, or focused from the keys; or, pointing, for the pointer to rest on what it points at and leave. It
@@ -29,10 +29,11 @@ const Tour = (() => {
   const STEPS = [
     { can: anyBox, event: 'select', target: 'box', act: 'Click a box.', keys: 'Tab to a box.', say: 'Every box is a record.', when: s => s?.length },
     { can: anyBox, event: 'field-edit', target: 'box', act: 'Double-click a box’s name.', keys: 'Press Enter on a box.', say: 'Type here or in the panel: it’s the same record.', ends: unedit },
-    { can: twoBoxes, click: true, event: 'scope-toggled', target: 'like', act: 'Click “This box” or “All …” above the chart.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+KeyA')}.`, say: 'That moves the pen in the panel: a change goes where the pen is, what it reaches outlined. Click a pen on any row to move it there.', ends: unlike },
-    { can: twoBoxes, event: 'relate-open', target: 'box', act: 'Drag a dot on a box’s edge to another box.', keys: 'Press Shift+F10 on a box, choose Relate…, Tab to another box and press Enter.', say: 'The panel then says how the two are related.' },
+    { can: twoBoxes, click: true, event: 'scope-toggled', target: 'scope', act: 'Click “This box” or “All …” above the chart.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+KeyA')}.`, say: 'That moves the pen in the panel: a change goes where the pen is, what it reaches outlined. Click a pen on any row to move it there.', ends: unlike },
+    // (Its dots stand on the box it points at, so what it says to drag can be seen.)
+    { can: twoBoxes, dots: true, event: 'relate-open', target: 'box', act: 'Drag a dot on a box’s edge to another box.', keys: 'Press Shift+F10 on a box, choose Relate…, Tab to another box and press Enter.', say: 'The panel then says how the two are connected.' },
     // What the drag made, the two boxes' panel, shown before anything takes its place.
-    { can: twoBoxes, point: true, target: 'pair', act: 'Point at what holds between them.', keys: 'Press F6 until you’re in the panel.', say: 'Tick a relation to add it; one a formula gives is italic.' },
+    { can: twoBoxes, point: true, target: 'pair', act: 'Point at what’s between them.', keys: 'Press F6 until you’re in the panel.', say: 'Tick what’s true of these two. Italic ones are worked out for you.' },
     { can: () => { const R = App.computed.peek()?.computed ?? {}, st = App.state.peek() ?? {}; return Object.keys(R).some(id => st[id] && !('tag' in st[id]) && !st[id].args); }, click: true, target: 'computed', act: 'Click an italic value.', keys: 'Tab to an italic value.', say: 'Italic means a formula worked it out, and the formula bar says why.', saysKeys: 'Italic means a formula worked it out, and F1 on it says why.', ends: unask },
     { can: () => App.views.peek().length > 1, event: 'view-switch', target: 'sheet', act: 'Switch view.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+PageDown')}.`, say: 'Views share the records; each has its own styles. Export any of them.' },
   ];
@@ -55,7 +56,8 @@ const Tour = (() => {
   const leave = () => { rest = null; settle(); opened = STEPS[at.peek()]?.ends ?? null; };
   const done = () => { leave(); settle(); Shell.select(began, { replace: true }); };
   const next = () => { const i = at.peek(); if (i < 0 || i >= STEPS.length) return; const to = doable(i + 1); if (to < STEPS.length) leave(); else done(); at.value = to; };
-  const skip = () => { done(); at.value = STEPS.length; };
+  // Skipped, it's over: a name's asked for when History first has one to sign.
+  const skip = () => end();
   // Ended, the keys go to the chart, where they can be seen.
   function end() { if (at.peek() < 0) return; if (at.peek() < STEPS.length) done(); at.value = -1; setTimeout(() => { const a = document.activeElement; if (!a || a === document.body || !a.isConnected) Shell.enter('view'); }, 30); }
   for (const [i, s] of STEPS.entries()) if (s.event) on(s.event, d => { if (at.peek() === i && (!s.when || s.when(d))) next(); });
@@ -125,9 +127,17 @@ const Tour = (() => {
   // there's no room.
   const SIDE = { view: 'right-start', inspector: 'left-start', tabs: 'top-start', title: 'bottom-start', format: 'bottom-start', formula: 'bottom-start', tools: 'bottom-start' };
   const sideOf = el => SIDE[el.closest('[data-region]')?.dataset.region] ?? 'right-start';
+  // What the card keeps clear of is more than what it points at: of a row in the panel, the panel, its label being what's read; of a control in the bars, the bars under it too.
+  function roomOf(el) {
+    const r = el.getBoundingClientRect(), panel = el.closest('[data-region="inspector"]')?.getBoundingClientRect();
+    if (panel) return { x: panel.left, y: r.top, left: panel.left, right: panel.right, top: r.top, bottom: r.bottom, width: panel.width, height: r.height };
+    const bar = el.closest('[data-region="format"], [data-region="title"], [data-region="tools"]') && document.querySelector('#view .formulabar');
+    const low = Math.max(r.bottom, bar?.getBoundingClientRect().bottom ?? 0);
+    return { x: r.left, y: r.top, left: r.left, right: r.right, top: r.top, bottom: low, width: r.width, height: low - r.top };
+  }
 
   function Layer() {
-    const i = at.value, hole = useRef(), card = useRef(), prev = useRef(-1), [name, setName] = useState(store.get('name') ?? '');
+    const i = at.value, hole = useRef(), card = useRef(), prev = useRef(-1), dotsAt = useRef();
     const step = STEPS[i];
     // The cutout and the card follow the target directly, without redrawing; only a change of step glides.
     useLayoutEffect(() => {
@@ -146,15 +156,19 @@ const Tour = (() => {
         const r = el?.getBoundingClientRect();
         h.classList.toggle('none', !r);
         Object.assign(h.style, r ? { left: r.left - 4 + 'px', top: r.top - 4 + 'px', width: r.width + 8 + 'px', height: r.height + 8 + 'px' } : { left: '50%', top: '50%', width: 0, height: 0 });
+        // (A step about the dots shows them where the hole is: they come for real as the pointer nears.)
+        const d = dotsAt.current;
+        if (d) { d.hidden = !(el && step?.dots && !Shell.usingKeys.peek()); if (!d.hidden) { d.style.left = r.left + 'px'; d.style.top = r.top + 'px'; d.style.width = r.width + 'px'; d.style.height = r.height + 'px'; } }
         if (el) {
           // (Never on what it points at: where the side it's on has no room for it clear of that, whichever side has.)
-          computePosition(el, c, { strategy: 'fixed', placement: sideOf(el), middleware: [offset(20), flip({ padding: 12 }), shift({ padding: 12 })] })
+          const room = roomOf(el);
+          computePosition({ getBoundingClientRect: () => room }, c, { strategy: 'fixed', placement: sideOf(el), middleware: [offset(20), flip({ padding: 12 }), shift({ padding: 12 })] })
             .then(({ x, y }) => {
-              const w = c.offsetWidth, ht = c.offsetHeight, G = 20, on = (a, b) => a < r.right + G - 1 && a + w > r.left - G + 1 && b < r.bottom + G - 1 && b + ht > r.top - G + 1;
+              const w = c.offsetWidth, ht = c.offsetHeight, G = 20, on = (a, b) => a < room.right + G - 1 && a + w > room.left - G + 1 && b < room.bottom + G - 1 && b + ht > room.top - G + 1;
               if (on(x, y)) {
                 const fits = (a, b) => a >= 12 && b >= 12 && a + w <= innerWidth - 12 && b + ht <= innerHeight - 12;
                 const near = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-                const spot = [[r.right + G, near(r.top, 12, innerHeight - ht - 12)], [r.left - G - w, near(r.top, 12, innerHeight - ht - 12)], [near(r.left, 12, innerWidth - w - 12), r.bottom + G], [near(r.left, 12, innerWidth - w - 12), r.top - G - ht]].find(([a, b]) => fits(a, b));
+                const spot = [[room.right + G, near(room.top, 12, innerHeight - ht - 12)], [room.left - G - w, near(room.top, 12, innerHeight - ht - 12)], [near(room.left, 12, innerWidth - w - 12), room.bottom + G], [near(room.left, 12, innerWidth - w - 12), room.top - G - ht]].find(([a, b]) => fits(a, b));
                 if (spot) [x, y] = spot;
               }
               c.style.left = x + 'px'; c.style.top = y + 'px';
@@ -167,11 +181,11 @@ const Tour = (() => {
       return () => { clearTimeout(still); clearInterval(timer); removeEventListener('resize', tick); };
     }, [i]);
     if (i < 0) return null;
-    const finish = fresh => { if (name.trim()) store.set('name', name.trim()); end(); if (fresh) Gallery.open({ workbook: true, title: 'New chart', then: made => { if (made && typeof made !== 'string') Shell.toast('The sample is kept: chart menu, Workbooks', { ms: 9000 }); } }); };
+    const finish = fresh => { end(); if (fresh) Gallery.open({ workbook: true, title: 'New chart', then: made => { if (made && typeof made !== 'string') Shell.toast('The sample is kept: chart menu, Workbooks', { ms: 9000 }); } }); };
     // A step is said, and leaves focus in the window to do it; the last card is a dialog, which keeps it.
     const keysNow = Shell.usingKeys.value, act = keysNow && step?.keys ? (typeof step.keys === 'function' ? step.keys() : step.keys) : step?.act;
     return html`
-      <div class="tour-hole" ref=${hole} />
+      <div class="tour-hole" ref=${hole} /><div class="tour-dots" ref=${dotsAt} hidden><i /><i /><i /><i /></div>
       ${step ? html`<div class="tour-card" ref=${card} role="dialog" aria-label="Tour" aria-live="polite" onKeyDown=${e => { if (e.key === 'Escape') { e.preventDefault(); end(); } }}>
           <div class="step">${i + 1} / ${STEPS.length}</div>
           <p><b>${act}</b> ${keysNow && step.saysKeys || step.say}</p>
@@ -179,10 +193,9 @@ const Tour = (() => {
         </div>`
       : html`<div class="tour-scrim" /><form class="tour-card" ref=${card} role="dialog" aria-modal="true" aria-label="Tour" data-trap
           onSubmit=${e => { e.preventDefault(); finish(false); }} onKeyDown=${e => { if (e.key === 'Escape') finish(false); }}>
-          <p><b>${Shell.keyLabel('$mod+KeyZ')}</b> undoes anything, and History keeps every change, signed with your name.</p>
+          <p><b>${Shell.keyLabel('$mod+KeyZ')}</b> undoes anything, and History keeps every change.</p>
           ${keysNow ? html`<p><b>${Shell.keyLabel('$mod+KeyK')}</b> finds anything, <b>F6</b> goes from pane to pane, and <b>F1</b> says why, or lists every key.</p>` : null}
-          <label>Your name<input value=${name} onInput=${e => setName(e.target.value)} ref=${el => { if (!el || el.dataset.on) return; el.dataset.on = 1; const take = () => { if (el.isConnected && !el.closest('form').contains(document.activeElement)) el.focus({ preventScroll: true }); }; setTimeout(take); /* (A click that brought it up lands after that: the keys are still its.) */ addEventListener('pointerup', () => setTimeout(take), { once: true }); addEventListener('click', () => setTimeout(take), { once: true }); }} /></label>
-          <div class="acts"><button type="button" class="btn" data-tip="This chart stays, in the chart menu under Workbooks" onClick=${() => finish(true)}>New chart…</button><button class="btn primary">Keep this chart</button></div>
+          <div class="acts"><button type="button" class="btn" data-tip="This chart stays, in the chart menu under Workbooks" onClick=${() => finish(true)}>New chart…</button><button class="btn primary" ref=${el => { if (!el || el.dataset.on) return; el.dataset.on = 1; const take = () => { if (el.isConnected && !el.closest('form').contains(document.activeElement)) el.focus({ preventScroll: true }); }; setTimeout(take); /* (A click that brought it up lands after that: the keys are still its.) */ addEventListener('pointerup', () => setTimeout(take), { once: true }); addEventListener('click', () => setTimeout(take), { once: true }); }}>Keep this chart</button></div>
         </form>`}`;
   }
   const host = document.createElement('div');

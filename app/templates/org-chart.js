@@ -6,6 +6,7 @@ Templates.register({
   rows: Templates.rows(t => {
     const person = { kind: 'Person' }, field = (edge, type = 'text') => ({ out: { field: type }, ...t.entry(edge, {}) });
     t.kind('Person', { Name: 'text', Title: 'text', Department: 'text', Location: 'text', Email: 'text', 'Start Date': 'date', 'End Date': 'date', Vacant: 'tag' });
+    t.undated();
     t.starts('Start Date', person);
     t.ends('End Date', person);
     const reports = t.relation('Reports To', ['Manager', 'Report'], { kinds: [['Person', 'Person']], lists: { Manager: 'Manager', Report: 'Reports' } });

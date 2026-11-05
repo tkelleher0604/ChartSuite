@@ -1296,7 +1296,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // What the layout reads: the boxes, the lines that rank them, and the frames.
   const ranked = bs => ({
     boxes: inTurn(bs).map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null, order: tidiedAs.get(b.id)?.order ?? null, around: !!tidiedAs.get(b.id)?.around })),
-    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, level: l.level, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
+    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, level: l.level, room: Math.max(roomFor.get(`${l.from}|${l.to}`) ?? 0, l.level ? 40 : 0) })),
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
   });
   function* lay(squeeze, grow, ceil, whole = false) {
@@ -2084,7 +2084,8 @@ function groupsOf(N, view, only = null) {
   const out = [], own = p => { const c = N.resolve('Caption', p, view); return c && key(c.note.pattern) === key(p) ? c.value : null; };
   const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
   // An uncaptioned output by its name, but a text style's naming its entry, not an option or a tag, by the texts.
-  const called = (p, sw) => sw.kind === 'text' && (!p.out || 'field' in p.out) ? Tree.plural(outputName(N, p)) : outputName(N, p);
+  // (A date isn't a counted noun: Born, not Borns.)
+  const called = (p, sw) => sw.kind === 'text' && (!p.out || ('field' in p.out && p.out.field !== 'date')) ? Tree.plural(outputName(N, p)) : outputName(N, p);
   // Outputs as their option list has them: by the Order noted at each, then by name.
   const listOrder = ps => ps.map(p => [p, N.optionOrder(p) ?? Infinity, outputName(N, p)]).sort((a, b) => a[1] - b[1] || a[2].localeCompare(b[2])).map(([p]) => p);
   // (A text's swatch is in the page's own font and size, where its output doesn't say.)

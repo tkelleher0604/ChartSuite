@@ -2183,7 +2183,7 @@ function mount(el) {
   // Pointing at a box shows its handles, as Lucidchart's do, and at a field, that it's one (see Fields).
   root.addEventListener('pointermove', e => {
     pointerAt = { x: e.clientX, y: e.clientY };
-    if (scene) { gripsNear(e); dotsNear(e); }
+    if (scene) { gripsNear(e); dotsNear(e); lineDotNear(e); }
     if (!scene || e.target.closest?.('.dc-handle, .dc-edit, .dc-complete')) return;
     // A free shape is no box: on one, or on its grips, there's nothing to relate, whatever box is under or beside it; but one not selected has dots too, for a line
     // drawn from it, which only glues (see relating).
@@ -2194,7 +2194,7 @@ function mount(el) {
     showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' ? f.m : null));
     hover(f);
   });
-  root.addEventListener('pointerleave', e => { root.classList.remove('near-grips'); if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); } });
+  root.addEventListener('pointerleave', e => { root.classList.remove('near-grips'); if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); lineDot.hidden = true; } });
   // The dot the pointer is coming to stands up as it nears: the rest stay small, so a box pointed at isn't buried.
   function dotsNear(e) {
     const b = root.getBoundingClientRect();
@@ -2208,6 +2208,27 @@ function mount(el) {
   }, true);
   for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); if (aids.peek().rulers) paintAids(); zoomRead(); snapSoon(); });
 
+  // The line of the chart a point is on, within 8 px on screen, the nearest, but those of a box given (a dot dropped on its own line is nothing asked).
+  function lineAt(p, not) {
+    const r = 8 / graph.zoom();
+    let best = null, bd = r;
+    for (const k of scene.marks) if (k.type === 'line' && k.points && k.from !== not && k.to !== not) k.points.slice(1).forEach((q, i) => { const d = toSegment([p.x, p.y], k.points[i], q); if (d < bd) { best = k; bd = d; } });
+    return best;
+  }
+  // A line of two side by side has a dot of its own under its middle, as a box's edges have: dragged, what it draws is of the two (dendra.md, From nothing).
+  const lineDot = Object.assign(document.createElement('div'), { className: 'dc-handle dc-linedot', hidden: true });
+  over.appendChild(lineDot);
+  let dotOn = null;
+  lineDot.addEventListener('pointerdown', e => { if (dotOn && e.button === 0) { e.preventDefault(); e.stopPropagation(); const [x, y] = dotOn.at; const m = dotOn.m; lineDot.hidden = true; relating(m, [x, y], e); } });
+  function lineDotNear(e) {
+    if (e.target === lineDot) return;
+    const m = !scene || still() || e.buttons || pointing ? null : lineAt(graph.clientToLocal(e.clientX, e.clientY));
+    if (!m?.level) { dotOn = null; lineDot.hidden = true; return; }
+    const longest = m.points.slice(1).map((q, i) => [m.points[i], q]).sort(([a, b], [c, d]) => Math.hypot(d[0] - c[0], d[1] - c[1]) - Math.hypot(b[0] - a[0], b[1] - a[1]))[0], at = [(longest[0][0] + longest[1][0]) / 2, (longest[0][1] + longest[1][1]) / 2], g = graph.localToGraph(at[0], at[1]);
+    dotOn = { m, at };
+    lineDot.hidden = false;
+    Object.assign(lineDot.style, { left: `${g.x}px`, top: `${g.y + 14}px` });
+  }
   // A connector: a line glued to what it joins, a free shape's row with no record and no meaning attached, in the deck a real connector. From one to another, or from one to a point. Selected, as what was just made.
   function connect(a, b, q = null, given = {}) {
     let id = null;
@@ -2226,8 +2247,8 @@ function mount(el) {
     let target = null, unlayer = null, stopSel = null;
     root.classList.add('relating');
     const at = ev => graph.clientToLocal(ev.clientX, ev.clientY);
-    // (Any mark a line can be glued to: a line to a box is asked about, a line to a free shape, or from one, only glues.)
-    const boxAt = p => hand.markAt(p, [from.id]);
+    // (Any mark a line can be glued to: a line to a box is asked about, a line to a free shape, or from one, only glues. And a line of the chart, by what it joins, but its own.)
+    const boxAt = p => hand.markAt(p, [from.id]) ?? (from.type === 'box' ? lineAt(p, from.id) : null);
     // Begun from a menu, nothing else says what comes next: it's said beside the box, and then beside the pointer, where the eye is; begun by
     // the keys, in their words.
     const others = scene.marks.some(m => m.type === 'box' && m.id !== from.id);
@@ -2270,12 +2291,15 @@ function mount(el) {
       if (down && Math.hypot(ev.clientX - down.clientX, ev.clientY - down.clientY) < 4) return take(graph.getCellById(from.id));
       const p = at(ev);
       target = boxAt(p);
+      // Dropped on a line of the chart, or drawn from one, it's what that line joins that's asked about (dendra.md, From nothing).
+      if (target?.type === 'box' && from.type === 'line') Shell.emit('relate-open', [from.id, target.id]);
+      else if (target?.type === 'line' && from.type === 'box') { if (!only) Shell.emit('relate-open', [from.id, target.id]); }
       // A line with no relation in mind: to or from a free shape, there's none it could be, so it's glued; into empty room from one, it ends there. (Asking what's between two boxes makes nothing, so it glues nothing.)
-      if (target && (target.type !== 'box' || from.type !== 'box')) { if (!only) connect(from, target); }
+      else if (target && (target.type !== 'box' || from.type !== 'box')) { if (!only && from.type !== 'line') connect(from, target); }
       else if (target) Shell.emit('relate-open', [from.id, target.id]);
       else if (only || !ev.target.closest?.('.dc') || ev.target.closest?.('.dc-edit') || ev.button !== 0) return;
       else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) {
-        if (from.type !== 'box') return connect(from, null, [p.x, p.y]);
+        if (from.type !== 'box' && from.type !== 'line') return connect(from, null, [p.x, p.y]);
         const guide = marks.appendChild(line.cloneNode()); create(lastKind(), p, { relate: from.id, guide });
       }
     };
@@ -2342,8 +2366,8 @@ function mount(el) {
       // What's between it and another box: asked for, a tick in the two's panel relates them; Viewing, it reads what's there, and makes nothing.
       ...(one?.type === 'box' ? [{ label: ro ? 'With…' : 'Relate…', run: () => relating(one, undefined, null, ro) }] : []),
       // A relation recorded, as its panel's ⋯ has it: renamed where it's seen; given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
-      ...(one?.type === 'line' && !ro ? [{ label: `Rename ${App.notes.peek().nameOf(App.state.peek(), one.record)}…`, run: () => Shell.parts.peek().inspector?.renameLine?.(one.record) }] : []),
-      ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
+      ...(one?.type === 'line' && !ro ? [{ label: `Rename ${App.notes.peek().nameOf(App.state.peek(), one.record)}…`, run: () => Shell.parts.peek().inspector?.renameLine?.(one.record) }, { label: App.lineNamed(one.record) ? 'Hide name' : 'Show name', run: () => App.nameLine(one.record, !App.lineNamed(one.record)) }] : []),
+      ...(one?.type === 'line' && App.isDated.peek() && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: App.interposeWord(one.record), disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
       // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line. (One row, so the menu fits the window it opens in.)
       ...(one?.type === 'box' ? (deals => deals.length ? [{ label: 'Transactions', items: deals }] : [])([...(App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []), ...stakeItems(one)]) : []),
@@ -2366,9 +2390,9 @@ function mount(el) {
       ...(ms.some(m => m.type === 'box') ? [{ label: 'Show only these', disabled: !canShowOnly(), run: showOnly }] : []),
       ...(bound.length ? ['-'] : []),
       // (On the Key, what it deletes, the row selected or the Key, in its own label.)
-      { label: bound.length ? `${App.deleteVerb(bound.map(m => m.record))}…` : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
+      { label: bound.length ? App.deleteLabel(bound.map(m => m.record)) : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
       // What the word for an act hides, offered plainly: a mistake is taken back as never held.
-      ...(bound.length && bound.some(m => App.endOf(m.record) !== false) ? [{ label: 'Delete as a mistake…', danger: true, disabled: !App.canAsk(), run: () => { remove(true); App.neverHeld(); } }] : []),
+      ...(bound.length && bound.some(m => App.endOf(m.record) !== false) ? [{ label: App.mistakeLabel(), danger: true, disabled: !App.canAsk(), run: () => { remove(true); App.neverHeld(); } }] : []),
     ];
   }
   // Flip and turn: as PowerPoint's Rotate list. On what can't, it says why as it's asked.

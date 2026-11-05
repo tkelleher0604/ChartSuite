@@ -747,11 +747,11 @@ const Time = (() => {
     const itOf = (x, [w, o]) => Tree.isView(all[x]) ? `view ${name ? Log.latest(name.now.length ? name.now : name.was).value : o}` : Tree.isObject(all[x]) ? o : all[x].args ? `${w}: ${o}` : `${w} of ${o}`;
     const it = itOf(i.id, [what, of]);
     // (What's typed at an entry a rule gives is typed over the rule, a decision: said as one, with its Until.)
-    const ruled = !r.args && isDefined(N, what), verdict = r.tag ? 'Attested' : 'Ruled out', added = back ? 'Restored' : 'Added';
+    const ruled = !r.args && isDefined(N, what), verdict = App.isDated.peek() ? (r.tag ? 'Attested' : 'Ruled out') : r.tag ? 'Ticked' : 'Said no to', added = back ? 'Restored' : 'Added';
     if (ruled && !back && !i.was.length) return `Typed over ${it}: ${'tag' in r ? (r.tag ? 'Yes' : 'No') : valueText(r)}${r.before ? `, until ${short(r.before)}` : ''}`;
     const fact = r.args && r.tag === true && !isDefined(N, what);
     // A relation added that asked its day (App.asksDay) says it: from the day said, or all along.
-    const when = r.args && !back && App.asksDay(r, recs, N) ? r.since ? ` from ${short(r.since)}` : ' all along' : '';
+    const when = r.args && !back && App.asksDay(r, recs, N) ? r.since ? ` from ${short(r.since)}` : App.isDated.peek() ? ' all along' : '' : '';
     // A value, by whose it is, in a record's own History.
     const whose = () => stakeOf(all, i.id, N) ?? it, day = d => d ? ` from ${short(d)}` : '';
     const end = r.field === 'date' && all[r.at] && !back && (t => !!t && N.isEnd(t))(Tree.treeOf(all, i.id));
@@ -765,7 +765,7 @@ const Time = (() => {
     if (!i.was.length) return end ? `${(Tree.isObject(all[r.at]) && act?.[1]) || 'Ended'} ${itOf(r.at, said(all, r.at, N))} on ${short(r.value)}`
       : Tree.isObject(r) || fact ? `${added} ${it}${fact ? when : ''}` : 'tag' in r ? `${verdict} ${it}` : r.args || back ? `${added} ${it}${when}`
       : `${own ? `${whose()} was set` : `Set ${it}`} to ${valueText(r)}${day(r.since !== r.value && r.since)}`;
-    if (!i.now.length) return Tree.isObject(r) || r.args ? `Deleted ${it}${back || Tree.isView(r) ? '' : ' as never held'}` : ruled ? `Back to the rule: ${it}, as never typed over` : `Cleared ${it}`;
+    if (!i.now.length) return Tree.isObject(r) || r.args ? `Deleted ${it}${back || Tree.isView(r) || !App.isDated.peek() ? '' : ' as never held'}` : ruled ? `Back to the rule: ${it}, as never typed over` : `Cleared ${it}`;
     const was = Log.latest(i.was), ended = i.now.every(x => x.before) && !was.before;
     if (ended) return ruled ? `Back to the rule: ${it}, from ${short(Log.latest(i.now).before)}` : `Ended ${it} on ${short(Log.latest(i.now).before)}`;
     // Something ended, made to hold on again (History's Restore of what was ended), is restored.
@@ -1157,6 +1157,8 @@ const Time = (() => {
   // Who a check flagged then, in a line.
   const movedWords = s => [['Started failing', s.in], ['Stopped failing', s.out], ['Now can’t say', s.cantIn], ['No longer can’t say', s.cantOut]].filter(([, who]) => who.length).map(([said, who]) => `${said}: ${who.join(', ')}`).join(' · ');
   const flaggedThen = f => [f.fails.length ? `Failing then: ${f.fails.slice(0, 6).join(', ')}${f.fails.length > 6 ? ` and ${f.fails.length - 6} more` : ''}` : f.says ? 'Failing then: no one' : 'It applied to no one then', f.cant.length ? `Couldn’t say: ${f.cant.slice(0, 6).join(', ')}${f.cant.length > 6 ? ` and ${f.cant.length - 6} more` : ''}` : ''].filter(Boolean).join(' · ');
+  // The name History signs with, asked for here the first time it's looked at with none (the tour doesn't ask; Settings can say it too).
+  const signing = Shell.signal(null);
   function History() {
     const t = Shell.time.value, E = ever.value, m = mode.value, ref = useRef(), k = kind.value, sel = Shell.selection.value, unfold = unfolded.value, opened = opens.value, viewing = App.viewing.value, asking = App.pending.value?.reverse;
     worked.value;
@@ -1250,6 +1252,7 @@ const Time = (() => {
         <div class="menu-seg">${[['all', 'Changes'], ['deleted', 'Deleted']].map(([x, label]) => html`<button aria-pressed=${m === x} onClick=${() => { mode.value = x; }}>${label}</button>`)}</div>
         <button class="btn icon" aria-label="Close" data-tip="Close" data-keys="Esc" onClick=${close}>${Shell.icon('x')}</button>
       </div>
+      ${Store.who() || signing.value ? null : html`<label class="hist-name"><span>Your name, to sign what you change</span><input class="cell" spellcheck=${false} aria-label="Your name" onKeyDown=${e => { if (e.key === 'Enter') e.target.blur(); }} onBlur=${e => { const t = Tree.clean(e.target.value); if (t) { Shell.store.set('name', t); signing.value = t; } }} /></label>`}
       ${m === 'all' || of.length || rule ? html`<div class="hist-filter">
         ${of.length || rule ? html`<div class="of">Changes to ${rule ? rule.name : of.map(nameOf).join(', ')}</div>` : null}
         <div class="by">${m === 'all' ? html`<button class="btn ghost dd" aria-haspopup="menu" onClick=${kinds}>${KINDS.find(([x]) => x === k)[1]}</button>` : null}
@@ -1299,7 +1302,7 @@ const Time = (() => {
     const k = new Set(keys), E = ever.value, t = Shell.time.value, upto = t?.stood ? t.at ?? E.byId.get(t.stood)?.when : null, all = [...entries.value].filter(e => !struck(e) && !e.change.about && !e.change.reverses && (!upto || e.change.when <= upto)
       && [...e.change.adds, ...e.change.removes.map(id => E.rows.get(id)).filter(Boolean)].some(r => 'note' in r && !r.view && k.has(Tree.key(r.pattern)) && r.label !== 'Order'));
     worked.value;
-    return all.map(e => ({ change: e.change, who: e.change.who, when: e.change.when, reasons: App.wb.reasons(e.change.id), fx: known(e.change), head: e.change.says ?? (part => { const all = reading(e.change); return all.length > 1 ? `${part[0]?.text ?? all[0].text}, and ${all.length - 1} more` : part[0]?.text ?? all[0]?.text ?? 'Changed the chart'; })(read(e.change, { rule: k })) }));
+    return all.map(e => ({ change: e.change, who: e.change.who, when: e.change.when, began: e.change.adds.some(r => 'chart' in r), reasons: App.wb.reasons(e.change.id), fx: known(e.change), head: e.change.says ?? (part => { const all = reading(e.change); return all.length > 1 ? `${part[0]?.text ?? all[0].text}, and ${all.length - 1} more` : part[0]?.text ?? all[0]?.text ?? 'Changed the chart'; })(read(e.change, { rule: k })) }));
   }
   const everything = () => { focus.value = null; kind.value = 'all'; byWho.value = null; byDays.value = null; byWords.value = ''; };
   // History takes the inspector's place while it's open: the chart's, everything, from the chart menu, or a record's own.

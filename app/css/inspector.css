@@ -365,7 +365,9 @@ svg.sw.off { opacity: .35; }
 .rr-at .row { padding-left: 42px; }
 .rr-at .row.chk { padding-left: calc(42px + var(--depth, 0) * 16px); }
 /* A relation of a new name: its name, then each side with its role after it. */
-.rr.new > .form { grid-column: 2 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 16px; align-items: center; }
+.rr.new > .form { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; row-gap: 2px; align-items: center; }
+.rr.new > .form > .sel { justify-self: start; max-width: 100%; }
+.rr.new > .form > .form-acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; }
 .rr.new > .form > .cell { width: calc(100% + 14px); }
 .rr.new > .form > .cell:first-child { grid-column: 1 / -1; }
 .rr.new > .form > .side { padding: 4px 0; overflow-wrap: anywhere; }

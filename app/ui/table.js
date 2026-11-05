@@ -1809,7 +1809,7 @@ const Table = (() => {
     const entered = App.entered.peek();
     // What it's at: the records it writes over, those it adds at, and those it ends.
     const needs = [...new Set([...Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]), ...x.ends])].filter(id => id in entered);
-    App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, ...(x.left.length && { note: `Left out: ${x.left.map(leftWord).join('; ')}` }), cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
+    App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, asking: asked.length > 0 || !!x.ends.length, ...(x.left.length && { note: `Left out: ${x.left.map(leftWord).join('; ')}` }), cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
       ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : over.length ? App.day.peek() : App.begins() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
@@ -2683,7 +2683,7 @@ const Table = (() => {
       ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, valuesIn(c, row.getData())) }] : []),
       ...(!current.isDatatype && writes ? ['-', { label: `New ${current.noun}`, run: () => rowEl?.querySelector('input, button')?.[current.isKind ? 'focus' : 'click']() }] : []),
       // Named for what it records, as the panel's and the chart's are (App.deleteVerb).
-      ...(d ? [{ label: `${App.deleteVerb(ids)}${ids.length > 1 || many ? ` ${count(ids.length, 'row')}` : ''}…`, keys: '$mod+Minus', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }] : []),
+      ...(d ? [{ label: `${App.deleteVerb(ids)}${ids.length > 1 || many ? ` ${count(ids.length, 'row')}` : ''}${App.deleteLabel(ids).endsWith('…') ? '…' : ''}`, keys: '$mod+Minus', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }] : []),
     ]);
   }
 
