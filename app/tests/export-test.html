@@ -1021,7 +1021,7 @@ async function drawnByHand() {
   const listAt = withText('One'), paras = tags(listAt, 'a:p');
   check('bullets are PowerPoint’s bullets, hanging, on each paragraph; its inner margins each side’s', paras.length === 2 && paras.every(p => tags(p, 'a:buChar').length === 1 && +tags(p, 'a:pPr')[0].getAttribute('marL') > 0 && +tags(p, 'a:pPr')[0].getAttribute('indent') < 0) && +tags(listAt, 'a:bodyPr')[0].getAttribute('lIns') > +tags(listAt, 'a:bodyPr')[0].getAttribute('tIns'), listAt?.outerHTML.slice(0, 500));
   const shrunk = withText('Too much');
-  check('a shape that shrinks its words has PowerPoint’s shrink on overflow, at the size the scene shrank them to', tags(shrunk, 'a:normAutofit').length === 1 && +tags(shrunk, 'a:rPr')[0].getAttribute('sz') < +tags(withText('Note it'), 'a:rPr')[0].getAttribute('sz'), shrunk?.outerHTML.slice(0, 900));
+  check('a shape that shrinks its words has PowerPoint’s shrink on overflow, its text at its whole size and what it’s shrunk by', tags(shrunk, 'a:normAutofit').length === 1 && +tags(shrunk, 'a:normAutofit')[0].getAttribute('fontScale') < 100000 && +tags(shrunk, 'a:rPr')[0].getAttribute('sz') === +tags(withText('Note it'), 'a:rPr')[0].getAttribute('sz'), shrunk?.outerHTML.slice(0, 900));
   const pic = tags(d, 'p:pic')[0];
   check('a picture keeps its name, its alt text and its flip', nameOf(pic) === 'Logo' && pic.getElementsByTagName('p:cNvPr')[0].getAttribute('descr') === 'A square' && tags(pic, 'a:xfrm')[0].getAttribute('flipH') === '1', pic?.outerHTML.slice(0, 400));
   const theme = xml(await zip.file('ppt/theme/theme1.xml').async('string')), slot = n => tags(tags(theme, n)[0], 'a:srgbClr')[0]?.getAttribute('val').toLowerCase();
@@ -1033,7 +1033,69 @@ async function drawnByHand() {
   check('… and written, a PDF', blob.size > 2000 && new TextDecoder('latin1').decode(await blob.slice(0, 5).arrayBuffer()) === '%PDF-', blob.size);
 }
 
-Promise.resolve().then(run).then(drawnByHand)
+// ---- Strictly more than PowerPoint (dendra.md, Free shapes): a table that reads, the master, theme fonts, freeforms, effects, fills, words, links; a deck holding each as PowerPoint's own ----
+async function moreThanPowerPoint() {
+  const wb = Log.open(SAMPLE), first = id => Tree.isView(wb.asOf(C, DAY)[id]) && !wb.notes(C).value('Layout', { id, kind: 'View' })?.rows, views = Object.keys(wb.asOf(C, DAY)).filter(first), view = views[0];
+  const worked = () => { const N = wb.notes(C), S = wb.schema(C); return Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }); };
+  const edit = f => { const tx = wb.edit({ chart: C, who: WHO }); const r = f(tx); if (typeof tx.commit() === 'string') throw new Error('no change'); return r; };
+  const src = `data:image/png;base64,${PNG}`;
+  edit(tx => {
+    tx.add('shape', { view: Scene.MASTER, geometry: 'text', x: 800, y: 500, w: 120, h: 24, text: 'CONFIDENTIAL' });
+    tx.add('shape', { view: Scene.MASTER, geometry: 'picture', x: 20, y: 20, w: 40, h: 40, src, name: 'Logo' });
+    tx.note('Theme Fonts', { kind: 'View' }, { heading: 'Georgia', body: 'Calibri' });
+    tx.note('Master', { id: views[1], kind: 'View' }, false);
+    tx.add('shape', { view, geometry: 'freeform', x: 60, y: 900, w: 90, h: 60, name: 'Free', format: { Points: { paths: [{ closed: true, nodes: [[0, 0], [1, 0, 1, 0.2, 1, 0.5], [0.5, 1]] }] } } });
+    tx.add('shape', { view, geometry: 'rect', x: 200, y: 900, w: 90, h: 60, name: 'Effects', format: { Glow: { size: 8, color: '#102030', transparency: 60 }, 'Soft Edge': 5, Reflection: { size: 50, transparency: 50, distance: 0, blur: 0.5 }, 'Inner Shadow': { blur: 5, distance: 3, angle: 45, color: '#000000', transparency: 50 }, Bevel: { type: 'circle', w: 6, h: 6 }, 'Turn 3D': { x: 45, y: 35, z: 0 }, Compound: 'double', 'Line Transparency': 30, Picture: { src } } });
+    tx.add('shape', { view, geometry: 'rect', x: 300, y: 900, w: 90, h: 60, name: 'Linked', link: { url: 'https://example.com/fund' }, format: { 'Line Gradient': { angle: 0, stops: [[0, '#102030'], [100, '#ffffff']] } } });
+    tx.add('shape', { view, geometry: 'rect', x: 400, y: 900, w: 90, h: 60, name: 'Jumps', link: { view: views[1] } });
+    tx.add('shape', { view, geometry: 'rect', x: 500, y: 900, w: 300, h: 40, name: 'Words', text: 'A\tB\nOne two three four five six seven eight nine ten eleven twelve thirteen', format: { Columns: { n: 2, gap: 7.2 }, Tabs: [36], 'First Line': -9, Indent: 9, Align: 'left', Font: 'Heading', 'Text Gradient': { angle: 90, stops: [[0, '#102030'], [100, '#ffffff']] }, 'Text Outline': { color: '#102030', weight: 0.5 } } });
+    tx.add('shape', { view, geometry: 'rect', x: 820, y: 900, w: 40, h: 120, name: 'Down', text: 'Down it', format: { Direction: 'down' } });
+    tx.add('shape', { view, geometry: 'rect', x: 880, y: 900, w: 80, h: 18, name: 'Shrinks', text: 'Too much text for this shape to hold on any line at all', format: { Shrink: true } });
+    tx.add('shape', { view, geometry: 'table', x: 60, y: 1000, w: 300, h: 60, name: 'Cap', alt: 'Who owns Halvard', table: { of: 'halvard', cols: [2, 1], header: true, banded: true, rows: [{ cells: [{ text: 'Owner' }, { text: 'Stake' }] }, { each: { of: 'halvard', list: 'Owners' }, cells: [{ text: '{Owner}' }, { text: '{Percentage}' }] }, { cells: [{ text: 'Total', format: { Bold: true } }, { text: '=SUM(ABOVE)' }] }] } });
+  });
+  const R = worked(), scene = v => ({ ...Scene.of(wb, C, v, DAY, { state: R.records, computed: R }), name: 'More' }), s = scene(view), s2 = scene(views[1]);
+  const cap = s.marks.find(m => m.geometry === 'table');
+  check('a table reads a list live: a row for each owner, its side and its stake, and a total', cap.table.rows.length === 3 && /Blocker/.test(cap.table.rows[1].cells[0].it.text) && cap.table.rows[1].cells[1].it.text === '82%' && cap.table.rows[2].cells[1].it.text === '82%', JSON.stringify(cap.table.rows.map(r => r.cells.map(k => k.it.text))));
+  check('the master is drawn on a page, under all of it; a page that leaves it off doesn’t', s.marks[0].master && s.marks.filter(m => m.master).length === 2 && !s2.marks.some(m => m.master), s2.marks.filter(m => m.master).length);
+  check('Heading and Body read as what the note says', Scene.fontName('Heading') === 'Georgia' && Scene.fontFamily('Body').includes('Calibri'));
+  const words = s.marks.find(m => m.name === 'Words').texts[0];
+  check('words in columns run on from the first to the second; a tab goes to its stop', words.columns?.n === 2 && words.lines.some(l => l.x > words.lines[0].x + 50) && words.lines[0].tabs?.[1].at > 0, JSON.stringify(words.lines.map(l => l.x)));
+  check('words down its side are set across its height, and turned', !!s.marks.find(m => m.name === 'Down').texts[0].turn && s.marks.find(m => m.name === 'Down').texts[0].lines.length === 1);
+  const zip = await JSZip.loadAsync(await Export.write('pptx', [s, s2], 'More', { N: wb.notes(C), R }));
+  const text = f => zip.file(f).async('string'), slide = await text('ppt/slides/slide1.xml'), slide2 = await text('ppt/slides/slide2.xml'), master = await text('ppt/slideMasters/slideMaster1.xml'), rels = await text('ppt/slides/_rels/slide1.xml.rels'), mrels = await text('ppt/slideMasters/_rels/slideMaster1.xml.rels'), theme = await text('ppt/theme/theme1.xml'), types = await text('[Content_Types].xml'), d = xml(slide), named = n => [...tags(d, 'p:sp')].find(sp => nameOf(sp) === n);
+  check('the deck’s well-formed, and every part of it', !tags(d, 'parsererror').length && !tags(xml(master), 'parsererror').length && !tags(xml(rels), 'parsererror').length, tags(d, 'parsererror')[0]?.textContent);
+  check('the master is the slide master’s own: its words and its picture there, none of it on the slide', /CONFIDENTIAL/.test(master) && /<p:pic>/.test(master) && /relationships\/image/.test(mrels) && !/CONFIDENTIAL/.test(slide));
+  check('… a slide that leaves it off says so, and the one that has it doesn’t', /<p:sld [^>]*showMasterSp="0"/.test(slide2) && !/showMasterSp/.test(slide));
+  check('theme fonts are the file’s, and what says one says it by reference', /<a:majorFont>\s*<a:latin typeface="Georgia"/.test(theme) && /<a:minorFont>\s*<a:latin typeface="Calibri"/.test(theme) && /typeface="\+mj-lt"/.test(slide), theme.slice(theme.indexOf('majorFont'), theme.indexOf('majorFont') + 60));
+  const tbl = tags(d, 'a:tbl')[0];
+  check('a table is PowerPoint’s own, in a frame, its alt text its description', !!tbl && tags(tbl, 'a:tr').length === 3 && tags(tbl, 'a:gridCol').length === 2 && tags(tags(d, 'p:graphicFrame')[0], 'p:cNvPr')[0].getAttribute('descr') === 'Who owns Halvard' && /Blocker/.test(tags(tags(tbl, 'a:tr')[1], 'a:t')[0].textContent), tbl?.outerHTML.slice(0, 200));
+  const free = named('Free'), fx = named('Effects'), kids = n => [...n.children].map(c => c.tagName);
+  check('a freeform is PowerPoint’s custom geometry, its curve a curve', !!tags(free, 'a:custGeom').length && tags(free, 'a:cubicBezTo').length === 2 && tags(free, 'a:close').length === 1 && tags(free, 'a:cxn').length === 4);
+  check('effects are PowerPoint’s own, in the order its files have them', kids(tags(fx, 'a:effectLst')[0]).join() === 'a:glow,a:innerShdw,a:reflection,a:softEdge' && tags(fx, 'a:bevelT')[0]?.getAttribute('prst') === 'circle' && tags(fx, 'a:rot')[0]?.getAttribute('lon') === String(45 * 60000) && (() => { const c = kids(tags(fx, 'p:spPr')[0]); return c.indexOf('a:effectLst') < c.indexOf('a:scene3d') && c.indexOf('a:scene3d') < c.indexOf('a:sp3d'); })(), kids(tags(fx, 'p:spPr')[0]).join());
+  check('a picture fill is a real one, its picture among the slide’s, typed; a compound and a line’s transparency, its own', !!tags(fx, 'a:blipFill').length && new RegExp(`Id="${tags(fx, 'a:blip')[0].getAttribute('r:embed')}"[^>]*relationships/image`).test(rels) && /Extension="png"/.test(types) && tags(fx, 'a:ln')[0].getAttribute('cmpd') === 'dbl' && tags(tags(fx, 'a:ln')[0], 'a:alpha')[0]?.getAttribute('val') === '70000');
+  const linked = named('Linked');
+  check('a link is a hyperlink; to a page, a jump to its slide', new RegExp(`Id="${tags(linked, 'a:hlinkClick')[0]?.getAttribute('r:id')}"[^>]*Target="https://example.com/fund"[^>]*External`).test(rels) && tags(named('Jumps'), 'a:hlinkClick')[0]?.getAttribute('action') === 'ppaction://hlinksldjump' && /Target="slide2.xml"/.test(rels));
+  check('a line’s gradient is a gradient', !!tags(tags(linked, 'a:ln')[0], 'a:gradFill').length);
+  const bp = n => tags(named(n), 'a:bodyPr')[0];
+  check('columns and a direction are the shape’s own; tab stops, a first line and letters painted and outlined, the paragraph’s and the run’s', bp('Words').getAttribute('numCol') === '2' && bp('Words').getAttribute('wrap') === 'square' && bp('Down').getAttribute('vert') === 'vert' && !!tags(named('Words'), 'a:tab').length && +tags(named('Words'), 'a:pPr')[0].getAttribute('indent') < 0 && !!tags(tags(named('Words'), 'a:rPr')[0], 'a:gradFill').length && !!tags(tags(named('Words'), 'a:rPr')[0], 'a:ln').length, bp('Words').outerHTML);
+  const shr = tags(bp('Shrinks'), 'a:normAutofit')[0], m3 = s.marks.find(m => m.name === 'Shrinks');
+  check('shrink is PowerPoint’s own: its text whole and what it’s shrunk by', !!shr && +shr.getAttribute('fontScale') === Math.round(m3.shrunk * 100000) && bp('Shrinks').getAttribute('wrap') === 'square', shr?.outerHTML);
+  check('in the preview, effects are drawn: a filter, a reflection’s mask', /<filter/.test(Export.svg(s)) && /<mask/.test(Export.svg(s)) && /<pattern/.test(Export.svg(s)));
+  const blob = await Export.write('pdf', [s], 'More', {});
+  check('… and the PDF is written with them, each body a picture', blob.size > 2000 && new TextDecoder('latin1').decode(await blob.slice(0, 5).arrayBuffer()) === '%PDF-' && /\/Subtype\s*\/Image/.test(new TextDecoder('latin1').decode(await blob.arrayBuffer())), blob.size);
+  // Merge Shapes, by areas: two squares ten on a side, overlapping by half.
+  const sq = (x, y = 0) => [[[x, y], [x + 10, y], [x + 10, y + 10], [x, y + 10]]], area = rings => Math.abs(rings.reduce((a, r) => a + r.reduce((b, p, i) => { const q = r[(i + 1) % r.length]; return b + p[0] * q[1] - q[0] * p[1]; }, 0) / 2, 0));
+  const near = (a, b) => Math.abs(a - b) < 0.01;
+  check('union, intersect and subtract come to their areas', near(area(Shapes.merge('union', [sq(0), sq(5)])[0]), 150) && near(area(Shapes.merge('intersect', [sq(0), sq(5)])[0]), 50) && near(area(Shapes.merge('subtract', [sq(0), sq(5)])[0]), 50));
+  const xor = Shapes.merge('combine', [sq(0), sq(5)])[0], frag = Shapes.merge('fragment', [sq(0), sq(5)]);
+  check('combine leaves what’s in one, two rings; fragment three pieces, adding up', xor.length === 2 && near(xor.reduce((a, r) => a + area([r]), 0), 100) && frag.length === 3 && near(frag.reduce((a, r) => a + area(r), 0), 150), `${xor.length} ${frag.length}`);
+  check('shapes that don’t touch intersect to nothing, said by nothing left', !Shapes.merge('intersect', [sq(0), sq(50)]).length);
+  check('one inside another subtracts to a ring with a hole', (() => { const big = [[[0, 0], [20, 0], [20, 20], [0, 20]]], [one] = Shapes.merge('subtract', [big, [[[5, 5], [10, 5], [10, 10], [5, 10]]]]); return one.length === 2 && near(Math.abs(area([one[0]])) - Math.abs(area([one[1]])), 375) || near(Math.abs(area([one[1]])) - Math.abs(area([one[0]])), 375); })());
+  check('any preset’s outline reads as points: a rectangle’s four corners, a rounded one’s curves', Shapes.pointsOf('rect', 100, 50).paths[0].nodes.length === 4 && Shapes.pointsOf('rect', 100, 50).paths[0].closed && Shapes.pointsOf('rounded', 100, 50, 20).paths[0].nodes.some(q => q[4] != null));
+  check('an icon reads as points, its strokes each a path', (() => { const P = Shapes.iconPoints(['svg', {}, [['circle', { cx: '12', cy: '12', r: '10' }], ['line', { x1: '2', y1: '2', x2: '22', y2: '22' }], ['rect', { width: '4', height: '4', x: '1', y: '1', rx: '1' }], ['path', { d: 'M3 3h4v4z' }]]]); return P.paths.length === 4 && P.round && P.paths[0].closed && !P.paths[1].closed; })());
+}
+
+Promise.resolve().then(run).then(drawnByHand).then(moreThanPowerPoint)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);
