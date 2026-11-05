@@ -1057,6 +1057,41 @@ async function designed() {
   const svg = Export.svg(sc);
   check('the PDF draws it as drawn: the parts’ shapes and their words', boxes.every(m => m.parts.flatMap(p => p.texts).flatMap(it => it.lines).every(l => svg.includes(`>${l.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').trim()}<`) || svg.includes(l.text.trim()))) && svg.includes(`fill="${boxes[0].parts[1].look.Fill}"`));
   check('a thumbnail is drawn by the same hand', /^<svg/.test(Export.markSvgOf(boxes[0], sc.page.scale)) && Export.markSvgOf(boxes[0], sc.page.scale).includes(name(boxes[0]).split(' ')[0]));
+  // A footnote on it: a real superscript run in its part.
+  const tx2 = wb.edit({ chart: C, who: WHO });
+  tx2.add('shape', { view, geometry: 'text', role: 'footnotes', name: 'Footnotes', text: '' });
+  tx2.note('Footnote', LLC, { text: 'Each of them' }, { view, param: 'fd' });
+  if (typeof tx2.commit() === 'string') throw new Error('no change');
+  const R2 = worked(), sc2 = Scene.of(wb, C, view, DAY, { state: R2.records, computed: R2 }), noted = sc2.marks.find(m => m.parts?.length && m.feet?.length);
+  const x2 = xml(await (await JSZip.loadAsync(await Export.write('pptx', [sc2], 'Designed', { author: WHO }))).file('ppt/slides/slide1.xml').async('string'));
+  const g2 = tags(x2, 'p:grpSp').find(q => tags(q, 'p:nvGrpSpPr')[0]?.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === name(noted));
+  check('a footnote on one: its marker a real superscript run in the part with the words', !!g2 && tags(g2, 'a:r').some(r => +tags(r, 'a:rPr')[0]?.getAttribute('baseline') > 0 && /^\d+$/.test(tags(r, 'a:t')[0].textContent)), g2?.textContent);
+  check('… once, and in the PDF too', !!g2 && tags(g2, 'a:r').filter(r => +tags(r, 'a:rPr')[0]?.getAttribute('baseline') > 0).length === 1 && Export.markSvgOf(noted, sc2.page.scale).includes('>1<'), Export.markSvgOf(noted, sc2.page.scale).slice(0, 300));
+}
+
+// Footnotes (dendra.md, Footnotes): in the deck, native text, a real superscript run on what carries one and on its line, editable; in the PDF, as drawn.
+async function footnoted() {
+  const wb = Log.open(SAMPLE), view = Object.keys(wb.asOf(C, DAY)).find(id => Tree.isView(wb.asOf(C, DAY)[id]) && !wb.notes(C).value('Layout', { id, kind: 'View' })?.rows);
+  const tx = wb.edit({ chart: C, who: WHO });
+  const fid = tx.add('shape', { view, geometry: 'text', role: 'footnotes', name: 'Footnotes', text: '' });
+  tx.note('Footnote', { kind: 'Entity' }, { text: 'Every entity, in {Jurisdiction}' }, { view, param: 'fn1' });
+  if (typeof tx.commit() === 'string') throw new Error('no change');
+  const N = wb.notes(C), S = wb.schema(C), R = Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }), s = { ...Scene.of(wb, C, view, DAY, { state: R.records, computed: R }), name: 'Noted' };
+  const zip = await JSZip.loadAsync(await Export.write('pptx', [s], 'Noted', { N, R })), d = xml(await zip.file('ppt/slides/slide1.xml').async('string')), sps = tags(d, 'p:sp');
+  const foot = sps.find(p => p.getElementsByTagName('p:cNvPr')[0]?.getAttribute('name') === 'Footnotes');
+  check('footnotes are a shape of their own in the deck, named so, each a paragraph, its number a real superscript run', !!foot && tags(foot, 'a:p').length >= 2 && tags(foot, 'a:r').some(r => +tags(r, 'a:rPr')[0]?.getAttribute('baseline') > 0 && /^\d+$/.test(tags(r, 'a:t')[0].textContent)) && /in Delaware/.test(foot.textContent), foot?.outerHTML.slice(0, 500));
+  const marked = sps.filter(p => p !== foot && tags(p, 'a:r').some(r => +tags(r, 'a:rPr')[0]?.getAttribute('baseline') > 0 && /^[\d,]+$/.test(tags(r, 'a:t')[0].textContent)));
+  check('… and what carries one has its marker, a real superscript run after its words', marked.length === s.marks.filter(m => m.type === 'box' && m.feet?.length).length && marked.length > 3, `${marked.length}`);
+  check('… the deck well-formed with it all', !tags(d, 'parsererror').length);
+  const svg = Export.svg(s, { pdf: true });
+  check('in the PDF, the footnote’s words as drawn', /in Delaware/.test(svg), svg.length);
+  // In columns, by a shape's Columns: PowerPoint's own, where the page has them where it put them.
+  const tx2 = wb.edit({ chart: C, who: WHO });
+  tx2.update(fid, { x: 40, y: 40, w: 700, format: { Columns: { n: 2, gap: 7.2 } } });
+  if (typeof tx2.commit() === 'string') throw new Error('no change');
+  const s2 = { ...Scene.of(wb, C, view, DAY, { state: R.records, computed: R }), name: 'Noted' }, d2 = xml(await (await JSZip.loadAsync(await Export.write('pptx', [s2], 'Noted', { N: wb.notes(C), R }))).file('ppt/slides/slide1.xml').async('string'));
+  const foot2 = tags(d2, 'p:sp').find(p => p.getElementsByTagName('p:cNvPr')[0]?.getAttribute('name') === 'Footnotes');
+  check('footnotes in two columns are PowerPoint’s two columns', tags(foot2, 'a:bodyPr')[0]?.getAttribute('numCol') === '2', foot2?.outerHTML.slice(0, 400));
 }
 
 // ---- Strictly more than PowerPoint (dendra.md, Free shapes): a table that reads, the master, theme fonts, freeforms, effects, fills, words, links; a deck holding each as PowerPoint's own ----
@@ -1121,7 +1156,7 @@ async function moreThanPowerPoint() {
   check('an icon reads as points, its strokes each a path', (() => { const P = Shapes.iconPoints(['svg', {}, [['circle', { cx: '12', cy: '12', r: '10' }], ['line', { x1: '2', y1: '2', x2: '22', y2: '22' }], ['rect', { width: '4', height: '4', x: '1', y: '1', rx: '1' }], ['path', { d: 'M3 3h4v4z' }]]]); return P.paths.length === 4 && P.round && P.paths[0].closed && !P.paths[1].closed; })());
 }
 
-Promise.resolve().then(run).then(drawnByHand).then(moreThanPowerPoint).then(designed)
+Promise.resolve().then(run).then(drawnByHand).then(moreThanPowerPoint).then(footnoted).then(designed)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);
