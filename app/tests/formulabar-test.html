@@ -482,8 +482,9 @@ async function checks() {
   const rowOf = id => App.definitions.peek().find(d => d.id === R().computed[id].def).rows[R().computed[id].row].formula;
   const whys = [];
   for (const id of Object.keys(R().computed).filter(id => R().records[id].tag === false)) whys.push([id, await saidOf([id])]);
-  check('every record the rows rule out says why, turning on what failed', whys.length >= 25 && whys.every(([id, s]) => /, so .*\b(does not|is not|are not)\b .*\.$/.test(s ?? '')
-    && (/,\s*FALSE\)\s*$/.test(rowOf(id)) ? !/, but /.test(s) : / but /.test(s))), whys.filter(([id, s]) => !/ but /.test(s ?? '') && !/,\s*FALSE\)\s*$/.test(rowOf(id))).map(w => w.join(': ')).join(' | ') || whys.length);
+  // (A row before that would have attested it follows “but” too: Ours to Track’s, of a portfolio company held whole.)
+  const saysWhy = ([id, s]) => /, so .*\b(does not|is not|are not)\b .*\.$/.test(s ?? '') && (/^fx:ours to track/.test(id) || (/,\s*FALSE\)\s*$/.test(rowOf(id)) ? !/, but /.test(s) : / but /.test(s)));
+  check('every record the rows rule out says why, turning on what failed', whys.length >= 25 && whys.every(saysWhy), whys.filter(w => !saysWhy(w)).map(w => w.join(': ')).join(' | ') || whys.length);
   // … and ruled out each way the sample's checks can be
   const ent = () => App.entered.peek(), set = (id, o) => App.change(tx => tx.set(id, { ...ent()[id], ...o })), undo = async () => { Shell.parts.peek().undo.undo(); await wait(40); };
   const capOf = sa => Object.keys(ent()).find(k => ent()[k].at === sa && ent()[k].edge === 'Capacity');
@@ -522,7 +523,7 @@ async function checks() {
   check('a default, said with the facts the rows before it read; an Entity Type, as what kind of entity it is', await saidOf(['fx:tax classification=northpine_type']) === 'Northpine Software, LLC is a limited liability company, so its tax classification is Partnership.', said());
   // A value at a relation says whose it is, its sides as the relation says them (Fund III is taxed for 2026), and
   // a fact that only names a side (the tax year is 2026) isn't said beside it: no side twice
-  const TAX = 'fx:tax year=mvpcpcot90r36y&taxpayer=fund_juris';
+  const TAX = 'fx:tax year=·2026&taxpayer=fund_juris';
   check('a value at a relation says whose, and a date its rule: Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid; never “the tax year is 2026, so the annual tax is due”',
     await saidOf([`fx:annual tax due=${TAX}`]) === 'Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid.' && FormulaBar.sentence(`fx:annual tax amount=${TAX}`) === 'Fund III’s annual tax amount for 2026 is $400.', said());
   const taxes = [...Object.entries(R().computed), ...Object.entries(R().covered)].filter(([, c]) => /^def_annual_tax/.test(c.def)).map(([id]) => FormulaBar.sentence(id));

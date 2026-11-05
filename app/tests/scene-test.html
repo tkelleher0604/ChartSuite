@@ -1620,8 +1620,8 @@ function aboutAnything() {
     const t2 = wb.edit({ chart: c, who: WHO }), made = make(t2);
     const m = t2.commit();
     if (typeof m === 'string') throw new Error(m);
-    const N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, DAY2), N.definitions(S), { relations: N.relations(S) });
-    return { made, R, s: Scene.of(wb, c, ids.get(v), DAY2, { state: R.records, computed: R }) };
+    const N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, DAY2), N.definitions(S), { relations: N.relations(S), schema: S });
+    return { made, R, wb, c, ids, s: Scene.of(wb, c, ids.get(v), DAY2, { state: R.records, computed: R }) };
   };
   for (const t of Templates.list()) {
     const { s, R } = chart(t.id, tx => Templates.exampleOf(tx, t));
@@ -1630,6 +1630,30 @@ function aboutAnything() {
     const own = t.rows.find(r => r.label === 'Design');
     if (['blank', 'fund-structure'].includes(t.id)) check(`${t.name} brings no design`, !own);
     else check(`${t.name} brings its own design, plain data, its boxes taking it, and its gallery has it`, JSON.stringify(JSON.parse(JSON.stringify(own.value))) === JSON.stringify(own.value) && s.marks.some(m => m.design?.value.id === own.value.id && m.parts?.length) && t.rows.find(r => r.label === 'Designs')?.value.list[0].id === own.value.id);
+  }
+  // A company answers to what any company does, none of it fund law; and the fund's chart has all its pages, each by what it shows, none by a record.
+  {
+    const co = Templates.of('company'), rulesOf = t => t.rows.filter(r => r.label === 'Formula').map(r => r.pattern.args?.[0].edge), checked = t => t.rows.filter(r => r.label === 'Check').map(r => r.pattern.args[0].edge);
+    check('Company structure has the jurisdiction layer: Ownership Adds Up, Percentages In Range, Delaware’s tax, formation documents and good standing, each a check where it’s one', ['Ownership Adds Up', 'Percentages In Range', 'Annual Tax Due', 'Annual Tax Amount', 'Paid Late', 'Formation Document on File', 'Governing Agreement on File'].every(e => rulesOf(co).includes(e))
+      && ['Ownership Adds Up', 'Percentages In Range', 'Good Standing', 'Formation Document on File', 'Governing Agreement on File'].every(e => checked(co).includes(e)), rulesOf(co).join());
+    check('… and its pages Documents and Dates, and no 40 Act', co.rows.some(r => r.label === 'Name' && r.value === 'Documents') && co.rows.some(r => r.label === 'Name' && r.value === 'Dates') && !/Close Affiliate|Look-Through|3\(c\)/.test(JSON.stringify(co.rows)));
+    const entity = (tx, name, type, juris = 'Delaware', formed = '2030-02-01') => { const id = tx.add('record', { kind: 'Entity' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }); if (type) tx.add('record', { at: id, edge: 'Entity Type', choice: type }); if (juris) tx.add('record', { at: id, edge: 'Jurisdiction', choice: juris }); if (formed) tx.add('record', { at: id, edge: 'Formation Date', field: 'date', value: formed }); return id; };
+    const stake = (tx, a, b, p) => { const r = tx.add('record', { args: [{ edge: 'Owner', at: a }, { edge: 'Owned', at: b }], tag: true }); tx.add('record', { at: r, edge: 'Percentage', field: 'percent', value: p }); return r; };
+    const { made, R, s, wb, c } = chart('company', tx => { const h = entity(tx, 'Holdings, Inc.', 'Corporation'), o = entity(tx, 'Opco, LLC', 'Limited Liability Company'), t = entity(tx, 'A Family Trust', 'Trust', null, null), own = stake(tx, h, o, 1.5); return { h, o, t, own }; });
+    const needs = Formulas.attention(R, wb.notes(c), DAY2), of = id => needs.filter(a => a.id === id || R.records[a.id]?.at === id || (R.records[a.id]?.at && R.records[R.records[a.id].at]?.args?.some(x => R.records[x.at]?.at === id)));
+    check('… 150% goes out as what it is: out of range, and more than all of it', needs.some(a => a.kind === 'error' && R.records[a.id]?.edge === 'Percentages In Range') && needs.some(a => a.kind === 'error' && R.records[a.id]?.edge === 'Ownership Adds Up' && R.records[a.id].at === made.o), JSON.stringify(needs.slice(0, 6).map(a => a.kind + ' ' + (a.edge ?? R.records[a.id]?.edge))));
+    check('… a Delaware company’s tax is owed from the year the chart can say: a corporation’s March 1, an LLC’s June 1, each from its year', Object.values(R.records).filter(r => r.edge === 'Annual Tax Due').map(r => r.value.slice(5)).sort().join().includes('03-0') && Object.values(R.records).filter(r => r.edge === 'Annual Tax Due').some(r => r.value.slice(5) === '06-01'), Object.values(R.records).filter(r => r.edge === 'Annual Tax Due').map(r => r.value).join());
+    check('… its File Number, EIN and Good Standing are asked of what’s ours', ['File Number', 'EIN', 'Good Standing'].every(e => needs.some(a => a.kind === 'blank' && a.id === made.h && a.edge === e)));
+    const trust = s.byId.get(made.t);
+    check('… and a trust has a style of its own, in the Key', trust?.settings.Shape.value === 'hexagon' && s.legend.some(r => r.caption === 'Trust'), s.legend.map(r => r.caption).join());
+    const outside = chart('company', tx => { const h = entity(tx, 'Holdings, Inc.', 'Corporation'), p = entity(tx, 'Partner Co', 'Corporation'); tx.add('record', { at: p, edge: 'Outside the Group', tag: true }); return { h, p }; }), outNeeds = Formulas.attention(outside.R, outside.wb.notes(outside.c), DAY2);
+    check('… and one said to be outside the group is asked nothing and owes nothing tracked', !outNeeds.some(a => a.id === outside.made.p && ['EIN', 'File Number'].includes(a.edge)) && !Object.keys(outside.R.records).some(id => outside.R.records[id].args?.some(x => outside.R.records[x.at]?.at === outside.made.p)), JSON.stringify(outNeeds.filter(a => a.id === outside.made.p)));
+    const fund = Templates.of('fund-structure'), pagesOf = t => t.rows.filter(r => 'record' in r).map(r => r.record);
+    check('The fund template comes with every page: 40 Act, Fund, Management and control, by what they show, none by a record', ['structure', '40-act', 'fund', 'management-and-control', 'entities', 'ownership', 'dates', 'documents'].every(p => pagesOf(fund).includes(p)) && !fund.rows.some(r => 'pattern' in r && [...Tree.idsIn(r.pattern)].some(id => !pagesOf(fund).includes(id))), pagesOf(fund).join());
+    const forty = chart('fund-structure', tx => { const f = entity(tx, 'A Main Fund, L.P.', 'Limited Partnership'); tx.add('record', { at: f, edge: 'Vehicle Type', choice: 'Main Fund' }); tx.add('record', { at: f, edge: 'Investment Company Status', choice: '3(c)(7) Fund' }); const b = entity(tx, 'A BDC, Inc.', 'Corporation', 'Maryland'); tx.add('record', { at: b, edge: 'Vehicle Type', choice: 'Business Development Company' }); tx.add('record', { at: b, edge: 'Investment Company Status', choice: 'Business Development Company' }); const u = entity(tx, 'Untyped Sub, LLC', 'Limited Liability Company'); stake(tx, u, b, 0.3); return { f, b, u }; });
+    const fortyId = [...forty.ids].find(([k]) => k === '40-act')[1], fortyS = Scene.of(forty.wb, forty.c, fortyId, DAY2, { state: forty.R.records, computed: forty.R });
+    check('… the 40 Act page fills as what it shows is added: a BDC and what’s affiliated with it', fortyS.byId.has(forty.made.b) && fortyS.byId.has(forty.made.u) && !fortyS.byId.has(forty.made.f), [...fortyS.byId.keys()].slice(0, 5).join());
+    check('… and a box it draws that stands in no frame, for want of what the frames go by, says so', Scene.says(fortyS, b => b.texts[0].text.replace(/\s+/g, ' ')).some(t => /Untyped Sub, LLC is in no frame: it has no Vehicle Type/.test(t)), Scene.says(fortyS, b => b.texts[0].text).join(' | '));
   }
   const person = (tx, name, more = {}) => { const id = tx.add('record', { kind: 'Person' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }); for (const [edge, value] of Object.entries(more)) tx.add('record', { at: id, edge, field: 'date', value }); return id; };
   // Forty people.

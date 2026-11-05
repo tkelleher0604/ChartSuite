@@ -265,6 +265,8 @@ async function run() {
   const feeder = drawnBoxes.find(b => { const e = entryOf(b, 'Jurisdiction'); return e && rs[e].choice === 'Cayman Islands'; });
   Shell.select([feeder.id]); await tick(120);
   $('[data-fb="groups"]').click(); await tick(120);
+  // (A long list has what each field could reach a row away.)
+  $$('.float .menu-item').find(e => txt(e) === 'Same field value')?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120);
   const cayman = $$('.float .menu-item').find(e => txt(e).startsWith('Jurisdiction: Cayman Islands'));
   const caymans = reachOf('Jurisdiction', { choice: 'Cayman Islands' });
   check('a box’s option is offered as a group of its own', !!cayman && txt(cayman) === `Jurisdiction: Cayman Islands (${caymans})`, menuItems().join(' | '));
@@ -2300,7 +2302,7 @@ async function stillAsMade() {
   check('History says each change as it was made, nothing of the boxes kept where they stood', !says.some(s => /^Moved Larkspur Credit GP|^Moved Larkspur Capital|, and \d+ more/.test(s)), says.join(' | '));
   // The Key keeps its corner as the chart is edited (gui2 D-16): a change keeps it where it's drawn on the sheet, which
   // History doesn't say; Tidy places it afresh, as it does the chart.
-  const keyMark = () => sc().marks.find(m => m.geometry === 'legend'), keyAt = () => [keyMark().x * sc().page.scale, keyMark().y * sc().page.scale], keyRow = () => App.wb.rows(App.chart.peek()).find(r => r.geometry === 'legend');
+  const keyMark = () => sc().marks.find(m => m.geometry === 'legend'), keyAt = () => [keyMark().x * sc().page.scale, keyMark().y * sc().page.scale], keyRow = () => App.wb.rows(App.chart.peek()).find(r => r.geometry === 'legend' && r.view === Shell.view.peek());
   const k0 = keyAt(), f3 = box('Larkspur Credit Fund');
   await dot(f3, 'e', [f3.x + f3.w + 200, f3.y + f3.h + 110]);
   await name('State of Ohio Public Employees Deferred Compensation Retirement Trust');
@@ -2365,10 +2367,10 @@ async function format() {
   check('… and Undo takes it all back', noteAt(act, 'Fill', FUNDS)?.value === oldFill && !noteAt(act, 'Bold', NEW) && shapeIn(act, r => r.role === 'title').format?.Font !== 'Garamond');
   // A view that already has the look says so, and writes nothing.
   const nA = App.wb.changes().length;
-  FormatBar.lookMenu(st.id).find(i => i.label === 'Match look').items.find(i => i.label === 'Fund III').run(); await tick(300);
-  FormatBar.lookMenu(named('Fund III').id).find(i => i.label === 'Match look').items.find(i => i.label === 'Structure').run(); await tick(300);
+  FormatBar.lookMenu(st.id).find(i => i.label === 'Match look').items.find(i => i.label === 'Fund').run(); await tick(300);
+  FormatBar.lookMenu(named('Fund').id).find(i => i.label === 'Match look').items.find(i => i.label === 'Structure').run(); await tick(300);
   const nB = App.wb.changes().length;
-  FormatBar.lookMenu(named('Fund III').id).find(i => i.label === 'Match look').items.find(i => i.label === 'Structure').run(); await tick(300);
+  FormatBar.lookMenu(named('Fund').id).find(i => i.label === 'Match look').items.find(i => i.label === 'Structure').run(); await tick(300);
   check('… and a view with that look already says so, writing nothing', App.wb.changes().length === nB && nB >= nA && /already has that look/.test(txt($('.toasts'))), txt($('.toasts')));
   Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(300);
 
@@ -2521,7 +2523,7 @@ async function format() {
   const boxNamed = name => sc().marks.find(m => m.type === 'box' && m.texts[0]?.text.replace(/\s+/g, ' ') === name), noForm = boxNamed('Pinecrest Capital'), corp = boxNamed('Fielding, Inc.');
   check('an entity with no Entity Type isn’t drawn in the Corporation’s exact look', !!noForm && !!corp && (noForm.settings.Dash.value !== corp.settings.Dash.value || noForm.settings.Outline.value !== corp.settings.Outline.value), `${noForm?.settings.Dash.value} ${corp?.settings.Dash.value}`);
   check('… and it’s said at Export, by name', Scene.says(sc(), b => b.texts[0]?.text).some(t => /Pinecrest Capital has no Entity Type/.test(t)), Scene.says(sc(), b => b.texts[0]?.text).join('; '));
-  check('… a chart with no Vehicle Type on any box isn’t asked for one', !App.needs.peek().some(a => a.kind === 'blank' && a.edge === 'Vehicle Type'), JSON.stringify(App.needs.peek().slice(0, 5)));
+  check('… and a fund’s chart asks what vehicle a box is from its first', App.needs.peek().some(a => a.kind === 'blank' && a.edge === 'Vehicle Type'), JSON.stringify(App.needs.peek().slice(0, 5)));
   Shell.select([]); await tick(150);
   check('… and Styles folds what reaches nothing here', !$$('.row.out .cap').some(c => txt(c) === 'Funds') && $$('.styles-off .lk').some(b => /^Not on this page/.test(txt(b))), $$('.row.out .cap').map(txt).join());
   Shell.parts.peek().workbook.menu().find(x => x.label === 'Delete chart').run(); await tick(300);
@@ -2755,7 +2757,7 @@ async function format() {
 
   // ---- A plan's pages: All text and a look go to them all, one change, said once ----
   {
-    const wasOn = Shell.view.peek(), views = () => App.views.peek(), called = n => views().find(v => v.name === n), p1 = called('Structure'), p2 = called('Fund III'), other = called('Management and control');
+    const wasOn = Shell.view.peek(), views = () => App.views.peek(), called = n => views().find(v => v.name === n), p1 = called('Structure'), p2 = called('Fund'), other = called('Management and control');
     const root = (id, l) => App.notes.peek().value(l, { id, kind: 'View' }), undoP = async () => { Shell.parts.peek().undo.undo(); await tick(400); };
     App.change(tx => { tx.note('Plan', { id: p1.id, kind: 'View' }, 'plan-e'); tx.note('Plan', { id: p2.id, kind: 'View' }, 'plan-e'); }, { dated: false }); await tick(300);
     await show(p1); Shell.select([]); await tick(200);
@@ -3285,9 +3287,9 @@ async function templates() {
   // The fund template is the sample's chart less its records: what a chart like it begins with.
   App.newChart(); await tick(300); await until(() => !document.querySelector('.titlebar input')); key('Escape'); await tick(60);
   document.activeElement?.blur?.();
-  const like = App.chart.peek(), likeRows = wb().rows(like).filter(r => !('chart' in r));
+  const like = App.chart.peek(), likeRows = wb().rows(like).filter(r => !('chart' in r) && !r.calendar);
   App.begin({ template: 'fund-structure', name: 'From the template' }); await tick(300);
-  const tmpl = App.chart.peek(), tmplRows = wb().rows(tmpl).filter(r => !('chart' in r)), a = said(likeRows), b = said(tmplRows), onlyA = a.filter(x => !b.includes(x)), onlyB = b.filter(x => !a.includes(x));
+  const tmpl = App.chart.peek(), tmplRows = wb().rows(tmpl).filter(r => !('chart' in r) && !r.calendar), a = said(likeRows), b = said(tmplRows), onlyA = a.filter(x => !b.includes(x)), onlyB = b.filter(x => !a.includes(x));
   check('the fund template is the sample’s chart less its records, so the two can’t drift', like !== sample && tmpl !== like && !onlyA.length && !onlyB.length, `${onlyA.slice(0, 3).join(' | ')} ::: ${onlyB.slice(0, 3).join(' | ')}`);
   check('… and it has no record but its views', !tmplRows.some(r => 'record' in r && r.kind !== 'View'));
   check('… a template is one change, in History as any is', wb().changes().filter(c => c.chart === tmpl).length === 1);
