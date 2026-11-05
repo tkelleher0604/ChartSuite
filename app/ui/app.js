@@ -1629,7 +1629,7 @@ const App = (() => {
     const c = Log.newId(), from = chart.peek(), src = book.peek(), name = freeName(wb, named);
     const tx = wb.edit({ chart: c, who: who() }), kept = new Map();
     tx.add('chart', { name }, c);
-    const vs = from ? views.peek().filter(v => !v.look) : [], like = vs.find(v => v.layout === 'chart')?.id;
+    const vs = from ? views.peek().filter(v => !v.look) : [], like = vs.find(v => v.layout === 'chart')?.id, pages = new Set(vs.filter(v => v.layout === 'chart' && v.id !== like).map(v => v.id));
     const recorded = new Map();
     let look = null, given = () => false;
     if (from) {
@@ -1642,15 +1642,20 @@ const App = (() => {
         const p = { ...(tree.out && 'tag' in tree.out && { out: { tag: true } }), ...shape(tree) };
         recorded.set(Tree.key(p), p);
       }
-      for (const v of vs) if (v.id === like || (v.layout === 'table' && own(v))) kept.set(v.id, tx.add('record', { kind: 'View' }));
+      for (const v of vs) if (v.id === like || pages.has(v.id) || (v.layout === 'table' && own(v))) kept.set(v.id, tx.add('record', { kind: 'View' }));
       const moved = t => t.args ? { ...t, args: t.args.map(a => ({ ...a, loc: moved(a.loc) })) } : t.id === undefined ? t : { ...t, id: kept.get(t.id) };
       // The house look (dendra.md, Workbook), less a style of a relation a formula gives (§57's affiliates), with the paper
       // and the footer, which come in the look begun in. Not the day or the scale it keeps. The rest of the first chart's
       // notes in it are its records', and stay behind.
       given = p => !!p && ((p.args?.length === 2 && worked.has(sides(p))) || (p.args ?? []).some(a => given(a.loc)));
       look = style ?? Notes.houseLook(src.rows(from), like);
-      for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Changes', 'Plan', 'Scale', 'Page', ...Notes.ROOT].includes(r.label) && r.pattern.id === like) && r.label !== 'Footer')
+      for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Changes', 'Plan', 'Scale', 'Page', ...Notes.ROOT].includes(r.label) && r.pattern.id === like) && !(['As Of', 'Changes', 'Plan', 'Scale'].includes(r.label) && pages.has(r.pattern.id)) && r.label !== 'Footer')
         tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Structure' : r.value, { view: kept.get(r.view), param: r.param });
+      // Its other pages, each what it says of what it shows, so it fills as what it shows is added, and its title, day and Key.
+      for (const r of src.rows(from)) if ('shape' in r && pages.has(r.view) && (r.role === 'title' || r.role === 'date' || r.geometry === 'legend')) {
+        const { id: _, shape: __, view: v, x: _x, y: _y, w: _w, h: _h, kept: _k, ...furniture } = r;
+        tx.add('shape', { view: kept.get(v), ...furniture, ...(r.role === 'title' && { text: `${name}: ${vs.find(p => p.id === v).name}` }) });
+      }
       // And its master, as it stands (dendra.md, The page): furniture every page of it has, which names no record.
       const master = typeof Scene === 'undefined' ? [] : src.rows(from).filter(r => 'shape' in r && r.view === Scene.MASTER), fresh = new Map(master.map(r => [r.shape, Log.newId()])), to = x => fresh.get(x) ?? x;
       for (const { id: _, shape: s, ...x } of master) tx.add('shape', { ...x, ...(x.ends && { ends: x.ends.map(to) }), ...(x.members && { members: x.members.map(to) }) }, fresh.get(s));

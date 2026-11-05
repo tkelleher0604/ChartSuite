@@ -27,6 +27,7 @@ const recordOf = row => { let r = records.get(row); if (!r) { const { id, record
 const contents = new WeakMap();
 const contentOf = row => { let s = contents.get(row); if (!s) { const { id, ...rest } = row; contents.set(row, s = JSON.stringify(rest)); } return s; };
 const argKey = r => Tree.argsOf(r).map(a => JSON.stringify([Tree.norm(a.edge), a.at])).sort().join();
+const YEAR = /^·(\d{4})$/;
 // A row's content, whatever order its keys were written in.
 const content = ({ id, ...rest }) => JSON.stringify(rest, (k, v) => v && typeof v === 'object' && !Array.isArray(v)
   ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) : v);
@@ -129,6 +130,23 @@ function open(data) {
   // Times only go forward here, so one author's changes keep their order even within a millisecond.
   const now = () => new Date(last = Math.max(Date.now(), last + 1)).toISOString();
 
+  // The calendar's years (dendra.md, Time): where a Years note says a kind's, an object of it for each year, in the chart from
+  // its first day, called by the year, which no one enters and no change holds, so a chart never runs out of them. From the year
+  // before the chart was begun, or the first year something's recorded at; to well past any day a person asks about. A year
+  // someone has entered under that name is theirs.
+  function calendar(c, rows, notes) {
+    const kind = notes.notes('Years').find(n => n.value && !n.view)?.pattern.kind;
+    if (!kind) return [];
+    const objects = new Set(rows.filter(r => r.kind === kind).map(r => r.record)), typed = new Set(rows.filter(r => objects.has(r.at) && r.edge && Tree.same(r.edge, 'Name')).map(r => String(r.value)));
+    let from = +(list().find(x => x.chart === c)?.when ?? today()).slice(0, 4) - 1;
+    for (const r of rows) if (r.args) for (const a of r.args) { const y = YEAR.exec(a.at); if (y) from = Math.min(from, +y[1]); }
+    const out = [];
+    for (let y = from, to = +today().slice(0, 4) + 25; y <= to; y++) if (!typed.has(String(y))) {
+      const id = `·${y}`;
+      out.push({ id, record: id, kind, since: `${y}-01-01`, calendar: true }, { id: `${id} name`, record: `${id} name`, at: id, edge: 'Name', field: 'text', value: String(y), calendar: true });
+    }
+    return out;
+  }
   // What a chart's live rows say, worked out once for each state of the log.
   function chart(c) {
     let d = cache.get(c);
@@ -136,11 +154,13 @@ function open(data) {
       const rows = [...live.values()].filter(r => chartOf.get(r.id) === c), items = new Map(), recs = new Map(), kept = carried.get(c);
       for (const r of rows) { push(items, itemOf(r), r); if ('record' in r) push(recs, r.record, r); }
       d = { rows, items, records: recs, notes: kept?.notes ?? Notes.index(rows.filter(r => 'note' in r)), days: new Map(), ...kept?.schema && { schema: kept.schema } };
+      d.years = calendar(c, rows, d.notes);
+      for (const r of d.years) { push(items, r.record, r); push(recs, r.record, r); }
       cache.set(c, d);
     }
     return d;
   }
-  const schema = c => { const d = chart(c); return d.schema ??= schemaOf(d.rows); };
+  const schema = c => { const d = chart(c); return d.schema ??= schemaOf([...d.rows, ...d.years]); };
   // What objects have been called, on any day, each name normalized (and "The BDC" as BDC too) with the objects it's been of: what a rule points at
   // one by, as what it's called on another day is still it. Kept while the chart's rows stand.
   function named(c) {
@@ -163,8 +183,9 @@ function open(data) {
   // Why a change can't be made, in words, or null. Only what it would newly break counts: two records
   // with one argumentation valid on a common day, an entry at something not there, or a schema at odds.
   function check(c) {
+    if (c.removes.some(id => String(id).startsWith('·'))) return 'A year is the calendar’s: it can’t be changed.';
     if (c.removes.some(id => !live.has(id))) return 'It has changed since.';
-    const d = chart(c.chart), gone = new Set(c.removes), after = [...d.rows.filter(r => !gone.has(r.id)), ...c.adds];
+    const d = chart(c.chart), gone = new Set(c.removes), after = [...d.rows.filter(r => !gone.has(r.id)), ...c.adds, ...d.years];
     const there = id => c.adds.some(r => itemOf(r) === id) || (d.items.get(id) ?? []).some(r => !gone.has(r.id));
     // The records an added one could share its argumentation with: those at one of its locations.
     const near = new Set(c.adds.filter(r => 'record' in r).flatMap(r => Tree.argsOf(r).map(a => a.at))), byArgs = new Map();

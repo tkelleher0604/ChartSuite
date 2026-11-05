@@ -570,11 +570,13 @@ function Filing({ due, slot, close }) {
   };
   useLayoutEffect(() => { FormulaBar.preview(rec ? App.would(write, { dated: value }) : null); }, [value]);
   const was = recs()[due], p = FormulaBar.pending.value, next = p ? nextDue(p.R2.records, due) : undefined;
+  // What a filing after its day says, in its toast and beside it in History: the day it was due, of the year it settles. Nothing's worked out but the words.
+  const dueOn = () => { let y = null; Formulas.pay?.({ R: App.computed.peek(), due, day: value, add: r => { y = r.at; } }); return (y && recs()[T.entryAt(recs(), y, was.edge)]?.value) || was.value; };
   const keep = () => {
     if (!rec) return;
     close();
-    const sel = Shell.selection.peek(), at = was.at;
-    if (!App.change(write, { dated: value, say: c => Time.describe(c) })) return;
+    const sel = Shell.selection.peek(), at = was.at, owed = dueOn(), late = T.firstDay(value) > T.firstDay(owed) ? `Late: it was due ${short(owed)}` : null;
+    if (!App.change(write, { dated: value, note: late, say: c => `${Time.describe(c)}${late ? `, late: it was due ${short(owed)}` : ''}` })) return;
     const where = recs()[made]?.at, to = [...new Set(sel.map(k => recs()[k] ? k : k === at && where ? where : made))];
     aim.value = made;
     select(to);
@@ -2247,10 +2249,10 @@ function GeneralView({ p, style }) {
         return html`<div class="row" key="stands"><div class="k">Stands</div><div class="v ctl">${still ? said(now) : html`<button class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, [...es, 'level', 'none'].map(s => ({ label: said(s), checked: T.same(s, now), run: () => !T.same(s, now) && setIt(s) })))}><span>${said(now)}</span></button>`}</div></div>`; })() : null}
       ${kind && below.some(s => s.out?.field === 'date' || s.out?.field === 'number') ? (() => { const by = n.across(p.kind), said = by ?? 'As they were made', take = e => App.change(tx => tx.note('Order', p, e ? { by: e } : undefined), { dated: false, say: e ? `Stood each ${lower(p.kind)} in the order of ${e}` : `Stood each ${lower(p.kind)} as they were made` });
         return html`<div class="row" key="across"><div class="k">Across, in order of</div><div class="v ctl">${still ? said : html`<button class="sel dd" aria-haspopup="menu" aria-label="Across, in order of" onClick=${e => menu(e.currentTarget, [{ label: 'As they were made', checked: !by, run: () => by && take(null) }, ...below.filter(s => s.out?.field === 'date' || s.out?.field === 'number').map(s => ({ label: s.args[0].edge, checked: T.same(by ?? '', s.args[0].edge), run: () => !T.same(by ?? '', s.args[0].edge) && take(s.args[0].edge) }))])}><span>${said}</span></button>`}</div></div>`; })() : null}
-      ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('A blank needs filling in', n.required(p), on => flag('Required', p, on))}
-      ${type === 'tag' ? checkRow('A no needs attention', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
+      ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('Required', n.required(p), on => flag('Required', p, on))}
+      ${type === 'tag' ? checkRow('Count a No as an error', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
       ${kind || rel || def || writing || (dated && (n.isStart(dp) || n.isEnd(dp))) ? null : checkRow('Changes over time', dated ? n.changing(p) : !n.fixed(p), on => flag('Fixed', p, dated ? (on ? false : undefined) : (on ? undefined : true)))}
-      ${dated ? ['Start', 'End'].map(l => checkRow(l, l === 'Start' ? n.isStart(dp) : n.isEnd(dp), on => flag(l, dp, on))) : null}
+      ${dated ? ['Start', 'End'].map(l => checkRow(l === 'Start' ? 'The day it starts' : 'The day it ends', l === 'Start' ? n.isStart(dp) : n.isEnd(dp), on => flag(l, dp, on))) : null}
       ${adds.length ? html`<${AddRow} items=${() => adds} />` : null}
     </div>
     ${type === 'choice' ? html`<${Section} title="Options" n=${options.length}>
@@ -2635,6 +2637,7 @@ document.addEventListener('paste', e => {
   link(id, text);
 });
 
-// What settles a deadline, as a menu item, for the Dates table's right-click (settling); and a style's swatch, for the format bar's list of what a house style holds.
-return { settling, Swatch };
+// What settles a deadline, as a menu item, for the Dates table's right-click (settling); a style's swatch, for the format bar's list of what a house style holds; and a record's row brought to, its keys in it.
+const aimRow = (id, edge) => { Shell.showPanel?.(); aim.value = `${id}|${edge}`; select([id]); };
+return { settling, Swatch, aimRow };
 })();

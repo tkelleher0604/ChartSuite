@@ -3419,6 +3419,15 @@ function mount(el) {
     keyOver = over; keyView = sc.view;
     if (fresh.length && active.peek() === canvas && !App.readOnly.peek()) Shell.toast(fresh[0], { go: ['Tidy, to make room', () => tidy()] });
   });
+  // A box that comes to stand in no frame says so as it happens, with its way to the entry the frames go by (dendra.md, Frames).
+  let inNone = null, inNoneOf = null;
+  const stopUnframed = effect(() => {
+    const sc = App.scene.value;
+    if (!sc || sc.view !== viewShown) return;
+    const now = new Set((sc.page.unframed ?? []).map(f => f.record)), fresh = inNoneOf === sc.view && inNone ? (sc.page.unframed ?? []).filter(f => !inNone.has(f.record)) : [];
+    inNone = now; inNoneOf = sc.view;
+    if (fresh.length && active.peek() === canvas && !App.readOnly.peek()) { const { record, what } = fresh[0], R = App.state.peek(); Shell.toast(`${App.notes.peek().shortOf(R, record)} is in no frame: it has no ${what}`, { go: [`${what}…`, () => Inspector.aimRow(record, what)] }); }
+  });
   // A mark's fields, asked of by the inspector (see Fields): `shown`, whether the mark a record draws shows an entry of a
   // label; `show`, shows or hides one there, at the scope where the mark is what's selected; `light`, outlines the field
   // a row's key names, as its row is pointed at; `over`, the box under a point on screen as a row is dragged, outlined as
@@ -3516,7 +3525,7 @@ function mount(el) {
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },
     destroy() {
       nudged(); stopNudge(); stopWalk(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
-      stopDraw(); stopKeyOver(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
+      stopDraw(); stopKeyOver(); stopUnframed(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };

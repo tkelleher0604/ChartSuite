@@ -842,7 +842,7 @@ async function run() {
   Shell.select(['fund']); await tick();
   rowOf('Jurisdiction').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
   check('Alt+click on a label shows the entry in general', Shell.selection.value[0]?.startsWith('~') && $('.ih .cell')?.value === 'Jurisdiction' && $$('.sect > .fold').some(s => s.textContent === 'Options'));
-  const req = rowOf('A blank needs filling in')?.querySelector('input');
+  const req = rowOf('Required')?.querySelector('input');
   check('…with whether a blank needs filling in', req?.checked === true);
   Shell.select(['fund']); await tick();
   rowOf('EIN').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();

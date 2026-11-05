@@ -51,7 +51,7 @@ function run(json) {
   // governing agreement is among its 59 documents, and each Delaware tax paid, a corporation's franchise tax
   // among them, is at the tax year it settled.
   const docs = Object.values(now).filter(r => r.kind === 'Document').length;
-  check('the sample is as big as it should be', Object.keys(now).length === 1029 && docs === 59 && wb.changes().length === 137,
+  check('the sample is as big as it should be', Object.keys(now).length === 1027 && docs === 59 && wb.changes().length === 137,
     `${Object.keys(now).length} records, ${docs} documents, ${wb.changes().length} changes`);
   const hourIn = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' });
   const late = wb.changes().filter(c => { const h = +hourIn.formatToParts(new Date(c.when)).find(p => p.type === 'hour').value; return h < 9 || h >= 17; });
@@ -111,7 +111,7 @@ function run(json) {
     && N.listName(own, 'Owned') === 'Holdings' && j(N.edges(own)) === j(['Owner', 'Owned']), `${N.name(own)} ${N.edges(own)}`);
   check('an entry goes by its label and a kind by itself without a Name', N.name(tree('fund_ein')) === 'EIN' && N.name(tree('fund')) === 'Entity');
   check('Required reaches every option of a position, but a Director’s Title, the narrowest deciding', ['pos_fer_mgmt_title', 'pos_okfr_bdc_start', 'pos_lind_mgmt_title', 'fund_formed'].every(id => N.required(tree(id)))
-    && !N.required(tree('fund_ein')) && !N.required(tree('pos_raman_bdc_title')) && !N.required(tree('pos_chen_bdc_title')));
+    && !N.required(tree('fund_target')) && !N.required(tree('pos_raman_bdc_title')) && !N.required(tree('pos_chen_bdc_title')));
   check('entries are ordered, Name first', N.order(tree('fund_name')) === 0 && N.order(tree('fund_short')) < N.order(tree('fund_formed')) && N.order(tree('fund_target')) === undefined);
   check('start and end entries', N.isStart(tree('fund_formed')) && N.isStart(tree('gp_admitted')) && N.isStart(tree('pos_chen_bdc_start'))
     && N.isEnd(Tree.treeOf(wb.asOf(C, '2024-01-01'), 'gp_of_feeder_withdrawn')) && !N.isStart(tree('doc_lpa3_date')));
@@ -155,7 +155,7 @@ function run(json) {
 
   // ---- What formulas.js takes ----
   const defs = N.definitions(S), def = id => defs.find(d => d.id === id);
-  check('every definition covers what it covered', defs.length === 32 && defs.every(d => d.covers.length && d.rows.length),
+  check('every definition covers what it covered', defs.length === 37 && defs.every(d => d.covers.length && d.rows.length),
     defs.filter(d => !d.covers.length).map(d => d.id).join(' '));
   check('a definition’s covers, type and rows', def('def_tax').covers.length === 3 && def('def_tax').type === 'choice' && def('def_tax').options.includes('Partnership')
     && def('def_formation_on_file').covers.length === 5 && def('def_close').rows.length === 7 && def('def_look_through').datatype === 'percent');
@@ -171,7 +171,7 @@ function run(json) {
     j([listOf('Look-Through Ownership').Investor, listOf('Membership').Member]));
   // A check is a definition whose ruled-out records are problems: a Check note at its pattern says so.
   const patternOf = id => N.notes('Formula').find(n => n.note === id).pattern, checked = defs.filter(d => N.check(patternOf(d.id))).map(d => d.id).sort();
-  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range', 'def_one_survivor'])
+  check('the sample’s checks are the definitions with a Check note', j(checked) === j(['def_adds_up', 'def_capacity_held', 'def_formation_on_file', 'def_governing_on_file', 'def_in_range', 'def_limited', 'def_one_survivor'])
     && N.check({ out: { tag: false }, args: [{ edge: 'Ownership Adds Up', loc: tree('gp') }] }) && !N.check(patternOf('def_remote')), j(checked));
   // At an entry typed by hand, a Check note says its "no" needs attention: shown in amber, counted as no error (inspector-test).
   check('Good Standing’s “no” needs attention, and is no check', N.heeds(tree('fund_good')) && !N.check(tree('fund_good')));
@@ -384,7 +384,7 @@ function run(json) {
   {
     const w = fresh(), add = r => commit(w, tx => tx.add('record', r));
     check('two records can’t share an argumentation', add({ at: 'fund', edge: 'formation date', field: 'date', value: '2023-01-01' }) === 'formation date is already recorded here.');
-    check('the schema’s conditions hold', add({ at: 'bdc', edge: 'EIN', field: 'number', value: 5 }) === 'EIN can’t be both text and a number.');
+    check('the schema’s conditions hold', add({ at: 'northpine', edge: 'EIN', field: 'number', value: 5 }) === 'EIN can’t be both text and a number.');
     check('an entry needs what it’s at', add({ at: 'nothing', edge: 'EIN', field: 'text', value: '1' }) === 'Something it’s at no longer exists.');
     check('a change that removes what isn’t live is refused', w.apply({ id: 'x', who: WHO, when: TODAY, chart: C, removes: ['nope'], adds: [] }) === 'It has changed since.');
     check('a change with nothing in it is none', w.edit({ chart: C, who: WHO }).commit() === null);

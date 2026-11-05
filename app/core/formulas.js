@@ -1067,6 +1067,8 @@ const FUNCTIONS = {
   UPPER(a, c) { return textFn(a, c, 'UPPER', 1, 1, t => t.toUpperCase()); },
   LOWER(a, c) { return textFn(a, c, 'LOWER', 1, 1, t => t.toLowerCase()); },
   TRIM(a, c) { return textFn(a, c, 'TRIM', 1, 1, t => clean(t)); },
+  // A number from what's written as one (a tax year's name, "2026"), as Excel's: of nothing, nothing.
+  VALUE(a, c) { return textFn(a, c, 'VALUE', 1, 1, t => { const s = clean(t).replace(/[$,]/g, ''), n = Number(s); return !s ? null : Number.isFinite(n) ? n : err('#VALUE!', `“${clean(t)}” isn’t a number.`); }); },
 };
 const isFunction = name => Object.hasOwn(FUNCTIONS, name.toUpperCase());
 
@@ -3284,7 +3286,7 @@ function namesOfChart(P, entered) {
 const typeOfSpec = t => 'choice' in t.out ? 'choice' : 'tag' in t.out ? 'tag' : 'field';
 const heldAs = out => 'tag' in out ? 'yes' : 'choice' in out ? 'text' : out.field === 'date' ? 'date' : out.field === 'yearly' ? 'yearly' : ['number', 'percent', 'money'].includes(out.field) ? 'number' : out.field ? 'text' : null;
 const KIND_WORDS = { date: 'a date', number: 'a number', text: 'text', yearly: 'a day of the year', yes: 'a yes-or-no' };
-const GIVES = { date: ['TODAY', 'DATE', 'EDATE', 'EOMONTH', 'WORKDAY'], number: ['COUNT', 'SUM', 'AVERAGE', 'YEAR', 'MONTH', 'DAY', 'YEARFRAC', 'LEN', 'ROUND', 'ABS'], text: ['TEXT', 'TEXTJOIN', 'UPPER', 'LOWER', 'TRIM', 'LEFT', 'RIGHT', 'KIND'], yes: ['ISBLANK', 'NOT', 'ANY', 'ALL', 'AND', 'OR', 'WITHOUT'] };
+const GIVES = { date: ['TODAY', 'DATE', 'EDATE', 'EOMONTH', 'WORKDAY'], number: ['COUNT', 'SUM', 'AVERAGE', 'YEAR', 'MONTH', 'DAY', 'YEARFRAC', 'LEN', 'ROUND', 'ABS', 'VALUE'], text: ['TEXT', 'TEXTJOIN', 'UPPER', 'LOWER', 'TRIM', 'LEFT', 'RIGHT', 'KIND'], yes: ['ISBLANK', 'NOT', 'ANY', 'ALL', 'AND', 'OR', 'WITHOUT'] };
 const GIVEN = new Map(Object.entries(GIVES).flatMap(([k, fs]) => fs.map(f => [f, k])));
 // What `@` stands for in a definition's rows where no list has been opened: the entry it's located at, by its label.
 function locatedAt(d) {
@@ -3959,22 +3961,18 @@ function requiredAt(N, t, edge) {
   const byTree = asked.get(N) ?? asked.set(N, new WeakMap()).get(N), m = byTree.get(t) ?? byTree.set(t, new Map()).get(t);
   return m.get(edge) ?? m.set(edge, N.required({ args: [{ edge, loc: t }] })).get(edge);
 }
-// The entries a formula asks ISBLANK of, by which it says what's the chart's own to track (dendra.md, Ours to track). Kept while the notes stand.
-const tracked = new WeakMap();
-function tracking(N) {
-  if (tracked.has(N)) return tracked.get(N);
-  const out = new Set();
-  for (const n of N.notes('Formula')) for (const row of n.value ?? []) for (const m of String(row.formula ?? '').matchAll(/ISBLANK\(\s*\[([^\]]+)\]\s*\)/g)) out.add(normal(m[1]));
-  tracked.set(N, out);
-  return out;
+// Whether a yes-or-no holds at a record or up from it: what a Required note's `when` asks (dendra.md, Notes).
+function holdsUp(recs, id, edge) {
+  for (let x = id, n = 0; x && recs[x] && n < 16; x = recs[x].at, n++) { const e = Tree.entryAt(recs, x, edge); if (e) return recs[e].tag === true; }
+  return false;
 }
 function attention(R, N, day, within = 30) {
   const recs = R.records, items = [], soon = new Date(day + 'T12:00:00');
   soon.setDate(soon.getDate() + within);
   const by = Tree.isoOf(soon), checks = N.notes('Check').length > 0;
   const required = N.notes('Required').filter(n => !n.view && n.pattern.args?.length === 1).map(n => n.pattern.args[0]);
-  const edges = new Map(), anyone = new Set();
-  for (const r of Object.values(recs)) if (r.at) { let s = edges.get(r.at); if (!s) edges.set(r.at, s = new Set()); const e = normal(r.edge); s.add(e); anyone.add(e); }
+  const edges = new Map();
+  for (const r of Object.values(recs)) if (r.at) { let s = edges.get(r.at); if (!s) edges.set(r.at, s = new Set()); s.add(normal(r.edge)); }
   for (const [id, r] of Object.entries(recs)) {
     if ('field' in r) {
       if (r.field === 'date' && (R.computed[id] || R.covered[id]) && r.value <= by) items.push({ kind: r.value < day ? 'overdue' : 'soon', id });
@@ -3986,8 +3984,10 @@ function attention(R, N, day, within = 30) {
     const has = edges.get(id), blank = new Set();
     for (const a of required) {
       const e = normal(a.edge);
-      // (What says what's the chart's own to track, which no record of it has yet, is no blank of this one: a chart with no funds isn't asked what vehicle each box is.)
-      if (has?.has(e) || blank.has(e) || (tracking(N).has(e) && !anyone.has(e)) || !Tree.narrower(t, a.loc) || !requiredAt(N, t, a.edge)) continue;
+      if (has?.has(e) || blank.has(e) || !Tree.narrower(t, a.loc) || !requiredAt(N, t, a.edge)) continue;
+      // (Asked only of what a yes-or-no of its own says: a portfolio company's EIN is no blank of the chart's.)
+      const when = N.value('Required', { args: [{ edge: a.edge, loc: t }] })?.when;
+      if (when && !holdsUp(recs, id, when)) continue;
       blank.add(e);
       items.push({ kind: 'blank', id, edge: a.edge });
     }

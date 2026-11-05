@@ -396,13 +396,15 @@ const Table = (() => {
     }
     // Dates fall into months, with what's overdue first, then from this month on, then back from it; grouped by a column
     // instead (whose, or what falls due), each group's by its days.
-    let groups = null, named = null;
+    let groups = null, named = null, upFrom = null;
     const f0 = cols[0] && field(cols[0]), by = cols.find(c => c.key === look.group);
     if (rows === 'date' && by) data.sort((a, b) => a[f0].localeCompare(b[f0]));
     else if (rows === 'date') {
       // (A row a change has just moved stays where it was, till the grid's left: holdRows.)
-      const month = today.slice(0, 7), held = view === stillIn ? still : null;
+      const held = view === stillIn ? still : null;
       for (const r of data) { const k = held?.get(r.id); r._g = k?.g ?? (r._m[f0].due ? 'overdue' : Tree.firstDay(r[f0]).slice(0, 7)); r._at = k?.at ?? r[f0]; }
+      // (This month is upcoming while it has a day still to come; with none it's past, a `~` sorting it before the next.)
+      const month = upFrom = today.slice(0, 7) + (data.some(r => r._g === today.slice(0, 7) && r._at >= today) ? '' : '~');
       groups = monthsIn(data.map(r => r._g), month);
       const at = new Map(groups.map((g, i) => [g, i]));
       data.sort((a, b) => at.get(a._g) - at.get(b._g) || (a._g < month ? b._at.localeCompare(a._at) : a._at.localeCompare(b._at)));
@@ -424,7 +426,7 @@ const Table = (() => {
 
     // (A relation named as what's said of it, Reports To, is no noun: its rows are lines.)
     const noun = (isDatatype ? Tree.DATATYPES[rows] : isKind ? rows.kind : /\s(to|of|in|for|with|by|from|at|on)$/i.test(N.name(rows)) ? 'Line' : N.name(rows)).toLowerCase();
-    const m = { view, rows, isKind, isDatatype, base, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, named, grec, fails, later, noun,
+    const m = { view, rows, isKind, isDatatype, base, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, upFrom, named, grec, fails, later, noun,
       ended: endedHere.map(e => ({ id: e.id, day: e.day, name: isKind ? N.nameOf(e.then, e.id) : Time.whose(e.then, e.id, N) })) };
     entitle(m);
     return m;
@@ -462,7 +464,7 @@ const Table = (() => {
     const kept = new Set(then.data.map(r => r.id));
     for (const w of now.data) if (!kept.has(w.id)) data.push({ ...w, _red: 'go' });
     const used = new Set(data.map(r => r._g));
-    const groups = !then.groups ? null : then.rows === 'date' && !then.named ? monthsIn([...used], App.day.peek().slice(0, 7))
+    const groups = !then.groups ? null : then.rows === 'date' && !then.named ? monthsIn([...used], then.upFrom ?? App.day.peek().slice(0, 7))
       : [...then.groups, ...(now.groups ?? []).filter(g => !then.groups.includes(g))].filter(g => used.has(g));
     return { ...then, data, groups, red: true, fails: now.fails, ...(then.named && { named: new Map([...(now.named ?? []), ...then.named]), grec: new Map([...(now.grec ?? []), ...(then.grec ?? [])]) }) };
   }
@@ -846,7 +848,9 @@ const Table = (() => {
   // under its column: pinned); red, the check's words on it, where the group is a record a check fails at, so Fund III's
   // owners at 101.6% are red at Fund III, beside its 101.6%.
   function groupHead(m, g, n, rows) {
-    const name = m.named ? m.named.get(g) : g === 'overdue' ? 'Overdue' : Tree.formatDate(g + '-01', 'month'), fails = m.fails?.get(m.grec?.get(g));
+    // (Dates' months stand under what they are: the first ahead of the day says Upcoming, the first behind it Past.)
+    const up = x => x >= m.upFrom, section = !m.named && m.upFrom && g !== 'overdue' && m.groups?.find(x => x !== 'overdue' && up(x) === up(g)) === g ? `${up(g) ? 'Upcoming' : 'Past'} · ` : '';
+    const name = m.named ? m.named.get(g) : g === 'overdue' ? 'Overdue' : section + Tree.formatDate(g + '-01', 'month'), fails = m.fails?.get(m.grec?.get(g));
     const sums = m.cols.filter(c => drawn(c) && NUMERIC.has(c.type)).map(c => {
       const vs = rows.map(d => d[field(c)]).filter(v => typeof v === 'number');
       return vs.length ? `<span class="gsum" data-f="${esc(field(c))}">${esc(Tree.format(c.type, +vs.reduce((s, v) => s + v, 0).toPrecision(12)))}</span>` : '';
