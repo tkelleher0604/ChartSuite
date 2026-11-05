@@ -1806,6 +1806,13 @@ const FormulaBar = (() => {
         c.setOption('readOnly', false);
         startEditing(c, props.current.row.key);
       });
+      // A press on the formula is a formula to type in, the cursor where it lands, as Excel's bar's is.
+      cm.on('mousedown', (c, e) => {
+        if (e.button !== 0 || !c.getOption('readOnly') || App.readOnly.peek() || !props.current.m.def || props.current.m.absent) return;
+        writing.value = draft.peek()?.def ?? model.peek()?.def?.id ?? null;
+        c.setOption('readOnly', false);
+        startEditing(c, props.current.row.key);
+      });
       const wrap = cm.getWrapperElement();
       wrap.addEventListener('mousemove', e => {
         const { row } = props.current;
@@ -2194,9 +2201,7 @@ const FormulaBar = (() => {
       Shell.drag(e, { item, items, onDrop: (from, i) => change(m.def.id, rows => { const l = rows.slice(); l.splice(i, 0, l.splice(from, 1)[0]); return l; }) });
     };
     // A double-click by its count: the first click lights the row's names, which draws them anew under the pointer.
-    const reads = write ? {} : { onClick: e => {
-      if (editable && !App.readOnly.peek() && e.target.closest?.('.CodeMirror')) { writing.value = draft.peek()?.def ?? model.peek()?.def?.id ?? null; const cm = e.currentTarget.querySelector('.CodeMirror')?.CodeMirror; if (cm) { cm.setOption('readOnly', false); cm.focus(); startEditing(cm, r.key); } return; }
-      if (e.detail > 1 && editable) openAt(r.key, { write: true }); else reading.value = reading.peek() === r.key ? null : r.key; } };
+    const reads = write ? {} : { onClick: e => { if (e.detail > 1 && editable) openAt(r.key, { write: true }); else reading.value = reading.peek() === r.key ? null : r.key; } };
     // What it said, once it's typed over; and a figure its label says that it no longer has (W8: "more than 25%" over a rule at 20%).
     const was = draft.value?.def === m.def?.id && m.def?.id !== NEW ? kept(m.def.id).find(x => x.key === r.key)?.formula ?? null : null;
     const stale = was !== null && (r.label.match(/\d[\d.,]*\s*(?:%|per centum)?/g) ?? []).find(x => !r.formula.includes(x.replace(/\s*per centum/, '%').trim()) && was.includes(x.trim()));

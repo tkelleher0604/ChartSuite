@@ -820,7 +820,7 @@ async function checks() {
   check('a formula clicked in the shut bar opens to type in, the keys in it: Ctrl+A and typing are the formula’s, not the page’s', !!clickedAt?.hasFocus() && clickedAt.getOption('readOnly') === false && !!document.querySelector('.fxbar input.fx-label') && App.version.peek() === v2, `focus on ${document.activeElement?.tagName}.${document.activeElement?.className}`);
   FormulaBar.discard(); await wait(30);
   await openRows();
-  cmOf('r1').getWrapperElement().querySelector('.CodeMirror-line, .CodeMirror-code')?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); await wait(40);
+  cmOf('r1').getScrollerElement().dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, detail: 1 })); await wait(40);
   check('… as does its formula clicked in the open rows: one click, as Excel’s bar', cmOf('r1').getOption('readOnly') === false && !!document.querySelector('.fxbar input.fx-label') && App.version.peek() === v2);
   FormulaBar.discard(); await wait(30);
   FormulaBar.open.value = false; Shell.select([OKAFOR_GP]); await wait(40);

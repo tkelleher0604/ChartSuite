@@ -2627,6 +2627,8 @@ const Table = (() => {
         const blank = amount && !App.state.peek()[Tree.entryAt(App.state.peek(), rel, amount.edge)], row = blank && table?.rowManager.findRow(rel)?.getComponent(), col = row && table.getColumns().find(x => same(current?.byField?.get(x.getField())?.path?.at(-1) ?? '', amount.edge));
         setTimeout(() => { if (col) { table.addRange(row.getCell(col), row.getCell(col)); focus(); across(); } else if (document.querySelector('.newrow .nr-go')?.isConnected && !blank) document.querySelector('.newrow .nr-go').focus(); }, 30);
       }) });
+    // (Where it can be seen, as it waits.)
+    setTimeout(() => { if (App.pending.peek()?.row === rel) reveal(rel); }, 120);
   }
   // The new row's place: under the last row, or, where the rows run on past the grid's foot, there.
   let rowEl = null;

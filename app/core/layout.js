@@ -1048,8 +1048,9 @@ function routing(geo, lines, opts = {}) {
     for (const [p, q, stand] of c.ls) {
       const ps = stand.points ?? [], x = ps[0]?.[0] ?? c.pair.x + c.pair.w / 2, on = ps.slice(1);
       // (A line between them that's dashed, a marriage ended, stays as it's drawn: none runs along it, each coming down from its own box to meet under it.)
-      const under = on.length > 1 && on[0][1] === on[1][1] ? on[0][1] : c.pair.y + c.pair.h + Math.min(14, ((on[0]?.[1] ?? c.pair.y + c.pair.h + 28) - c.pair.y - c.pair.h) / 2);
-      for (const [l, g, right] of [[p, c.l, true], [q, c.r, false]]) Object.assign(l, Object.fromEntries(ROUTED.map(k => [k, stand[k]])), { from: l.from, to: l.to, dir: stand.dir, points: c.m.dashed ? [[centerX(g), edgeY(g, centerX(g), true)], [centerX(g), under], [x, under], ...on] : [[sideX(g, y, right), y], [x, y], ...on], down: true }, l === q && l.label ? { labelAt: null, quiet: true } : {});
+      const onRun = on.length > 1 && on[0][1] === on[1][1], under = onRun ? on[0][1] : c.pair.y + c.pair.h + Math.min(14, ((on[0]?.[1] ?? c.pair.y + c.pair.h + 28) - c.pair.y - c.pair.h) / 2);
+      const fromBelow = g => { const ps = [[centerX(g), edgeY(g, centerX(g), true)], [centerX(g), under], ...(onRun ? on.slice(1) : [[x, under], ...on])]; return ps.filter((a, i) => { const b = ps[i - 1], d = ps[i + 1]; return !b || !d || !((a[0] === b[0] && a[0] === d[0]) || (a[1] === b[1] && a[1] === d[1])); }); };
+      for (const [l, g, right] of [[p, c.l, true], [q, c.r, false]]) Object.assign(l, Object.fromEntries(ROUTED.map(k => [k, stand[k]])), { from: l.from, to: l.to, dir: stand.dir, points: c.m.dashed ? fromBelow(g) : [[sideX(g, y, right), y], [x, y], ...on], down: true }, l === q && l.label ? { labelAt: null, quiet: true } : {});
     }
   }
 }

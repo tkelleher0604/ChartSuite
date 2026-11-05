@@ -1205,7 +1205,8 @@ const Shell = (() => {
     { id: 'print', name: 'Print', keys: '$mod+KeyP', inputs: true, enabled: () => typeof Export !== 'undefined', run: () => Export.open(current.peek()?.layout === 'chart' ? 'pdf' : undefined) },
     // (Typed over something selected, ? is what's typed: bare keys on the page are for typing.)
     { id: 'keys', name: 'Keyboard shortcuts', names: ['Keys', 'Hot keys', 'Help', 'Shortcut list'], keys: '$mod+Slash', inputs: true, menu: 'chart', order: 35, run: () => find('?') },
-    { id: 'keys.ask', name: 'Keyboard shortcuts', keys: '[Shift]+?', hideInFind: true, enabled: () => !selection.peek().length, run: () => find('?') },
+    // (Typed over something selected on a page, ? is what's typed.)
+    { id: 'keys.ask', name: 'Keyboard shortcuts', keys: '[Shift]+?', hideInFind: true, enabled: () => !selection.peek().length || !document.activeElement?.matches?.('.dc'), run: () => find('?') },
     // With nothing to undo, Undo says so.
     { id: 'undo', name: 'Undo', keys: '$mod+KeyZ', enabled: () => !!part('undo'), run: () => part('undo').undo() },
     { id: 'redo', name: 'Redo', keys: '$mod+KeyY', enabled: () => !!part('undo'), run: () => part('undo').redo() },

@@ -109,7 +109,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc .dc-linedot { opacity: 1; pointer-events: auto; }
 .dc .dc-linedot:hover { background: var(--accent); transform: scale(1.25); }
 /* (The tour's step about them: the real ones, pulsing, and the grips away, so what it says to drag is the only thing there is to drag.) */
-.dc.teaching .x6-widget-transform { visibility: hidden; pointer-events: none; }
+.dc.teaching .x6-widget-transform, .dc.teaching .x6-widget-transform-resize, .dc.teaching .x6-widget-transform-rotate { visibility: hidden; opacity: 0 !important; pointer-events: none !important; }
 .dc.teaching .dc-handle:not([hidden]) { background: var(--accent); animation: dc-teach 1.1s var(--ease) infinite; }
 @keyframes dc-teach { 50% { transform: scale(1.6); } }
 @media (prefers-reduced-motion: reduce) { .dc-handle { transition: none; } .dc.teaching .dc-handle { animation: none; } }
