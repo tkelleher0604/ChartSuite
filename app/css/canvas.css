@@ -136,7 +136,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 [data-link] { cursor: pointer; }
 .dc-linkmark { fill: none; stroke: var(--accent); stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 /* A gradient's stops, and a color among the chart's or typed. */
-.stops { width: 300px; }
+.stops { width: 320px; }
 .stopbar { position: relative; height: 18px; margin: 4px 8px 12px; border: 1px solid var(--rule-2); border-radius: 2px; cursor: copy; }
 .stopbar .stop { position: absolute; top: 12px; width: 12px; height: 14px; margin-left: -6px; padding: 0; border: 1px solid var(--ink-3); border-radius: 2px; cursor: ew-resize; }
 .stopbar .stop.on { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -145,7 +145,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .colorrow .chips { display: inline-flex; gap: 3px; margin-left: auto; }
 .colorrow .chips button { width: 14px; height: 14px; padding: 0; border: 1px solid var(--rule-2); border-radius: 2px; cursor: pointer; }
 .colorrow .chips button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
-.colorrow .hex input { width: 58px; }
+.colorrow .hex input { width: 66px; }
 .pop:has(> .linkform) { padding: 10px; }
 .linkform { display: grid; gap: 6px; min-width: 300px; }
 .linkform .row { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 8px; }

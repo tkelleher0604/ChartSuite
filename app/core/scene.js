@@ -2198,7 +2198,9 @@ function freeShape(row, text, u = 1, k = 1) {
       return text.split('\n').flatMap(p => { const ls = breakLines(p, as, width, false); if (p.trim() && ls[0]) { n++; ls[0].bullet = t.Bullet === 'number' ? `${n}.` : '•'; } return ls; });
     };
     let look = t, lines = lay(t);
-    if (m.auto) m.w = Math.ceil(widest([{ lines }]) + ins.l + ins.r + indentOf(t) + 1);
+    // (Nobody having sized it, in columns: as wide as they all are, as tall as what falls in each.)
+    if (m.auto) m.w = cols > 1 ? Math.ceil((widest([{ lines }]) + indentOf(t) + 1) * cols + gap * (cols - 1) + ins.l + ins.r) : Math.ceil(widest([{ lines }]) + ins.l + ins.r + indentOf(t) + 1);
+    if (m.auto && cols > 1) m.h = Math.ceil(lines.length / cols) * lineHeight(t) + ins.t + ins.b;
     // Set in as PowerPoint sets in its text rect (see Shapes).
     const r = textRect(m.geometry, across(), downIt(), t.Corner), wholeWidth = Math.max(16 * u, across() * share - ins.l - ins.r) - 2 * r.x, avail = cols > 1 ? (wholeWidth - gap * (cols - 1)) / cols : wholeWidth, tall = downIt() - r.top - r.bottom - ins.t - ins.b;
     // Shrink on overflow, PowerPoint's: smaller by its steps until it holds, no less than a quarter of its size.
@@ -2215,7 +2217,7 @@ function freeShape(row, text, u = 1, k = 1) {
     // A hanging or a first line: each paragraph's first line out from, or in from, the rest, where it's set from its left.
     if (t['First Line'] && look.Align === 'left') { let at = 0; const paras = text.split('\n'), ink = s => s.replace(/\s/g, '').length; for (const p of paras) { let need = ink(p), first = true; while (at < it.lines.length && (need > 0 || first)) { const l = it.lines[at++]; if (first) { l.x += by(t['First Line']); first = false; } need -= ink(l.text); } } it.first = by(t['First Line']); }
     // Lines by the column they fall in, one after another, as PowerPoint runs them on.
-    if (cols > 1) { it.lines.forEach((l, i) => { const c = Math.min(cols - 1, Math.floor(i / perCol)); if (c) { l.x += c * (avail + gap); l.y -= c * perCol * lineHeight(look); } }); it.columns = { n: cols, gap, width: avail }; }
+    if (cols > 1) { it.lines.forEach((l, i) => { const c = Math.min(cols - 1, Math.floor(i / perCol)); if (c) { l.x += c * (avail + gap); l.y -= c * perCol * lineHeight(look); if (l.bulletAt != null) l.bulletAt += c * (avail + gap); } }); it.columns = { n: cols, gap, width: avail }; }
     // What's after a tab stands at the next stop: those it says, then every inch, as PowerPoint's defaults are.
     if (text.includes('\t')) {
       const stops = (t.Tabs ?? []).map(by), inch = by(72);

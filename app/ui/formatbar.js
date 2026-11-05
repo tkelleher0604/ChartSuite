@@ -957,7 +957,7 @@ function ColorRow({ label, v, put, tries }) {
 function StopsPop({ label, from }) {
   readNow();
   const now = value(label), [g, setG] = useState(now?.stops?.length >= 2 ? { angle: now.angle ?? 0, stops: now.stops.map(s => [...s]) } : { angle: label === 'Line Gradient' ? 0 : 90, stops: [[0, from], [100, shaded(from, 0.4, 0.6)]] }), [at, setAt] = useState(0), bar = useRef();
-  const sorted = st => [...st].sort((a, b) => a[0] - b[0]), put = next => { setG(next); apply(label, next); };
+  const sorted = st => [...st].sort((a, b) => a[0] - b[0]), said = o => ({ ...o, stops: sorted(o.stops) }), put = next => { setG(next); apply(label, said(next)); };
   const css = `linear-gradient(90deg, ${sorted(g.stops).map(([p, c]) => `${c} ${p}%`).join(', ')})`, pick = g.stops[at] ?? g.stops[0];
   const place = e => { const b = bar.current.getBoundingClientRect(); return Math.round(Math.max(0, Math.min(100, (e.clientX - b.left) / b.width * 100))); };
   const mix = p => { const st = sorted(g.stops), i = Math.max(0, st.findIndex(s => s[0] >= p) - 1), A = st[i], B = st[i + 1] ?? A, k = B[0] > A[0] ? Math.max(0, Math.min(1, (p - A[0]) / (B[0] - A[0]))) : 0, ch = c => [1, 3, 5].map(j => parseInt(c.slice(j, j + 2), 16)); return `#${ch(A[1]).map((v, j) => Math.round(v + (ch(B[1])[j] - v) * k).toString(16).padStart(2, '0')).join('')}`; };
@@ -966,16 +966,16 @@ function StopsPop({ label, from }) {
   const grab = (e, i) => {
     e.preventDefault(); e.stopPropagation(); setAt(i);
     let next = g, off = false;
-    const move = ev => { const b = bar.current.getBoundingClientRect(); off = g.stops.length > 2 && (ev.clientY < b.top - 28 || ev.clientY > b.bottom + 28); next = { ...g, stops: off ? g.stops.filter((_, j) => j !== i) : g.stops.map((s, j) => j === i ? [place(ev), s[1]] : s) }; setG(next); preview(label, next); };
-    const up = () => { removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); if (off) setAt(0); if (next !== g) apply(label, next); };
+    const move = ev => { const b = bar.current.getBoundingClientRect(); off = g.stops.length > 2 && (ev.clientY < b.top - 28 || ev.clientY > b.bottom + 28); next = { ...g, stops: off ? g.stops.filter((_, j) => j !== i) : g.stops.map((s, j) => j === i ? [place(ev), s[1]] : s) }; setG(next); preview(label, said(next)); };
+    const up = () => { removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); if (off) setAt(0); if (next !== g) apply(label, said(next)); };
     addEventListener('pointermove', move, true); addEventListener('pointerup', up, true);
   };
   return html`<div class="picker stops" onKeyDown=${e => { if ((e.key === 'Delete' || e.key === 'Backspace') && !e.target.matches('input')) { e.preventDefault(); out(at); } }}>
     <div class="k">Stops</div>
     <div class="stopbar" ref=${bar} style=${`background:${css}`} role="group" aria-label="Stops" onPointerDown=${e => { if (e.target === bar.current) addAt(place(e)); }}>${g.stops.map(([p, c], i) => html`<button type="button" class=${i === at ? 'stop on' : 'stop'} aria-label=${`Stop at ${p}%`} aria-pressed=${i === at} style=${`left:${p}%;background:${c}`} onPointerDown=${e => grab(e, i)} />`)}</div>
-    <${ColorRow} label="Color" v=${pick[1]} put=${c => put({ ...g, stops: g.stops.map((s, j) => j === at ? [s[0], c] : s) })} tries=${c => c === null ? preview() : preview(label, { ...g, stops: g.stops.map((s, j) => j === at ? [s[0], c] : s) })} />
+    <${ColorRow} label="Color" v=${pick[1]} put=${c => put({ ...g, stops: g.stops.map((s, j) => j === at ? [s[0], c] : s) })} tries=${c => c === null ? preview() : preview(label, said({ ...g, stops: g.stops.map((s, j) => j === at ? [s[0], c] : s) }))} />
     <label class="menu-item"><span class="label">Place</span><${Typed} label="Place" v=${pick[0]} unit="%" max=${100} put=${x => put({ ...g, stops: g.stops.map((s, j) => j === at ? [x, s[1]] : s) })} /></label>
-    <label class="menu-item"><span class="label">Angle</span><${Typed} label="Angle" v=${g.angle} unit="°" max=${359} put=${x => put({ ...g, angle: x })} tries=${x => x === null ? preview() : preview(label, { ...g, angle: x })} /></label>
+    <label class="menu-item"><span class="label">Angle</span><${Typed} label="Angle" v=${g.angle} unit="°" max=${359} put=${x => put({ ...g, angle: x })} tries=${x => x === null ? preview() : preview(label, said({ ...g, angle: x }))} /></label>
     <div class="row"><button type="button" class="btn" onClick=${() => addAt(Math.round((pick[0] + (sorted(g.stops).find(s => s[0] > pick[0])?.[0] ?? 100)) / 2))}>Add a stop</button><button type="button" class="btn" disabled=${g.stops.length < 3} onClick=${() => out(at)}>Delete it</button></div>
   </div>`;
 }
@@ -1923,6 +1923,7 @@ function mount(el) {
     ...[['union', 'Union'], ['combine', 'Combine'], ['fragment', 'Fragment'], ['intersect', 'Intersect'], ['subtract', 'Subtract']].map(([k, word]) => [`draw.merge.${k}`, `Merge shapes: ${word}`, null, () => Canvas.active.peek().merge(k), edit, ['Merge', 'Merge shapes', 'Boolean', word]]),
     ['draw.points', 'Edit points', null, () => Canvas.active.peek().editPoints(), edit, ['Points', 'Freeform', 'Vertex', 'Reshape']],
     ['draw.link', 'Link…', null, () => Canvas.active.peek().link?.(), edit, ['Hyperlink', 'URL', 'Link a shape']],
+    ['draw.tablestyle', 'Table style…', null, () => opener.design(document.querySelector('.fb [data-fb="design"]')), () => edit() && current.marks[0]?.geometry === 'table', ['Table design', 'Banded', 'Hairlines', 'Grid']],
     ['draw.along', 'Distribute along the line', null, () => Canvas.active.peek().alongLine(), edit, ['Along a line', 'Space along']],
     ['draw.master', 'Edit master', null, () => { App.mastering.value = !App.mastering.peek(); }, onScreen, ['Master', 'Slide master', 'Logo on every page', 'Every page', 'Confidentiality line', 'Letterhead', 'Furniture']],
     ['draw.masteroff', 'Leave the master off this page', null, () => App.pageMaster(Shell.view.peek(), !App.hasMaster(Shell.view.peek())), () => onScreen() && !App.readOnly.peek() && !App.mastering.peek(), ['No master', 'Hide master', 'Show master']],

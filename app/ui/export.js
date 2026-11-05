@@ -465,6 +465,8 @@ const ALIGN = { left: 'l', center: 'ctr', right: 'r' };
 // The page's own texts, by the names PowerPoint's Selection Pane gives them; any other shape, as a box is, by
 // what it says.
 const ROLE = { title: 'Title', date: 'Date', day: 'Date', footer: 'Footer', number: 'Page number', footnotes: 'Footnotes' };
+// A box by what it says, in a design its name in full, not the initials a part makes of it.
+const boxName = m => (m?.parts?.length ? m.texts.filter(it => it.name).map(it => it.text).sort((a, b) => b.length - a.length)[0] : null) ?? m?.texts?.[0]?.text ?? null;
 // What each part of a design is, by the id the gallery's designs give it.
 const PART_WORD = { panel: 'panel', rule: 'rule', tear: 'rule', tag: 'tag', face: 'portrait', name: 'name', rest: 'details' };
 // The footer and its number as a deck holds them: the master's placeholders, and each slide's, which take their place and
@@ -526,7 +528,7 @@ async function pptx(scenes, title, author, say) {
   const feet = {};
   // (The one date placeholder a slide has: the foot's day where a page has one, the as-of line otherwise.)
   const dayed = scenes.some(s => s.marks.some(m => m.role === 'day'));
-  for (const s of scenes) for (const m of s.marks) if (FOOT[m.role] && !feet[m.role] && !(m.role === 'date' && dayed)) feet[m.role] = { m, ...placed(s), r: footAt(m, placed(s)), look: m.texts[0].look };
+  for (const s of scenes) for (const m of s.marks) if (FOOT[m.role] && m.texts?.[0] && !feet[m.role] && !(m.role === 'date' && dayed)) feet[m.role] = { m, ...placed(s), r: footAt(m, placed(s)), look: m.texts[0].look };
   // The chart's master is the deck's: on its slide master, as the first page that has it draws it, so a slide takes it from there; one that leaves it off says so, and one on another sheet has it of its own.
   const masterOf = scenes.find(s => s.marks.some(m => m.master)), sameSheet = s => !!masterOf && s.marks.some(m => m.master) && s.page.sheet.w === masterOf.page.sheet.w && s.page.sheet.h === masterOf.page.sheet.h;
   const finish = scenes.map(s => slide(p, s, placed(s), (...a) => say(s, ...a), feet, { onMaster: sameSheet(s) }));
@@ -786,7 +788,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     const s = look(m);
     if (m.type === 'box') {
       // (A box of a design: a native group of its body and its parts, each an editable shape with its own words, its connectors glued to the body: dendra.md, Group designs.)
-      const whose = (m.parts?.length ? m.texts.find(it => it.name)?.text : null) ?? m.texts[0]?.text ?? 'Shape', items = m.parts?.length ? m.texts.filter(it => !it.part) : m.texts;
+      const whose = boxName(m) ?? 'Shape', items = m.parts?.length ? m.texts.filter(it => !it.part) : m.texts;
       const box = () => { ids.set(m.id, shape(rect(m), m.shape, s, whose, { items, anchor: m.shape === 'triangle' ? 'b' : VALIGN[s.Valign] ?? 'ctr', inset: CHART, wrap: m.parts?.length ? null : wrapsAt(m), alt: s['Alt Text'] })); return [rect(m)]; };
       const own = carried.get(m.id), parts = m.parts ?? [];
       return own || parts.length ? group(whose, () => [...box(), ...parts.flatMap(write), ...(own ?? []).map(l => textBox(l.texts, l.labelAt.x, l.labelAt.y, CHART, l))]) : box();
@@ -815,7 +817,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     }
     // (A part of a design with nothing to say and nothing to draw isn't there, so no empty text box waits in each box; and one that's there is named for what it is, of whose it is.)
     if (m.of && m.geometry === 'text' && !m.texts.some(it => it.lines?.length && !it.blank)) return [];
-    const partName = m.of ? `${scene.byId.get(m.of)?.texts.find(it => it.name)?.text ?? 'Box'} ${m.name ?? PART_WORD[m.part] ?? String(Shapes.name(m.geometry) ?? 'part').toLowerCase()}` : null;
+    const partName = m.of ? `${boxName(scene.byId.get(m.of)) ?? 'Box'} ${m.name ?? PART_WORD[m.part] ?? String(Shapes.name(m.geometry) ?? 'part').toLowerCase()}` : null;
     // A free line is a connector glued to what it's glued to, named so, and it follows that in PowerPoint; or a line.
     if (m.geometry === 'line') return connector(m.points, s, m.ends ?? null, partName ?? m.name ?? (m.ends ? 'Connector' : 'Line'), { alt: m.alt, link: m.link });
     if (m.geometry === 'picture') {
@@ -843,7 +845,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     if (m.geometry === 'group') return [];
     // A table is PowerPoint's own, its words in its cells, each a text to edit there.
     if (m.geometry === 'table') { const r = rect(m); ids.set(m.id, put(id => tableFrame(id, m, r, s, k, L))); return [r]; }
-    if (FOOT[m.role] && feet[m.role]) { put(id => footSlide(id, m, rect(m), k, feet[m.role])); return [rect(m)]; }
+    if (FOOT[m.role] && feet[m.role] && m.texts?.[0]) { put(id => footSlide(id, m, rect(m), k, feet[m.role])); return [rect(m)]; }
     // (A part of a design keeps its margins at the chart's size, as a box does.)
     const text = m.geometry === 'text' || m.geometry === 'frame', by = m.of ? k : 1, ins = s.Inset ? { l: (s.Inset.l ?? 7.2) / 72 * by, t: (s.Inset.t ?? 3.6) / 72 * by, r: (s.Inset.r ?? 7.2) / 72 * by, b: (s.Inset.b ?? 3.6) / 72 * by } : m.of ? { l: 0.1 * k, t: 0.05 * k, r: 0.1 * k, b: 0.05 * k } : PAGE;
     ids.set(m.id, shape(rect(m), text ? 'rect' : m.geometry, s, partName ?? ROLE[m.role] ?? m.name ?? m.texts[0]?.text ?? Shapes.name(m.geometry) ?? 'Shape',

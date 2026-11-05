@@ -1493,11 +1493,14 @@ function mount(el) {
   }
   // A shape's words as they're typed, as they'll print: in its columns, its inner margins and its indent, each paragraph with its mark beside it. → what closes that.
   function asPrinted(ed, t, rect, z) {
-    const by = pts => pts * Scene.PT / pageScale() * z, ins = t.Inset ? { l: by(t.Inset.l ?? 7.2), r: by(t.Inset.r ?? 7.2), t: by(t.Inset.t ?? 3.6), b: by(t.Inset.b ?? 3.6) } : null, cols = Math.max(1, Math.round(t.Columns?.n ?? 1)), marked = t.Bullet && t.Bullet !== 'none';
-    const indent = t.Indent != null ? by(t.Indent) : marked ? px(t.Size) * z * 1.5 : 0, l = ins?.l ?? 7.2 * z;
-    if (ins) Object.assign(ed.style, { paddingTop: `${ins.t}px`, paddingRight: `${ins.r}px`, paddingBottom: `${ins.b}px` });
-    if (ins || indent) ed.style.paddingLeft = `${l + indent}px`;
-    if (cols > 1) Object.assign(ed.style, { columnCount: cols, columnGap: `${by(t.Columns.gap ?? 7.2)}px`, columnFill: 'auto', height: `${rect.h * z}px`, minHeight: '' });
+    const by = pts => pts * Scene.PT / pageScale() * z, ins = { l: by(t.Inset?.l ?? 7.2), r: by(t.Inset?.r ?? 7.2), t: by(t.Inset?.t ?? 3.6), b: by(t.Inset?.b ?? 3.6) }, cols = Math.max(1, Math.round(t.Columns?.n ?? 1)), marked = t.Bullet && t.Bullet !== 'none';
+    const indent = t.Indent != null ? by(t.Indent) : marked ? px(t.Size) * z * 1.5 : 0;
+    Object.assign(ed.style, { paddingRight: `${ins.r}px`, paddingBottom: `${ins.b}px`, paddingLeft: `${ins.l + indent}px` });
+    // (At its top, middle or bottom, as it's typed.)
+    const down = () => { const r = document.createRange(); r.selectNodeContents(ed); const tall = r.getBoundingClientRect().height || px(t.Size) * z * 1.2; ed.style.paddingTop = `${t.Valign === 'middle' ? Math.max(ins.t, (rect.h * z - tall) / 2) : t.Valign === 'bottom' ? Math.max(ins.t, rect.h * z - tall - ins.b) : ins.t}px`; };
+    down();
+    ed.addEventListener('input', down);
+    if (cols > 1) { ed.classList.remove('grow'); Object.assign(ed.style, { columnCount: cols, columnGap: `${by(t.Columns.gap ?? 7.2)}px`, columnFill: 'auto', width: `${rect.w * z}px`, height: `${rect.h * z}px`, minWidth: '', minHeight: '' }); }
     if (!marked) return null;
     const layer = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-edit-marks' })), paint = () => {
       layer.replaceChildren();

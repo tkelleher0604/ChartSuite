@@ -320,7 +320,7 @@ function merge(kind, shapes) {
   return one.length ? [one] : [];
 }
 // A ring of many short steps as the few curves and lines it is, so what merge flattened comes back as curves, as PowerPoint's does (dendra.md, Points): its corners and its long straight edges stay as they are, and what runs between them is fitted, within `tol`, by Schneider's method, one cubic for as much as one will do. → nodes, each [x, y], or with its handles [x, y, inX, inY, outX, outY]
-function curvesOf(ring, tol = 0.3) {
+function curvesOf(ring, tol = 0.45) {
   const n = ring.length;
   if (n < 5) return ring.map(p => [...p]);
   const at = i => ring[((i % n) + n) % n], sub = (a, b) => [a[0] - b[0], a[1] - b[1]], len = v => Math.hypot(v[0], v[1]), unit = v => { const L = len(v) || 1; return [v[0] / L, v[1] / L]; };
