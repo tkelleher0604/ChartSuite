@@ -2313,6 +2313,7 @@ function mount(el) {
       const edge = off ? along.find(q => clear(beyond(q)) && onNoBox(beyond(q))) : null, p = edge ? beyond(edge) : along.find(clear);
       h.at = p ?? null;
       h.from = edge ?? p ?? null;
+      h.classList.toggle('off', !!edge);
       h.hidden = !p;
       // (On a free shape, only the dot itself begins a line: grabbed anywhere else near its edge, it moves.)
       h.classList.toggle('slim', m.type === 'shape');
@@ -2388,6 +2389,15 @@ function mount(el) {
     lineDot.hidden = false;
     Object.assign(lineDot.style, { left: `${g.x}px`, top: `${g.y + 14}px` });
   }
+  // (And the line itself, pressed and drawn downward, as a person draws a child from a marriage on paper: the same.)
+  root.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || !dotOn || e.target === lineDot) return;
+    const { m, at } = dotOn, x0 = e.clientX, y0 = e.clientY;
+    const off = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', off); };
+    const move = ev => { const dx = Math.abs(ev.clientX - x0), dy = ev.clientY - y0; if (dy > 6 && dy > dx) { off(); lineDot.hidden = true; relating(m, at, ev); } else if (Math.hypot(dx, dy) > 12) off(); };
+    addEventListener('pointermove', move);
+    addEventListener('pointerup', off);
+  });
   // A connector: a line glued to what it joins, a free shape's row with no record and no meaning attached, in the deck a real connector. From one to another, or from one to a point. Selected, as what was just made.
   function connect(a, b, q = null, given = {}) {
     let id = null;

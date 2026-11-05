@@ -101,6 +101,8 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-handle.close { background: var(--accent); transform: scale(1.25); }
 .dc-handle::before { content: ""; position: absolute; inset: -8px; border-radius: 50%; }
 .dc-handle.slim::before { inset: -1px; }
+/* (One standing off a selected box takes a press from the edge out, so a drag from a side, no grip there, relates.) */
+.dc-handle.off::before { inset: -12px; }
 .dc.relating-on .dc-handle { opacity: 1; }
 .dc:not(.relating-on) .dc-handle { pointer-events: none; }
 .dc .dc-linedot { opacity: 1; pointer-events: auto; }
