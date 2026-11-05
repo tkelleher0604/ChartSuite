@@ -3167,6 +3167,8 @@ async function templates() {
   $$('.float .menu-item')[0].click(); await tick(150); App.commit(); await tick(350);
   const ada = Object.keys(App.state.peek()).find(id => App.notes.peek().nameOf(App.state.peek(), id) === 'Ada Hale' && App.state.peek()[id].kind), fromBoth = [she, he].map(p => sc().marks.find(m => m.type === 'line' && m.from === p && m.to === ada));
   check('… one change, a line from each, drawn as one', fromBoth.every(Boolean) && j2(fromBoth[0].points.slice(1)) === j2(fromBoth[1].points.slice(1)), j2(fromBoth.map(l => l?.points)));
+  // What the format bar counts counts the one just added by a redline, whose scene is the one the change, made, draws.
+  check('… and the format bar counts the one just added', txt($('[data-fb=like]')) === 'All 3 people', txt($('[data-fb=like]')));
   // Like this chart keeps its master: what every page of it has.
   App.change(tx => { tx.add('shape', { view: Scene.MASTER, geometry: 'text', text: 'Confidential', x: 40, y: 40, w: 200, h: 24 }); }, { dated: false }); await tick(250);
   App.newChart(); await tick(350); await until(() => !$('.chartmenu.naming input')); $('.chartmenu.naming input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(80);

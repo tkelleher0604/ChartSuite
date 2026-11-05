@@ -170,9 +170,7 @@ const generalOf = (t, root = true) => {
   return { ...(out && { out }), args: t.args.map(a => ({ edge: a.edge, loc: generalOf(a.loc, false) })) };
 };
 const general = t => generals.get(t) ?? generals.set(t, (p => ({ p, key: Tree.key(p) }))(generalOf(t))).get(t);
-function kinOf(sc) {
-  let k = kins.get(sc);
-  if (k) return k;
+const kinOf = sc => App.ofScene(kins, sc, () => {
   const st = App.state.peek(), N = App.notes.peek(), by = new Map(), of = new Map();
   const markOf = id => { for (let x = id; x && st[x]; x = st[x].at) { const m = sc.byId.get(x); if (m && (m.type === 'box' || m.type === 'line')) return m; } return null; };
   for (const id in st) {
@@ -190,9 +188,8 @@ function kinOf(sc) {
     }
     g.marks.add(m.merged ?? m.id);
   }
-  kins.set(sc, k = { by, of });
-  return k;
-}
+  return { by, of };
+});
 // The selection, as a scope, by what's drawn: "This box", "These 3 boxes", "This line" (the lines drawn as one
 // included), "These 2 shapes".
 function these(ms) {
@@ -204,17 +201,15 @@ function these(ms) {
 }
 // What each style reaches in a scene: by style, its outputs there, each with its caption and its marks.
 const reached = new WeakMap();
-function reachOf(sc) {
-  let by = reached.get(sc);
-  if (by) return by;
-  reached.set(sc, by = new Map());
+const reachOf = sc => App.ofScene(reached, sc, () => {
+  const by = new Map();
   for (const m of sc.marks) if ((m.type === 'box' || m.type === 'line') && !m.revealed)
     for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek())) {
       const outs = by.get(r.style) ?? by.set(r.style, new Map()).get(r.style), k = Tree.key(r.output);
       (outs.get(k) ?? outs.set(k, { output: r.output, caption: r.caption, marks: new Set() }).get(k)).marks.add(m.id);
     }
   return by;
-}
+});
 // The marks a group reaches in a scene, as scopesOf finds them: those with a record whose output fits one of its.
 // (Everything else: the boxes no style or note of their own gives a fill, the page's own.)
 const marksOf = (sc, s) => s.rest ? new Set(sc.marks.filter(m => m.type === 'box' && !m.revealed && (!m.settings.Fill.note || m.settings.Fill.note.pattern.id === sc.view)).map(m => m.id)) : new Set([...reachOf(sc).get(s.style)?.values() ?? []].filter(o => s.outputs.some(p => Tree.narrower(o.output, p))).flatMap(o => [...o.marks]));
@@ -272,7 +267,7 @@ const hostMark = (sc, st, id) => { for (let x = id; x && st[x]; x = st[x].at) { 
 // The marks with a record fitting a pattern, kept for the scene.
 const fitted = new WeakMap();
 function fitting(sc, p) {
-  const by = fitted.get(sc) ?? fitted.set(sc, new Map()).get(sc), k = Tree.key(p);
+  const by = App.ofScene(fitted, sc, () => new Map()), k = Tree.key(p);
   if (by.has(k)) return by.get(k);
   const st = App.state.peek(), out = new Set();
   for (const id in st) if (!Tree.isView(st[id]) && Tree.fits(st, id, p)) { const m = hostMark(sc, st, id); if (m && !m.revealed) out.add(m.merged ?? m.id); }
@@ -644,7 +639,7 @@ const firsts = new WeakMap();
 function firstFor(c, scope, label, value) {
   const sc = c?.scene();
   if (!sc || !scope?.outputs || (TEXT_LABELS.has(label) && label !== 'Format' && fieldOf(c))) return {};
-  const memo = firsts.get(sc) ?? firsts.set(sc, new Map()).get(sc), k = JSON.stringify([scope.key, label, value]);
+  const memo = App.ofScene(firsts, sc, () => new Map()), k = JSON.stringify([scope.key, label, value]);
   if (memo.has(k)) return memo.get(k);
   const view = sc.view, N = App.notes.peek(), all = N.styles(view), groups = Scene.groupsOf(N, view), same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const sceneOf = wb => Scene.looks(wb, App.chart.peek(), view, sc.day, { state: App.state.peek(), computed: App.computed.peek() });
@@ -1576,7 +1571,7 @@ const rowsReach = new WeakMap();
 function reachOfRow(g) {
   const sc = Canvas.active.peek()?.scene();
   if (!sc) return { marks: 0, own: 0, masked: [] };
-  const kept = rowsReach.get(sc) ?? rowsReach.set(sc, new Map()).get(sc);
+  const kept = App.ofScene(rowsReach, sc, () => new Map());
   if (kept.has(g.key)) return kept.get(g.key);
   const marks = [...marksOf(sc, g)].map(id => sc.byId.get(id)).filter(Boolean), keys = new Set(g.outputs.map(p => Tree.key(p))), given = g.swatch?.kind === 'box' ? givenTo(sc.view, g) : [], N = App.notes.peek();
   // (Its own: a note of it alone. The page's Everything else, at the view, is nothing of its own.)

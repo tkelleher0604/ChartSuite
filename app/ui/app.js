@@ -1838,6 +1838,8 @@ const App = (() => {
     const drawn = drawnPage.value, kept = drawn && seenIn(drawn.view);
     return kept?.size ? Scene.of(shown.value, chart.value, drawn.view, day.value, { state: state.value, computed: result.value, seen: kept }) : drawn;
   });
+  // What's worked out of a scene and the records, kept with the scene while they stand: a scene outlasts a change, as a redline's is the one its change, made, draws.
+  const ofScene = (kept, sc, make) => { const st = state.peek(), was = kept.get(sc); if (was?.st === st) return was.it; const it = make(); kept.set(sc, { st, it }); return it; };
   // What the look shows of the page: how many of its boxes, and any it hides otherwise. → { kept, of, more } or null.
   function shownOf(sc = scene.value, p = drawnPage.value) {
     if (!sc || !p || sc === p) return null;
@@ -2028,7 +2030,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs,
-    mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
+    mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken,
   };
 })();

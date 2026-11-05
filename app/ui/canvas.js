@@ -71,15 +71,13 @@ const lastKind = () => { const ks = kinds(), k = Shell.store.get('kind'); return
 // ---- Groups and the scope (dendra.md, Fields) ----
 // What each style reaches in a scene, by its output: the marks a record of it is in or at.
 const reached = new WeakMap();
-function reachOf(sc) {
-  let by = reached.get(sc);
-  if (by) return by;
-  reached.set(sc, by = new Map());
+const reachOf = sc => App.ofScene(reached, sc, () => {
+  const by = new Map();
   for (const m of sc.marks) if ((m.type === 'box' || m.type === 'line') && !m.revealed)
     for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek()))
       (by.get(Tree.key(r.output)) ?? by.set(Tree.key(r.output), { output: r.output, marks: new Set() }).get(Tree.key(r.output))).marks.add(m.id);
   return by;
-}
+});
 // The groups a mark is in, as the Key and Styles call them (Scene.groupsOf), each with the marks it reaches, the
 // fewest first; or, where no style reaches it, its kind's, or its relation's: every box of its kind, every line alike.
 function groupsAt(sc, m) {
