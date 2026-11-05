@@ -1599,6 +1599,11 @@ function groupDesigns() {
   check('a footnote on a box of a design: its marker is on the part that draws its name', feet(noted.parts[0]).length === 1 && feet(noted.parts[0])[0].text === noted.parts[0].texts[0].lines[0].text, JSON.stringify(noted.parts.map(p => feet(p).length)));
   check('… and a field’s on the field, where the part draws it', feet(noted.parts[1]).length === 1, JSON.stringify(noted.parts.map(p => feet(p).length)));
   check('… and the box says it too, for a click on the marker', noted.feet.length === 2 && noted.texts.some(it => it.lines[0]?.footW));
+  // A field blank among the rest: its room under the words, which stand as what's printed stands.
+  const w11 = Log.open(SAMPLE);
+  edit(w11, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, { id: 'r', name: 'R', base: {}, parts: [{ id: 'rest', rest: true, geometry: 'text', x: 0, y: 0, w: 1, h: 1, format: { Align: 'center', Valign: 'middle' } }] }, { view: MAIN }); tx.note('Shown', { args: [{ edge: 'Short Name', loc: { kind: 'Entity' } }] }, true, { view: MAIN }); });
+  const stood = scene(w11).byId.get('northpine').parts[0], printed = stood.texts.filter(it => !it.blank), unfilled = stood.texts.find(it => it.blank), ink = printed.reduce((n, it) => n + it.lines.length * Scene.lineHeight(it.look), 0), topOf = printed[0].lines[0].y - Scene.baseline(printed[0].look);
+  check('a field blank among the rest holds its room under the words, which stand in the middle as what’s printed does', !!unfilled && Math.abs(topOf - (stood.h - ink) / 2) < 1 && unfilled.lines[0].y > printed.at(-1).lines.at(-1).y, `${topOf} of ${stood.h}, ${ink} of words`);
   // Drawn again from nothing, the same.
   const twice = JSON.stringify(scene(Log.open(JSON.parse(JSON.stringify(w1.changes ? { dendra: 1, changes: w1.changes() } : SAMPLE)))).byId.get(llcs[0].id).parts.map(p => [p.x, p.y, p.w, p.h]));
   check('a design’s parts are what the log says, drawn from nothing the same', twice === JSON.stringify(s1.byId.get(llcs[0].id).parts.map(p => [p.x, p.y, p.w, p.h])), twice);
@@ -1621,6 +1626,10 @@ function aboutAnything() {
   for (const t of Templates.list()) {
     const { s, R } = chart(t.id, tx => Templates.exampleOf(tx, t));
     check(`${t.name}: its example draws, with no fault, no rule broken`, s.marks.some(m => m.type === 'box') && !s.marks.some(m => m.blocked) && !Object.values(R.broken ?? {}).length && !(R.errors ?? []).some(e => e.error?.code && e.error.code !== '#N/A'), j((R.errors ?? []).slice(0, 2)));
+    // (What's plain data stays so: its design a template holds, the boxes it reaches drawn by it; the fund's look is the sample's, and Blank has none to say.)
+    const own = t.rows.find(r => r.label === 'Design');
+    if (['blank', 'fund-structure'].includes(t.id)) check(`${t.name} brings no design`, !own);
+    else check(`${t.name} brings its own design, plain data, its boxes taking it, and its gallery has it`, JSON.stringify(JSON.parse(JSON.stringify(own.value))) === JSON.stringify(own.value) && s.marks.some(m => m.design?.value.id === own.value.id && m.parts?.length) && t.rows.find(r => r.label === 'Designs')?.value.list[0].id === own.value.id);
   }
   const person = (tx, name, more = {}) => { const id = tx.add('record', { kind: 'Person' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }); for (const [edge, value] of Object.entries(more)) tx.add('record', { at: id, edge, field: 'date', value }); return id; };
   // Forty people.

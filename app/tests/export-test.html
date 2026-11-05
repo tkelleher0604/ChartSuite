@@ -1067,6 +1067,13 @@ async function designed() {
   const g2 = tags(x2, 'p:grpSp').find(q => tags(q, 'p:nvGrpSpPr')[0]?.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === name(noted));
   check('a footnote on one: its marker a real superscript run in the part with the words', !!g2 && tags(g2, 'a:r').some(r => +tags(r, 'a:rPr')[0]?.getAttribute('baseline') > 0 && /^\d+$/.test(tags(r, 'a:t')[0].textContent)), g2?.textContent);
   check('… once, and in the PDF too', !!g2 && tags(g2, 'a:r').filter(r => +tags(r, 'a:rPr')[0]?.getAttribute('baseline') > 0).length === 1 && Export.markSvgOf(noted, sc2.page.scale).includes('>1<'), Export.markSvgOf(noted, sc2.page.scale).slice(0, 300));
+  // A field blank among the rest: no empty paragraph, the words standing in the deck where the PDF has them.
+  const tx3 = wb.edit({ chart: C, who: WHO });
+  tx3.note('Shown', { args: [{ edge: 'Short Name', loc: { kind: 'Entity' } }] }, true, { view });
+  if (typeof tx3.commit() === 'string') throw new Error('no change');
+  const R3 = worked(), sc3 = Scene.of(wb, C, view, DAY, { state: R3.records, computed: R3 }), np = sc3.byId.get('northpine');
+  const x3 = xml(await (await JSZip.loadAsync(await Export.write('pptx', [sc3], 'Designed', { author: WHO }))).file('ppt/slides/slide1.xml').async('string')), g3 = tags(x3, 'p:grpSp').find(q => tags(q, 'p:nvGrpSpPr')[0]?.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === name(np));
+  check('a field blank among the rest is no paragraph in the deck, so the words stand there as printed', !!np.texts.find(it => it.blank) && !!g3 && !tags(g3, 'p:sp').slice(1).some(sp => tags(sp, 'a:p').length > 1 && tags(sp, 'a:p').some(p => !tags(p, 'a:r').length)) && !g3.textContent.includes('Short Name'), g3?.textContent);
 }
 
 // Footnotes (dendra.md, Footnotes): in the deck, native text, a real superscript run on what carries one and on its line, editable; in the PDF, as drawn.

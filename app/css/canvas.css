@@ -454,7 +454,7 @@ input.cell.tabs { width: 88px; }
 .holds .menu-head { margin-top: 8px; padding: 0; }
 
 /* A design's gallery: each tile a real thumbnail, its name beneath, a pencil on the one pointed at; and the bar while one's edited */
-.picker.designs { width: 448px; max-width: calc(100vw - 32px); max-height: min(72vh, 620px); overflow: auto; }
+.picker.designs { width: 448px; max-width: calc(100vw - 32px); max-height: min(calc(100vh - 100px), 620px); overflow: auto; }
 .picker.designs .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .picker.designs .tile-at { position: relative; display: block; min-width: 0; }
 .picker.designs .tile { width: 100%; padding: 6px 4px 4px; border: 1px solid transparent; border-radius: var(--r); background: transparent; color: var(--ink-2); display: grid; gap: 4px; justify-items: stretch; cursor: pointer; }

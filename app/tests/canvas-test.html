@@ -2911,6 +2911,8 @@ async function format() {
   Shell.select([]); await tick(150);
 // Group designs (dendra.md): the gallery, the pen, what's said over one, Reset, Make a design, Edit design.
 async function designing(st) {
+  // (This page is near the suite's budget: half the wait, what's waited for being drawn by then.)
+  const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.4));
   const undo = () => Shell.parts.peek().undo.undo(), changes = () => App.shown.peek().changes().length, box = id => sc().byId.get(id), header = Shapes.DESIGNS.find(d => d.id === 'header');
   Shell.select(['northpine']); await tick(200);
   $('[data-fb="design"]').click(); await tick(300);
