@@ -29,12 +29,12 @@ const BLUE = '#1f5fbf', RED = '#c2372b';
 // Cells that draw no mark of their own, so nothing selects or moves them: the page, a line's label, a redline's ink.
 const UNMARKED = new Set(['page', 'label', 'ink', 'guide', 'master']);
 // The footer and its number, the chart's own and the sheet's: selected and formatted as any text is, but placed by the page.
-const footOf = m => m?.role === 'footer' || m?.role === 'number';
+const footOf = m => m?.role === 'footer' || m?.role === 'number' || m?.role === 'day';
 const footNote = () => App.notes.peek().resolve('Footer', { kind: 'View' })?.value ?? {};
 // An entry wherever it is, as a Shown or Format note at it reaches each box that has it.
 const entryAnywhere = edge => ({ args: [{ edge, loc: {} }] });
 // Taking one away: the footer's words, or the numbers; with neither left, the note and its look.
-const unfoot = (tx, m) => { const { format, ...f } = footNote(), now = m.role === 'footer' ? { ...f, text: '' } : { ...f, number: false }; tx.note('Footer', { kind: 'View' }, now.text || now.number ? { ...now, ...(format && { format }) } : undefined); };
+const unfoot = (tx, m) => { const { format, ...f } = footNote(), now = m.role === 'footer' ? { ...f, text: '' } : m.role === 'day' ? { ...f, date: false } : { ...f, number: false }; tx.note('Footer', { kind: 'View' }, now.text || now.number || now.date ? { ...now, ...(format && { format }) } : undefined); };
 // As far out as the canvas goes: a chart of hundreds of boxes still fits.
 const LEAST = 0.02;
 const ANCHOR = { left: 'start', center: 'middle', right: 'end' };
@@ -180,7 +180,7 @@ function textMarkup(it, red, faint) {
       return [...mark, { tagName: 'tspan', attrs: { x: l.x, y: l.y }, children: l.spans.map(sp => {
         const up = sp.base ? -Scene.BASE[sp.base] * px(t.Size) : 0, dy = up - off, s = sp.look, d = [s.Underline && 'underline', (s.Strike || r === 'go') && 'line-through'].filter(Boolean).join(' ');
         off = up;
-        return { tagName: 'tspan', attrs: { ...(dy && { dy }), fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(s.Color), 'font-family': Scene.fontFamily(s.Font), 'font-size': px(s.Size), 'font-weight': s.Bold ? 700 : 400, 'font-style': s.Italic ? 'italic' : 'normal', ...(d && { 'text-decoration': d }) }, textContent: sp.text };
+        return { tagName: 'tspan', attrs: { ...(dy && { dy }), fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(s.Color), 'font-family': Scene.fontFamily(s.Font), 'font-size': px(s.Size), 'font-weight': s.Bold ? 700 : 400, 'font-style': s.Italic ? 'italic' : 'normal', ...(d && { 'text-decoration': d }), ...(s.Link && { 'data-link': JSON.stringify(s.Link), 'pointer-events': 'auto' }) }, textContent: sp.text };
       }) }];
     }),
   };
@@ -376,7 +376,7 @@ function cellsOf(scene, ink = null) {
       } else if (m.geometry === 'legend') node(m, 'shape', legendMarkup(m, s));
       else if (m.geometry === 'group') continue;
       // (The footer and its number are the sheet's, set in Page setup.)
-      else node(m, m.role === 'footer' || m.role === 'number' ? 'foot' : 'shape', shapeMarkup(m, s));
+      else node(m, footOf(m) ? 'foot' : 'shape', shapeMarkup(m, s));
     }
   }
   return cells;
@@ -412,11 +412,12 @@ function partMarkup(p, at, textOf, ox = at.x, oy = at.y) {
 
 // A table: each cell's fill, its rules, its words; each cell knows where it is, for a click, and each rule between columns, for a drag.
 function tableMarkup(m, s) {
-  const t = m.table, W = px(s.Weight), rules = paint(s.Outline) === 'none' ? '' : [...t.rows.map(r => `M0,${r.y} H${m.w}`), `M0,${m.h} H${m.w}`, ...t.xs.map(x => `M${x},0 V${m.h}`), `M${m.w},0 V${m.h}`].join(' ');
+  const t = m.table, W = px(s.Weight), rules = paint(s.Outline) === 'none' ? '' : t.rules;
   return [
     { tagName: 'rect', selector: 'body', attrs: { width: m.w, height: m.h, fill: 'transparent' } },
-    ...t.rows.flatMap(r => r.cells.map(k => ({ tagName: 'rect', attrs: { x: k.x, y: r.y, width: k.w, height: r.h, fill: paint(k.fill) === 'none' ? 'transparent' : k.fill, 'data-tcell': `${r.i},${k.c}` } }))),
+    ...t.rows.flatMap(r => r.cells.filter(k => !k.covered).map(k => ({ tagName: 'rect', attrs: { class: 'dc-tbox', x: k.x, y: r.y, width: k.w, height: k.h, fill: paint(k.fill) === 'none' ? 'transparent' : k.fill, 'data-tcell': `${r.i},${k.c}` } }))),
     { tagName: 'path', attrs: { d: rules, fill: 'none', stroke: paint(s.Outline), 'stroke-width': W, class: crisp(W), 'pointer-events': 'none', 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) } },
+    ...(t.headRule ? [{ tagName: 'path', attrs: { d: t.headRule.d, fill: 'none', stroke: t.headRule.color, 'stroke-width': px(t.headRule.weight), class: crisp(px(t.headRule.weight)), 'pointer-events': 'none' } }] : []),
     ...t.rows.flatMap(r => r.cells.filter(k => k.it.lines.length).map(k => ({ ...textMarkup(k.it), attrs: { ...textMarkup(k.it).attrs, 'pointer-events': 'none' } }))),
     ...t.xs.slice(1).map((x, i) => ({ tagName: 'rect', attrs: { class: 'dc-tcol', x: x - 3, y: 0, width: 6, height: m.h, fill: 'transparent', 'data-tcol': i } })),
   ];
@@ -500,7 +501,8 @@ function mount(el) {
     interacting: view => {
       const k = view.cell.getData()?.kind, held = !!scene?.byId.get(view.cell.id)?.locked;
       if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still() && !held, edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
-      return { nodeMovable: !pointing && !still() && !rowDrag && !held && k !== 'foot' && (!UNMARKED.has(k) || k === 'label') && view.cell.id !== designing?.box };
+      // (A press in a table is for its cells: it's moved by its grip or its edge, Drawing's.)
+      return { nodeMovable: !pointing && !still() && !rowDrag && !held && k !== 'foot' && (!UNMARKED.has(k) || k === 'label') && view.cell.id !== designing?.box && scene?.byId.get(view.cell.id)?.geometry !== 'table' };
     },
   });
   // What a hand draws, aims and copies (see Drawing), once all it's given is made.
@@ -1450,14 +1452,14 @@ function mount(el) {
       rect = { x: m.x + r.x + r.sw.w + 6, y: m.y + r.y, w: r.w - r.sw.w - 6, h: r.h + 2 };
       // The Key's own: no other place's word for it changes.
       save = text => App.change(tx => keyCaption(tx, m, r, text));
-    } else if (m.role === 'number') {
+    } else if (m.role === 'number' || m.role === 'day') {
       return Export.setup();
     } else if (m.role === 'footer') {
       // The chart's footer's words, on every chart view.
       it = m.texts[0];
       rect = { x: m.x, y: m.y, w: Math.max(m.w, 240), h: m.h };
       raw = footNote().text;
-      save = text => App.change(tx => { const { format, ...f } = footNote(), t = text.trim(); tx.note('Footer', { kind: 'View' }, t || f.number ? { ...f, text: t, ...(format && { format }) } : undefined); }, { dated: false, say: 'Set the footer' });
+      save = text => App.change(tx => { const { format, ...f } = footNote(), t = text.trim(); tx.note('Footer', { kind: 'View' }, t || f.number || f.date ? { ...f, text: t, ...(format && { format }) } : undefined); }, { dated: false, say: 'Set the footer' });
     } else if (m.type === 'shape' && !['line', 'picture', 'group'].includes(m.geometry)) {
       const legend = m.geometry === 'legend', row = rowOf(m.id);
       // (While a design is edited, what's typed in the part its other fields go in stands under them; the fields stay fields.)
@@ -1519,6 +1521,7 @@ function mount(el) {
     ed.focus();
     const parts = rich && richEditor(ed, text, rich.runs ?? [], it.look);
     if (parts) richEdit = parts;
+    const printed = rich ? asPrinted(ed, t, rect, z) : null;
     // Double-click selects it all, to type over; typing over starts after what was typed.
     const range = document.createRange(), s = getSelection();
     range.selectNodeContents(ed);
@@ -1526,7 +1529,7 @@ function mount(el) {
     s.removeAllRanges(); s.addRange(range);
     let done = false;
     const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box, () => finish(true));
-    const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys, runs); else escaped?.(); };
+    const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); printed?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys, runs); else escaped?.(); };
     // (Going to the format bar's palette, it stays open, what's selected kept, till a press anywhere else.)
     const outside = e => { if (!e.target.closest?.('.dc-edit, .fb, .float')) finish(true); };
     ed.addEventListener('keydown', e => {
@@ -1545,6 +1548,39 @@ function mount(el) {
     ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); if (kind && e.relatedTarget?.closest?.('.dc-kinds')) return; finish(true); });
     return ed;
   }
+  // A shape's words as they're typed, as they'll print: in its columns, its inner margins and its indent, each paragraph with its mark beside it. → what closes that.
+  function asPrinted(ed, t, rect, z) {
+    const by = pts => pts * Scene.PT / pageScale() * z, ins = { l: by(t.Inset?.l ?? 7.2), r: by(t.Inset?.r ?? 7.2), t: by(t.Inset?.t ?? 3.6), b: by(t.Inset?.b ?? 3.6) }, cols = Math.max(1, Math.round(t.Columns?.n ?? 1)), marked = t.Bullet && t.Bullet !== 'none';
+    const indent = t.Indent != null ? by(t.Indent) : marked ? px(t.Size) * z * 1.5 : 0;
+    Object.assign(ed.style, { paddingRight: `${ins.r}px`, paddingBottom: `${ins.b}px`, paddingLeft: `${ins.l + indent}px` });
+    // (At its top, middle or bottom, as it's typed.)
+    const down = () => { const r = document.createRange(); r.selectNodeContents(ed); const tall = r.getBoundingClientRect().height || px(t.Size) * z * 1.2; ed.style.paddingTop = `${t.Valign === 'middle' ? Math.max(ins.t, (rect.h * z - tall) / 2) : t.Valign === 'bottom' ? Math.max(ins.t, rect.h * z - tall - ins.b) : ins.t}px`; };
+    down();
+    ed.addEventListener('input', down);
+    if (cols > 1) { ed.classList.remove('grow'); Object.assign(ed.style, { columnCount: cols, columnGap: `${by(t.Columns.gap ?? 7.2)}px`, columnFill: 'auto', width: `${rect.w * z}px`, height: `${rect.h * z}px`, minWidth: '', minHeight: '' }); }
+    if (!marked) return null;
+    const layer = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-edit-marks' })), paint = () => {
+      layer.replaceChildren();
+      const walk = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT), base = over.getBoundingClientRect();
+      let n = 0, atStart = true;
+      for (let node; (node = walk.nextNode());) for (let i = 0; i < node.length; i++) {
+        const c = node.data[i];
+        if (c === '\n') { atStart = true; continue; }
+        if (!atStart) continue;
+        atStart = false;
+        const r = document.createRange(); r.setStart(node, i); r.setEnd(node, i + 1);
+        const b = r.getClientRects()[0];
+        if (!b) continue;
+        n++;
+        const mark = Object.assign(document.createElement('span'), { textContent: t.Bullet === 'number' ? `${n}.` : '•' });
+        Object.assign(mark.style, { left: `${b.left - base.left - indent * 0.75}px`, top: `${b.top - base.top}px`, font: ed.style.font, color: t.Color });
+        layer.append(mark);
+      }
+    };
+    paint();
+    ed.addEventListener('input', paint);
+    return { close() { layer.remove(); } };
+  }
   // A new line at the caret, as text, so a run's places stay in its characters. (At the very end, a second, which keeping the words takes off, as a last line break draws nothing to type on.)
   function paragraph(ed) {
     const s = getSelection();
@@ -1561,7 +1597,7 @@ function mount(el) {
   // caret's in, takes a look; Ctrl+B, Ctrl+I, Ctrl+U, Ctrl+Shift+X, and Ctrl+Shift+= and Ctrl+= for a superscript and subscript, as PowerPoint's; Ctrl+] and Ctrl+[ its size.
   function richEditor(ed, text, runs, base) {
     let last = [0, 0];
-    const css = r => [r.Bold !== undefined && `font-weight:${r.Bold ? 700 : 400}`, r.Italic !== undefined && `font-style:${r.Italic ? 'italic' : 'normal'}`, (r.Underline || r.Strike) && `text-decoration:${[r.Underline && 'underline', r.Strike && 'line-through'].filter(Boolean).join(' ')}`, r.Color && `color:${r.Color}`, r.Font && `font-family:${Scene.fontFamily(r.Font).replace(/"/g, "'")}`, r.Size && `font-size:${px(r.Size) / pageScale() * graph.zoom() * (r.Base ? 0.66 : 1)}px`, r.Base && `vertical-align:${r.Base === 'up' ? 'super' : 'sub'}`, r.Base && !r.Size && 'font-size:66%'].filter(Boolean).join(';');
+    const css = r => [r.Bold !== undefined && `font-weight:${r.Bold ? 700 : 400}`, r.Italic !== undefined && `font-style:${r.Italic ? 'italic' : 'normal'}`, (r.Underline || r.Strike || r.Link) && `text-decoration:${[(r.Underline || r.Link) && 'underline', r.Strike && 'line-through'].filter(Boolean).join(' ')}`, (r.Color || r.Link) && `color:${r.Color ?? Scene.LINK}`, r.Font && `font-family:${Scene.fontFamily(r.Font).replace(/"/g, "'")}`, r.Size && `font-size:${px(r.Size) / pageScale() * graph.zoom() * (r.Base ? 0.66 : 1)}px`, r.Base && `vertical-align:${r.Base === 'up' ? 'super' : 'sub'}`, r.Base && !r.Size && 'font-size:66%'].filter(Boolean).join(';');
     const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const paint = (txt, rs) => {
       let html = '', at = 0;
@@ -1595,9 +1631,11 @@ function mount(el) {
     const moved = () => { if (document.activeElement === ed) told(); };
     document.addEventListener('selectionchange', moved);
     // A look given what's selected, or the word the caret's in; a yes-or-no given its opposite where it has it throughout.
-    function set(label, value) {
-      let [a, b] = now();
+    function set(label, value, at = null) {
+      let [a, b] = at ?? now();
       const t = ed.textContent;
+      // (A link's on the words: not the space a double-click takes with one.)
+      if (label === 'Link') { while (a < b && /\s/.test(t[a])) a++; while (b > a && /\s/.test(t[b - 1])) b--; }
       if (a === b) { while (a > 0 && /\S/.test(t[a - 1])) a--; while (b < t.length && /\S/.test(t[b])) b++; }
       if (a === b) return false;
       const rs = read(), scale = pageScale();
@@ -1610,12 +1648,20 @@ function mount(el) {
       return true;
     }
     const sized = by => { const [a] = now(), r = read().find(x => x.from <= a && x.to > a), at = r?.Size ?? Math.round(base.Size * pageScale() * 2) / 2; return set('Size', Math.max(1, at + by)); };
+    // A link on what's selected, or the word the caret's in: Ctrl+K, or a right-click, as PowerPoint's; asked for beside it, what's selected kept.
+    const linkOn = () => { const [a] = now(); return read().find(x => x.from <= a && x.to > a && x.Link)?.Link ?? null; };
+    const askLink = () => { const s = getSelection(), b = s.rangeCount && ed.contains(s.anchorNode) ? s.getRangeAt(0).getBoundingClientRect() : ed.getBoundingClientRect(), at = [...now()]; hand.askLink({ x: b.left, y: b.bottom || ed.getBoundingClientRect().bottom }, linkOn(), v => { set('Link', v, at); }); };
+    ed.addEventListener('contextmenu', e => {
+      e.preventDefault(); e.stopPropagation();
+      const at = [...now()], cmd = name => () => { ed.focus(); place(...at); document.execCommand(name); };
+      Shell.menu({ x: e.clientX, y: e.clientY }, [{ label: 'Link…', keys: '$mod+KeyK', run: askLink }, ...(linkOn() ? [{ label: 'Remove link', run: () => set('Link', undefined, at) }] : []), '-', { label: 'Bold', keys: '$mod+KeyB', run: () => set('Bold', undefined, at) }, { label: 'Italic', keys: '$mod+KeyI', run: () => set('Italic', undefined, at) }, { label: 'Underline', keys: '$mod+KeyU', run: () => set('Underline', undefined, at) }, '-', { label: 'Cut', keys: '$mod+KeyX', run: cmd('cut') }, { label: 'Copy', keys: '$mod+KeyC', run: cmd('copy') }]);
+    });
     paint(text, runs);
     told();
     return { runs: read, close() { document.removeEventListener('selectionchange', moved); rich.value = null; }, set,
       key(e) {
         if (!(e.ctrlKey || e.metaKey) || e.altKey) return false;
-        const k = e.key.toLowerCase(), act = !e.shiftKey && k === 'b' ? () => set('Bold') : !e.shiftKey && k === 'i' ? () => set('Italic') : !e.shiftKey && k === 'u' ? () => set('Underline') : e.shiftKey && k === 'x' ? () => set('Strike')
+        const k = e.key.toLowerCase(), act = !e.shiftKey && k === 'k' ? askLink : !e.shiftKey && k === 'b' ? () => set('Bold') : !e.shiftKey && k === 'i' ? () => set('Italic') : !e.shiftKey && k === 'u' ? () => set('Underline') : e.shiftKey && k === 'x' ? () => set('Strike')
           : e.shiftKey && (k === '+' || k === '=') ? () => set('Base', lookNow().Base === 'up' ? undefined : 'up') : !e.shiftKey && k === '=' ? () => set('Base', lookNow().Base === 'down' ? undefined : 'down')
           : !e.shiftKey && k === ']' || (e.shiftKey && k === '>') ? () => sized(1) : !e.shiftKey && k === '[' || (e.shiftKey && k === '<') ? () => sized(-1) : null;
         if (!act) return false;
@@ -2513,7 +2559,7 @@ function mount(el) {
       { label: 'More', items: more },
       '-',
       // (On the Key, what it deletes, the row selected or the Key, in its own label.)
-      { label: bound.length ? App.deleteLabel(bound.map(m => m.record)) : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
+      { label: bound.length ? App.deleteLabel(bound.map(m => m.record)) : one?.geometry === 'table' ? 'Delete table' : one?.geometry === 'legend' ? (keyRow() ? `Delete the row ${one.rows.find(r => r.key === keyRow().key)?.caption.text ?? ''}`.trim() : 'Delete the Key') : 'Delete', keys: 'Delete', danger: true, disabled: bound.length ? !App.canAsk() : ro, run: () => remove(true) },
       // (The field's it was opened on, at its end: what the box's menu offers stays as it is, and where.)
       ...(f ? ['-', { label: fieldName(f.it), items: fieldRows(f) }] : []),
     ];
@@ -2985,7 +3031,8 @@ function mount(el) {
       const [w, h] = drawn ? [drawn.w, drawn.h] : [opts.w, opts.h].every(Number.isFinite) ? [opts.w, opts.h] : SIZE[geometry] ?? [140, 70];
       // With something selected, a note is about it: the free room nearest beside it, first on its right, on its level.
       if (geometry === 'text' && sel0.length) { const b = sel0.reduce((r, m) => ({ x: Math.max(r.x, m.x + m.w), y: Math.min(r.y, m.y) }), { x: -Infinity, y: Infinity }), ofIt = sel0.find(m => m.y === b.y); besideIt = { left: b.x + 8, y: ofIt.y + ofIt.h / 2 }; }
-      const p = spot(s, geometry === 'text' && !row.text && !besideIt ? Math.max(w, ROOM) : w, h, besideIt ? { x: besideIt.left + w / 2, y: besideIt.y } : geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, !besideIt && ['text', 'legend', 'frame'].includes(geometry), !!besideIt);
+      // (A table stands well clear of what's drawn, where there's room.)
+      const p = (geometry === 'table' && freeSpot(s, w, h, mid, { gap: 32 })) || spot(s, geometry === 'text' && !row.text && !besideIt ? Math.max(w, ROOM) : w, h, besideIt ? { x: besideIt.left + w / 2, y: besideIt.y } : geometry === 'legend' ? { x: s.page.w, y: s.page.h } : mid, !besideIt && ['text', 'legend', 'frame'].includes(geometry), !!besideIt);
       if (geometry === 'table' && !freeSpot(s, w, h, mid)) Shell.toast('The page has no free room: the table is over what’s drawn', { ms: 3500 });
       Object.assign(row, { x: round(p.x), y: round(p.y) }, drawn ? {} : { w, h });
       if (row.geometry === 'line') Object.assign(row, { h: 0, points: [[row.x, row.y + h / 2], [row.x + w, row.y + h / 2]] });
@@ -3039,7 +3086,7 @@ function mount(el) {
   // Northpine Software, LLC.
   const lineOf = id => { const N = App.notes.peek(), st = App.state.peek(); return `${N.nameOf(st, id)}: ${N.segmentOf(st, id)}`; };
   const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? lineOf(m.record) : m.type === 'frame' ? `the ${m.caption.text} frame`
-    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : m.role === 'footnotes' ? 'the footnotes' : m.name ?? `the ${SHAPE[m.geometry] ?? 'shape'}`;
+    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : m.role === 'day' ? 'the date' : m.role === 'footnotes' ? 'the footnotes' : m.name ?? `the ${SHAPE[m.geometry] ?? 'shape'}`;
   const counted = ms => ms.length === 1 ? ms[0].name : ms.every(m => m.type === 'box') ? `${ms.length} boxes` : ms.every(m => m.type === 'line') ? `${ms.length} lines` : `${ms.length} items`;
   function said(hid, gone, view) {
     const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row');
@@ -3085,7 +3132,7 @@ function mount(el) {
     return true;
   }
   // A copy from the menu puts the names on the system's clipboard too, as it can.
-  const copyOut = () => { if (field ? copyField(fieldNow()) : copy()) navigator.clipboard?.writeText(clip.text).catch(() => {}); };
+  const copyOut = () => { const cells = hand.cellsText(); if (cells !== null) return navigator.clipboard?.writeText(cells).catch(() => {}); if (field ? copyField(fieldNow()) : copy()) navigator.clipboard?.writeText(clip.text).catch(() => {}); };
   // A field copied is its entry, by its label, or a free text's words: pasted on a box, the box shows its own entry of
   // that label, as a form's field shows its record's, or the same words, at the scope (see Fields). Its text is what
   // the system's clipboard holds of it.
@@ -3680,7 +3727,7 @@ function mount(el) {
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, sizeAtPen, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
-    table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), link: id => hand.setLink(id), pastePicture: f => hand.pastePicture(f), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
+    table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), cellsPicked: id => hand.cellsPicked(id), readsFrom: (id, of) => hand.readsFrom(id, of), styleGallery: (at, id) => hand.styleGallery(at, id), get StyleGallery() { return hand.StyleGallery; }, link: id => hand.setLink(id), pastePicture: f => hand.pastePicture(f), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
     // What's being typed part by part takes a look (Bold, a color, a size) in place of the mark it's in. → whether it did.
     richSet: (label, v) => !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); }, footnote: id => footnote(id ? marked(id) : undefined),
@@ -3697,7 +3744,7 @@ function mount(el) {
       hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };
-  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected, connect });
+  hand = Drawing.attach({ graph, sel, root, over, marks, NS, gEl, transform, scene: () => scene, scale: pageScale, still, insert, rowOf, called, viewOf, treeOf, origin, extent, markItems, moveTo, follow, astray, showHandles, lockedCell, lockedOf, gridStep, openEditor, paintStates, show, placeableAll: placeable, selectedNow: selected, connect, wordsOf, freeSpot });
   active.value = canvas;
   return canvas;
 }

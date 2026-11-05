@@ -1833,7 +1833,8 @@ function TableRows({ id, row, m, still }) {
     ${number('Rows', n, rowsTo)}${number('Columns', cols, colsTo)}
     <label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${t.header !== false} disabled=${still} onChange=${e => set({ ...t, header: e.target.checked }, e.target.checked ? 'Gave the table a heading row' : 'Took the heading row off')} />Heading row</span></label>
     <label class="row lockrow"><span class="k wide"><input type="checkbox" checked=${t.banded !== false} disabled=${still} onChange=${e => set({ ...t, banded: e.target.checked }, e.target.checked ? 'Banded the table' : 'Took the bands off')} />Banded rows</span></label>
-    <div class="row" data-row="of"><div class="k">Reads</div><div class="v ctl"><${Choice} fixed label="Reads" r=${{ choice: t.of ? N().nameOf(st, t.of) : 'Nothing' }} options=${['Nothing', ...names.keys()]} put=${out => { const of = names.get(out?.choice); set({ ...t, of: of ?? undefined }, of ? `Made the table read ${out.choice}` : 'The table reads nothing now'); }} /></div></div>
+    <div class="row" data-row="of"><div class="k">Reads</div><div class="v ctl"><${Choice} fixed label="Reads" r=${{ choice: t.of ? N().nameOf(st, t.of) : 'Nothing' }} options=${['Nothing', ...names.keys()]} put=${out => { Shell.parts.peek().canvas?.active?.()?.readsFrom(id, names.get(out?.choice) ?? null); }} /></div></div>
+    <div class="row" data-row="style"><div class="k">Style</div><div class="v ctl"><button type="button" class="btn dd" aria-label="Table style" disabled=${still} onClick=${e => Shell.parts.peek().canvas?.active?.()?.styleGallery(e.currentTarget, id)}>Choose…</button></div></div>
   </div>`;
 }
 function ShapeView({ id, part }) {
@@ -1869,7 +1870,8 @@ function ShapeView({ id, part }) {
     </div>
     ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
     ${glued(g) ? html`<div class="rows"><div class="row"><div class="k">Glued to</div><div class="v">${row.ends.map(e => e ? (gone(e)?.record ? n.nameOf(recs(), gone(e).record) : gone(e)?.texts?.[0]?.text ?? Shapes.name(gone(e)?.geometry) ?? 'A shape') : null).filter(Boolean).join(' and ')}</div></div></div>` : null}
-    ${m && !row.role ? html`<div class="rows"><div class="row" data-row="alt"><div class="k">Alt text</div><div class="v ctl"><${Prose} text=${row.alt ?? ''} label="Alt text" put=${alt => set({ alt: alt || undefined }, alt ? 'Set the alt text' : 'Took the alt text off')} /></div></div></div>` : null}
+    ${m && !row.role ? html`<div class="rows"><div class="row" data-row="alt"><div class="k">Alt text</div><div class="v ctl"><${Prose} text=${row.alt ?? ''} label="Alt text" put=${alt => set({ alt: alt || undefined }, alt ? 'Set the alt text' : 'Took the alt text off')} /></div></div>
+      <div class="row" data-row="link"><div class="k">Link</div><div class="v"><button type="button" class="lk" disabled=${still} onClick=${() => cv?.link(id)}>${row.link ? row.link.url ?? App.views.peek().find(x => x.id === row.link.view)?.name ?? 'A page' : 'None'}</button></div></div></div>` : null}
     ${g === 'table' && m ? html`<${TableRows} id=${id} row=${row} m=${m} still=${still} />` : null}
     ${m ? html`<${Place} at=${m} keys=${key ? 'xyw' : 'xywh'} put=${(k, x) => cv?.put(m.id, { [k]: x })} lock=${g === 'text' || key || g === 'group' || g === 'line' || g === 'table' ? null : { on: row.lock ?? g === 'picture', set: on => set({ lock: on }) }} turn=${key || row.role || g === 'table' ? null : { at: g === 'line' ? Math.round((lineAt?.r ?? 0) * 10) / 10 : row.rotate, set: a => cv?.turn(m.id, a) }} />` : null}
     ${g === 'picture' && m ? html`<${Crop} m=${m} row=${row} set=${set} cv=${cv} />` : null}

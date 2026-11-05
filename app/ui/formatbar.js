@@ -75,7 +75,7 @@ let current = null; // { canvas, scopes, scope, marks }
 const ALL_TEXT = { key: 'all text', root: true, caption: 'all text', label: 'All text' };
 const viewSelf = sc => ({ id: sc.view, kind: 'View' });
 // The footer or its number, the chart's own: its look is in its note (dendra.md, The page).
-const isFoot = m => m.role === 'footer' || m.role === 'number';
+const isFoot = m => m.role === 'footer' || m.role === 'number' || m.role === 'day';
 const footNote = () => App.notes.peek().resolve('Footer', { kind: 'View' })?.value ?? {};
 const refoot = (tx, format) => tx.note('Footer', { kind: 'View' }, (({ format: _, ...rest }) => Object.keys(format).length ? { ...rest, format } : rest)(footNote()));
 
@@ -208,9 +208,9 @@ const kinOf = sc => App.ofScene(kins, sc, () => {
 // The selection, as a scope, by what's drawn: "This box", "These 3 boxes", "This line" (the lines drawn as one
 // included), "These 2 shapes".
 function these(ms) {
-  if (ms.every(isFoot)) return ms.length === 1 && ms[0].role === 'number' ? 'The page number' : 'The footer';
+  if (ms.every(isFoot)) return ms.length === 1 && ms[0].role === 'number' ? 'The page number' : ms.length === 1 && ms[0].role === 'day' ? 'The date' : 'The footer';
   if (ms.length === 1 && ms[0].role === 'footnotes') return 'The footnotes';
-  if (ms.length === 1 && ms[0].geometry === 'table') return Canvas.active.peek()?.cell?.(ms[0].id) ? 'This cell' : 'This table';
+  if (ms.length === 1 && ms[0].geometry === 'table') { const c = Canvas.active.peek(), n = c?.cellsPicked?.(ms[0].id)?.length ?? 0; return !c?.cell?.(ms[0].id) ? 'This table' : n > 1 ? `These ${n} cells` : 'This cell'; }
   const noun = ms.every(m => m.type === 'box') ? 'box' : ms.every(m => m.type === 'line' || m.geometry === 'line') ? 'line' : 'shape', n = new Set(ms.map(m => m.merged ?? m.id)).size;
   return n === 1 ? `This ${noun}` : `These ${n} ${noun === 'box' ? 'boxes' : `${noun}s`}`;
 }
@@ -627,11 +627,11 @@ function write(tx, c, label, value) {
   const scope = label === 'Design' || part ? boxScope(c, s) : scopeOf(scopes);
   if (!scope) return;
   if (scope.root) return tx.note(label, viewSelf(c.scene()), value);
-  // (A cell of a table picked: that cell's, kept with the words it's written at.)
+  // (Cells of a table picked: theirs, each kept with the words it's written at.)
   const cell = marks.length === 1 && marks[0].geometry === 'table' && c.cell?.(marks[0].id);
   if (cell) {
-    const row = tx.item?.(marks[0].id)?.at(-1) ?? App.shown.peek().item(App.chart.peek(), marks[0].id)[0], src = marks[0].table.rows[cell.r]?.src;
-    return tx.update(marks[0].id, { table: { ...row.table, rows: row.table.rows.map((r, i) => i !== src ? r : { ...r, cells: r.cells.map((k, j) => j !== cell.c ? k : { ...k, format: { ...k.format, [label]: value } }) }) } });
+    const row = tx.item?.(marks[0].id)?.at(-1) ?? App.shown.peek().item(App.chart.peek(), marks[0].id)[0], on = c.cellsPicked(marks[0].id);
+    return tx.update(marks[0].id, { table: { ...row.table, rows: row.table.rows.map((r, i) => ({ ...r, cells: r.cells.map((k, j) => !on.some(q => q.r.src === i && q.k.c === j) ? k : { ...k, format: { ...k.format, [label]: value } }) })) } });
   }
   // (Everything else's words are All text's: a box's look is its own.)
   if (scope.rest && TEXT_LABELS.has(label)) return tx.note(label, viewSelf(c.scene()), value);
@@ -655,9 +655,11 @@ function write(tx, c, label, value) {
     }
     else if (isFoot(m)) refoot(tx, { ...footNote().format, [label]: value });
     // (As the change has left it so far: several settings at once are one change, a line's arrow and its head, and none takes back the other.)
-    else if (m.type === 'shape') tx.update(m.id, { format: { ...(tx.item?.(m.id)?.at(-1) ?? App.shown.peek().item(App.chart.peek(), m.id)[0])?.format, [label]: value } });
+    else if (m.type === 'shape') { const row = tx.item?.(m.id)?.at(-1) ?? App.shown.peek().item(App.chart.peek(), m.id)[0]; tx.update(m.id, { format: { ...row?.format, [label]: value }, ...(m.geometry === 'table' && TEXT_LABELS.has(label) && { table: wholeTable(row.table, label) }) }); }
   }
 }
+// A text's look given a whole table reaches every cell: what a cell kept of its own of it goes.
+const wholeTable = (t, label) => ({ ...t, rows: t.rows.map(r => ({ ...r, cells: r.cells.map(k => { if (k.format?.[label] === undefined) return k; const { [label]: _, ...f } = k.format, { format: _f, ...rest } = k; return Object.keys(f).length ? { ...rest, format: f } : rest; }) })) });
 // A field's own label, where a text is a field; its own look of a label, given by its entry's style or beside a group, as
 // against one it takes from the box it's in.
 const fieldEdge = it => !it.free && !it.blank ? App.state.peek()[it.id]?.edge ?? null : null;
@@ -751,7 +753,7 @@ function everyPage(rows, of) {
   const here = Shell.view.peek(), others = chartViews().filter(v => v.id !== here);
   return others.length && rows.length ? ['On every page', () => App.change(tx => { for (const v of others) for (const r of rows) tx.note(r.label, r.pattern, r.value, { view: v.id, ...(r.param && { param: r.param }) }); }, { dated: false, say: `Gave ${of} the same look on every page` })] : null;
 }
-const freeSaid = (marks, label, value) => !!marks.length && marks.every(m => m.type === 'shape') && Time.looked(label, value, marks.length > 1 ? `these ${marks.length} shapes` : marks[0].geometry === 'line' ? 'the line' : marks[0].geometry === 'text' ? 'the text box' : marks[0].geometry === 'table' ? 'the table' : 'the shape');
+const freeSaid = (marks, label, value) => !!marks.length && marks.every(m => m.type === 'shape') && Time.looked(label, value, marks.length > 1 ? `these ${marks.length} shapes` : marks[0].geometry === 'line' ? 'the line' : marks[0].geometry === 'text' ? 'the text box' : marks[0].geometry === 'table' ? these(marks).replace(/^This/, 'the').replace(/^These/, 'these') : 'the shape');
 // A choice pointed at, drawn on the chart as it would be: the change written, uncommitted, on the chart's
 // rows, and the canvas asked to draw from them; for a size, laid out afresh, as the page may grow for it, and for
 // Tidy, the chart laid out with nothing entered. With nothing, the chart is drawn as it is again. Each note tried
@@ -877,7 +879,7 @@ const cellOf = m => { const at = current?.canvas?.cell?.(m.id); return at ? m.ta
 function scopeTexts() {
   if (current.texts) return current.texts;
   const picked = current.marks.length === 1 && current.marks[0].geometry === 'table' ? cellOf(current.marks[0]) : null;
-  if (picked) return current.texts = [picked.it];
+  if (picked) return current.texts = current.canvas.cellsPicked(current.marks[0].id).map(q => q.k.it);
   const f = current.field, scope = current.scope, st = App.state.peek(), only = scope?.swatch?.kind === 'text' ? scope.outputs : null;
   return current.texts = scopeMarks().flatMap(m => m.texts ?? (m.caption ? [m.caption] : []))
     .filter(it => !it.blank && (f ? it === f.it || (!f.it.free && edgeOf(it) === edgeOf(f.it)) : !only || only.some(p => Tree.fits(st, it.id, p))));
@@ -1078,6 +1080,7 @@ const litOn = (g, page) => (g.style ? marksOf(page, g) : g.marks);
 // Fill: the palette, then how transparent it is.
 const FillPop = ({ close, of }) => html`<${Palette} label="Fill" none close=${close} of=${of}>
   <${Sub} label="Gradient" of=${of} items=${gradientItems} />
+  <${Sub} label="Gradient options" of=${of} pane=${() => html`<${StopsPop} label="Gradient" />`} />
   <${Sub} label="Pattern" of=${of} items=${patternItems} />
   <button class="menu-item" onClick=${() => { close?.(); pickFillPicture(); }}><span class="label">Picture…</span></button>
   <${Sub} label="Texture" of=${of} items=${textureItems} />
@@ -1114,15 +1117,65 @@ function lineGradientItems() {
   const from = inkNow(), now = value('Line Gradient') ?? null, of = (to, angle) => ({ angle, stops: [[0, from], [100, to]] });
   return looksLike('Line Gradient', [[null, 'None'], [of(shaded(from, 0.4, 0.6), 0), 'Lighter, across'], [of(shaded(from, 0.5, 0), 0), 'Darker, across'], [of(shaded(from, 0.4, 0.6), 90), 'Lighter, down'], [of('#ffffff', 0), 'To white, across']], now);
 }
+// A color for what's set in the look: the chart's, then typed.
+function ColorRow({ label, v, put, tries }) {
+  const own = ownColors().slice(0, 6), hex = String(v ?? '').replace('#', '').toUpperCase();
+  return html`<div class="menu-item colorrow"><span class="label">${label}</span><span class="chips" onPointerLeave=${() => tries?.(null)}>${own.map(c => html`<button type="button" aria-label=${colorName(c) ?? c} aria-pressed=${String(v).toLowerCase() === c.toLowerCase()} style=${`background:${c}`} onPointerEnter=${() => tries?.(c)} onClick=${() => put(c)} />`)}</span><span class="hex">#<input value=${hex} maxlength="7" spellcheck="false" autocomplete="off" aria-label=${label} onFocus=${e => e.currentTarget.select()} onKeyDown=${e => { e.stopPropagation(); const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { e.preventDefault(); put(c); } }} /></span></div>`;
+}
+// A gradient's stops, as PowerPoint's Format Shape: its bar, a click there a stop more, a stop dragged along it moved, off it or by Delete taken away; the one picked, its color and place; the whole, its angle. Each drawn on the chart as it's changed, one change as it's let go.
+function StopsPop({ label }) {
+  readNow();
+  const base = String(value({ Gradient: 'Fill', 'Text Gradient': 'Color' }[label] ?? 'Outline') ?? ''), from = /^#[0-9a-f]{6}$/i.test(base) ? base.toLowerCase() : '#4472c4', now = value(label), [g, setG] = useState(now?.stops?.length >= 2 ? { angle: now.angle ?? 0, stops: now.stops.map(s => [...s]) } : { angle: label === 'Line Gradient' ? 0 : 90, stops: [[0, from], [100, shaded(from, 0.4, 0.6)]] }), [at, setAt] = useState(0), bar = useRef();
+  const sorted = st => [...st].sort((a, b) => a[0] - b[0]), said = o => ({ ...o, stops: sorted(o.stops) }), put = next => { setG(next); apply(label, said(next)); };
+  const css = `linear-gradient(90deg, ${sorted(g.stops).map(([p, c]) => `${c} ${p}%`).join(', ')})`, pick = g.stops[at] ?? g.stops[0];
+  const place = e => { const b = bar.current.getBoundingClientRect(); return Math.round(Math.max(0, Math.min(100, (e.clientX - b.left) / b.width * 100))); };
+  const mix = p => { const st = sorted(g.stops), i = Math.max(0, st.findIndex(s => s[0] >= p) - 1), A = st[i], B = st[i + 1] ?? A, k = B[0] > A[0] ? Math.max(0, Math.min(1, (p - A[0]) / (B[0] - A[0]))) : 0, ch = c => [1, 3, 5].map(j => parseInt(c.slice(j, j + 2), 16)); return `#${ch(A[1]).map((v, j) => Math.round(v + (ch(B[1])[j] - v) * k).toString(16).padStart(2, '0')).join('')}`; };
+  const addAt = p => { const stops = [...g.stops, [p, mix(p)]]; setAt(stops.length - 1); put({ ...g, stops }); };
+  const out = i => { if (g.stops.length < 3) return; const stops = g.stops.filter((_, j) => j !== i); setAt(0); put({ ...g, stops }); };
+  const grab = (e, i) => {
+    e.preventDefault(); e.stopPropagation(); setAt(i);
+    let next = g, off = false;
+    const move = ev => { const b = bar.current.getBoundingClientRect(); off = g.stops.length > 2 && (ev.clientY < b.top - 28 || ev.clientY > b.bottom + 28); next = { ...g, stops: off ? g.stops.filter((_, j) => j !== i) : g.stops.map((s, j) => j === i ? [place(ev), s[1]] : s) }; setG(next); preview(label, said(next)); };
+    const up = () => { removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); if (off) setAt(0); if (next !== g) apply(label, said(next)); };
+    addEventListener('pointermove', move, true); addEventListener('pointerup', up, true);
+  };
+  return html`<div class="picker stops" onKeyDown=${e => { if ((e.key === 'Delete' || e.key === 'Backspace') && !e.target.matches('input')) { e.preventDefault(); out(at); } }}>
+    <div class="menu-head">Stops</div>
+    <div class="stopbar" ref=${bar} style=${`background:${css}`} role="group" aria-label="Stops" onPointerDown=${e => { if (e.target === bar.current) addAt(place(e)); }}>${g.stops.map(([p, c], i) => html`<button type="button" class=${i === at ? 'stop on' : 'stop'} aria-label=${`Stop at ${p}%`} aria-pressed=${i === at} style=${`left:${p}%;background:${c}`} onPointerDown=${e => grab(e, i)} />`)}</div>
+    <${ColorRow} label="Color" v=${pick[1]} put=${c => put({ ...g, stops: g.stops.map((s, j) => j === at ? [s[0], c] : s) })} tries=${c => c === null ? preview() : preview(label, said({ ...g, stops: g.stops.map((s, j) => j === at ? [s[0], c] : s) }))} />
+    <label class="menu-item"><span class="label">Place</span><${Typed} label="Place" v=${pick[0]} unit="%" max=${100} put=${x => put({ ...g, stops: g.stops.map((s, j) => j === at ? [x, s[1]] : s) })} /></label>
+    <label class="menu-item"><span class="label">Angle</span><${Typed} label="Angle" v=${g.angle} unit="°" max=${359} put=${x => put({ ...g, angle: x })} tries=${x => x === null ? preview() : preview(label, said({ ...g, angle: x }))} /></label>
+    <div class="row"><button type="button" class="btn" onClick=${() => addAt(Math.round((pick[0] + (sorted(g.stops).find(s => s[0] > pick[0])?.[0] ?? 100)) / 2))}>Add a stop</button><button type="button" class="btn" disabled=${g.stops.length < 3} onClick=${() => out(at)}>Delete it</button></div>
+  </div>`;
+}
+// A glow's color, size and transparency, as PowerPoint's Format Shape.
+function GlowPop() {
+  readNow();
+  const base = value('Glow') ?? { size: 8, color: inkNow(), transparency: 60 }, set = changes => apply('Glow', { ...base, ...changes }), tries = k => x => x === null ? preview() : preview('Glow', { ...base, [k]: x });
+  return html`<div class="picker"><div class="menu-head">Glow</div>
+    <${ColorRow} label="Color" v=${base.color} put=${c => set({ color: c })} tries=${tries('color')} />
+    <label class="menu-item"><span class="label">Size</span><${Typed} label="Glow size" v=${base.size} unit="pt" max=${150} put=${x => set({ size: x })} tries=${tries('size')} /></label>
+    <label class="menu-item"><span class="label">Transparency</span><${Typed} label="Glow transparency" v=${base.transparency} unit="%" max=${100} put=${x => set({ transparency: x })} tries=${tries('transparency')} /></label></div>`;
+}
+const MATERIALS = [['matte', 'Matte'], ['warmMatte', 'Warm matte'], ['plastic', 'Plastic'], ['metal', 'Metal'], ['dkEdge', 'Dark edge'], ['softEdge', 'Soft edge'], ['flat', 'Flat'], ['softmetal', 'Soft metal'], ['clear', 'Clear'], ['powder', 'Powder']];
+function BevelPop() {
+  readNow();
+  const base = value('Bevel') ?? { type: 'circle', w: 6, h: 6 }, set = changes => apply('Bevel', { ...base, ...changes }), tries = k => x => x === null ? preview() : preview('Bevel', { ...base, [k]: x });
+  return html`<div class="picker"><div class="menu-head">Bevel</div>
+    <label class="menu-item"><span class="label">Width</span><${Typed} label="Bevel width" v=${base.w ?? 6} unit="pt" max=${200} put=${x => set({ w: x })} tries=${tries('w')} /></label>
+    <label class="menu-item"><span class="label">Height</span><${Typed} label="Bevel height" v=${base.h ?? base.w ?? 6} unit="pt" max=${200} put=${x => set({ h: x })} tries=${tries('h')} /></label>
+    <label class="menu-item"><span class="label">Depth</span><${Typed} label="Depth" v=${base.depth ?? 0} unit="pt" max=${400} put=${x => set({ depth: x || undefined })} /></label>
+    <label class="menu-item"><span class="label">Material</span><${Shell.Pick} label="Material" value=${base.material ?? 'warmMatte'} onPick=${v => set({ material: v })} options=${MATERIALS} /></label></div>`;
+}
 // Shape Effects, as PowerPoint's, every one of them: each a tile of what's selected with it on, drawn on the chart as it's pointed at, one change as it's picked.
-function glowItems() { const c = inkNow(); return tiled('Glow', [[null, 'None'], ...[5, 8, 11, 18].map(size => [{ size, color: c, transparency: 60 }, `${size} pt`])], value('Glow')); }
+function glowItems() { const g = value('Glow'), c = g?.color ?? inkNow(); return tiled('Glow', [[null, 'None'], ...[5, 8, 11, 18].map(size => [{ size, color: c, transparency: g?.transparency ?? 60 }, `${size} pt`])], g); }
 const softItems = () => tiled('Soft Edge', [[0, 'None'], [1, '1 pt'], [2.5, '2.5 pt'], [5, '5 pt'], [10, '10 pt'], [25, '25 pt']], value('Soft Edge') ?? 0);
 const reflectionItems = () => tiled('Reflection', [[null, 'None'], [{ size: 35, transparency: 48, distance: 0, blur: 0.5 }, 'A third, touching'], [{ size: 55, transparency: 50, distance: 0, blur: 0.5 }, 'Half, touching'], [{ size: 90, transparency: 50, distance: 0, blur: 0.5 }, 'Whole, touching'], [{ size: 35, transparency: 48, distance: 4, blur: 1 }, 'A third, 4 pt off'], [{ size: 55, transparency: 50, distance: 4, blur: 1 }, 'Half, 4 pt off']], value('Reflection'), { below: 1.1 });
 const innerItems = () => tiled('Inner Shadow', [['none', 'None'], ...[[45, 'Top left'], [135, 'Top right'], [225, 'Bottom right'], [315, 'Bottom left'], [90, 'Top'], [270, 'Bottom']].map(([angle, name]) => [{ blur: 5, distance: 3, angle, color: '#000000', transparency: 50 }, name]), [{ blur: 9, distance: 0, angle: 0, color: '#000000', transparency: 50 }, 'All round']], value('Inner Shadow') ?? 'none');
-const bevelItems = () => tiled('Bevel', [[null, 'None'], ...[['circle', 'Round'], ['relaxedInset', 'Soft, inset'], ['coolSlant', 'Slanted'], ['angle', 'Angled'], ['softRound', 'Soft, round'], ['convex', 'Domed'], ['slope', 'Sloped'], ['artDeco', 'Stepped']].map(([type, name]) => [{ type, w: 6, h: 6 }, name])], value('Bevel'));
+const bevelItems = () => { const b = value('Bevel'), keep = { w: b?.w ?? 6, h: b?.h ?? 6, ...(b?.depth && { depth: b.depth }), ...(b?.material && { material: b.material }) }; return tiled('Bevel', [[null, 'None'], ...[['circle', 'Round'], ['relaxedInset', 'Soft, inset'], ['coolSlant', 'Slanted'], ['angle', 'Angled'], ['softRound', 'Soft, round'], ['convex', 'Domed'], ['slope', 'Sloped'], ['artDeco', 'Stepped']].map(([type, name]) => [{ type, ...keep }, name])], b); };
 const turn3dItems = () => tiled('Turn 3D', [[null, 'None'], [{ x: 45, y: 35, z: 0 }, 'Corner on, to the left'], [{ x: 315, y: 35, z: 0 }, 'Corner on, to the right'], [{ x: 30, y: 0, z: 0 }, 'Turned left'], [{ x: 330, y: 0, z: 0 }, 'Turned right'], [{ x: 0, y: 30, z: 0 }, 'Tilted back'], [{ x: 0, y: 330, z: 0 }, 'Tilted forward']], value('Turn 3D'));
 const EffectRows = ({ of }) => html`<div class="menu-sep" />
-  <${Sub} label="Glow" of=${of} items=${glowItems} /><${Sub} label="Soft edges" of=${of} items=${softItems} /><${Sub} label="Reflection" of=${of} items=${reflectionItems} /><${Sub} label="Inner shadow" of=${of} items=${innerItems} /><${Sub} label="Bevel" of=${of} items=${bevelItems} /><${Sub} label="3-D rotation" of=${of} items=${turn3dItems} />`;
+  <${Sub} label="Glow" of=${of} items=${glowItems} /><${Sub} label="Glow options" of=${of} pane=${() => html`<${GlowPop} />`} /><${Sub} label="Soft edges" of=${of} items=${softItems} /><${Sub} label="Reflection" of=${of} items=${reflectionItems} /><${Sub} label="Inner shadow" of=${of} items=${innerItems} /><${Sub} label="Bevel" of=${of} items=${bevelItems} /><${Sub} label="Bevel options" of=${of} pane=${() => html`<${BevelPop} />`} /><${Sub} label="3-D rotation" of=${of} items=${turn3dItems} />`;
 // A square throwing a shadow, the Effects button's: what the word means, as the bucket does for Fill.
 const effectsGlyph = html`<svg class="glyph fx" viewBox="0 0 16 16" aria-hidden="true"><path class="shade" d="M5 5h10v10H5z" /><path d="M1.75 1.75h10.5v10.5H1.75z" /></svg>`;
 // A gradient, as PowerPoint's: none, or linear, from the fill to a color lighter or darker of it, or to white; by which way it runs. Its stops say how, and its Fill is what it
@@ -1170,6 +1223,7 @@ function OutlinePop({ close, of }) {
     <${Sub} label="Dashes" of=${of} items=${() => { const d = differs('Dash'); return [...(d ? [{ head: d }] : []), ...choices('Dash', DASH_NAMES, d ? null : value('Dash'), lineGlyph)]; }} />
     <${Sub} label="Compound" of=${of} items=${() => choices('Compound', COMPOUNDS, value('Compound') ?? 'single')} />
     <${Sub} label="Gradient" of=${of} items=${lineGradientItems} />
+    <${Sub} label="Gradient options" of=${of} pane=${() => html`<${StopsPop} label="Line Gradient" />`} />
     <${Slider} label="Transparency" k="Line Transparency" v=${Math.round(value('Line Transparency') ?? 0)} />
     <${Sub} label="Arrows" of=${of} disabled=${!lines} items=${arrowItems} />
     <${Sub} label="Route" of=${of} disabled=${!lines} items=${() => choices('Connector', [['elbow', 'Elbow'], ['straight', 'Straight']], value('Connector'))} />
@@ -1559,10 +1613,17 @@ function insertMenu(e, c) {
       ${item('Icon', () => iconPick(document.querySelector('.fb [data-fb="insert"]'), c), close)}
       ${item('Freeform', () => c.draw('freeform'), close)}
       ${item('Curve', () => c.draw('curve'), close)}
+      ${mastering ? html`<div class="menu-sep" />${[['Footer', 'text'], ['Date', 'date'], ['Page number', 'number']].map(([name, k]) => html`<button class="menu-item" role="menuitemcheckbox" aria-checked=${!!footNote()[k]} onClick=${() => { close(); masterFoot(c, k); }}><span class="label">${name}</span>${footNote()[k] ? Shell.icon('check') : null}</button>`)}` : null}
       ${typeof Table === 'undefined' ? null : html`<div class="menu-sep" />${item('Import…', () => Table.importFile(), close, mastering ? offMaster : null)}`}
     </div>
     <div class="gallery">${Shapes.gallery().map(g => html`<div class="menu-head">${g.head}</div><div class="shapes">${g.shapes.map(([id, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); c.draw(id); }}>${shapeGlyph(id)}</button>`)}</div>`)}</div>
   </div>`, { placement: 'bottom-start' });
+}
+// The master's placeholders, as PowerPoint's: its footer, typed where it stands; the day each page shows; its number. On every page, the chart's own Footer note. A placeholder that's there, taken off.
+function masterFoot(c, k) {
+  const { format, ...f } = footNote(), on = !!f[k], next = k === 'text' ? { ...f, text: on ? '' : 'Footer' } : { ...f, [k]: !on }, named = { text: 'the footer', date: 'the date', number: 'the page number' }[k];
+  App.change(tx => tx.note('Footer', { kind: 'View' }, next.text || next.number || next.date ? { ...next, ...(format && { format }) } : undefined), { dated: false, say: `${on ? 'Took' : 'Put'} ${named} ${on ? 'off the master' : 'on the master'}` });
+  if (k === 'text' && !on) setTimeout(() => c.edit(Scene.FOOTER));
 }
 // A table by its rows and columns, as PowerPoint's Insert Table: pointed at, how many; with a box selected, a table that reads one of its lists, live.
 function TablePick({ c, close }) {
@@ -1615,11 +1676,13 @@ const opener = {
   outline: at => pop(at, (close, of) => html`<${OutlinePop} close=${close} of=${of} />`),
   color: at => pop(at, (close, of) => html`<${Palette} label="Color" close=${close} of=${of}>
     <${Sub} label="Gradient" of=${of} items=${() => { const c = String(value('Color') ?? '#1f3864'), from = /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : '#1f3864', g = (to, angle) => ({ angle, stops: [[0, from], [100, to]] }); return looksLike('Text Gradient', [[null, 'None'], [g(shaded(from, 0.4, 0.6), 90), 'Lighter, down'], [g(shaded(from, 0.5, 0), 90), 'Darker, down'], [g(shaded(from, 0.4, 0.6), 0), 'Lighter, across']], value('Text Gradient')); }} />
+    <${Sub} label="Gradient options" of=${of} pane=${() => html`<${StopsPop} label="Text Gradient" />`} />
     <${Sub} label="Text outline" of=${of} items=${() => { const c = inkNow(); return looksLike('Text Outline', [[null, 'None'], ...[0.25, 0.5, 0.75, 1, 1.5].map(weight => [{ color: c, weight }, `${weight} pt`])], value('Text Outline')); }} /></${Palette}>`),
   font: at => pop(at, close => html`<${Fonts} close=${close} />`),
   size: at => { const v = shown(value('Size')); offer(at, STEPS.slice(0, 15).map(z => ({ label: String(z), checked: v === z, run: () => apply('Size', z), tries: ['Size', z] }))); },
   shape: at => pop(at, (close, of) => html`<${ShapePop} close=${close} of=${of} />`),
-  design: at => pop(at, close => Designs.open(at, close)),
+  // (A table's is its style's gallery; anything else's, the designs.)
+  design: at => { const c = Canvas.active.peek(), t = c?.selected?.().find(m => m.geometry === 'table'); return pop(at, close => t ? html`<${c.StyleGallery} id=${t.id} close=${close} />` : Designs.open(at, close)); },
   effects: at => pop(at, (close, of) => html`<${EffectsPop} of=${of} />`),
   paragraph: at => pop(at, () => html`<${ParagraphPop} />`),
 };
@@ -1804,7 +1867,7 @@ function holdsOf(look) {
   const words = g => { const f = styles.find(o => g.outputs.some(p => Tree.key(p) === Tree.key(o.pattern)))?.formats ?? {};
     return Object.entries(f).filter(([l]) => !['Shown', 'Caption', 'Layer', 'Above'].includes(l)).map(([l, v]) => l === 'Shape' ? shapeWord(v) : l === 'Fill' || l === 'Outline' || l === 'Color' ? `${l.toLowerCase()} ${v === 'none' ? 'none' : String(v).toUpperCase()}` : l === 'Weight' || l === 'Size' ? `${l === 'Size' ? 'size' : 'weight'} ${v} pt` : l === 'Font' ? v : l === 'Arrow' ? (v === 'auto' ? 'arrow auto' : `arrow ${ARROWS[v] ?? v}`) : l === 'Dash' ? (DASH_NAMES.find(([d]) => d === v)?.[1] ?? v).toLowerCase() : typeof v === 'boolean' ? (v ? l.toLowerCase() : `not ${l.toLowerCase()}`) : typeof v === 'object' ? l.toLowerCase() : `${l.toLowerCase()} ${v}`).join(', '); };
   const k = look.furniture?.key, corner = k?.corner, foot = look.footer;
-  return { rows: [['Paper', paperSaid(look.page)], ['All text', fmtSaid(look.root) || 'Arial'],
+  return { rows: [['Paper', paperSaid(look.page)], ['All text', fmtSaid(look.root) || Scene.fontName('Body')], ...look.theme ? [['Theme fonts', `${look.theme.heading} and ${look.theme.body}`]] : [], ...look.master?.length ? [['Master', `${look.master.length} ${look.master.length === 1 ? 'shape' : 'shapes'}`]] : [],
     ...look.palette?.colors ? [['Colors', look.palette.colors.slice(4).map(c => c.toUpperCase()).join(', ')]] : [], ...look.rest?.Fill ? [['Everything else', `fill ${String(look.rest.Fill).toUpperCase()}`]] : [],
     ...look.furniture?.title?.format ? [['Title', fmtSaid(look.furniture.title.format)]] : [], ...look.furniture?.date?.format ? [['Date', fmtSaid(look.furniture.date.format)]] : [],
     ...foot ? [['Footer', [foot.text ? `“${foot.text}”` : null, foot.number ? 'page numbers' : null, fmtSaid(foot.format)].filter(Boolean).join(', ')]] : [],
@@ -1940,7 +2003,7 @@ function Bar() {
   const like = likeOf(s), ownPart = s.scopes.find(x => x.own), armed = painter.value;
   // A font or size the texts it would change don't share is shown blank, as PowerPoint shows one its selection mixes.
   const several = l => texty && new Set(scopeTexts().map(it => it.look?.[l]).filter(v => v !== undefined)).size > 1;
-  const font = root ? value('Font') : !texty ? '' : several('Font') ? '' : value('Font'), size = root ? shown(value('Size')) ?? '' : !texty ? '' : several('Size') ? '' : shown(value('Size')), align = (texty && value('Align')) || 'center';
+  const font = root ? Scene.fontName(value('Font')) : !texty ? '' : several('Font') ? '' : Scene.fontName(value('Font')), size = root ? shown(value('Size')) ?? '' : !texty ? '' : several('Size') ? '' : shown(value('Size')), align = (texty && value('Align')) || 'center';
   // What would write, in Viewing: grey, saying why, pointed at or clicked, as + on the tabs does, showing what it reads all
   // the same. The scope, the zoom and Arrange, whose writes its menu greys, write nothing of themselves and go on.
   const why = ro ? App.whyNot() : null, writes = (tip, off) => ro ? { 'aria-disabled': 'true', 'data-tip': why, 'data-keys': null } : { 'data-tip': tip, disabled: off };
@@ -2051,6 +2114,7 @@ function mount(el) {
     ...[['union', 'Union'], ['combine', 'Combine'], ['fragment', 'Fragment'], ['intersect', 'Intersect'], ['subtract', 'Subtract']].map(([k, word]) => [`draw.merge.${k}`, `Merge shapes: ${word}`, null, () => Canvas.active.peek().merge(k), edit, ['Merge', 'Merge shapes', 'Boolean', word]]),
     ['draw.points', 'Edit points', null, () => Canvas.active.peek().editPoints(), edit, ['Points', 'Freeform', 'Vertex', 'Reshape']],
     ['draw.link', 'Link…', null, () => Canvas.active.peek().link?.(), edit, ['Hyperlink', 'URL', 'Link a shape']],
+    ['draw.tablestyle', 'Table style…', null, () => opener.design(document.querySelector('.fb [data-fb="design"]')), () => edit() && current.marks[0]?.geometry === 'table', ['Table design', 'Banded', 'Hairlines', 'Grid']],
     ['draw.along', 'Distribute along the line', null, () => Canvas.active.peek().alongLine(), edit, ['Along a line', 'Space along']],
     ['draw.master', 'Edit master', null, () => { App.mastering.value = !App.mastering.peek(); }, onScreen, ['Master', 'Slide master', 'Logo on every page', 'Every page', 'Confidentiality line', 'Letterhead', 'Furniture']],
     ['draw.masteroff', 'Leave the master off this page', null, () => App.pageMaster(Shell.view.peek(), !App.hasMaster(Shell.view.peek())), () => onScreen() && !App.readOnly.peek() && !App.mastering.peek(), ['No master', 'Hide master', 'Show master']],
@@ -2148,7 +2212,7 @@ function open(what, at) {
 }
 
 Shell.register('formatbar', { mount, relist: () => listHouses() });
-return { defineFonts, applyPairs: applyAll, apply, preview, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
+return { defineFonts, applyPairs: applyAll, apply, preview, value, colorName, paletteOf, themeOf, chartAccents: () => { const chroma = c => { const v = [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16)); return Math.max(...v) - Math.min(...v); }; return chartColors().filter(c => chroma(c) > 24).sort((a, b) => chroma(b) - chroma(a)); }, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
   copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim: g => (g ? aim(g) : void pen.home()), aimAlso, aimedAt, lit, litOn, selectDiffers,
   reachOf: reachOfRow, pen, marksNoun, answersOf, lookForEach, footOn, footsOff };
 })();

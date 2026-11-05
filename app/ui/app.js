@@ -1726,11 +1726,11 @@ const App = (() => {
         tx.add('shape', { view: kept.get(v), ...furniture, ...(r.role === 'title' && { text: `${name}: ${vs.find(p => p.id === v).name}` }) });
       }
       // And its master, as it stands (dendra.md, The page): furniture every page of it has, which names no record.
-      const master = typeof Scene === 'undefined' ? [] : src.rows(from).filter(r => 'shape' in r && r.view === Scene.MASTER), fresh = new Map(master.map(r => [r.shape, Log.newId()])), to = x => fresh.get(x) ?? x;
+      const master = typeof Scene === 'undefined' || style?.master?.length ? [] : src.rows(from).filter(r => 'shape' in r && r.view === Scene.MASTER), fresh = new Map(master.map(r => [r.shape, Log.newId()])), to = x => fresh.get(x) ?? x;
       for (const { id: _, shape: s, ...x } of master) tx.add('shape', { ...x, ...(x.ends && { ends: x.ends.map(to) }), ...(x.members && { members: x.members.map(to) }) }, fresh.get(s));
     }
     const first = kept.get(like) ?? tx.add('record', { kind: 'View' });
-    if (look) Notes.takeLook(tx, [], first, look, { begun: true, has: p => !given(p) && (!style || hasPattern(src.schema(from), src.notes(from), p)) });
+    if (look) Notes.takeLook(tx, [], first, { ...look, master: style?.master }, { begun: true, has: p => !given(p) && (!style || hasPattern(src.schema(from), src.notes(from), p)) });
     for (const p of recorded.values()) tx.note('Shown', p, true, { view: first });
     tx.note('Name', viewTree(first), vs.find(v => v.id === like)?.name ?? 'Structure');
     // Its furniture as it has it: no Key or As of line where it has none (a family tree's).
