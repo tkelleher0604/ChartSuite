@@ -57,7 +57,9 @@ function chartColors() {
 function ownColors() {
   const said = new Map(), add = c => { const h = hexOf(c); if (h) said.set(h, (said.get(h) ?? 0) + 1); };
   for (const m of App.scene.peek()?.marks ?? []) { const s = m.look ?? m.settings; for (const l of ['Fill', 'Outline']) add(s?.[l]?.value ?? s?.[l]); for (const it of m.texts ?? []) add(it.look?.Color); }
-  return [...new Set([...(paletteOf()?.colors ?? []).map(c => c.toLowerCase()), ...chartColors(), ...[...said].sort((a, b) => b[1] - a[1]).map(([c]) => c)])].slice(0, 15);
+  // (Two rows, in the same room however many there are; a third for those given beside a chart's own ten.)
+  const mine = paletteOf()?.colors ?? [];
+  return [...new Set([...mine.map(c => c.toLowerCase()), ...chartColors(), ...[...said].sort((a, b) => b[1] - a[1]).map(([c]) => c)])].slice(0, mine.length ? 15 : 10);
 }
 // A color's name, for a tooltip or a Look row ("Blue, lighter 80%"), where a color is in it twice the theme's; "None" for none; null for any other.
 const colorName = c => c === 'none' ? 'None' : typeof c === 'string' ? NAMES.get(`#${c.replace(/^#/, '').toLowerCase()}`) ?? null : null;
@@ -833,7 +835,7 @@ function Palette({ label, none, close, of, children }) {
   const entered = e => { const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { e.preventDefault(); e.stopPropagation(); close?.(); apply(label, c); } };
   const more = () => html`<div class="palette grid" data-grid=":scope > button" role="group" aria-label="More colors" onPointerLeave=${() => preview()}>${table.theme.map((c, i) => swatch(c, table.names[i], false))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i], false))}</div>`;
   return html`<div class="palette" role="group" aria-label=${label} onPointerLeave=${e => rest(e.currentTarget)}>
-    <div class="own" data-grid=":scope > button" onPointerLeave=${e => rest(e.currentTarget.parentElement)}>${ownColors().map(c => swatch(c, colorName(c) ?? c.toUpperCase()))}</div>
+    <div class=${'own' + (mine ? ' set' : '')} data-grid=":scope > button" onPointerLeave=${e => rest(e.currentTarget.parentElement)}>${ownColors().map(c => swatch(c, colorName(c) ?? c.toUpperCase()))}</div>
     <div class="more">
       ${mixed ? html`<div class="menu-head">${mixed}</div>` : null}
       <div class="menu-item withfield"><${Sub} label="More colors" of=${of} pane=${more} />
@@ -1178,8 +1180,7 @@ function SizeBox({ v, disabled, why }) {
   return html`<span class=${'combo size' + (disabled ? ' off' : '')} data-tip=${why}>
     <input data-fb="size" value=${String(v)} disabled=${disabled} aria-label="Font size" spellcheck="false" autocomplete="off" inputmode="decimal"
       onFocus=${e => e.currentTarget.select()} onKeyDown=${keys} onBlur=${e => { e.currentTarget.value = String(v); }} />
-    <button class="dd" data-fb="sizes" aria-label="Font sizes" disabled=${disabled} onClick=${e => offer(e.currentTarget, STEPS.slice(0, 15).map(z => ({ label: String(z), checked: v === z,
-      run: () => apply('Size', z), tries: ['Size', z] })))} /></span>`;
+    <button class="dd" data-fb="sizes" aria-label="Font sizes" disabled=${disabled} onClick=${e => opener.size(e.currentTarget)} /></span>`;
 }
 
 // ---- The format painter, and Clear formatting ----
@@ -1421,7 +1422,7 @@ function TablePick({ c, close }) {
 const tablePick = (at, c) => Shell.popover(at, close => html`<${TablePick} c=${c} close=${close} />`, { placement: 'bottom-start' });
 // Lucide's icons: what a chart asks for, a set chosen for it, whole rows of them; any other found by typing, but for the glyphs of the window's own controls, which mean nothing on a chart. Each comes in as a shape of its own, its strokes a freeform's, so it takes an outline and a weight, its points can be edited, and in a deck it's PowerPoint's own.
 const ICONS_FIRST = ['User', 'Users', 'UserCheck', 'Baby', 'Heart', 'Crown', 'Stethoscope', 'GraduationCap', 'Building', 'Building2', 'Landmark', 'Factory', 'Store', 'House', 'School', 'Hospital', 'Briefcase', 'Network', 'Scale', 'Gavel', 'Stamp', 'Handshake', 'Shield', 'Lock', 'FileText', 'FileCheck', 'Banknote', 'DollarSign', 'Coins', 'PiggyBank', 'Wallet', 'Receipt', 'Globe', 'MapPin', 'Flag', 'Star', 'Calendar', 'Clock', 'Mail', 'Phone', 'Info', 'CircleCheck', 'CircleX', 'TriangleAlert', 'Plane', 'Ship', 'Truck', 'Leaf'];
-const APP_GLYPHS = /^(A[A-Z]|Align|Arrow|Baseline|Bold|Italic|Underline|Strikethrough|Undo|Redo|Eraser|Paintbrush|PaintBucket|Pipette|Panel|Ellipsis|Chevron|Grip|Filter|Eye|Layers|Group$|Ungroup|Pen|Pencil|Plus$|Minus$|^X$|Search|Copy$|ClipboardPaste|Trash|BringToFront|SendToBack|LayoutTemplate|Sparkles)/;
+const APP_GLYPHS = /^(A[A-Z]|Align|Baseline|Bold|Italic|Underline|Strikethrough|Undo|Redo|Eraser|Paintbrush|PaintBucket|Pipette|Panel|Ellipsis|Chevron|Grip|Ungroup|Group$|ClipboardPaste|BringToFront|SendToBack|LayoutTemplate|Sparkles)/;
 const iconNames = () => iconNames.all ??= typeof lucide === 'undefined' ? [] : Object.keys(lucide).filter(k => Array.isArray(lucide[k]) && lucide[k][0] === 'svg' && /^[A-Z]/.test(k) && !APP_GLYPHS.test(k)).sort();
 const spaced = k => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
 function IconPick({ c, close }) {
@@ -1462,6 +1463,7 @@ const opener = {
     <${Sub} label="Gradient" of=${of} items=${() => { const c = String(value('Color') ?? '#1f3864'), from = /^#[0-9a-f]{6}$/i.test(c) ? c.toLowerCase() : '#1f3864', g = (to, angle) => ({ angle, stops: [[0, from], [100, to]] }); return looksLike('Text Gradient', [[null, 'None'], [g(shaded(from, 0.4, 0.6), 90), 'Lighter, down'], [g(shaded(from, 0.5, 0), 90), 'Darker, down'], [g(shaded(from, 0.4, 0.6), 0), 'Lighter, across']], value('Text Gradient')); }} />
     <${Sub} label="Text outline" of=${of} items=${() => { const c = inkNow(); return looksLike('Text Outline', [[null, 'None'], ...[0.25, 0.5, 0.75, 1, 1.5].map(weight => [{ color: c, weight }, `${weight} pt`])], value('Text Outline')); }} /></${Palette}>`),
   font: at => pop(at, close => html`<${Fonts} close=${close} />`),
+  size: at => { const v = shown(value('Size')); offer(at, STEPS.slice(0, 15).map(z => ({ label: String(z), checked: v === z, run: () => apply('Size', z), tries: ['Size', z] }))); },
   shape: at => pop(at, (close, of) => html`<${ShapePop} close=${close} of=${of} />`),
   design: at => pop(at, close => Designs.open(at, close)),
   effects: at => pop(at, (close, of) => html`<${EffectsPop} of=${of} />`),
@@ -1771,8 +1773,10 @@ function Bar() {
     const what = listed([...new Set(kept.flatMap(k => k.notes.map(n => n.label)))]);
     const clear = kept.length ? [{ label: `Clear ${whose} own ${what}`, disabled: ro,
       run: () => App.change(tx => kept.forEach(k => k.notes.forEach(n => tx.remove(n.note))), { say: `Cleared ${whose} own ${what}` }) }, { label: 'Select what differs', run: selectDiffers }] : [];
+    // (A long list is no wall: the selection's and the Styles rows that reach it, and what each of its own fields could reach a row away, unless that's where the pen is.)
+    const many = s.scopes.length > 14 && !own.includes(scope);
     return [s.scopes.filter(x => x.own).map(item), rows.filter(x => !x.name).map(item), headed.flatMap((x, i) => x.style === headed[i - 1]?.style ? [item(x)] : [{ head: x.name }, item(x)]),
-      own.length ? [{ head: 'Same field value' }, ...own.map(item)] : [], clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
+      own.length ? many ? [{ label: 'Same field value', items: own.map(item) }] : [{ head: 'Same field value' }, ...own.map(item)] : [], clear].filter(p => p.length).flatMap((p, i) => i ? ['-', ...p] : p);
   };
   // The scope as two parts, PowerPoint's selection on the left and all like it on the right: the group chosen, or
   // else the narrowest, which its ▾ chooses among the rest. A Key row or a frame is its group alone.

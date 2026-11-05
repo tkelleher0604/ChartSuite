@@ -1292,7 +1292,7 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
 // Which of the bar's menus sets each thing Look says: its row opens that menu, hung from what the row says, so it's changed where it's read.
 const LOOK_MENUS = { Fill: 'fill', Gradient: 'fill', Pattern: 'fill', Picture: 'fill', Transparency: 'fill', Outline: 'outline', Weight: 'outline', Dash: 'outline', Compound: 'outline', 'Line Gradient': 'outline', 'Line Transparency': 'outline', Arrow: 'outline', Arrowhead: 'outline', Connector: 'outline', Frame: 'outline',
   Shape: 'shape', Corner: 'shape', Design: 'design', Shadow: 'effects', Glow: 'effects', 'Soft Edge': 'effects', Reflection: 'effects', 'Inner Shadow': 'effects', Bevel: 'effects', 'Turn 3D': 'effects',
-  Font: 'font', Size: 'font', Color: 'color', 'Text Gradient': 'color', 'Text Outline': 'color', Align: 'paragraph', Valign: 'paragraph', Spacing: 'paragraph', Bullet: 'paragraph', Direction: 'paragraph', Columns: 'paragraph', Indent: 'paragraph', 'First Line': 'paragraph', Tabs: 'paragraph', Inset: 'paragraph', Shrink: 'paragraph' };
+  Font: 'font', Size: 'size', Color: 'color', 'Text Gradient': 'color', 'Text Outline': 'color', Align: 'paragraph', Valign: 'paragraph', Spacing: 'paragraph', Bullet: 'paragraph', Direction: 'paragraph', Columns: 'paragraph', Indent: 'paragraph', 'First Line': 'paragraph', Tabs: 'paragraph', Inset: 'paragraph', Shrink: 'paragraph' };
 function LookSection({ look, reset, named }) {
   if (!look.length) return null;
   const from = [...new Set(look.map(x => x.from))], ro = App.readOnly.value;

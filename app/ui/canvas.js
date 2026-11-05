@@ -2181,8 +2181,10 @@ function mount(el) {
       if (gripped && d > 8 && p.x > m.x && p.x < m.x + m.w && p.y > m.y && p.y < m.y + m.h) continue;
       if (d <= reach && d < bd) { best = m; bd = d; }
     }
+    edgeOff = bd;
     return best;
   }
+  let edgeOff = Infinity;
   // Pointing at a box shows its handles, as Lucidchart's do; at a field of the box selected, that it's one (see Fields). One thing at a time: near its edge, what takes hold of its edge; on its words, the words.
   root.addEventListener('pointermove', e => {
     pointerAt = { x: e.clientX, y: e.clientY };
@@ -2194,9 +2196,10 @@ function mount(el) {
     if (e.target.closest?.('.x6-widget-transform')) { showHandles([...transform.widgets.keys()].map(c => scene.byId.get(c.id)).find(x => x?.type === 'box' && x.shape !== 'triangle') ?? null); return hover(null); }
     if (onCell?.getData()?.kind === 'shape') { const fs = scene.byId.get(onCell.id); showHandles(hand?.gluable(fs) && !sel.isSelected(onCell) && !e.buttons ? fs : null); return hover(null); }
     const f = e.buttons || pointing || root.classList.contains('relating') ? null : fieldUnder(e.clientX, e.clientY), mine = f?.m.type === 'box' && transform.widgets.has(graph.getCellById(f.m.id));
-    if (mine && f.it) gripsNear(e, true);
-    showHandles(e.buttons || (mine && f.it) ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' && !mine ? f.m : null));
-    hover(f);
+    const edge = e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)), words = mine && f.it && !(edge?.id === f.m.id && edgeOff <= 4);
+    if (words) gripsNear(e, true);
+    showHandles(e.buttons || words ? null : edge ?? (f?.m.type === 'box' && !mine ? f.m : null));
+    hover(mine && f.it && !words ? null : f);
   });
   root.addEventListener('pointerleave', e => { root.classList.remove('near-grips'); if (!e.relatedTarget?.closest?.('.dc-handle')) { showHandles(null); hover(null); } });
   // The dot the pointer is coming to stands up as it nears: the rest stay small, so a box pointed at isn't buried.

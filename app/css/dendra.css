@@ -80,6 +80,8 @@ body { margin: 0; background: var(--paper); color: var(--ink); font: var(--t13);
 /* Focus: one ring, for the keys, everywhere, fields included; inside the edge of what fills a region. The window goes by the hand
    last used (data-hand, the shell's): what a mouse gave focus to has no ring, however it got it, but a field being typed in. */
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* (On a field, over its own edge, so it's one ring and not two.) */
+:where(input, textarea, select):focus-visible { outline-offset: -1px; }
 :focus:not(:focus-visible) { outline: none; }
 [data-region]:focus-visible, .view > .host > :focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 html[data-hand="mouse"] :focus-visible:not(input, textarea, select, [contenteditable]) { outline: none !important; }
@@ -119,6 +121,7 @@ kbd { font: var(--t12); color: var(--ink-3); }
 .btn.ghost { border-color: transparent; background: transparent; }
 .btn.icon { width: var(--row); padding: 0; border-color: transparent; background: transparent; color: var(--ink-2); }
 .btn.icon:hover:not(:disabled, [aria-disabled="true"]) { color: var(--ink); }
+.btn.dd { gap: 4px; }
 .btn.dd::after, .dd::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; flex: none; }
 /* One state language (dendra.md, Part 3, States): on is the selection's tint and the accent's ink, everywhere; open, the press's wash. */
 .btn[aria-pressed="true"] { background-color: var(--selected); background-image: none; color: var(--accent-ink); }

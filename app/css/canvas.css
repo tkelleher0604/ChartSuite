@@ -165,6 +165,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .scope > .more { flex: none; width: 20px; padding: 0; justify-content: center; }
 .fb .scope > .more::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; }
 .fb .scope > [aria-pressed="true"] + .more { background-color: var(--selected); }
+.fb .scope > button[data-open] { background-image: linear-gradient(var(--press), var(--press)); }
 /* The font's name, a button as any is, which holds its width so nothing beside it moves; its menu finds as it's typed. The size is typed into, with its list. */
 .fb .font { width: 148px; justify-content: space-between; }
 .fb .font > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -256,7 +257,9 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
    first row apart from the tints and shades under it, as PowerPoint sets it, then its standard colors; its hex; No fill. Each swatch has a hairline drawn on the menu, not on its own colour, so White on a
    light menu and the near-blacks on a dark one keep their edges. */
 .palette { width: 216px; }
-.palette > .own { display: grid; grid-template-columns: repeat(5, 40px); gap: 4px; }
+/* (Two rows' room from the start, so nothing under them moves as the chart's colors come.) */
+.palette > .own { display: grid; grid-template-columns: repeat(5, 40px); grid-auto-rows: 28px; align-content: start; gap: 4px; min-height: 60px; }
+.palette > .own.set { min-height: 92px; }
 .palette > .own > button { width: 40px; height: 28px; }
 .palette.grid { display: grid; grid-template-columns: repeat(10, 20px); gap: 4px; width: auto; }
 .palette.grid > :nth-child(-n + 10) { margin-bottom: 4px; }
