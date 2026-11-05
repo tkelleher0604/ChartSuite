@@ -3094,8 +3094,9 @@ async function designing(st) {
   {
     const on = sc().marks.filter(m => m.type === 'box').map(m => [m.id, Canvas.groupsAt(sc(), m).find(g => g.outputs.length > 1 && g.marks.size > 1)]).find(([, g]) => g), group9 = on?.[1], tiers = Shapes.DESIGNS.find(d => d.id === 'rule');
     App.change(tx => { for (const p of group9.outputs) tx.note('Design', p, tiers, { view: st.id }); }, { dated: false }); await tick(300);
+    const c10 = changes();
     Designs.edit(sc().byId.get(on[0])); await tick(500);
-    const says9 = txt($('.dc-designbar span')), c10 = changes();
+    const says9 = txt($('.dc-designbar span'));
     $('.dc-designbar input').value = 'All of them';
     $$('.dc-designbar button')[1].click(); await tick(500);
     const named9 = [...group9.marks].map(id => sc().byId.get(id)).filter(m => m?.type === 'box');
