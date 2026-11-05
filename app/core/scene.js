@@ -904,8 +904,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
 
   // A box's design (dendra.md, Group designs): the Design notes that reach it, the narrowest last. The last whole one is its
   // design, and what's said over it from there on is said over it, only what's different; so a narrow override never forks it.
-  // Its base is what the box takes where nothing else says, but that the box is its shape: a Shape note as narrow, or narrower, takes
-  // the box back from it, whole, as its parts by share would mean nothing there. Narrowness first, and the styles' order between what's as narrow.
+  // Its base is what the box takes where nothing else says, but that the box is its shape: a Shape note narrower says its corners, or, being another form
+  // than a rectangle's, takes the box back from it, whole, as its parts by share would mean nothing there. Narrowness first, and the styles' order between what's as narrow.
   const narrowRank = (n, depth) => [n.view ? 1 : 0, idsIn(n.pattern).size ? 1 : 0, n.param ? 1 : 0, Tree.weight(n.pattern), styleAt.get(key(bare(n.pattern))) ?? -1, -depth];
   const designNotes = N.notes('Design').filter(n => n.view === view), designsAt = new Map();
   if (designNotes.length) for (const id of ids) {
@@ -919,8 +919,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const said = designsAt.get(m.id).sort((a, b) => beats(a.rank, b.rank) ? 1 : beats(b.rank, a.rank) ? -1 : 0), top = said.findLast(x => wholeDesign(x.note.value));
     if (!top) return;
     const under = said.slice(said.indexOf(top) + 1), value = under.reduce((d, x) => overDesign(d, x.note.value.over), overDesign(top.note.value, top.note.value.over)), c = m.cand.Shape;
-    // (As narrow or narrower: a corner's square or rounded is that note's, the parts following it; another form takes the box back.)
-    const shaped = m.type === 'box' && !!c && !beats(top.rank, narrowRank(c.note, -c.rank.at(-1)));
+    // (A Shape note narrower: a corner's square or rounded is that note's, the parts following it; another form takes the box back. While it's edited, what a hand gives the box itself.)
+    const asked = c && narrowRank(c.note, -c.rank.at(-1)), shaped = m.type === 'box' && !!c && (value.editing ? !beats(top.rank, asked) : beats(asked, top.rank));
     if (shaped && !value.editing && !Shapes.boxy(c.value)) { m.settings.Design = { value: null, note: null }; return; }
     m.settings.Design = { value, note: said.at(-1).note };
     m.design = { value, note: top.note, rank: top.rank, overs: [...(top.note.value.over ? [top.note] : []), ...under.map(x => x.note)], parts: [] };

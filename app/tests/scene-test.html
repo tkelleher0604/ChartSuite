@@ -1546,6 +1546,11 @@ function groupDesigns() {
   const s4 = scene(w4);
   check('a Shape note narrower than the design takes the box back from it, whole', plain.byId.get('fund').shape === 'triangle' && s4.byId.get('fund').shape === 'triangle' && !s4.byId.get('fund').parts?.length && !s4.byId.get('fund').design && s4.byId.get('fund').texts.length === plain.byId.get('fund').texts.length);
   check('… and the rest of its kind have it, a square or rounded box keeping its corners', s4.marks.filter(m => m.parts?.length).length >= llcs.length && s4.byId.get(llcs[0].id).shape === plain.byId.get(llcs[0].id).shape, s4.marks.filter(m => m.parts?.length).length);
+  const w9 = Log.open(SAMPLE);
+  edit(w9, tx => tx.note('Design', LLC, preset('ticket'), { view: MAIN }));
+  const had = plain.byId.get(llcs[0].id).shape, s9 = scene(w9);
+  edit(w9, tx => tx.note('Design', LLC, undefined, { view: MAIN }));
+  check('a design at the very pattern of a Shape note stands over it, which comes back as the design goes', had === 'rounded' && s9.byId.get(llcs[0].id).shape === 'plaque' && scene(w9).byId.get(llcs[0].id).shape === 'rounded', `${had} ${s9.byId.get(llcs[0].id).shape}`);
   // Hidden by the pen: its token reads as nothing, the design standing.
   const w5 = Log.open(SAMPLE), name0 = plain.byId.get(llcs[0].id).texts.find(it => it.name).text;
   edit(w5, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, { ...preset('rule'), parts: [{ id: 'a', geometry: 'text', x: 0, y: 0, w: 1, h: 0.5, text: '{Name}' }, { id: 'b', geometry: 'text', x: 0, y: 0.5, w: 1, h: 0.5, text: 'Formed {Formation Date}, EIN {EIN}' }] }, { view: MAIN }); tx.note('Shown', Tree.treeOf(R0, Tree.entryAt(R0, llcs[1].record, 'Name')), false, { view: MAIN }); });

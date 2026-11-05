@@ -103,6 +103,14 @@ function say(tx, m, part, what, s = Canvas.scope()) {
     tx.note('Design', p, { ...at, over: { ...at.over, parts: { ...parts, [part]: now } } }, { view: v });
   }
 }
+// A shape, or how round its corners are, given at a design's own pattern is said over that design, so it's seen and Reset to design takes it back; given elsewhere it's a note, as ever. → whether it's done.
+function atPen(tx, sc, scope, marks, label, value) {
+  const N = App.notes.peek(), there = p => N.notes('Design').find(n => n.view === sc.view && Tree.key(n.pattern) === Tree.key(p) && Scene.wholeDesign(n.value));
+  const ps = scope.outputs ?? (marks.every(m => m.type === 'box') ? marks.map(m => treeOf(m.record)) : []);
+  if (!ps.some(there)) return false;
+  for (const p of ps) { const n = there(p), v = n?.value; if (n) tx.note('Design', p, { ...v, over: { ...v.over, base: { ...v.over?.base, [label]: value } } }, { view: sc.view }); else tx.note(label, p, value, { view: sc.view }); }
+  return true;
+}
 // Reset to design: what's said over it at the pen goes, or where the pen has none, all that reaches this box.
 function reset(m, s = Canvas.scope()) {
   const v = view(), overs = m?.design?.overs ?? [];
@@ -171,7 +179,8 @@ function make(ms = canvas().selected()) {
       id: Log.newId(), name: Tree.clean(name) || 'New design', w: round(box.w), h: round(box.h), base: { Shape: box.shape, ...(box.shape === 'rounded' && { Corner: box.settings.Corner.value }) },
       parts: free.map(q => { const r = rows.item(App.chart.peek(), q.id)[0], size = q.texts?.[0]?.look.Size; return partFrom({ ...r, part: null, format: { ...(size && r.format?.Size === undefined && { Size: +(size * sc.page.scale).toFixed(2) }), ...r.format } }, q, box, tokened(r.text, box.record)); }),
     };
-    App.change(tx => { for (const q of free) tx.remove(q.id); for (const g of sc.marks) if (g.geometry === 'group' && g.members.every(id => free.some(q => q.id === id))) tx.remove(g.id); rewrite(tx, d, null, patterns, v); }, { dated: false, say: `Made the design ${d.name} for ${whom(box, s, s?.marks?.size)}` });
+    const said = `Made the design ${d.name} for ${whom(box, s, s?.marks?.size)}`;
+    App.change(tx => { for (const q of free) tx.remove(q.id); for (const g of sc.marks) if (g.geometry === 'group' && g.members.every(id => free.some(q => q.id === id))) tx.remove(g.id); rewrite(tx, d, null, patterns, v); tx.says(said); }, { dated: false, say: said });
     Shell.select([box.id]);
   });
 }
@@ -201,14 +210,17 @@ function edit(m, given) {
   const said = m.design && !given && !Tree.idsIn(patterns[0]).size ? { outputs: patterns, caption: Scene.captionOf(N, patterns[0], v) } : pen?.outputs?.length ? pen : null;
   const names = (d.parts ?? []).flatMap(p => Scene.tokensIn(p.text));
   const where = c.whereNow(), rows0 = new Set(App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r && r.view === v).map(r => r.shape));
-  // (As large as it stands; one from the gallery, as large as it says. Each part where the box has it, or else by its share.)
-  const W = round(given ? d.w ?? m.w : m.w), H = round(given ? d.h ?? m.h : m.h);
+  // (As large as it stands, or one from the gallery as large as it would, with these words; each part where it falls in that, and the box held so, whatever its rank's height.)
+  const like = given ? Scene.instance(sc, m.id, d, N, App.computed.peek()) : m, W = round(like.w), H = round(like.h), o = sc.page.placed ? sc.page.offset : { x: 0, y: 0 }, dx = m.x - like.x, dy = m.y - like.y, stands = new Map();
   App.sandbox(takes(m.record));
   const stood = App.change(tx => {
     tx.note('Design', treeOf(m.record), { id: d.id, name: d.name, w: W, h: H, base: d.base ?? {}, strip: true, editing: true, begun: new Date().toISOString(), names }, { view: v });
+    tx.note('Position', treeOf(m.record), { x: round(m.x - o.x), y: round(m.y - o.y), w: W, h: H, hand: true }, { view: v });
     for (const p of d.parts ?? []) {
-      const { id, x, y, w, h, points, format, ...row } = p, q = !given && m.parts?.find(o => o.part === id);
-      tx.add('shape', { ...row, ...standing(format, m, sc.page.scale), view: v, part: id, x: round(q ? q.x : m.x + x * W), y: round(q ? q.y : m.y + y * H), w: round(q ? q.w : w * W), h: round(q ? q.h : h * H), ...(points && { points: (q?.points ?? points.map(([a, b]) => [m.x + a * W, m.y + b * H])).map(([a, b]) => [round(a), round(b)]) }) });
+      const { id, x, y, w, h, points, format, ...row } = p, q = like.parts?.find(q2 => q2.part === id);
+      const at = { x: round(q ? q.x + dx : m.x + x * W), y: round(q ? q.y + dy : m.y + y * H), w: round(q ? q.w : w * W), h: round(q ? q.h : h * H), ...(points && { points: (q?.points?.map(([a, b]) => [a + dx, b + dy]) ?? points.map(([a, b]) => [m.x + a * W, m.y + b * H])).map(([a, b]) => [round(a), round(b)]) }) };
+      stands.set(id, at);
+      tx.add('shape', { ...row, ...standing(format, m, sc.page.scale), view: v, part: id, ...at });
     }
   }, { dated: false });
   if (!stood) { App.unsandbox(); return; }
@@ -226,7 +238,7 @@ function edit(m, given) {
   words.textContent = `Editing the design of ${who}`;
   discard.onclick = () => leave(false);
   done.onclick = () => leave(true);
-  editing.value = { box, record: m.record, d, wasId: given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id, patterns, view: v, rows0, where, bar, whom: who };
+  editing.value = { box, record: m.record, d, wasId: given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id, patterns, view: v, rows0, where, bar, whom: who, stands, W, H };
 }
 function leave(keep) {
   const e = editing.peek();
@@ -236,16 +248,20 @@ function leave(keep) {
   let d = null, looks = {};
   if (keep && b) {
     const rows = App.shown.peek().rows(App.chart.peek()), mine = new Map(rows.filter(r => 'shape' in r && r.view === e.view && !e.rows0.has(r.shape)).map(r => [r.shape, r]));
-    const parts = [];
-    // (In the order they're drawn in; a group's own row isn't a part, its shapes are.)
-    for (const q of sc.marks) { const r = mine.get(q.id); if (r && q.geometry !== 'group') parts.push(partFrom(r, q, b)); }
+    const parts = [], same = (a, c) => a && Math.abs(a.x - c.x) < 0.01 && Math.abs(a.y - c.y) < 0.01 && Math.abs(a.w - c.w) < 0.01 && Math.abs(a.h - c.h) < 0.01 && JSON.stringify(a.points ?? null) === JSON.stringify(c.points ?? null);
+    const resized = Math.abs(b.w - e.W) > 0.5 || Math.abs(b.h - e.H) > 0.5;
+    // (In the order they're drawn in; a group's own row isn't a part, its shapes are. One no hand has moved keeps the share it had, and the box no hand has sized the size the design said.)
+    for (const q of sc.marks) { const r = mine.get(q.id); if (r && q.geometry !== 'group') { const was = !resized && r.part && same(e.stands.get(r.part), r) && e.d.parts?.find(p => p.id === r.part), part = partFrom(r, q, b); parts.push(was ? { ...part, x: was.x, y: was.y, w: was.w, h: was.h, ...(was.points && { points: was.points }) } : part); } }
     const own = rows.filter(r => 'note' in r && r.view === e.view && r.pattern?.id === e.record && !['Position', 'Design', 'Text', 'Shown'].includes(r.label));
     looks = Object.fromEntries(own.map(r => [r.label, r.value]));
     const { Shape, Corner, ...others } = looks;
     looks = others;
-    d = { ...e.d, w: round(b.w), h: round(b.h), base: { ...e.d.base, ...(Shape && { Shape }), ...(Corner !== undefined && { Corner }) }, parts };
+    d = { ...e.d, ...(resized || e.d.w == null ? { w: round(b.w), h: round(b.h) } : {}), base: { ...e.d.base, ...(Shape && { Shape }), ...(Corner !== undefined && { Corner }) }, parts };
     delete d.editing; delete d.strip; delete d.names; delete d.over;
     if (!e.wasId) d.id = Log.newId();
+    // (As it was, it's nothing to write.)
+    const plain = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([p], [q]) => p < q ? -1 : 1)) : x);
+    if (e.wasId && plain({ ...d, id: 0 }) === plain({ ...e.d, id: 0 }) && !Object.keys(looks).length) keep = null;
   }
   e.bar.remove();
   editing.value = null;
@@ -253,11 +269,11 @@ function leave(keep) {
   Shell.select([]);
   App.unsandbox();
   c.goBack(e.where);
+  if (keep === null) return Shell.toast('The design is as it was', { ms: 2500 });
   if (!keep) return Shell.toast('Discarded the changes to the design', { ms: 2500 });
-  const before = e.patterns.map(p => App.notes.peek().notes('Design').find(n => n.view === e.view && Tree.key(n.pattern) === Tree.key(p))?.value);
-  App.change(tx => { rewrite(tx, d, e.wasId, e.patterns, e.view); for (const [l, v] of Object.entries(looks)) for (const p of e.patterns) tx.note(l, p, v, { view: e.view }); },
-    { dated: false, say: `Changed the design of ${e.whom}`, empty: () => Shell.toast('The design is as it was', { ms: 2500 }) });
-  return before;
+  const said = `Changed the design of ${e.whom}`;
+  App.change(tx => { rewrite(tx, d, e.wasId, e.patterns, e.view); for (const [l, v] of Object.entries(looks)) for (const p of e.patterns) tx.note(l, p, v, { view: e.view }); tx.says(said); },
+    { dated: false, say: said, empty: () => Shell.toast('The design is as it was', { ms: 2500 }) });
 }
 // A row dropped on what's being edited: on a part, its token; on the box, a new text part, where it was dropped.
 function dropped(q, edge, at) {
@@ -315,5 +331,5 @@ for (const [id, name, names, run, enabled, why] of [
   ['design.discard', 'Discard the changes to the design', ['Cancel the design'], () => leave(false), () => !!editing.peek(), () => 'No design is being edited'],
 ]) Shell.register('action', { id, name, names, run, enabled, why });
 
-return { open, say, reset, edit, make, items, dropped, editRow, editing, leave, forRecord };
+return { open, say, atPen, reset, edit, make, items, dropped, editRow, editing, leave, forRecord };
 })();

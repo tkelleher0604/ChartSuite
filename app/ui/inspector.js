@@ -1219,6 +1219,7 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
   : label === 'Gradient' ? (v?.stops?.length ? html`<i class="chip" style=${`background:linear-gradient(${(v.angle ?? 0) + 90}deg,${v.stops.map(([at, c]) => `${c} ${at}%`).join(',')})`} />Gradient, ${v.angle ?? 0}°` : 'None')
   : label === 'Pattern' ? (Shapes.PATTERNS.find(p => p[0] === v?.prst)?.[1] ?? 'None')
   : label === 'Inset' ? `${v.l ?? 7.2}, ${v.t ?? 3.6}, ${v.r ?? 7.2}, ${v.b ?? 3.6} pt` : label === 'Indent' ? `${v} pt` : label === 'Layer' ? (v > 0 ? 'Brought forward' : v < 0 ? 'Sent back' : 'As it was made') : label === 'Tail' ? 'Moved' : label === 'Connector' ? upper(String(v))
+  : label === 'Design' ? v?.name ?? 'What’s said over its design'
   : label === 'Shape' ? (typeof FormatBar !== 'undefined' && FormatBar.shapeName?.(v)) || SHAPES[v] || upper(String(v)) : upper(String(v));
 function LookSection({ look, reset, named }) {
   if (!look.length) return null;

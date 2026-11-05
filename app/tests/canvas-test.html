@@ -2942,9 +2942,9 @@ async function designing(st) {
   Shell.select(['northpine', shape]); await tick(200);
   const m0 = changes();
   Designs.make(); await tick(200);
-  $('.dialog input, dialog input, [role="dialog"] input').value = 'Mine';
-  $('.dialog input, dialog input, [role="dialog"] input').dispatchEvent(new Event('input', { bubbles: true }));
-  [...$$('[role="dialog"] button, .dialog button')].find(b => b.textContent === 'Make').click(); await tick(500);
+  $('dialog.dlg input').value = 'Mine';
+  $('dialog.dlg input').dispatchEvent(new Event('input', { bubbles: true }));
+  [...$$('dialog.dlg button')].find(b => b.textContent === 'Make').click(); await tick(500);
   const mine = sc().marks.filter(m => m.design?.value.name === 'Mine'), first = mine.find(m => m.id === 'northpine');
   check('Make a design: the shapes become its parts, one change, at the box’s group', changes() === m0 + 1 && mine.length > 1 && !App.shown.peek().item(App.chart.peek(), shape).length && first?.parts.length === 1, mine.length);
   check('… the words kept as tokens where they read as a field', first?.design.value.parts[0].text === '{Name}', first?.design.value.parts[0].text);

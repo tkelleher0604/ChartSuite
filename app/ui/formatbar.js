@@ -260,6 +260,7 @@ const givenTo = (view, scope) => [...new Set(App.notes.peek().styles(view).flatM
 const keepers = ks => ks.length === 1 ? App.notes.peek().nameOf(App.state.peek(), ks[0].m.record)
   : `${ks.length} ${ks.every(k => k.m.type === 'line') ? 'lines' : ks.every(k => k.m.type === 'box') ? 'boxes' : 'marks'}`;
 const possessive = s => s.endsWith('s') ? `${s}’` : `${s}’s`;
+const lowerFirst = s => s[0].toLowerCase() + s.slice(1);
 const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
 
 // ---- Making a change ----
@@ -274,10 +275,10 @@ function write(tx, c, label, value) {
   if (scope.root) return tx.note(label, viewSelf(c.scene()), value);
   // (Everything else's words are All text's: a box's look is its own.)
   if (scope.rest && TEXT_LABELS.has(label)) return tx.note(label, viewSelf(c.scene()), value);
-  // A part of a design selected takes whatever's given it (dendra.md, Group designs); a design given at the pen takes the place of a shape given there.
+  // A part of a design selected takes whatever's given it (dendra.md, Group designs); and a shape given at a design's own pattern is said over the design.
   const part = label !== 'Design' && label !== 'Format' ? fieldOf(c) : null;
   if (part && (part.it.of || (part.it.part && !(part.it.rested && TEXT_LABELS.has(label))))) return c.styleField(tx, part, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
-  if (label === 'Design') write(tx, c, 'Shape', undefined);
+  if ((label === 'Shape' || label === 'Corner') && Designs.atPen(tx, c.scene(), scope, marks, label, value)) return;
   const f = TEXT_LABELS.has(label) && label !== 'Format' ? fieldOf(c) : null;
   if (f) return c.styleField(tx, f, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
   const view = c.scene().view, tree = id => Tree.treeOf(App.state.peek(), id), texty = TEXT_LABELS.has(label) && label !== 'Format';
@@ -341,12 +342,14 @@ function apply(label, value) {
   const says = [kept.length && `${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own`, first.say, under?.say].filter(Boolean);
   // (A text property goes to every field, so to more notes than one: said as the one act it is.)
   const inView = `${Time.looked(label, value, scope.caption)} in ${scope.root ? lookTaker(c.scene().view) : App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && (!!scope.outputs || !!scope.root) && !fieldOf(c);
+  // (What's selected of a design, or a design given, is said so; History can't read it from what it's written as.)
+  const ofDesign = label === 'Design' ? Time.looked(label, value, scope.own ? scopesOf(c).marks.map(m => App.notes.peek().nameOf(App.state.peek(), m.record)).join(', ') : lowerFirst(allOf(scope, scope.marks?.size ?? 0))) : (() => { const f = fieldOf(c); return f && (f.it.of || (f.it.part && !f.it.rested)) ? `${Time.looked(label, value, 'a part of the design')}` : null; })();
   // (The footer's the chart's, on every page.)
   const marks = scopesOf(c).marks, ofFoot = !!marks.length && marks.every(isFoot) && Time.looked(label, value, 'the footer');
   // (A free shape's look is its row's, which History can't read words from: said as it's done.)
   const ofFree = !ofFoot && freeSaid(marks, label, value);
   const sceneWas = App.scene.peek();
-  App.change(tx => { write(tx, c, label, value); if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null,
+  App.change(tx => { write(tx, c, label, value); if (ofDesign) tx.says(ofDesign); else if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: ofDesign || (says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null),
     go: () => first.also ? [first.offer, () => App.change(first.also, { dated: false, say: first.done })] : under?.clear ?? null });
   if (label === 'Fill' && scope.own) sayLies(sceneWas);
   fade();
