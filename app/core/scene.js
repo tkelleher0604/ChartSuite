@@ -1561,8 +1561,17 @@ function numberFeet(marks, foots, shape, row, s, state) {
     const gap = 3 * u, taken = marks.filter(m => m !== shape && m.geometry !== 'group' && !m.merged).flatMap(m => m.points ? [...m.points.slice(1).map((p, i) => ({ x: Math.min(p[0], m.points[i][0]), y: Math.min(p[1], m.points[i][1]), w: Math.abs(p[0] - m.points[i][0]), h: Math.abs(p[1] - m.points[i][1]) })), ...(m.labelAt && m.label ? [{ ...m.labelAt, w: m.label.w, h: m.label.h }] : [])] : [m]);
     const hits = (x, y, w, h) => taken.some(r => x < r.x + r.w + gap && r.x < x + w + gap && y < r.y + r.h + gap && r.y < y + h + gap);
     if (hits(shape.x, shape.y, shape.w, shape.h)) {
-      const w = Math.min(shape.w, widest([it]) + (shape.w - (shape.column?.width ?? shape.w)) + 2 * u), step = 6 * u, right = shape.x + shape.w - w, lh = lineHeight(it.look);
-      search: for (let y = shape.y; y >= shape.y - 6 * lh; y -= lh) for (let x = shape.x; x <= right; x += step) if (!hits(x, y, w, shape.h)) { Object.assign(shape, { x, y }); shape.w = w; break search; }
+      const whole = shape.w, x0 = shape.x, foot = shape.y + shape.h, inset = whole - (shape.column?.width ?? whole), step = 6 * u, lh = lineHeight(it.look), lay = w => freeShape({ ...row, x: x0, y: 0, w, runs }, rows.join('\n'), u), natural = Math.min(whole, widest(lay(whole).texts) + inset + 2 * u);
+      // (As wide as its words, or else wrapped narrower, in one column, to go where there's room.)
+      search: for (const w of [natural, whole * 0.6, whole * 0.45, whole * 0.33, whole * 0.25, whole * 0.2].filter(x => x <= natural)) {
+        const set = lay(w), h = set.h, right = x0 + whole - w;
+        for (let y = foot - h; y >= foot - h - 6 * lh; y -= lh) for (let x = x0; x <= right; x += step) if (!hits(x, y, w, h)) {
+          spansIn(set.texts[0], u);
+          Object.assign(shape, { x, y, w, h, texts: set.texts });
+          delete shape.columns;
+          break search;
+        }
+      }
     }
   }
 }
@@ -2281,7 +2290,8 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
     // Footnotes at the foot of the page, across its margins, just above its footer, which is just under the bottom margin: one a hand moved stands where it was put.
     const notes = shapes.find(m => m.role === 'footnotes');
     if (notes) {
-      const row = rows.find(r => r.id === notes.row), wide = row.w != null ? notes : freeShape({ ...row, w: (W - ML - MR + 2 * INSET) * u }, said.get(row.id), u);
+      // (One a hand moved, as far as the right margin from where it was put.)
+      const row = rows.find(r => r.id === notes.row), room = placedBy(row) ? W - ML - MR + 2 * INSET : Math.max(W - MR + INSET - row.x * s, 120), wide = row.w != null ? notes : freeShape({ ...row, w: room * u }, said.get(row.id), u);
       shapes[shapes.indexOf(notes)] = wide;
       if (byPage(wide)) places.set(wide.row, { x: ML - INSET, y: H - MB - wide.h * s + INSET });
     }
@@ -2513,7 +2523,7 @@ function says(scene, name, paper) {
   for (const b of boxes) if (b.x < -0.5 || b.y < -0.5 || b.x + b.w > W + 0.5 || b.y + b.h > H + 0.5) out.push(`${called(b)} runs off the page`);
     else if (b.x < edge || b.y < edge || b.x + b.w > W - edge || b.y + b.h > H - edge) out.push(`${called(b)} is nearer the edge than a printer prints`);
   const over =(a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
-  const WHAT = { legend: 'The Key', picture: 'The picture', title: 'The title', date: 'The date', footer: 'The footer', number: 'The page number' };
+  const WHAT = { legend: 'The Key', picture: 'The picture', title: 'The title', date: 'The date', footer: 'The footer', number: 'The page number', footnotes: 'The footnotes block' };
   for (const m of scene.marks) if (m.type === 'shape' && !['line', 'group', 'frame'].includes(m.geometry) && (m.look?.Layer ?? 0) >= 0)
     for (const b of boxes) if (over(m, b)) out.push(`${WHAT[m.role] ?? WHAT[m.geometry] ?? `“${m.texts[0]?.text ?? 'A shape'}”`} overlaps ${called(b)}`);
   for (const k of scene.marks) if (k.geometry === 'legend') for (const f of scene.marks) if (f.type === 'frame' && !f.lone && over(k, f)) out.push(`The Key overlaps the ${f.caption.text} frame`);

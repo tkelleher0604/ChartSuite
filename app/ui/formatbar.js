@@ -3,8 +3,9 @@
 // selection, as in PowerPoint ("This box", "These 3 boxes"), and all like it ("All Funds (6)"), the narrowest
 // group that reaches it, whose ▾ offers every group that does: the Styles rows, as Styles lists and calls them,
 // and the selection's own groups, its kind and each of its options and tags ("Jurisdiction: Delaware (13)"),
-// each with its reach. While a group is chosen, or pointed at, the chart cues it: what it reaches lit, the
-// rest dulled. Ctrl+Shift+A goes from one part to the other. A change writes format notes: for the selection,
+// each with its reach. The scope is the pen (see The pen): the panel's second way to see and move it. What it reaches has a
+// thin outline; a place pointed at is cued on the chart: what it would reach lit, the rest dulled. Ctrl+Shift+A goes from the
+// title to where it was. A change writes format notes: for the selection,
 // at each record's own tree in the view; for a group, at each of its outputs' patterns in the view, so a group
 // of the selection's own becomes a Styles row and a row of the Key. A free shape keeps its formats in its row.
 // Selecting a legend row engages its group, so the legend is the other way to restyle. A choice pointed at,
@@ -93,7 +94,7 @@ function scopesOf(c) {
 // A Styles row aimed at, with nothing selected: the ribbon's scope is that row, whichever of the marks it reaches are
 // drawn; none drawn, it still goes to the row, and reads from its swatch. (Or any kind, entry or option, from its own page: every record that fits.)
 function scopesAimed(sc, a) {
-  const g = Scene.groupsOf(App.notes.peek(), sc.view).find(x => x.style === a.style && x.outputs.some(p => Tree.key(p) === a.key)) ?? a, marks = g.general ? fitting(sc, g.outputs[0]) : marksOf(sc, g);
+  const g = a.general ? a : Scene.groupsOf(App.notes.peek(), sc.view).find(x => x.style === a.style && x.outputs.some(p => Tree.key(p) === a.key)) ?? a, marks = g.general ? fitting(sc, g.outputs[0]) : marksOf(sc, g);
   return { aim: g, marks: [...marks].map(id => sc.byId.get(id)).filter(Boolean), scopes: [{ ...g, key: 'row', marks }] };
 }
 function scopesNow(c, sc, keys) {
@@ -409,7 +410,7 @@ function placesOf(c, s, w) {
 }
 const pen = {
   // The row the pen stands in now.
-  row() { const c = Canvas.active.peek(); if (!c?.scene()) return null; const s = scopesOf(c); return penRow(c, s, scopeOf(s.scopes)); },
+  row() { const c = Canvas.active.peek(); if (!c?.scene()) return null; const s = scopesOf(c), now = scopeOf(s.scopes); if (s.rowOf?.of !== now) s.rowOf = { of: now, row: penRow(c, s, now) }; return s.rowOf.row; },
   // What a click on a row's pen would go to, and whether it's there already.
   next(w) {
     const c = Canvas.active.peek();

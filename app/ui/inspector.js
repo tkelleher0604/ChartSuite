@@ -354,9 +354,9 @@ function Pen({ w, row, host }) {
     if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); go(); }
     else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { const all = [...(e.currentTarget.closest('.insp')?.querySelectorAll('.pen') ?? [])], to = all[all.indexOf(e.currentTarget) + (e.key === 'ArrowDown' ? 1 : -1)]; if (to) { e.preventDefault(); e.stopPropagation(); to.focus(); } }
   };
-  return html`<button type="button" class=${'pen' + (here ? ' here' : '')} tabindex=${here ? 0 : -1} aria-pressed=${here} aria-label="Pen" data-tip=""
+  return html`<button type="button" class=${'pen' + (here ? ' here' : '')} tabindex=${here ? 0 : -1} aria-pressed=${here} aria-label="Put the pen here" data-tip=""
     onPointerEnter=${e => { say(e); p.point(w, true); }} onPointerLeave=${() => p.point(w, false)} onFocus=${e => { say(e); if (e.currentTarget.matches(':focus-visible')) p.point(w, true); }} onBlur=${() => p.point(w, false)}
-    onPointerDown=${e => e.stopPropagation()} onClick=${e => { e.stopPropagation(); go(); say(e); p.point(w, true); }} onKeyDown=${walk}>${Shell.icon('Pen')}</button>`;
+    onPointerDown=${e => e.stopPropagation()} onClick=${e => { e.stopPropagation(); go(); say(e); p.point(w, false); }} onKeyDown=${walk}>${Shell.icon('Pen')}</button>`;
 }
 
 // Drags a row among its siblings (those with the same data-drag); a click without moving is a click.
@@ -965,7 +965,7 @@ function Words({ d, depth }) {
   const [text, setText] = useState(''), [list, setList] = useState([]), [on, setOn] = useState(0), ref = useRef(), c = Canvas.active.peek(), host = d.at;
   const look = el => { const m = /\{([^{}\n]*)$/.exec(el.value.slice(0, el.selectionStart)), q = m?.[1].toLowerCase(); setOn(0); const items = m ? c.fields.words(host).filter(l => l.toLowerCase().includes(q)) : []; setList(items); if (items.length) el.closest('.row')?.scrollIntoView({ block: 'center' }); };
   const put = l => { const el = ref.current, s = el.value, at = el.selectionStart, from = s.slice(0, at).lastIndexOf('{'), now = `${s.slice(0, from)}{${l}}`, to = s.slice(at).replace(/^[^{}\s]*\}?/, ''); el.value = now + to; setText(el.value); setList([]); el.focus(); el.setSelectionRange(now.length, now.length); };
-  const done = () => { const t = T.clean(ref.current?.value ?? text); if (draft.peek() === d) draft.value = null; if (t) (d.type === 'text' ? c.fields.addText : c.fields.addFoot)(host, t); };
+  const done = () => { if (draft.peek() !== d) return; const t = T.clean(ref.current?.value ?? text); draft.value = null; if (t) (d.type === 'text' ? c.fields.addText : c.fields.addFoot)(host, t); };
   const key = e => {
     if (list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setOn(i => (i + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length); }
     else if (list.length && (e.key === 'Enter' || e.key === 'Tab')) { e.preventDefault(); put(list[on]); }
@@ -979,8 +979,10 @@ function Words({ d, depth }) {
 // What a box or line carries at the foot of the page: each by its number, a click typing over it, for all that carry it.
 function Feet({ id }) {
   const m = App.scene.value?.byId.get(id), c = charted() ? Canvas.active.value : null;
-  if (!m?.feet?.length || !c) return null;
-  return m.feet.map(f => html`<div class="row foot-row" key=${f.key}><div class="k">Footnote ${f.n}</div><div class="v"><button type="button" class="lk" disabled=${App.readOnly.value} onClick=${() => c.fields.footEdit(id, f.key)}>${f.text}</button>${App.readOnly.value ? null : html`<button type="button" class="btn icon foot-x" aria-label=${`Delete footnote ${f.n}`} data-tip="Delete" onClick=${() => c.fields.footDelete(id, f.key)}>${icon('x')}</button>`}</div></div>`);
+  const free = m?.texts?.find(it => it.free);
+  if ((!m?.feet?.length && !free) || !c) return null;
+  // (And the words it says besides its fields, a click typing over them at the pen.)
+  return html`${free ? html`<div class="row foot-row" key="·text"><div class="k">Text</div><div class="v"><button type="button" class="lk" disabled=${App.readOnly.value} onClick=${() => c.fields.editText(id)}>${free.free.text}</button>${App.readOnly.value ? null : html`<button type="button" class="btn icon foot-x" aria-label="Delete the text" data-tip="Delete" onClick=${() => c.fields.dropText(id)}>${icon('x')}</button>`}</div></div>` : null}${(m.feet ?? []).map(f => html`<div class="row foot-row" key=${f.key}><div class="k">Footnote ${f.n}</div><div class="v"><button type="button" class="lk" disabled=${App.readOnly.value} onClick=${() => c.fields.footEdit(id, f.key)}>${f.text}</button>${App.readOnly.value ? null : html`<button type="button" class="btn icon foot-x" aria-label=${`Delete footnote ${f.n}`} data-tip="Delete" onClick=${() => c.fields.footDelete(id, f.key)}>${icon('x')}</button>`}</div></div>`)}`;
 }
 
 // ---- Relatives, documents and look: sections, each folding under its heading ----
@@ -1642,7 +1644,7 @@ function Styles({ v, only }) {
   };
   // A style that is its one group is that row alone: Names, not Name over Names.
   return html`${parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
-    ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0" onPointerDown=${press(part)}><${Pen} w=${{ general: s.pattern, name: rows[0].name }} row=${`general:${T.key(s.pattern)}`} /><div class="k sname">${Scene.isChange(s.pattern) ? rows[0].name : html`<${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}>`}</div></div>${rows.map(g => output(g, null, part, s))}`}
+    ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0" onPointerDown=${press(part)}>${s.pattern.args ? html`<${Pen} w=${{ general: s.pattern, name: rows[0].name }} row=${`general:${T.key(s.pattern)}`} />` : null}<div class="k sname">${Scene.isChange(s.pattern) ? rows[0].name : html`<${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}>`}</div></div>${rows.map(g => output(g, null, part, s))}`}
   </div>`))}
   ${only ? null : html`<${AllText} v=${v} /><${EverythingElse} v=${v} sc=${sc} n=${n} />`}
   ${off.length ? html`<div class="row styles-off"><button type="button" class="lk" aria-expanded=${offOpen} onClick=${() => setOffOpen(x => !x)}>Not on this page (${off.length})</button></div>

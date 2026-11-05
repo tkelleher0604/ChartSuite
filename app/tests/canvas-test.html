@@ -2971,7 +2971,10 @@ async function format() {
   cv().fields.addText('feeder', 'In {Jurisdiction}'); await tick(300);
   const inJ = id => sc().byId.get(id).texts.find(it => it.free)?.text;
   check('a free text from the panel goes to what the pen reaches, each box reading its own', inJ('feeder') === 'In Cayman Islands' && [...FormatBar.scope().marks].some(id => /^In Delaware/.test(inJ(id) ?? '')) && $$('.toast').some(t => /Added text to all 5 funds/.test(txt(t))), `${inJ('feeder')} ${txt($$('.toast').at(-1))}`);
-  Shell.parts.peek().undo.undo(); await tick(200);
+  check('… and its page says it, as it was typed, a click from typing over', $$('.insp .foot-row').some(r => /In \{Jurisdiction\}/.test(txt(r))), $$('.insp .foot-row').map(txt).join());
+  cv().fields.dropText('feeder'); await tick(300);
+  check('… and deleted there, it goes from all the pen reaches', !inJ('feeder') && ![...FormatBar.scope().marks].some(id => inJ(id)));
+  Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200);
   // Footnotes: at the pen, a marker on each, one line for one text, numbered in reading order.
   P.level.value = { own: true }; Shell.select(['feeder']); await tick(200);
   cv().fields.addFoot('feeder', 'Offshore only'); await tick(300);

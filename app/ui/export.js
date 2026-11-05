@@ -508,7 +508,7 @@ function wrapsAt(m) {
 // the least PowerPoint opens), its lines as far apart as the scene sets them, and in as far as it hangs them; a
 // paragraph for each line it was typed on; its spaces plain, as typed, so that PowerPoint's Find finds them. Its margins are `inset` inches
 // all round, or PowerPoint's own where that's null.
-function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = null } = {}) {
+function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = null, columns = 0 } = {}) {
   // (What a text said before it, struck, is a run of the paragraph it stands on: see Scene's labelOf.)
   let before = '';
   const ps = items.flatMap(it => {
@@ -532,7 +532,7 @@ function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = 
   });
   // (Its margins each side's, where its own Inner margins say. Shrunk, PowerPoint's own shrink goes on from there; flipped upside down, its text stays the right way up.)
   const margins = inset === null ? '' : ['l', 't', 'r', 'b'].map(side => ` ${side}Ins="${E(wrap !== null && (side === 'l' || side === 'r') ? wrap : typeof inset === 'object' ? inset[side] : inset)}"`).join('');
-  return `<p:txBody><a:bodyPr${upright ? ' rot="10800000"' : ''}${ps.length ? ` wrap="${wrap !== null ? 'square' : 'none'}"` : ''}${margins} rtlCol="0" anchor="${anchor}"${fit ? '><a:normAutofit/></a:bodyPr>' : '/>'}<a:lstStyle/>${ps.join('') || '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>'}</p:txBody>`;
+  return `<p:txBody><a:bodyPr${upright ? ' rot="10800000"' : ''}${ps.length ? ` wrap="${wrap !== null || columns > 1 ? 'square' : 'none'}"` : ''}${margins}${columns > 1 ? ` numCol="${columns}" spcCol="152400"` : ''} rtlCol="0" anchor="${anchor}"${fit ? '><a:normAutofit/></a:bodyPr>' : '/>'}<a:lstStyle/>${ps.join('') || '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>'}</p:txBody>`;
 }
 const xfrm = (x, y, w, h, turn = '') => `<a:xfrm${turn}><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm>`;
 // A color, as transparent as `clear` (0–100) says.
@@ -607,8 +607,8 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
   const add = (kind, ...args) => { sl[kind](...args); return 2 + count++; };
   // A stand-in for what `write` writes once it has its number. → that number.
   const put = write => add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: `·${parts.push(write) - 1}·` });
-  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title, rotate, flip, alt, locked, fit, wrap = null } = {}) =>
-    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset, { fit, upright: !!flip?.v, wrap: wrap === null ? null : L(wrap) }), { box, title, rotate, flip, alt, locked }));
+  const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title, rotate, flip, alt, locked, fit, wrap = null, columns = 0 } = {}) =>
+    put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset, { fit, upright: !!flip?.v, wrap: wrap === null ? null : L(wrap), columns }), { box, title, rotate, flip, alt, locked }));
   // Texts on their own, their lines placed from (x0, y0): a text box at the side they're aligned to, from
   // their first line's top, its margins round them. → its rect.
   const textBox = (items, x0, y0, inset) => {
@@ -704,7 +704,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
     if (FOOT[m.role] && feet[m.role]) { put(id => footSlide(id, m, rect(m), k, feet[m.role])); return [rect(m)]; }
     const text = m.geometry === 'text' || m.geometry === 'frame', ins = s.Inset ? { l: (s.Inset.l ?? 7.2) / 72, t: (s.Inset.t ?? 3.6) / 72, r: (s.Inset.r ?? 7.2) / 72, b: (s.Inset.b ?? 3.6) / 72 } : PAGE;
     ids.set(m.id, shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.name ?? m.texts[0]?.text ?? Shapes.name(m.geometry) ?? 'Shape',
-      { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate, flip: m.flip, alt: m.alt, locked: m.locked, inset: ins, fit: !!s.Shrink }));
+      { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate, flip: m.flip, alt: m.alt, locked: m.locked, inset: ins, fit: !!s.Shrink, columns: m.role === 'footnotes' ? m.columns ?? 0 : 0 }));
     return [rect(m)];
   };
   // A crossing, as the chart draws it (Scene's `runs`). A connector can't be broken, so the line crossing carries its own casing: a white

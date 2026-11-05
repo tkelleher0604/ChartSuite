@@ -1805,13 +1805,15 @@ function mount(el) {
   function addFoot(m, text, s, field) {
     const view = viewOf(), key = `fn${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`, row = footRowHere(), said = `Added a footnote to ${m ? (m.type === 'shape' ? `the ${SHAPE[m.geometry] ?? 'shape'}` : whereSaid([m], s)) : named(s)}`;
     return App.change(tx => {
-      if (!row) tx.add('shape', { view, geometry: 'text', role: 'footnotes', text: '' });
+      if (!row) tx.add('shape', { view, geometry: 'text', role: 'footnotes', name: 'Footnotes', text: '' });
       else if (row.hidden) tx.update(row.shape, { hidden: false });
       if (m?.type === 'shape') tx.update(m.id, { footnotes: [...rowOf(m.id)?.footnotes ?? [], { key, text }] });
       else for (const p of s.own ? [treeOf(m.record)] : s.outputs) tx.note('Footnote', p, { text, ...(field && { field }) }, { view, param: key });
       tx.says(said);
-    }, { dated: false, say: said });
+    }, { dated: false, say: () => { const o = footOver(); return o ? `${said}; ${o}` : said; }, go: () => footOver() ? ['Tidy, to make room', () => tidy()] : null });
   }
+  // Where a chart placed leaves no room for them anywhere at its foot, that's said, as a Key over a box is.
+  const footOver = () => Scene.says(App.scene.peek(), b => App.notes.peek().shortOf(App.state.peek(), b.record)).find(t => t.startsWith('The footnotes block overlaps'));
   // Begun (Ctrl+Alt+F, Insert, a right-click): typed in where its line will go; Enter makes it, and it goes where the pen is.
   function footnote(m = selected().length === 1 ? selected()[0] : null) {
     if (still()) return Shell.toast(App.whyNot());
@@ -1862,7 +1864,8 @@ function mount(el) {
     const view = viewOf(), rec = treeOf(m.record), N = App.notes.peek(), s0 = st();
     const ids = [...Tree.dependents(s0, [m.record])].filter(id => id === m.record || s0[id]?.at);
     return App.change(tx => {
-      if (!s.own) return s.outputs.forEach(p => tx.note('Text', p, undefined, { view }));
+      // (And what gives this mark its text, where that's elsewhere, so it goes as it's asked to.)
+      if (!s.own) { const n = N.notes('Text').find(x => x.note === m.texts?.find(y => y.free)?.free.note); s.outputs.forEach(p => tx.note('Text', p, undefined, { view })); if (n && !s.outputs.some(p => Tree.key(p) === Tree.key(n.pattern))) tx.note('Text', n.pattern, undefined, { view }); return; }
       const others = N.notes('Text').some(n => n.view === view && Tree.key(n.pattern) !== Tree.key(rec) && ids.some(id => Tree.fits(s0, id, n.pattern)));
       tx.note('Text', rec, others ? { text: '' } : undefined, { view });
     }, { dated: false, say: `Removed the text from ${whereSaid([m], s)}` });
@@ -3275,6 +3278,8 @@ function mount(el) {
     // From the panel, at the pen: a free text, a footnote, and what they can read.
     words: id => { const m = marked(id); return m ? wordsAt(m) : []; },
     addText: (id, text) => { const m = marked(id); return m && putText(m, text); },
+    editText: id => { const m = marked(id), it = m?.texts?.find(x => x.free); if (it) writeText(m, it); },
+    dropText: id => { const m = marked(id); return m && unText(m, scoped(m)); },
     addFoot: (id, text) => { const m = marked(id); return m && addFoot(m, text, scoped(m), null); },
     footDelete: (id, key) => { const fm = scene.marks.find(x => x.role === 'footnotes'), f = fm?.feet?.find(y => y.from.some(z => z.key === key)); return f && footDelete(f); },
     footEdit: (id, key) => { const fm = scene.marks.find(x => x.role === 'footnotes'), f = fm?.feet?.find(y => y.from.some(z => z.key === key)); if (f) editFoot(fm, f); },
