@@ -769,7 +769,7 @@ async function run() {
       const due = `annual tax for ${year} ${overdue.includes(e.id) ? 'was' : 'is'} due `;
       return !!who && (e.description?.startsWith(`${who}${/s$/.test(who) ? '’' : '’s'} ${due}`) || e.description?.startsWith(`${who} is a corporation, so its ${due}`)); };
     check('… each tax saying whose, as its summary does: Fund III’s annual tax for 2026 is due June 1, 2027', taxes.length >= 8 && taxes.every(owed) && new Set(taxes.map(e => e.description)).size === taxes.length
-      && taxes.some(e => e.summary === 'Annual Tax Due · Fund III, tax year 2026' && e.description === 'Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid.'),
+      && taxes.some(e => e.summary === 'Annual Tax Due · Fund III, tax year 2026' && e.description === 'Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid; late, a $200 penalty and 1½% a month.'),
       taxes.filter(e => !owed(e)).slice(0, 2).map(e => `${e.summary}: ${e.description}`).join(' | ') || taxes.slice(0, 2).map(e => `${e.summary}: ${e.description}`).join(' | '));
     // It reads true: the day it ends on is the event's, and any other day it names is a weekend day the date
     // moved from, said with why and which way (January 31, a Sunday, so the Friday before), never a bare day.
@@ -982,6 +982,28 @@ async function run() {
     await cancel(opening);
     S.parts.peek().undo.undo(); await tick(200); S.parts.peek().undo.undo(); await tick(200);
     S.select([]); await tick(60);
+    // What's still open names what fails, the rarest first; who's left off a page is said of that page, and what isn't tracked of whom.
+    {
+      const viewOf = name => A.views.peek().find(v => v.name === name)?.id;
+      S.show(viewOf('40 Act')); await tick(300);
+      opening = X.open('pdf');
+      await until(() => dlg()?.querySelector('.btn.primary'));
+      const words = () => saying();
+      check('Still open names the checks that fail, the rarest first', /Still open on this chart:.*errors \(.*\)/.test(words()) && words().indexOf('Good Standing') < words().indexOf('Capacity Held'), words());
+      check('A page that doesn’t draw who holds its boxes says so, with the figure', /40 Act doesn’t draw U\.S\. Investors’ 71\.6% of Fund III/.test(words()), words());
+      check('… and of whom what the chart doesn’t track is known, it says', /Other states’ dates not tracked: The BDC/.test(words()), words());
+      await cancel(opening);
+      S.show(viewOf('Structure')); await tick(300);
+      // A page with nothing on it for this chart says so, and isn't sent.
+      const before = A.chart.peek();
+      A.change(tx => { const v = tx.add('record', { kind: 'View' }); tx.note('Name', { id: v, kind: 'View' }, 'Nothing here'); for (const kind of new Set(Object.values(A.state.peek()).map(r => r.kind).filter(k => k && k !== 'View'))) tx.note('Shown', { kind }, false, { view: v }); }, { dated: false, say: 'A page' }); await tick(300);
+      opening = X.open('pdf');
+      await until(() => dlg()?.querySelector('.btn.primary'));
+      const row = [...dlg().querySelectorAll('.ex-views label')].find(l => l.textContent.startsWith('Nothing here'));
+      check('A page with nothing on it for this chart says so where it’s chosen, and can’t be ticked', !!row && row.textContent.includes('nothing on it') && row.querySelector('input').disabled && !row.querySelector('input').checked && A.chart.peek() === before, row?.textContent ?? [...dlg().querySelectorAll('.ex-views label')].map(l => l.textContent).join(' | '));
+      await cancel(opening);
+      S.parts.peek().undo.undo(); await tick(300);
+    }
     // Fit to page goes up as well as down: as large as it holds, in the middle of its room; and with that done, it says so.
     {
       const was = A.scene.peek(), n0 = A.wb.changes().length, boxesOf = sc => sc.marks.filter(m => m.type === 'box'), onSheet = sc => { const bs = boxesOf(sc), s = sc.page.scale; return { left: Math.min(...bs.map(b => b.x * s)), right: Math.max(...bs.map(b => (b.x + b.w) * s)), W: sc.page.sheet.w }; };

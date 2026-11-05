@@ -263,9 +263,11 @@ function addEntry(at, edge, out, { recurs = false } = {}) {
 // it. A hand tick from making the field would beat the rule written next. A check is one whose failures count as errors, and it goes
 // straight to its rule. One change either way.
 const offered = signal([]);     // yes-or-noes made from a record, offered in its panel till it's left: [{ at, edge }]
+// A check begins with a look: what fails it is outlined, on every page, with its Key row, till someone says otherwise (dendra.md, Styles).
+const checkLook = (tx, p, edge) => { const no = { out: { tag: false }, ...p }; tx.note('Outline', no, '#c00000'); tx.note('Dash', no, 'dashed'); tx.note('Weight', no, 1.5); tx.note('Caption', no, `Fails ${edge}`); };
 function makeTag(at, edge, check = false) {
   const spec = { out: { tag: true }, args: [{ edge, loc: T.specOf(tree(at)) }] }, p = T.bare(spec), what = check ? 'check' : 'yes-or-no';
-  App.change(tx => { if (!App.schema.value[T.key(spec)]) tx.add('spec', { tree: spec }); if (check) tx.note('Check', p, true); tx.says(`Added the ${what} ${edge}`); }, { dated: false, say: `Added the ${what} ${edge}` });
+  App.change(tx => { if (!App.schema.value[T.key(spec)]) tx.add('spec', { tree: spec }); if (check) { tx.note('Check', p, true); checkLook(tx, p, edge); } tx.says(`Added the ${what} ${edge}`); }, { dated: false, say: `Added the ${what} ${edge}` });
   if (!check) { offered.value = [...offered.peek(), { at, edge }]; return; }
   select([general(p)]);
   FormulaBar.define(p);
@@ -491,9 +493,9 @@ function ComparedRows({ v }) {
       put=${out => Time.showChanges(v.id, out.choice === 'None' ? null : out.choice === 'Since a date' ? { since: v.changes?.since ?? Time.dayBefore(App.day.peek()) } : { page: true })} />
       ${look ? html`<button class="btn ghost keeps" aria-disabled=${can ? null : 'true'} data-tip=${can ? null : App.whyNot()} onClick=${() => Time.keepChanges(v.id)}>Keep</button>` : null}</div></div>
     ${v.changes?.since ? html`<div class="row in"><div class="k">Since</div><div class="v ctl"><${Field} looks r=${{ field: 'date', value: v.changes.since }} datatype="date" label="Since" put=${out => out && Time.showChanges(v.id, { since: out.value })} /></div></div>` : null}
-    ${v.changes ? lists.map(([w, ms]) => html`<div class="row in marked" key=${w}><div class="k">${w}</div><div class="v">${ms.map((m, i) => html`${i ? ', ' : ''}<${Go} to=${m.record}>${bound(shortOf(m.record) || m.name)}</${Go}>`)}</div></div>`) : null}`;
+    ${v.changes ? lists.map(([w, ms]) => html`<div class="row in marked" key=${w}><div class="k">${w}</div><div class="v">${ms.map((m, i) => html`${i ? ', ' : ''}<${Go} to=${m.record}>${bound(shortOf(m.record) || m.named?.text || m.texts?.[0]?.text || 'Unnamed')}</${Go}>`)}</div></div>`) : null}`;
 }
-// What a chart keeps by what its boxes know (Canvas's filter): a look, as a table's filter is, its words a click from changing them.
+// What a chart keeps by what its boxes know (Canvas's filter): a look, as a table's filter is, or the page's own rule or list, kept; its words a click from changing them.
 function FilterRow({ v }) {
   const said = App.lookWordsOf(v.id);
   return html`<div class="row"><div class="k">Filter</div><div class="v ctl"><button class="sel dd" aria-haspopup="menu" aria-label=${`Filter: ${said.join(', ') || 'None'}`} disabled=${!App.canAsk()} onClick=${e => Canvas.active.peek()?.filter(e.currentTarget)}><span>${said.join(' · ') || 'None'}</span></button></div></div>`;
@@ -583,10 +585,15 @@ function Filing({ due, slot, close }) {
   const [text, setText] = useState(T.formatDate(App.day.peek(), 'short')), value = T.parse('date', T.clean(text) || '-');
   const rec = value ? { at: slot.at, edge: slot.edge, field: 'date', value } : null;
   let made = slot.id;
-  // (A filing is said as what it is, a renewal as Renewed, never as a correction of its date.)
+  // (A filing is said as what it is, a renewal as Renewed, never as a correction of its date.) One made after its day leaves a mark on the record, as a yearly
+  // payment's rule does: what was due, the entry "Filed Late", from that day until one made on time ends it (dendra.md, Time: Lateness stays).
   const write = tx => {
     if (Formulas.pay?.({ R: App.computed.peek(), due, day: value, add: r => (made = tx.add('record', enterAt(tx, r))) })) return;
-    if (slot.id) tx.set(slot.id, rec); else made = tx.add('record', enterAt(tx, rec));
+    let at = slot.at;
+    if (slot.id) tx.set(slot.id, rec); else { const e = enterAt(tx, rec); at = e.at; made = tx.add('record', e); }
+    const edge = `${settleWord(slot)} Late`, mark = T.entryAt(recs(), slot.at, edge), owed = dueOn();
+    if (T.firstDay(value) > T.firstDay(owed)) { const late = { at, edge, field: 'text', value: `Due ${short(owed)}` }; if (mark) tx.set(mark, late); else tx.add('record', late); }
+    else if (mark) tx.remove(mark);
     tx.says(`${settleWord(slot)} ${recs()[slot.at]?.args ? N().segmentOf(recs(), slot.at) : termOf(slot.at)} on ${short(value)}`);
   };
   useLayoutEffect(() => { FormulaBar.preview(rec ? App.would(write, { dated: value }) : null); }, [value]);
@@ -606,7 +613,7 @@ function Filing({ due, slot, close }) {
     <label class="field"><span>${slot.edge}</span><input class="cell date" value=${text} spellcheck=${false} aria-invalid=${value ? null : 'true'} data-why=${T.notA('date')}
       ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onInput=${e => setText(e.target.value)}
       onKeyDown=${e => { if (e.key === 'Enter') { e.preventDefault(); keep(); } }} /></label>
-    <p class="meta">${was.edge} ${next === undefined || next?.value === was.value ? short(was.value) : html`<s class="del">${short(was.value)}</s>`}${next && next.value !== was.value ? html` <span class="add">${short(next.value)}</span>` : null}</p>
+    <p class="meta">${was.edge} ${next === undefined || next?.value === was.value ? short(was.value) : html`<s class="del">${short(was.value)}</s>`}${next && next.value !== was.value ? html` <span class="add">${short(next.value)}</span>` : null}${value && T.firstDay(value) > App.day.peek() ? html` <span class="no">A day still to come</span>` : null}</p>
   </div>`;
 }
 
@@ -637,7 +644,7 @@ function Output({ id, slot, label }) {
   if (slot?.unsure) return html`<button class="errv err" data-tip="Its rule reads a rule that doesn’t work" onClick=${() => openDef(slot.unsure)}>Can’t say</button>`;
   // An error where the value would be: what it needs, in words ("Needs Fiscal Year End"), its code on hover;
   // with no words, its code, in red. Clicked, the bar says why.
-  if (slot?.error) { const { code, msg } = slot.error.error, say = msg?.replace(/\.$/, '');
+  if (slot?.error) { const { code } = slot.error.error, say = FormulaBar.needSaid(slot.error, slot.at);
     return html`<button class=${'errv' + (say ? '' : ' err')} data-tip=${say ? code : null} aria-label=${say ? `${say} (${code})` : null} onClick=${() => emit('why-open', slot.error.id)}>${say || code}</button>`; }
   const g = id && disagreeing.value.get(id);
   if (g) return html`<${Answers} g=${g} />`;
@@ -669,6 +676,8 @@ function entryMenu(anchor, id) {
     { label: App.isDated.value ? 'Rule' : `About ${r.edge}`, run: () => select([general(patternOf(id))]) },
     // A choice or a tag is how a chart styles by an answer (dendra.md, The pen).
     ...(typeof FormatBar !== 'undefined' && charted() && !App.readOnly.peek() && FormatBar.answersOf?.(id) ? [{ label: 'A look for each', run: () => FormatBar.lookForEach(id) }] : []),
+    // And a page for each (dendra.md, Views), each a rule by that answer.
+    ...(typeof FormatBar !== 'undefined' && charted() && !App.readOnly.peek() && FormatBar.answersOf?.(id) ? [{ label: 'A page for each', run: () => App.pagesFor(Shell.view.peek(), { key: T.pathOf(recs(), id).slice(1).map(x => recs()[x].edge).join(' › '), label: T.pathOf(recs(), id).slice(1).map(x => recs()[x].edge).join(' › ') }) }] : []),
     // What a formula gives is overridden only by saying so (App.overriding), as its reason in the formula bar offers it; and what's typed over one goes back the same way.
     ...(f && 'tag' in r && !App.readOnly.peek() ? [{ label: 'Override…', run: () => App.overriding(id) }] : []),
     ...(!f && over(id) && !App.readOnly.peek() ? [{ label: 'Back to the rule…', run: () => App.backToRule(id) }] : []),
@@ -743,7 +752,7 @@ function listsOf(id, docs = false) {
 // Adding to a list, from Add or from the list's own +: one way, a search of who, by name: one the chart has, or a new one
 // typed, of a kind the other side can be; then it's related, pending, its amount and day asked (App.relating).
 const addTo = (anchor, id, l) => menu(anchor, q => whoFor(id, l, q), { search: true, ph: `New ${one(l.name).toLowerCase()}` });
-const listItems = (id, anchor) => listsOf(id).map(l => ({ label: `${l.name}…`, run: () => addTo(anchor, id, l) }));
+const listItems = (id, anchor) => listsOf(id).map(l => ({ label: `${l.name}…`, names: [...new Set(l.ways.flatMap(w => w.s?.out?.choice ? [w.s.out.choice] : []))], run: () => addTo(anchor, id, l) }));
 // Who can be in a list: each record the chart has that fits its other side, by name, as typed, but those it has already;
 // and a new one of each kind the side can be, named as typed.
 function whoFor(id, l, q) {
@@ -756,7 +765,7 @@ function whoFor(id, l, q) {
   const out = [], seen = new Set(held.map(it => it.obj)), taken = new Set(), words = T.norm(q ?? '').split(' ').filter(Boolean);
   for (const w of l.ways) for (const x of Object.keys(recs())) {
     const b = objectOf(x), k = some ? `${b}|${relOf(w)}` : b;
-    if (seen.has(b) || taken.has(k) || b === id || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {})) continue;
+    if (seen.has(b) || taken.has(k) || (b === id && !N().value('Itself', T.bare(w.s))) || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {})) continue;
     const hay = T.norm(`${placeName(b)} ${recs()[b].args ? '' : shortOf(b)}`);
     if (!words.every(word => hay.includes(word))) continue;
     taken.add(k);
@@ -1722,7 +1731,7 @@ function LaterView({ id }) {
 const hiddenNote = (id, view) => { const n = N().resolve('Shown', tree(id), view); return n?.value === false && n.note.view === view && n.note.pattern.id === id ? n.note : null; };
 // Whether a record is hidden there, one by one, by its note or for the session; and shown or hidden there: as a change, or, in
 // Viewing, or where a look has it (a filter, Show only), for this window, in no log (App.see).
-const hiddenHere = (id, view) => { const s = App.seenIn(view)?.get(id); return s === undefined ? !!hiddenNote(id, view) : !s; };
+const hiddenHere = (id, view) => { const s = App.seenIn(view)?.get(id); return s === undefined ? !!hiddenNote(id, view) || App.offRule(id, view) : !s; };
 const showHere = (ids, v, on = true) => {
   const look = App.seenIn(v.id), mine = App.seeing() ? ids : ids.filter(x => look?.has(x)), rest = ids.filter(x => !mine.includes(x));
   if (mine.length) App.see(v.id, mine, on);
@@ -1746,8 +1755,9 @@ function leftOut(sc, ids) {
 }
 const leftHere = id => { const v = viewShown(), sc = App.scene.value; return v?.layout === 'chart' && sc ? leftOut(sc, [id]).get(id) ?? [] : []; };
 function HiddenList({ v }) {
-  // (What a filter or Show only keeps off, the band says, with its way back: only what's hidden one by one is listed.)
-  const hid = [...new Set([...N().notes('Shown').filter(n => n.view === v.id && n.value === false && n.pattern.id !== undefined).map(n => n.pattern.id), ...Object.keys(App.lookOf(v.id)?.ticks ?? {})])]
+  // (What a filter or Show only keeps off, the band or the page's rule says, with its way back: only what's hidden one by one is listed, and what isn't on a list the page keeps, which is ticked on as a box is on a blank chart.)
+  const offList = App.ruleOf(v.id)?.only ? Object.keys(recs()).filter(x => recs()[x].kind !== undefined && !recs()[x].calendar && !T.isView(recs()[x])) : [];
+  const hid = [...new Set([...N().notes('Shown').filter(n => n.view === v.id && n.value === false && n.pattern.id !== undefined).map(n => n.pattern.id), ...Object.keys(App.lookOf(v.id)?.ticks ?? {}), ...offList])]
     .filter(x => recs()[x] && (recs()[x].kind || recs()[x].args) && hiddenHere(x, v.id));
   // And what it leaves out of the boxes it draws, by list: "Not shown here: 2 owners of Fund III".
   const sc = App.scene.value, left = sc ? [...leftOut(sc, [...sc.byId.keys()])].flatMap(([id, parts]) => parts.map(p => ({ id, ...p }))) : [];
@@ -1861,7 +1871,7 @@ function styleMenu(e, g, v, moves, rename) {
   e.preventDefault();
   const fb = typeof FormatBar !== 'undefined' && FormatBar.aim ? FormatBar : null, ro = App.readOnly.peek(), keys = new Set(g.outputs.map(p => T.key(p)));
   const look = () => { const on = !fb.aimedAt(g); if (on) fb.aim(g); };
-  const given = App.shown.peek().rows(App.chart.peek()).filter(x => 'note' in x && x.view === v && keys.has(T.key(x.pattern)) && Notes.looksLike(x));
+  const given = App.shown.peek().rows(App.chart.peek()).filter(x => 'note' in x && (x.view === v || N().everyPage(x)) && keys.has(T.key(x.pattern)) && Notes.looksLike(x));
   menu({ x: e.clientX, y: e.clientY }, [
     ...(rename ? [{ label: 'Rename', keys: 'F2', disabled: ro, run: rename }] : []), ...moves.map(m => ({ ...m, disabled: ro || m.disabled })),
     // What it's the row of, as what's lit is what's meant.
@@ -1945,7 +1955,7 @@ function ShapeView({ id, part }) {
   // the pointer; hidden ones it has no row for now (nothing drawn is keyed by them) after them.
   const all = m?.all ?? [], hidden = (row.hide ?? []).filter(k => !all.some(r => r.key === k)).map(k => n.styles(v).flatMap(s => s.outputs).find(o => T.key(o.pattern) === k)).filter(Boolean)
     .map(o => ({ key: T.key(o.pattern), outputs: [o.pattern], caption: Scene.captionOf(n, o.pattern, v), swatch: Scene.swatchOf(o.pattern, o.formats) }));
-  const rows = key ? [...all, ...hidden] : [];
+  const rows = key ? [...all, ...hidden] : [], held = m?.geometry === 'frame' ? (m.holds ?? []).map(x => App.scene.value.byId.get(x)).filter(Boolean) : [];
   const show = (k, on) => set({ hide: on ? (row.hide ?? []).filter(x => x !== k) : [...(row.hide ?? []), k] });
   const keyOrder = (from, i) => set({ order: moved(rows.map(r => r.key), from, i) }, 'Reordered the Key');
   return html`<div class="insp">
@@ -1961,6 +1971,7 @@ function ShapeView({ id, part }) {
     </div>
     ${rows.length ? html`<${Section} title="Rows" n=${m?.rows.length ?? 0}>${rows.map(r => html`<${KeyRow} key=${r.key} r=${r} id=${id} row=${row} m=${m} on=${r.key === part} shown=${!(row.hide ?? []).includes(r.key)} show=${show} order=${keyOrder} still=${still} />`)}</${Section}>` : null}
     ${glued(g) ? html`<div class="rows"><div class="row"><div class="k">Glued to</div><div class="v">${row.ends.map(e => e ? (gone(e)?.record ? n.nameOf(recs(), gone(e).record) : gone(e)?.texts?.[0]?.text ?? Shapes.name(gone(e)?.geometry) ?? 'A shape') : null).filter(Boolean).join(' and ')}</div></div></div>` : null}
+    ${m?.geometry === 'frame' && held.length ? html`<div class="rows"><div class="row" data-row="holds"><div class="k">Holds</div><div class="v">${held.map((x, i) => html`${i ? ', ' : ''}${x.type === 'box' ? html`<${Go} to=${x.record}>${bound(shortOf(x.record))}</${Go}>` : (x.name ?? x.texts?.[0]?.text?.split('\n')[0] ?? 'A shape')}`)}</div></div></div>` : null}
     ${m && !row.role ? html`<div class="rows"><div class="row" data-row="alt"><div class="k">Alt text</div><div class="v ctl"><${Prose} text=${row.alt ?? ''} label="Alt text" put=${alt => set({ alt: alt || undefined }, alt ? 'Set the alt text' : 'Took the alt text off')} /></div></div>
       <div class="row" data-row="link"><div class="k">Link</div><div class="v"><button type="button" class="lk" disabled=${still} onClick=${() => cv?.link(id)}>${row.link ? row.link.url ?? App.views.peek().find(x => x.id === row.link.view)?.name ?? 'A page' : 'None'}</button></div></div></div>` : null}
     ${g === 'table' && m ? html`<${TableRows} id=${id} row=${row} m=${m} still=${still} />` : null}
@@ -2477,6 +2488,7 @@ function GeneralView({ p, style }) {
         return html`<div class="row" key="stands"><div class="k">Stands</div><div class="v ctl">${still ? said(now) : html`<button class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, [...es, 'level', 'none'].map(s => ({ label: said(s), checked: T.same(s, now), run: () => !T.same(s, now) && setIt(s) })))}><span>${said(now)}</span></button>`}</div></div>`; })() : null}
       ${kind && below.some(s => s.out?.field === 'date' || s.out?.field === 'number') ? (() => { const by = n.across(p.kind), said = by ?? 'As they were made', take = e => App.change(tx => tx.note('Order', p, e ? { by: e } : undefined), { dated: false, say: e ? `Stood each ${lower(p.kind)} in the order of ${e}` : `Stood each ${lower(p.kind)} as they were made` });
         return html`<div class="row" key="across"><div class="k">Across, in order of</div><div class="v ctl">${still ? said : html`<button class="sel dd" aria-haspopup="menu" aria-label="Across, in order of" onClick=${e => menu(e.currentTarget, [{ label: 'As they were made', checked: !by, run: () => by && take(null) }, ...below.filter(s => s.out?.field === 'date' || s.out?.field === 'number').map(s => ({ label: s.args[0].edge, checked: T.same(by ?? '', s.args[0].edge), run: () => !T.same(by ?? '', s.args[0].edge) && take(s.args[0].edge) }))])}><span>${said}</span></button>`}</div></div>`; })() : null}
+      ${rel && !def && specs.every(s => s.args.length === 2) ? checkRow('Can relate a box to itself', n.value('Itself', p) === true, on => flag('Itself', p, on ? true : undefined)) : null}
       ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('Required', n.required(p), on => flag('Required', p, on))}
       ${type === 'tag' ? checkRow('Count a No as an error', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
       ${kind || rel || def || writing || (dated && (n.isStart(dp) || n.isEnd(dp))) ? null : checkRow('Changes over time', dated ? n.changing(p) : !n.fixed(p), on => flag('Fixed', p, dated ? (on ? false : undefined) : (on ? undefined : true)))}
@@ -2638,8 +2650,10 @@ function drawnLists(id) {
   return (some.length ? some : lists.filter(l => l.ways.some(drawn))).sort((a, b) => a.ways[0].s.args.indexOf(a.ways[0].sl) - b.ways[0].s.args.indexOf(b.ways[0].sl));
 }
 const addsOf = id => drawnLists(id).map(l => ({ label: `Add ${one(l.name).toLowerCase()}…`, run: at => addTo(at, id, l) }));
-Shell.register('inspector', { addTo: addToList, adds: addsOf, changes: changesOf, renameLine: renameOfLine, ending: rid => remove(rid, { auto: true }), ask: into => { Shell.showPanel?.(); aim.value = 'merged'; select([into]); }, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
-Shell.register('attention', { items: () => attention.value, within: days => App.needsWithin(days).filter(a => a.kind === 'soon').map(attending),
+Shell.register('inspector', { addTo: addToList, adds: addsOf, changes: changesOf, renameLine: renameOfLine, ending: rid => remove(rid, { auto: true }), ask: into => { Shell.showPanel?.(); aim.value = 'merged'; select([into]); }, showOn: (ids, view) => showHere(ids, App.views.peek().find(v => v.id === view)), mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
+// Who holds a box here that this page has been left without, one by one (dendra.md, Views: Off the page): counted while the page is shown, going to one says how to show it.
+const offHere = () => { const sc = App.scene.value, v = viewShown(); return sc && v?.layout === 'chart' && sc.view === v.id ? Scene.offPage(sc, recs(), N(), App.schema.value).filter(o => o.own).map(o => ({ kind: 'off', id: o.rid, off: o, go: () => select([o.holder]), show: () => showHere([o.holder], v) })) : []; };
+Shell.register('attention', { items: () => [...attention.value, ...offHere()], within: days => App.needsWithin(days).filter(a => a.kind === 'soon').map(attending),
   apart: () => App.blanksApart.value.map(b => ({ ...attending({ kind: 'blank', id: b.id, edge: b.edge }), ...(b.list && { go: () => { aim.value = 'list:' + b.edge; select([b.id]); } }), apart: b.ours ? 'optional' : 'ours', list: !!b.list, say: () => App.sayNotOurs(b.id, b.edge, b.ours) })) });
 // What the panel's ⋯ changes, for Find, of the one record selected: Transfer… (by the words a sale goes by) and Delete…,
 // with why not, where they can't be.
@@ -2662,6 +2676,9 @@ Shell.register('action', { id: 'record.merge', name: 'Merge into…', names: ['M
   enabled: () => App.canAsk() && !!theOne() && App.endsOf(theOne()).some(e => e.rel), run: () => App.merging(theOne()), why: notAsked('Only what can merge merges', 'a box') });
 Shell.register('action', { id: 'record.delete', get name() { return theOne() ? App.deleteLabel([theOne()]) : 'Delete…'; }, names: ['Delete', 'Remove', 'Dissolve', 'End', 'Sell', 'Sale', ...WHAT_IF],
   enabled: () => App.canAsk() && !!theOne() && App.scene.peek()?.byId.get(theOne())?.change !== 'Gone', run: () => remove(theOne(), { auto: true }), why: notAsked('', 'what to delete') });
+// What this chart says it doesn't track, on the list of its rules and in Find, by the words a person looks for it by; each opens what it says, and of whom.
+const untrackedItem = x => ({ label: x.name, detail: 'Not tracked', why: x.who.length ? `Of ${x.who.length}` : null, tip: x.about, names: ['Not tracked', 'Untracked', ...x.names], run: () => App.sayUntracked(x) });
+Shell.register('find', { items: () => App.untracked.peek().map(untrackedItem) });
 // The list of the rules, from the chart's menu and Find: what checks something first, then every other, then the relations entered,
 // each a click from its page.
 function rulesList(anchor = { x: 40, y: 44 }) {
@@ -2674,7 +2691,7 @@ function rulesList(anchor = { x: 40, y: 44 }) {
   const part = (head, xs) => xs.length ? [{ head }, ...xs.sort(by)] : [];
   // Every value typed over a rule, on the one list: whose, what the rule says, why and who said so.
   const R = App.computed.peek(), overs = Object.keys(R.covered).filter(x => !R.covered[x].agrees && recs()[x]).map(x => { const o = App.overOf(x), r = recs()[x]; return { label: `${r.args ? segment(x) : `${r.edge} · ${bound(N().whereOf(recs(), r))}`}`, detail: `${T.outputText(r)}; the rule ${ruleSays(x)}`, tip: [`${T.outputText(r)}; the rule ${ruleSays(x)}`, o?.why].filter(Boolean).join(' · '), names: ['Typed over', 'Override', 'Overrides', 'Waiver', 'Exception', o?.why ?? ''], run: () => { select([r.args ? x : objectOf(x)]); emit('why-open', x); } }; });
-  const listed = [...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations), ...part('Typed over', overs)];
+  const listed = [...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations), ...part('Typed over', overs), ...part('Not tracked', App.untracked.peek().map(untrackedItem))];
   menu(anchor, [...(App.readOnly.peek() ? [] : [...newRules(), ...(listed.length ? ['-'] : [])]), ...listed], { search: true });
 }
 // A rule begun from the list: of what, then named in that kind's panel, as Add begins one there. A check goes on to its rule; a value's is what's typed after =.

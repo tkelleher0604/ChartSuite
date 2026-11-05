@@ -438,19 +438,20 @@ table.table { border-collapse: collapse; width: 100%; background: var(--surface)
 .ol-row > .c { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .ol-row > .fig { font-variant-numeric: tabular-nums; }
 .ol-row.k-overdue > .fig, .ol-row.k-error > .fig { color: var(--no); }
-.ol-row.k-soon > .fig { color: var(--due); }
+.ol-row.k-soon > .fig, .ol-row.k-cant > .fig { color: var(--due); }
 .ol-row > .why { color: var(--ink-2); }
 .ol-head { display: flex; align-items: center; gap: 4px; width: 100%; padding: 8px 16px 2px; border: 0; background: none; font: 500 var(--t12); color: var(--ink-2); text-align: left; }
 .ol-head.overdue, .ol-head.error { color: var(--no); }
-.ol-head.soon, .ol-head.blank { color: var(--due); }
+.ol-head.cant, .ol-head.soon, .ol-head.blank { color: var(--due); }
 button.ol-head { cursor: pointer; }
 .ol-head.sub { padding-top: 6px; font-weight: 400; color: var(--ink-3); }
 .ol-row > .ours { justify-self: end; font: var(--t12); }
 .ol-none { padding: 12px 16px; color: var(--ink-3); }
 .ol-tabs > .broken, .ol-tabs > .overdue, .ol-tabs > .error { color: var(--no); }
-.ol-tabs > .soon, .ol-tabs > .blank, .ol-tabs > .overrides { color: var(--due); }
+.ol-tabs > .cant, .ol-tabs > .soon, .ol-tabs > .blank, .ol-tabs > .off, .ol-tabs > .overrides { color: var(--due); }
 .said-broken, .said-overdue, .said-error { color: var(--no); font-weight: 500; }
-.said-blank, .said-overrides { color: var(--due); }
+.said-cant, .said-blank, .said-overrides { color: var(--due); }
+.said-cant { font-weight: 500; }
 .notours { margin-left: 8px; font: 400 var(--t12); color: var(--ink-3); }
 .sel .notours { margin-left: 0; }
 /* A chart with no box: its one action, over the middle of the page, which takes clicks around it. */
@@ -520,7 +521,8 @@ button.ol-head { cursor: pointer; }
 .status, .status > .counts { display: flex; align-items: center; gap: 4px; }
 .status .btn { height: 24px; padding: 0 4px; }
 .status .overdue, .status .error, .status .broken { color: var(--no); }
-.status .soon, .status .blank, .status .overrides { color: var(--due); }
+.status .cant, .status .soon, .status .blank, .status .off, .status .overrides { color: var(--due); }
+.status .cant { font-weight: 500; }
 .status .broken { font-weight: 600; }
 
 /* The launch cover, set before first paint by the head script, so nothing of the app shows first. */

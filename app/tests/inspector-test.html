@@ -1082,6 +1082,20 @@ async function run() {
   Shell.select(['fund']); await tick(60);
   const buttonOf = edge => rowOf(edge)?.querySelector('.btn.ver.filed')?.textContent;
   check('… and so Renewed… for a renewal, Affirmed… for an affirmation', buttonOf('Next Renewal') === 'Renewed…' && buttonOf('Affirmation Due') === 'Affirmed…', `${buttonOf('Next Renewal')} ${buttonOf('Affirmation Due')}`);
+  // A filing made late keeps a mark on the record, as a yearly payment's rule does; it's no toast only.
+  {
+    const lei = rowOf('Next Renewal'), owed = st()[lei.dataset.key].value;
+    lei.querySelector('.btn.ver.filed').click(); await tick(80);
+    const was = document.querySelector('.filing input'); was.value = 'Jan 5, 2037'; was.dispatchEvent(new Event('input', { bubbles: true })); await tick(80);
+    check('A day still to come is said as it’s typed', document.querySelector('.filing .meta')?.textContent.includes('A day still to come'), document.querySelector('.filing .meta')?.textContent);
+    key(was, 'Enter'); await tick(80);
+    const mark = day => Object.values(App.wb.asOf(C, day)).find(r => r.edge === 'Renewed Late' && Tree.objectOf(App.wb.asOf(C, day), r.at) === 'fund');
+    check('A renewal after its day keeps a mark on the record: what was due, from that day', mark('2037-01-06')?.value === `Due ${Tree.formatDate(owed, 'short')}` && !mark('2037-01-04'), JSON.stringify(mark('2037-01-06')));
+    check('… and says so in History, as it did', last().note === `Late: it was due ${Tree.formatDate(owed, 'short')}`, last().note);
+    Shell.parts.value.undo.undo(); await tick(60);
+    check('… Undo takes it back with the filing', !mark('2037-01-06'));
+    Shell.select(['fund']); await tick(60);
+  }
   Shell.select(['bdc']); await tick(60);
   // A tax year's payment is recorded at the year it settles: the year, worked out, entered to bear it
   const taxYear = (who, y) => Object.keys(st()).find(k => st()[k].args && N().segmentOf(st(), k) === `${who}, tax year ${y}`);

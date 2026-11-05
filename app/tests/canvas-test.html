@@ -1896,7 +1896,7 @@ async function onlyThese() {
   check('Show all returns to what the page had, nothing logged, the band gone', JSON.stringify(boxes()) === JSON.stringify(all) && App.wb.changes().length === n0 && !band(), `${boxes()}`);
   Shell.select(keep); await tick(200); find.run(); await tick(450);
   bandBtn('Keep').click(); await tick(450);
-  check('Keep makes it the page’s, in one change, said so, with Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 + 1 && !band() && /^Hid \d+ boxes in Only/.test(txt($$('.toast').at(-1))) && /Undo/.test(txt($$('.toast').at(-1))), `${boxes()} | ${txt($$('.toast').at(-1))}`);
+  check('Keep makes it the page’s, in one change, said so, with Undo', JSON.stringify(boxes()) === JSON.stringify([...keep].sort()) && App.wb.changes().length === n0 + 1 && !band() && /^Only shows only these 3 boxes/.test(txt($$('.toast').at(-1))) && /Undo/.test(txt($$('.toast').at(-1))), `${boxes()} | ${txt($$('.toast').at(-1))}`);
   Shell.select([]); await tick(250);
   const row = id => $$('.insp .hiddenrow').find(r => txt(r).startsWith(App.notes.peek().nameOf(App.state.peek(), id)));
   const hid = all.find(id => !keep.includes(id)), r0 = row(hid), y0 = r0?.getBoundingClientRect().top;
@@ -2032,7 +2032,7 @@ async function readingOnly() {
   const fields = menuItems();
   check('Filter… on a chart lists what a box knows, its kind first, then its choices', fields[0] === 'Kind' && fields.includes('Jurisdiction') && fields.indexOf('Jurisdiction') < fields.indexOf('Name'), fields.slice(0, 6).join());
   [...document.querySelectorAll('.float .menu-item')].find(x => txt(x) === 'Jurisdiction').click(); await tick(150);
-  const vals = $$('.tfilter .tf-row:not(.all) .v').map(txt), delaware = all.filter(id => App.valueAt(st(), sc().byId.get(id).record, 'Jurisdiction') === 'Delaware');
+  const vals = $$('.tfilter .tf-row:not(.all) .v').map(txt), delaware = all.filter(id => Tree.valuesAt(st(), sc().byId.get(id).record, 'Jurisdiction')[0] === 'Delaware');
   check('… by the same control as a table’s: a search, Select all, a tick for each value with how many', !!$('.tfilter .tf-find') && !!$('.tfilter .tf-row.all') && vals.includes('Delaware') && +$$('.tfilter .tf-row').find(r => txt(r.querySelector('.v')) === 'Delaware').querySelector('.n').textContent === delaware.length, vals.join());
   const flipped = $$('.tfilter .tf-row.all input')[0]; flipped.click(); await tick(100);
   $$('.tfilter .tf-row').find(r => txt(r.querySelector('.v')) === 'Delaware').querySelector('input').click(); await tick(300);

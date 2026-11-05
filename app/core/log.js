@@ -199,10 +199,14 @@ function open(data) {
     // The records an added one could share its argumentation with: those at one of its locations.
     const near = new Set(c.adds.filter(r => 'record' in r).flatMap(r => Tree.argsOf(r).map(a => a.at))), byArgs = new Map();
     for (const r of after) if ('record' in r && !('kind' in r) && (r.at ? near.has(r.at) : r.args.some(a => near.has(a.at)))) push(byArgs, argKey(r), r);
+    const itself = d.notes.notes('Itself'), rowOf = (made => id => (made ??= new Map(c.adds.filter(x => 'record' in x).map(x => [x.record, x]))).get(id) ?? (d.items.get(id) ?? []).find(x => !gone.has(x.id)))(null);
+    const home = id => { let x = id; for (let n = 0; n < 16; n++) { const up = rowOf(x)?.at; if (!up) return x; x = up; } return x; };
     for (const r of c.adds) if ('record' in r) {
       if (Tree.argsOf(r).some(a => !there(a.at))) return 'Something it’s at no longer exists.';
       if (!('kind' in r) && byArgs.get(argKey(r)).some(x => x.record !== r.record && overlap(x, r)))
         return 'args' in r ? 'That relation is already recorded.' : `${r.edge} is already recorded here.`;
+      // One object at both sides of a relation is no relation, unless the relation says it can be (an Itself note): a company doesn't own itself.
+      if (r.args?.length === 2 && home(r.args[0].at) === home(r.args[1].at) && !itself.some(n => n.value === true && n.pattern.args?.length === 2 && r.args.every(a => n.pattern.args.some(b => Tree.same(a.edge, b.edge))))) return `Nothing can be its own ${r.args[0].edge}.`;
     }
     const now = c.adds.some(r => 'record' in r || 'spec' in r) && !sameSchema(d.records, c.removes.map(id => added.get(id)), c.adds) && Tree.schemaError(schemaOf(after));
     return now && now !== Tree.schemaError(schema(c.chart)) ? now : null;

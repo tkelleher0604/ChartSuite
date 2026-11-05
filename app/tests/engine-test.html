@@ -68,15 +68,15 @@ const rebuttal = { x_rebut: { args: [{ edge: 'Controller', at: 'okafor' }, { edg
 function theSample() {
   const R = workOut();
   const { definitions } = SAMPLE_INPUTS;
-  check('Notes gives the sample’s 37 definitions, each with what it covers and its rows', definitions.length === 37 && definitions.every(d => d.covers.length && d.rows.length && d.type));
+  check('Notes gives the sample’s 40 definitions, each with what it covers and its rows', definitions.length === 40 && definitions.every(d => d.covers.length && d.rows.length && d.type));
   check('…and none has a problem', !Object.keys(R.defErrors).length, JSON.stringify(R.defErrors));
   const problems = definitions.flatMap(d => d.rows.flatMap(r => Formulas.check(r.formula, { computed: R, def: d.id }).problems.map(p => `${d.id}: ${p.message}`)));
   check('…nor any of their rows, names included', !problems.length, problems.slice(0, 3).join(' | '));
   const counts = {};
   for (const c of Object.values(R.computed)) counts[c.def] = (counts[c.def] ?? 0) + 1;
   const total = Object.keys(R.computed).length;
-  check(`The sample works out 631 computed records, with no errors: the 577 before, the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate}), each private fund’s Benefit Plan Percentage and ERISA Plan Assets, and each entity’s Ours to Track and each year’s Year`,
-    total === 631 && !R.errors.length && counts.def_bdc_affiliate === 23 && counts.def_benefit_plan === 5 && counts.def_erisa === 5 && total - counts.def_bdc_affiliate - counts.def_benefit_plan - counts.def_erisa - counts.def_ours - counts.def_year === 577, `${total} computed, ${R.errors.length} errors`);
+  check(`The sample works out 637 computed records, with no errors: the 577 before, the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate}), each private fund’s Benefit Plan Percentage, ERISA Benefit Plan Test and Run and Advised, the BDC’s Dates Not Tracked, and each entity’s Ours to Track and each year’s Year`,
+    total === 637 && !R.errors.length && counts.def_bdc_affiliate === 23 && counts.def_benefit_plan === 5 && counts.def_erisa === 5 && counts.def_run === 5 && counts.def_untracked === 1 && total - counts.def_bdc_affiliate - counts.def_benefit_plan - counts.def_erisa - counts.def_run - counts.def_untracked - counts.def_ours - counts.def_year === 577, `${total} computed, ${R.errors.length} errors`);
   // Control 66 → 51: the feeder, the Cayman GP and the holding company no longer control the fund and what it
   // controls (15), since a limited partnership interest carries no vote. 3(c)(1) Count 5 → 0: every fund is 3(c)(7).
   // The Delaware tax 7 → 10: the AIV owes tax years 2025 and 2026, and the two blockers their franchise tax for
@@ -88,7 +88,7 @@ function theSample() {
   const want = { def_control: 51, def_affiliated: 289, def_close: 21, def_remote: 22, def_look_through: 51, def_adds_up: 11, def_tax: 6,
     def_private_fund: 5, def_investment_company: 1, def_annual_tax: 10, def_annual_tax_amount: 22, def_annual_tax_owed: 10, def_annual_return: 2,
     def_form_adv: 1, def_form_pf: 1, def_cima_fee: 1, def_cima_accounts: 1, def_crs: 1, def_fatca: 1, def_form_d: 2, def_cftc: 3, def_lei: 4,
-    def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13, def_benefit_plan: 5, def_erisa: 5, def_ours: 17, def_year: 4 };
+    def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13, def_benefit_plan: 5, def_erisa: 5, def_run: 5, def_untracked: 1, def_ours: 17, def_year: 4 };
   const off = Object.keys({ ...want, ...counts }).filter(d => want[d] !== counts[d]);
   check('…by definition: Control 51, Affiliated Person 289, Close Affiliate 21, Remote Affiliate 22, Look-Through Ownership 51, and the rest', !off.length,
     off.map(d => `${d} ${counts[d]} (want ${want[d]})`).join(', '));
@@ -110,11 +110,11 @@ function theSample() {
   const short = withRecords({ own_okfr_gp_pct: { ...SAMPLE_INPUTS.recs.own_okfr_gp_pct, value: 0.3 } });
   check('…but rules it out where every owner is meant to be charted: GP III, its members holding 80%', entryRow(short, 'def_adds_up', 'gp')?.value === false
     && entryRow(short, 'def_adds_up', 'gp').label === 'Owners missing', JSON.stringify(entryRow(short, 'def_adds_up', 'gp')));
-  // Nothing from nothing: owners whose percentages aren't recorded yet neither add up nor fail to; one typed does.
+  // Nothing from nothing: owners whose percentages aren't recorded yet neither add up nor fail to, the check can't say, for want of them; one typed does.
   const owners = (pcts) => withRecords(Object.fromEntries([['x_f', { kind: 'Entity' }], ['x_f_type', { at: 'x_f', edge: 'Entity Type', choice: 'Limited Partnership' }],
     ...pcts.flatMap((p, i) => [[`x_o${i}`, { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'x_f' }].map(a => a.edge === 'Owner' ? { ...a, at: ['pension', 'inv_us'][i] } : a), tag: true }],
       ...(p === null ? [] : [[`x_o${i}_pct`, { at: `x_o${i}`, edge: 'Percentage', field: 'percent', value: p }]])])]));
-  check('…and records nothing where its owners’ percentages are blank, ruling out once one is typed that doesn’t add up', !entryRow(owners([null, null]), 'def_adds_up', 'x_f')
+  check('…and can’t say where its owners’ percentages are blank, naming them, ruling out once one is typed that doesn’t add up', entryRow(owners([null, null]), 'def_adds_up', 'x_f')?.error?.code === '#N/A' && entryRow(owners([null, null]), 'def_adds_up', 'x_f').error.blanks.map(b => b.at).sort().join() === 'x_o0,x_o1'
     && entryRow(owners([0.4, null]), 'def_adds_up', 'x_f')?.value === false && entryRow(owners([0.4, 0.6]), 'def_adds_up', 'x_f')?.value === true,
     JSON.stringify([entryRow(owners([null, null]), 'def_adds_up', 'x_f'), entryRow(owners([0.4, null]), 'def_adds_up', 'x_f')?.value]));
   // A percentage out of range is the sample's rule to flag, as Ownership Adds Up flags owners that don't add up.
@@ -842,8 +842,55 @@ function ruleYouCanRelyOn() {
   check('what’s typed over a rule, with an Until, stands till then and is counted apart; past it, the rule says again', Formulas.attention(held, N3, DAY).some(a => a.kind === 'overrides' && held.records[a.id]?.at === chen) && !Formulas.attention(held, N3, DAY).some(a => a.kind === 'error' && held.records[a.id]?.at === chen) && lapsed.records[lapsed.rows[over.def].find(x => x.at === chen).id]?.tag === false, JSON.stringify(lapsed.rows[over.def].find(x => x.at === chen)));
 }
 
+// Silence never reads as fine (dendra.md, Definitions: Can't say; Lateness and holidays in Time; the fund template's own rules).
+function nothingSilent() {
+  const N = WB.notes(CHART), needs = R => Formulas.attention(R, N, DAY), R0 = workOut();
+  const fundOf = (status, more = {}) => withRecords({ x_n: { kind: 'Entity' }, x_n_v: { at: 'x_n', edge: 'Vehicle Type', choice: 'Parallel Fund' }, x_n_s: { at: 'x_n', edge: 'Investment Company Status', choice: status }, ...more });
+  const near = (a, b) => Math.abs(a - b) < 1e-9, empty = fundOf('3(c)(1) Fund');
+  const limit = entryRow(empty, 'def_limited', 'x_n');
+  check('A 3(c)(1) fund with no count can’t say, naming it: never n/a', limit?.error?.code === '#N/A' && limit.error.blanks.some(b => b.name === '3(c)(1) Count' && b.at === 'x_n'), JSON.stringify(limit?.error));
+  check('… what can’t be said is counted, apart from the blank it wants, and only of a check', needs(empty).some(a => a.kind === 'cant' && a.error?.def === 'def_limited') && needs(empty).some(a => a.kind === 'blank' && a.id === 'x_n' && a.edge === '3(c)(1) Count') && !needs(empty).some(a => a.kind === 'cant' && a.error?.def === 'def_ours'), JSON.stringify(needs(empty).filter(a => a.id === 'x_n' || a.kind === 'cant').map(a => a.kind + ' ' + (a.edge ?? a.error?.def))));
+  check('… a fund with no one in it isn’t clean: no one holds it, no one runs or advises it, and the 25% test can’t say', entryRow(empty, 'def_adds_up', 'x_n')?.value === false && entryRow(empty, 'def_adds_up', 'x_n').label === 'No one holds it'
+    && entryRow(empty, 'def_run', 'x_n')?.value === false && entryRow(empty, 'def_run', 'x_n').label.startsWith('No general partner') && entryRow(empty, 'def_erisa', 'x_n')?.error?.code === '#N/A', JSON.stringify([entryRow(empty, 'def_adds_up', 'x_n'), entryRow(empty, 'def_run', 'x_n'), entryRow(empty, 'def_erisa', 'x_n')?.error]));
+  const sevens = fundOf('3(c)(7) Fund');
+  check('… what doesn’t apply is still n/a, wanting nothing: a 3(c)(7) fund has no count, and a holding company no 25% test', !needs(sevens).some(a => a.edge === '3(c)(1) Count') && !entryRow(sevens, 'def_limited', 'x_n') && !rowsOf(R0, 'def_erisa').some(r => objOf(R0, r.at) === 'blocker'));
+  // A blank holder status.
+  const US = Object.keys(SAMPLE_INPUTS.recs).find(k => SAMPLE_INPUTS.recs[k].edge === 'Beneficial Owners' && SAMPLE_INPUTS.recs[k].at === 'inv_us'), limited = (n, more = {}) => workOut(Object.fromEntries(Object.entries({ ...SAMPLE_INPUTS.recs, fund_ics: { ...SAMPLE_INPUTS.recs.fund_ics, choice: '3(c)(1) Fund' }, [US]: { ...SAMPLE_INPUTS.recs[US], value: n }, ...more }).filter(([, r]) => r)));
+  const unsaid = limited(40, { feeder_ics: undefined }), of = R => rowsOf(R, 'def_limited')[0];
+  check('A limit that turns on a holder’s blank status can’t say, and names the holder', of(unsaid)?.error?.blanks.some(b => b.name === 'Investment Company Status' && b.at === 'feeder') && needs(unsaid).some(a => a.kind === 'cant' && a.error?.def === 'def_limited'), JSON.stringify(of(unsaid)?.error));
+  check('… and over whatever the answer, it fails', of(limited(120, { feeder_ics: undefined }))?.value === false && needs(limited(120, { feeder_ics: undefined })).some(a => a.kind === 'error' && limited(120, { feeder_ics: undefined }).records[a.id]?.edge === 'Within 3(c)(1) Limit'));
+  // Look-through reads votes where they're given.
+  const countOf = R => entryRow(R, 'def_3c1', 'fund')?.value;
+  check('Looked Through reads an interest with no vote by its Percentage: the feeder’s 28.4%, 0% voting, is looked through', countOf(limited(40)) === 81, String(countOf(limited(40))));
+  check('… and votes where they’re given: 5% typed is under 10%, a company one person', countOf(limited(40, { x_vote: { at: 'own_fdr_fund', edge: 'Voting Percentage', field: 'percent', value: 0.05 } })) === 41, String(countOf(limited(40, { x_vote: { at: 'own_fdr_fund', edge: 'Voting Percentage', field: 'percent', value: 0.05 } }))));
+  // The 25% test reads the sponsor's own interests out, and crossing it says so.
+  const share = R => entryRow(R, 'def_benefit_plan', 'fund')?.value, gpIn = p => ({ x_g: { args: [{ edge: 'Owner', at: 'gp' }, { edge: 'Owned', at: 'fund' }], tag: true }, x_g_p: { at: 'x_g', edge: 'Percentage', field: 'percent', value: p } });
+  const base = share(R0), withGP = withRecords(gpIn(0.02)), sponsorless = withRecords({ x_g: { args: [{ edge: 'Owner', at: 'pension' }, { edge: 'Owned', at: 'fund' }], tag: true }, x_g_p: { at: 'x_g', edge: 'Percentage', field: 'percent', value: 0.02 } });
+  check('The benefit plan test reads the sponsor’s interests out: the general partner’s 2% comes off the bottom', near(share(withGP), base / 0.98), `${share(withGP)} ${base}`);
+  check('… a holder who’s no sponsor stays in', near(share(sponsorless), base), `${share(sponsorless)} ${base}`);
+  const over = withRecords({ inv_us_bp: { ...SAMPLE_INPUTS.recs.inv_us_bp, value: 0.4 } }), at = R => entryRow(R, 'def_erisa', 'fund');
+  check('… crossing 25% fails it, an error, by its row', at(over)?.value === false && at(over).label.startsWith('25% or more') && needs(over).some(a => a.kind === 'error' && over.records[a.id]?.edge === 'ERISA Benefit Plan Test'), JSON.stringify(at(over)));
+  check('… under it, it holds; and an operating company on counsel’s opinion holds past it', at(R0)?.value === true && entryRow(R0, 'def_erisa', 'fund3a')?.value === true && entryRow(R0, 'def_erisa', 'fund3a').label === 'An operating company', JSON.stringify(entryRow(R0, 'def_erisa', 'fund3a')));
+  // Holidays roll where the rule says business day.
+  const formD = (first, filed, open) => withRecords({ x_n: { kind: 'Entity' }, x_n_v: { at: 'x_n', edge: 'Vehicle Type', choice: 'Main Fund' }, x_d: { at: 'x_n', edge: 'Regulation D Offering', tag: true }, x_d_f: { at: 'x_d', edge: 'First Sale', field: 'date', value: first }, ...(filed && { x_d_l: { at: 'x_d', edge: 'Last Filed', field: 'date', value: filed } }), ...(open && { x_d_o: { at: 'x_d', edge: 'Offering Open', tag: true } }) });
+  const dueD = R => Object.values(R.records).find(r => r.edge === 'Form D Due' && r.at === 'x_d')?.value;
+  check('The first Form D rolls off a federal holiday, to the first business day following: New Year’s Day 2037, a Thursday, to the Friday', dueD(formD('2036-12-17')) === '2037-01-02', dueD(formD('2036-12-17')));
+  check('… Labor Day to the Tuesday, as a weekend before a holiday rolls past both', dueD(formD('2037-08-23')) === '2037-09-08' && dueD(formD('2037-08-21')) === '2037-09-08', `${dueD(formD('2037-08-23'))} ${dueD(formD('2037-08-21'))}`);
+  check('… and its anniversary, on or before, rolls back off the Friday a Saturday holiday is kept', dueD(formD('2036-06-20', '2036-07-03', true)) === '2037-07-02', dueD(formD('2036-06-20', '2036-07-03', true)));
+  const H = Formulas.usHoliday, w = t => Formulas.evaluateAt(R0, t, 'fund');
+  check('The federal holidays, each on the day it’s kept', H('2037-01-01') === 'New Year’s Day' && H('2037-01-19') === 'Martin Luther King, Jr.’s Birthday' && H('2037-02-16') === 'Washington’s Birthday' && H('2037-05-25') === 'Memorial Day' && H('2037-06-19') === 'Juneteenth National Independence Day' && H('2037-07-03') === 'Independence Day' && H('2037-09-07') === 'Labor Day' && H('2037-10-12') === 'Columbus Day' && H('2037-11-11') === 'Veterans Day' && H('2037-11-26') === 'Thanksgiving Day' && H('2037-12-25') === 'Christmas Day' && !H('2037-07-04') && !H('2037-01-02'));
+  check('… a New Year’s Day on a Saturday is kept the December 31 before, on a Sunday the Monday after', H('2038-12-31') === 'New Year’s Day' && H('2039-01-01') === null && H('2040-01-02') === 'New Year’s Day', String(H('2038-12-31')));
+  check('… WORKDAY keeps them only where it’s told: Excel’s two arguments are weekends alone, and any other third is refused', w('= WORKDAY(DATE(2036, 12, 31), 1)')?.iso === '2037-01-01' && w('= WORKDAY(DATE(2036, 12, 31), 1, "US")')?.iso === '2037-01-02' && w('= WORKDAY(DATE(2036, 12, 31), 1, "UK")')?.code === '#VALUE!', JSON.stringify(w('= WORKDAY(DATE(2036, 12, 31), 1, "UK")')));
+  // What's owed, and what isn't kept, of whom.
+  const lateCharge = withRecords({ x_y: { args: [{ edge: 'Taxpayer', at: 'aiv_juris' }, { edge: 'Tax Year', at: '·2025' }], tag: true }, x_p: { at: 'x_y', edge: 'Annual Tax Paid', field: 'date', value: '2036-01-05' } }), charges = rowsOf(lateCharge, 'def_late_charges');
+  check('A tax paid late says what more is owed; and no rule of the sample’s reads the clock, so a day’s working-out is kept and shown at once', charges.length === 1 && /^\$200 penalty/.test(charges[0].value) && !rowsOf(R0, 'def_late_charges').length && !WB.rows(CHART).some(r => r.label === 'Formula' && r.value.some(x => /TODAY\(\)/.test(x.formula))), JSON.stringify(charges.map(r => r.value)));
+  check('… and what a tax past due costs is said by the row that says it’s due', rowsOf(R0, 'def_annual_tax').some(r => r.label?.endsWith('late, a $200 penalty and 1½% a month')));
+  check('What’s beyond the dates kept is said of whom: the BDC in Maryland, and nothing in Delaware or Cayman', rowsOf(R0, 'def_untracked').length === 1 && objOf(R0, rowsOf(R0, 'def_untracked')[0].at) === 'bdc' && /^Maryland/.test(rowsOf(R0, 'def_untracked')[0].value));
+  check('… and on the chart’s list, findable by what a person asks after', N.value('Not Tracked', { kind: 'View' }).some(x => x.names.includes('Blue sky')) && N.value('Not Tracked', { kind: 'View' }).some(x => x.names.includes('Qualified purchaser')) && N.value('Not Tracked', { kind: 'View' }).some(x => x.names.includes('Beneficial ownership report')));
+  check('Form PF isn’t hidden: an adviser’s asked, beside its Form ADV', N.required({ args: [{ edge: 'Form PF Filer', loc: Tree.treeOf(R0.records, 'mgmt_ria') }] }), '');
+}
 function runAll() {
-  for (const f of [theSample, semantics, grounds, apis, testDefinitions, enteredAtComputed, orderDoesNotMatter, listedFirst, workedOutAgain, renaming, ruleInError, ruleYouCanRelyOn]) {
+  for (const f of [theSample, semantics, grounds, apis, testDefinitions, enteredAtComputed, orderDoesNotMatter, listedFirst, workedOutAgain, renaming, ruleInError, ruleYouCanRelyOn, nothingSilent]) {
     try { f(); } catch (e) { check(`${f.name} stopped`, false, `${e.message} ${e.stack.split('\n')[1]}`); }
   }
   const failed = out.filter(x => !x.ok).length;

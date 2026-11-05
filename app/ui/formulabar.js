@@ -990,8 +990,8 @@ const FormulaBar = (() => {
     if (r.field !== 'date' || !label || DAY_OF_YEAR.test(label)) return [];
     return [`: ${lower(label).replace(/^A (?=[a-z])/, 'a ')}`];
   }
-  // A date a row moved off a weekend, in words: January 31, a Sunday, so the Friday before. The row's WORKDAY
-  // that gave the date steps one working day from the day beside the one it aims at: WORKDAY(d + 1, -1) is d,
+  // A date a row moved off a weekend or a holiday, in words: January 31, a Sunday, so the Friday before; January 1, 2037, New Year’s Day, so the Friday after. The row's
+  // WORKDAY that gave the date steps one working day from the day beside the one it aims at: WORKDAY(d + 1, -1) is d,
   // or the Friday before where d falls on a weekend; WORKDAY(d - 1, 1), d or the Monday after.
   const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   function rollOf(Rv, d, row, id) {
@@ -1012,14 +1012,14 @@ const FormulaBar = (() => {
         else if (op(toks[j], ')', '}')) { if (!--depth) close = j; }
         else if (depth === 1 && op(toks[j], ',')) commas.push(j);
       }
-      if (close < 0 || commas.length !== 1 || valueAt(toks[i], toks[close])?.iso !== v.iso) continue;
-      const [k] = commas, from = valueAt(toks[i + 2], toks[k - 1]), n = valueAt(toks[k + 1], toks[close - 1]);
+      if (close < 0 || !commas.length || commas.length > 2 || valueAt(toks[i], toks[close])?.iso !== v.iso) continue;
+      const [k, h] = commas, from = valueAt(toks[i + 2], toks[k - 1]), n = valueAt(toks[k + 1], toks[(h ?? close) - 1]);
       if (from?.t !== 'date' || Math.abs(n) !== 1) return null;
       const day = new Date(from.iso + 'T12:00:00'), to = new Date(v.iso + 'T12:00:00');
       day.setDate(day.getDate() + n);
       if (Tree.isoOf(day) === v.iso) return null;
-      const said = Tree.formatDate(Tree.isoOf(day)), year = day.getFullYear() === to.getFullYear();
-      return `${year ? said.replace(/,\s*\d{4}$/, '') : said}, a ${WEEKDAYS[day.getDay()]}, so the ${WEEKDAYS[to.getDay()]} ${to < day ? 'before' : 'after'}`;
+      const said = Tree.formatDate(Tree.isoOf(day)), year = day.getFullYear() === to.getFullYear(), weekend = day.getDay() === 0 || day.getDay() === 6;
+      return `${year ? said.replace(/,\s*\d{4}$/, '') : said}, ${weekend ? `a ${WEEKDAYS[day.getDay()]}` : Formulas.usHoliday(Tree.isoOf(day)) ?? `a ${WEEKDAYS[day.getDay()]}`}, so the ${WEEKDAYS[to.getDay()]} ${to < day ? 'before' : 'after'}`;
     }
     return null;
   }
@@ -1252,6 +1252,12 @@ const FormulaBar = (() => {
     if (!xs.length) return String(e.error?.msg ?? '').replace(/\.$/, '');
     const said = xs.map(b => { const o = Tree.objectOf(recs, b.at), s = o ? n.shortOf(recs, o) : ''; return s ? `${s}${/s$/.test(s) ? '’' : '’s'} ${b.name}` : b.name; });
     return `${sayList(said)} ${said.length > 1 ? 'are' : 'is'} blank`;
+  }
+  // The same where a value's read: what it needs, naming whose where it isn't the record's own. "Needs Harrowgate Offshore Feeder’s Investment Company Status".
+  function needSaid(e, at, Rv = R.peek()) {
+    const recs = Rv.records, n = N(), xs = e.error?.blanks ?? [], here = at && recs[at] ? Tree.objectOf(recs, at) : null;
+    if (!xs.length) return String(e.error?.msg ?? '').replace(/\.$/, '');
+    return `Needs ${sayList(xs.map(b => { const o = Tree.objectOf(recs, b.at), s = o && o !== here ? n.shortOf(recs, o) : ''; return s ? `${s}${/s$/.test(s) ? '’' : '’s'} ${b.name}` : b.name; }))}`;
   }
   // A fact clicked: a computed one steps down into its reasons, by the clause that cited it; an entered one is
   // selected. A step down selects what it steps to, so the panel follows the band, the rows staying open.
@@ -2259,13 +2265,14 @@ const FormulaBar = (() => {
   // and its code. Where it's at a relation, `who`, whose it first is: so what's one problem, one check failing at one
   // person's relations, lists as one. `Rv` and `n`, a working-out and notes other than those shown (History's replays).
   // → { what, where, figure, who? }
-  function needOf({ kind, id, edge, error, by }, Rv = R.peek(), n = N()) {
+  function needOf({ kind, id, edge, error, by, off }, Rv = R.peek(), n = N()) {
     const recs = Rv.records, r = recs[id];
+    if (off) return { what: n.nameOf(recs, id), where: n.segmentOf(recs, id), figure: off.figure === null ? '' : Tree.format('percent', off.figure) };
     const whose = x => recs[x] ? Time.whose(recs, x, n) : '';
     const named = defOfRecord(Rv, null, error?.def)?.name ?? error?.error.code;
     // A rule in error is said as itself, not by each record it couldn't work out: what's one problem lists as one.
     if (error?.rule) return { what: named, where: error.error.msg, figure: error.error.code };
-    if (error) return { what: named, where: error.args ? placeText(argsOf(Rv, error, null), 'short') : whose(error.at), figure: error.error.code, ...(['#NAME?', '#CIRCULAR!', '#OPTION?'].includes(error.error.code) && { who: error.error.msg }) };
+    if (error) return { what: named, where: error.args ? placeText(argsOf(Rv, error, null), 'short') : whose(error.at), figure: kind === 'cant' ? 'Can’t say' : error.error.code, ...(['#NAME?', '#CIRCULAR!', '#OPTION?'].includes(error.error.code) && { who: error.error.msg }) };
     if (!r) return { what: edge ?? '', where: '', figure: '' };
     // (Which rule can't say for want of it, where one can't.)
     if (kind === 'blank') return { what: edge, where: whose(id), figure: by ? `${defOfRecord(Rv, null, by.def)?.name ?? ''} can’t say` : '' };
@@ -2403,5 +2410,5 @@ const FormulaBar = (() => {
   const startSaid = kind => kind === 'implies' ? '← implied by: yes where what follows holds, and says nothing elsewhere' : '= gives what follows, yes or no or a value';
   Shell.register('broken', Broken);
   return { preview, commit, edit: change, commitEdit: commitDraft, discard, back, flipped, reaching, point: pointAt, focus: openAt, define, typed, into, light: ids => { lit.value = ids; },
-    reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, because, between, pickLine, isntHere, whyIsnt, emptyLists, isntOn, model, finder, pending, draft, hover, open, saying, brokenSaid, startSaid, limit, notOn, blankSaid, nobody };
+    reason, citeOf, phrase, sentence: sentenceFor, sentenceIn, because, between, pickLine, isntHere, whyIsnt, emptyLists, isntOn, model, finder, pending, draft, hover, open, saying, brokenSaid, startSaid, limit, notOn, blankSaid, needSaid, nobody };
 })();
