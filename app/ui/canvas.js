@@ -304,8 +304,10 @@ function cellsOf(scene, ink = null) {
   for (const m of scene.marks) {
     const s = look(m);
     if (m.type === 'box') {
+      // (A box of a design: its body, its parts over it, then what's in no part. They're of its one cell, so they go where it goes, fly with it and can't be picked up apart from it: dendra.md, Group designs.)
       node(m, 'box', [bodyMarkup(m.shape, m.w, m.h, s, red(m), { 'data-tour': 'box', ...(m.revealed && { 'stroke-opacity': FAINT }) }),
-        ...textsOf(m).map(it => textMarkup(it, red(m), m.revealed))]);
+        ...(m.parts ?? []).map(p => partMarkup(p, m, it => textMarkup(inkOn(it), red(m), m.revealed))),
+        ...textsOf(m).filter(it => !it.part).map(it => textMarkup(it, red(m), m.revealed))]);
     } else if (m.type === 'line') {
       const ps = m.points, dashed = Scene.dash(s.Dash, s.Weight) ?? (m.computed && !m.settings.Dash.note ? Scene.dash('dashed', s.Weight) : null) ?? (red(m) === 'go' ? '4 3' : null);
       const arrow = s.Arrow, r = red(m);
@@ -333,19 +335,34 @@ function cellsOf(scene, ink = null) {
           attrs: { line: { stroke: paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: Scene.dash(s.Dash, s.Weight), targetMarker: marker(s.Arrow === 'end' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'end')),
             sourceMarker: marker(s.Arrow === 'start' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'start')) }, wrap: { strokeWidth: 10 } } });
       } else if (m.geometry === 'legend') node(m, 'shape', legendMarkup(m, s));
-      else if (m.geometry === 'picture') node(m, 'shape', [{ tagName: 'g', attrs: { ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) }, children: [m.crop ? croppedImage(m) : { tagName: 'image', attrs: { href: m.src, width: m.w, height: m.h, preserveAspectRatio: 'xMidYMid meet' } }] },
-        { tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'transparent', stroke: paint(s.Outline === '#000000' ? 'none' : s.Outline), 'stroke-width': px(s.Weight) } }]);
       else if (m.geometry === 'group') continue;
-      else {
-        const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
-        const body = bodyMarkup(geometry, m.w, m.h, s, null, { ...(m.geometry === 'frame' && { 'pointer-events': 'visibleStroke' }), ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) });
-        // (The footer and its number are the sheet's, set in Page setup.)
-        node(m, m.role === 'footer' || m.role === 'number' ? 'foot' : 'shape', [body,...(m.geometry === 'text' || m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.geometry === 'frame' ? 18 : m.h, fill: 'transparent' } }] : []),
-          ...m.texts.map(it => textMarkup(it))]);
-      }
+      // (The footer and its number are the sheet's, set in Page setup.)
+      else node(m, m.role === 'footer' || m.role === 'number' ? 'foot' : 'shape', shapeMarkup(m, s));
     }
   }
   return cells;
+}
+// A free shape's drawing, of its own frame: a picture, or its body and its words. So a part of a design has all a free shape has (see partMarkup).
+function shapeMarkup(m, s, textOf = it => textMarkup(it)) {
+  if (m.geometry === 'picture') return [{ tagName: 'g', attrs: { ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) }, children: [m.crop ? croppedImage(m) : { tagName: 'image', attrs: { href: m.src, width: m.w, height: m.h, preserveAspectRatio: 'xMidYMid meet' } }] },
+    { tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'transparent', stroke: paint(s.Outline === '#000000' ? 'none' : s.Outline), 'stroke-width': px(s.Weight) } }];
+  const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
+  const body = bodyMarkup(geometry, m.w, m.h, s, null, { ...(m.geometry === 'frame' && { 'pointer-events': 'visibleStroke' }), ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) });
+  return [body, ...(m.geometry === 'text' || m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.geometry === 'frame' ? 18 : m.h, fill: 'transparent' } }] : []), ...m.texts.map(textOf)];
+}
+// A free line's drawing, by its points, less (ox, oy): its path and its arrowheads, as the swatches and the PDF draw them.
+function lineMarkup(m, s, ox, oy) {
+  const ps = m.points.map(([x, y]) => [x - ox, y - oy]), ink = paint(s.Outline), w = px(s.Weight);
+  const head = ([x, y], [qx, qy], end) => { const h = Scene.headOf(s, end), { len, wide } = Scene.headSize(h, w), d = Math.hypot(x - qx, y - qy) || 1, ux = (x - qx) / d, uy = (y - qy) / d, at = (a, c) => `${x - ux * a - uy * c},${y - uy * a + ux * c}`;
+    return { tagName: 'path', attrs: { d: `M${at(0, 0)} L${at(len, wide / 2)} L${at(len, -wide / 2)} Z`, fill: ink, stroke: 'none' } }; };
+  return [{ tagName: 'path', attrs: { d: `M${ps.map(p => p.join(',')).join(' L')}`, fill: 'none', stroke: ink, 'stroke-width': w, 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) } },
+    ...['end', 'both'].includes(s.Arrow) && ink !== 'none' ? [head(ps.at(-1), ps.at(-2), 'end')] : [], ...['start', 'both'].includes(s.Arrow) && ink !== 'none' ? [head(ps[0], ps[1], 'start')] : []];
+}
+// A part of a design, drawn in its box's cell, or in a swatch's room at (ox, oy): a free shape's drawing, set where it stands, turned about its middle.
+function partMarkup(p, at, textOf, ox = at.x, oy = at.y) {
+  const s = look(p);
+  if (p.geometry === 'line') return { tagName: 'g', attrs: { 'data-part': p.part ?? p.id }, children: lineMarkup(p, s, ox, oy) };
+  return { tagName: 'g', attrs: { 'data-part': p.part ?? p.id, transform: `translate(${p.x - ox} ${p.y - oy})${p.rotate ? ` rotate(${p.rotate} ${p.w / 2} ${p.h / 2})` : ''}` }, children: shapeMarkup(p, s, textOf).map(({ selector, ...rest }) => rest) };
 }
 
 // A picture cropped: the whole of it placed where what's left falls in its frame, the rest cut by the frame.
@@ -364,7 +381,9 @@ function swatchMarkup(sw, box) {
   }
   if (sw.kind === 'frame') return { tagName: 'rect', attrs: { x, y, width: w, height: h, fill: 'none', stroke: '#595959', 'stroke-width': px(sw.Weight), 'stroke-dasharray': Scene.dash('dashed', sw.Weight) } };
   const { selector, ...body } = bodyMarkup(sw.Shape ?? 'rect', w, h, sw, null, { transform: `translate(${x},${y})` });
-  return body;
+  // (A design in miniature: its parts' shapes, in the swatch's room.)
+  const parts = Scene.swatchParts(sw, box);
+  return parts.length ? { tagName: 'g', children: [body, ...parts.map(p => partMarkup(p, { x: 0, y: 0 }))] } : body;
 }
 function legendMarkup(m, s) {
   return [
@@ -406,7 +425,9 @@ function mount(el) {
   let cued = null; // the format bar's scope, lit (see cue)
   let pointing = false, hold = false;
   // The field selected, pointed at, lit from the inspector, and the box a row is dragged over (see Fields).
-  let field = null, hovered = null, litKey = null, dropOn = null;
+  let field = null, hovered = null, litKey = null, dropOn = null, dropAt = null;
+  // While a design is edited (see Designs): the box it's over, which stands still, and what can be touched, the rest dulled: { box, keeps(id) }.
+  let designing = null;
   const zooms = new Map();
   // In History nothing moves: the chart is as it stood.
   const still = () => App.readOnly.peek();
@@ -423,7 +444,7 @@ function mount(el) {
     interacting: view => {
       const k = view.cell.getData()?.kind, held = !!scene?.byId.get(view.cell.id)?.locked;
       if (view.cell.isEdge()) return { edgeMovable: k === 'shape' && !still() && !held, edgeLabelMovable: false, arrowheadMovable: false, vertexMovable: false, vertexAddable: false, vertexDeletable: false };
-      return { nodeMovable: !pointing && !still() && !rowDrag && !held && k !== 'foot' && (!UNMARKED.has(k) || k === 'label') };
+      return { nodeMovable: !pointing && !still() && !rowDrag && !held && k !== 'foot' && (!UNMARKED.has(k) || k === 'label') && view.cell.id !== designing?.box };
     },
   });
   // What a hand draws, aims and copies (see Drawing), once all it's given is made.
@@ -468,7 +489,7 @@ function mount(el) {
     else if (!everSeen) graph.renderer.setRenderArea(undefined);
   };
   // What can be selected: a mark this view draws (a cell another view drew is kept hidden; see cellsTo).
-  const selectable = c => { const k = c.getData()?.kind; return !!k && !UNMARKED.has(k) && c.isVisible(); };
+  const selectable = c => { const k = c.getData()?.kind; return !!k && !UNMARKED.has(k) && c.isVisible() && (!designing || designing.keeps(c.id)); };
   const sel = new Selection({ enabled: true, multiple: true, rubberband: true, strict: true, movable: true, showNodeSelectionBox: true, showEdgeSelectionBox: false,
     pointerEvents: 'none', multipleSelectionModifiers: ['shift', 'ctrl', 'meta'], filter: selectable });
   graph.use(sel);
@@ -1262,6 +1283,12 @@ function mount(el) {
     // What's typed in is the field selected, so Tab goes on from it and its row stays lit.
     if (isField(it)) field = { box: m.id, id: it.id };
     if (it.free) return writeText(m, it, typed);
+    // A part's own words, typed over, are what's said over the design at the pen (Figma's override); a part with none, the design's own.
+    if (it.of || (it.part && !it.blank && st()[it.id]?.edge === undefined)) {
+      const part = partOf(m, it), raw = m.design.value.parts.find(p => p.id === part?.part)?.text ?? '';
+      if (!part || !part.texts.length) return Designs.edit(m);
+      return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? raw, text => App.change(tx => Designs.say(tx, m, part.part, { text: text.trim() }, scopeNow(canvas)), { dated: false, say: `Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}` }), { multiline: true, selectAll: typed === undefined, complete: entriesOf(m), kept: true });
+    }
     const st = App.state.peek(), r = it.blank ? null : st[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
     if (!kind || kind.type === 'object' || (r && r.args)) return;
     Shell.emit('field-edit', { box: m.id, id: it.id });
@@ -1314,7 +1341,7 @@ function mount(el) {
     const caption = (tx, p, text) => { const c = Tree.clean(text); tx.note('Caption', p, c && c !== Scene.outputName(N, p) ? c : undefined, { view }); };
     if (m.type === 'box' || (m.type === 'line' && m.texts?.length)) {
       it = textAt(m, target);
-      return editField(m, it?.free || it?.blank || App.state.peek()[it?.id]?.edge !== undefined ? it : m.texts.find(x => App.state.peek()[x.id]?.edge !== undefined) ?? it, typed);
+      return editField(m, it?.free || it?.blank || it?.part || App.state.peek()[it?.id]?.edge !== undefined ? it : m.texts.find(x => App.state.peek()[x.id]?.edge !== undefined) ?? it, typed);
     } else if (m.type === 'frame') {
       it = m.caption;
       rect = { x: m.x, y: m.y, w: Math.max(160, m.w), h: m.label + 8 };
@@ -1335,6 +1362,8 @@ function mount(el) {
       raw = footNote().text;
       save = text => App.change(tx => { const { format, ...f } = footNote(), t = text.trim(); tx.note('Footer', { kind: 'View' }, t || f.number ? { ...f, text: t, ...(format && { format }) } : undefined); }, { dated: false, say: 'Set the footer' });
     } else if (m.type === 'shape' && !['line', 'picture', 'group'].includes(m.geometry)) {
+      // (While a design is edited, the part its other fields go in has no words of its own to type.)
+      if (rowOf(m.id)?.rest) return;
       const legend = m.geometry === 'legend';
       it = legend ? m.texts[0] : m.texts[0] ?? { look: m.look, text: '', lines: [] };
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
@@ -1601,9 +1630,13 @@ function mount(el) {
   // the inspector lights with it, and pointing at the row lights it here. Showing or hiding one is a Shown note at the
   // entry's pattern at the scope; a free text is a Text note there; each act is one change.
   const st = () => App.state.peek();
-  const isField = it => !!it && (it.blank || it.free || st()[it.id]?.edge !== undefined);
+  // (A part of a design is reached as a field is: with its box selected, a click on it selects it. Dendra.md, Group designs.)
+  const isField = it => !!it && (it.blank || it.free || it.part || it.of || st()[it.id]?.edge !== undefined);
+  // A field's part, where it's in one: { m: the part's mark, id }.
+  const partOf = (m, it) => it?.of ? it : it?.part ? m?.parts?.find(p => p.part === it.part) ?? null : null;
   // A text's rect on the page, as the scene sets its lines in its mark.
   function fieldRect(m, it) {
+    if (it.of) return { x: it.x, y: it.y, w: it.w, h: it.h };
     const o = m.type === 'line' ? m.labelAt ?? { x: 0, y: 0 } : m, t = it.look, lh = Scene.lineHeight(t);
     const xs = it.lines.map(l => l.x - (t.Align === 'center' ? l.w / 2 : t.Align === 'right' ? l.w : 0));
     return { x: o.x + Math.min(...xs), y: o.y + Math.min(...it.lines.map(l => l.y)) - Scene.baseline(t), w: Math.max(1, ...it.lines.map(l => l.w)), h: it.lines.length * lh };
@@ -1619,17 +1652,21 @@ function mount(el) {
       if (m.type === 'box' ? !inside(m) : !(m.type === 'line' && m.labelAt && m.label && inside({ ...m.labelAt, w: m.label.w, h: m.label.h }, pad))) continue;
       // The text the point is on, or else the one it's within a few pixels of.
       const it = m.texts.find(x => x.lines?.length && inside(fieldRect(m, x))) ?? m.texts.find(x => x.lines?.length && inside(fieldRect(m, x), pad));
-      return { m, it: isField(it) ? it : null };
+      // (Or else the part of a design there, the topmost, where it has something to show.)
+      const part = !isField(it) ? [...m.parts ?? []].reverse().find(q => q.geometry !== 'text' && q.geometry !== 'line' && inside(q)) : null;
+      return { m, it: part ?? (isField(it) ? it : null) };
     }
     return null;
   }
   // Where a field's row is in the inspector: its record's, or a blank's place there.
-  const rowKey = it => !it ? null : it.blank ? `${it.blank.at}|${Tree.norm(it.blank.edge)}` : it.free ? null : it.id;
-  const fieldName = it => it.blank ? it.blank.edge : it.free ? 'Text' : st()[it.id]?.edge ?? '';
+  const rowKey = it => !it || it.of ? null : it.blank ? `${it.blank.at}|${Tree.norm(it.blank.edge)}` : it.free ? null : it.id;
+  const fieldName = it => it.blank ? it.blank.edge : it.free ? 'Text' : it.of ? it.name ?? Shapes.name(it.geometry) ?? 'Part' : st()[it.id]?.edge ?? (it.part ? 'Part' : '');
+  // A field of a mark by its key: one of its texts, or a part of a design.
+  const fieldIn = (m, id) => m?.texts?.find(x => x.id === id) ?? m?.parts?.find(x => x.id === id);
   // The field selected, as the scene now draws it; a blank typed into, its record now; null once it isn't drawn.
   const filled = (m, id) => { const [at, edge] = id.slice(6).split('|'); return m?.texts?.find(x => st()[x.id]?.at === at && Tree.same(st()[x.id].edge, edge)); };
   const fieldNow = () => {
-    const m = field && scene?.byId.get(field.box), it = m?.texts?.find(x => x.id === field.id) ?? (field?.id.startsWith('blank:') ? filled(m, field.id) : null);
+    const m = field && scene?.byId.get(field.box), it = fieldIn(m, field?.id) ?? (field?.id.startsWith('blank:') ? filled(m, field.id) : null);
     if (it && it.id !== field.id) field = { ...field, id: it.id };
     return it ? { m, it } : null;
   };
@@ -1646,7 +1683,7 @@ function mount(el) {
     const f = fieldNow();
     if (!f && field) field = null;
     if (f) draw(fieldRect(f.m, f.it), 'on');
-    const h = hovered && scene.byId.get(hovered.box)?.texts?.find(x => x.id === hovered.id);
+    const h = hovered && fieldIn(scene.byId.get(hovered.box), hovered.id);
     // What was pointed at and is drawn no longer (a blank typed into) is pointed at no longer, till the pointer moves.
     if (hovered && !h) { hovered = null; tipFor(null); root.classList.remove('on-field'); }
     if (h && hovered.id !== field?.id) draw(fieldRect(scene.byId.get(hovered.box), h), 'hover');
@@ -1796,6 +1833,7 @@ function mount(el) {
   function hideField(f = fieldNow(), s) {
     if (!f) return;
     field = null;
+    if (f.it.of || (f.it.part && st()[f.it.id]?.edge === undefined)) return hidePart(f, s);
     if (f.it.free) return unText(f.m, s);
     setField([f.m], fieldName(f.it), false, s);
   }
@@ -1803,9 +1841,12 @@ function mount(el) {
   // that Undo takes back, and one a formula works out shows its own again; a free text, its words. The field stays,
   // a blank where it's shown at a scope; hiding it is the eye's, or its menu's. Only what's entered clears.
   const clears = f => !!f?.it && (!!f.it.free || (!f.it.blank && f.it.id in App.entered.peek()));
+  // A part taken away at the pen, the design standing: Reset to design brings it back.
+  const hidePart = (f, s = scopeNow(canvas)) => { field = null; return App.change(tx => Designs.say(tx, f.m, partOf(f.m, f.it).part, { hidden: true }, s), { dated: false, say: `Took a part of the design away from ${whereSaid([f.m], s)}` }); };
   function clearField(f = fieldNow()) {
     if (!f?.it) return;
     if (still()) return Shell.toast(App.whyNot());
+    if (f.it.of || (f.it.part && st()[f.it.id]?.edge === undefined)) return hidePart(f);
     if (!clears(f)) return f.it.blank ? undefined : Shell.toast('A formula works this out');
     if (f.it.free) return unText(f.m);
     App.change(tx => tx.remove(f.it.id), { say: c => Time.describe(c) });
@@ -2103,6 +2144,7 @@ function mount(el) {
       ...(placeable().length ? [{ label: ms.every(m => m.type === 'box') ? 'Duplicate as a new box…' : 'Duplicate', keys: '$mod+KeyD', disabled: ro, run: duplicate }] : []),
       '-',
       ...formatItems(ms, ro),
+      ...(typeof Designs === 'undefined' ? [] : Designs.items(ms, ro)),
       ...(bound.length ? [{ label: 'Select all like this', keys: '$mod+Shift+Space', run: selectLike }] : []),
       { label: 'Order', disabled: ro || ms.every(m => m.type === 'frame'), items: ORDER() },
       ...(free.length || ms.some(m => m.geometry === 'group') ? [{ label: 'Flip and turn', disabled: ro, items: FLIPS() }] : []),
@@ -2144,7 +2186,7 @@ function mount(el) {
     if (!ms.length) return [];
     const bar = typeof FormatBar !== 'undefined' ? FormatBar : {}, open = what => () => bar.open ? bar.open(what) : document.querySelector(`.fb [data-fb="${what}"]`)?.click();
     const boxy = ms.some(m => m.type === 'box' || (m.type === 'shape' && m.geometry !== 'line'));
-    return [{ label: 'Format', items: [...(boxy ? [{ label: 'Fill…', disabled: ro, run: open('fill') }] : []), { label: 'Outline…', disabled: ro, run: open('outline') }, { label: 'Font…', disabled: ro, run: open('font') },
+    return [{ label: 'Format', items: [...(ms.some(m => m.type === 'box') ? [{ label: 'Design…', disabled: ro, run: open('design') }] : []), ...(boxy ? [{ label: 'Fill…', disabled: ro, run: open('fill') }] : []), { label: 'Outline…', disabled: ro, run: open('outline') }, { label: 'Font…', disabled: ro, run: open('font') },
       ...(bar.copyLook ? ['-', { label: 'Copy formatting', keys: '$mod+Shift+KeyC', run: () => bar.copyLook() }, { label: 'Paste formatting', keys: '$mod+Shift+KeyV', disabled: ro || !bar.canPasteLook?.(), run: () => bar.pasteLook() }] : [])] }];
   }
   // The group whose note decides a field, where it's a group's: one beside an output, or at the entry wherever it is,
@@ -2163,6 +2205,9 @@ function mount(el) {
   // text's, in its Text note. The format bar's, for a text property, while a field is selected.
   function styleField(tx, f, label, v, s = scopeNow(canvas)) {
     const view = viewOf(), name = fieldName(f.it);
+    // A part's look goes to the part, at the pen: said over its design, only what's different.
+    // (But a field in the part its other fields go in is still that field, in words.)
+    if (f.it.of || (f.it.part && !(f.it.rested && label in Scene.DEFAULTS.text))) return Designs.say(tx, f.m, partOf(f.m, f.it).part, { format: { [label]: v } }, s);
     if (f.it.free) { const N = App.notes.peek(), n = N.notes('Text').find(x => x.note === f.it.free.note); if (n) tx.note('Text', n.pattern, { ...n.value, [label]: v }, { view }); return; }
     // A group that names the boxes by an entry of theirs (Jurisdiction: Cayman Islands) gives the look beside it, the field
     // in each of its boxes, as Shown beside an output shows it.
@@ -2277,8 +2322,10 @@ function mount(el) {
       const k = c.getData()?.kind, id = k === 'label' ? c.getData().mark : c.id, el = v.container;
       // What a pending change would add or take away isn't dimmed: it's what's being asked about.
       el.classList.toggle('dc-dim', !!dim && k !== 'page' && !lit.has(id) && !ink?.lit.has(id));
-      // And every mark the scope doesn't reach is dulled, the page's own furniture with them.
-      el.classList.toggle('dc-dull', !!cuedHere && k !== 'page' && k !== 'ink' && !cuedHere.has(id));
+      // And every mark the scope doesn't reach is dulled, the page's own furniture with them; and while a design is edited, all but it, and out of reach.
+      const off = !!designing && k !== 'page' && k !== 'ink' && !designing.keeps(id);
+      el.classList.toggle('dc-locked', off);
+      el.classList.toggle('dc-dull', off || (!!cuedHere && k !== 'page' && k !== 'ink' && !cuedHere.has(id)));
       // A mark selected, or in the scope chosen, shows its blanks' names.
       el.classList.toggle('dc-on', sel.isSelected(k === 'label' ? graph.getCellById(id) ?? c : c) || !!cuedHere?.has(id));
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
@@ -3168,11 +3215,22 @@ function mount(el) {
     setCaptioned: (edge, on) => App.change(tx => tx.note('Format', entryAnywhere(edge), on ? 'label' : undefined, { view: viewOf() }), { dated: false, say: `${on ? 'Named' : 'Stopped naming'} ${edge} where it’s shown` }),
     light: key => { if (litKey !== key) { litKey = key; paintFields(); } },
     over(cx, cy) {
-      const p = cx == null ? null : graph.clientToLocal(cx, cy), m = p && [...scene.marks].reverse().find(b => b.type === 'box' && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
+      // (While a design is edited, a part stood on the page takes a row dropped too.)
+      const p = cx == null ? null : graph.clientToLocal(cx, cy), m = p && [...scene.marks].reverse().find(b => (b.type === 'box' || (designing && b.type === 'shape' && designing.keeps(b.id))) && (!designing || designing.keeps(b.id)) && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
+      dropAt = p;
       if ((m?.id ?? null) !== dropOn) { dropOn = m?.id ?? null; paintFields(); }
       return m ?? null;
     },
-    drop(edge) { const m = marked(dropOn); dropOn = null; paintFields(); return m && setField([m], edge, true, scoped(m)); },
+    drop(edge) {
+      const m = marked(dropOn), at = dropAt;
+      dropOn = null;
+      paintFields();
+      if (m && designing) return Designs.dropped(m, edge, at);
+      // (Onto a part of a design: its token there, at the pen, the design standing. Onto the rest of the box, shown as ever.)
+      const part = m && at && [...m.parts ?? []].reverse().find(q => !q.texts.some(it => it.lines?.length > 1) && q.geometry !== 'line' && at.x >= q.x && at.x <= q.x + q.w && at.y >= q.y && at.y <= q.y + q.h);
+      if (part && !m.design.value.parts.find(p => p.id === part.part)?.rest) return App.change(tx => Designs.say(tx, m, part.part, { text: `{${edge}}` }, scoped(m)), { dated: false, say: `Put ${edge} in a part of ${whereSaid([m], scoped(m))}` });
+      return m && setField([m], edge, true, scoped(m));
+    },
     clip: (edge, text) => { clip = { items: [], text, field: edge }; },
   };
   // A box inserted between two (App.interposing): set square over the lower, midway under the upper; where that hasn't the
@@ -3210,6 +3268,9 @@ function mount(el) {
     // What's being typed part by part takes a look (Bold, a color, a size) in place of the mark it's in. → whether it did.
     richSet: (label, v) => !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
+    // Editing a design: what can be touched; and the zoom, brought to the box and put back (see Designs). A part selected, of a box (see Fields).
+    designing: d => { designing = d; if (!d) { field = null; } paintStates(); }, whereNow: () => ({ s: graph.zoom(), t: graph.translate() }),
+    bringTo: r => showRect(r, 90, LEAST, 4), goBack: w => { quietly(() => { graph.zoomTo(w.s); graph.translate(w.t.tx, w.t.ty); }); zoomRead(); }, partOf,
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },

@@ -143,6 +143,32 @@ const OPEN = new Set(['leftbracket', 'rightbracket', 'leftbrace', 'rightbrace', 
 const HEADS = [...new Set(TABLE.map(t => t[2]))];
 const gallery = () => HEADS.map(head => ({ head, shapes: TABLE.filter(t => t[2] === head).map(t => [t[0], t[1]]) }));
 
+// ---- The designs a chart can begin with (dendra.md, Group designs): each plain data, as a template's own are, its parts free shapes' rows with their
+// places as shares of the box. A base's look is what the box takes where nothing else says, so a Styles row's fill still fills it, and a panel over it leaves that showing as its band. `{?}`
+// is what a design leaves to the record it's first given to: an entry it has. A look said as {Outline} is the box's. ----
+const ACCENT = '#1f4e79', PANEL = { Fill: '#ffffff', Outline: '{Outline}', Weight: '{Weight}' };
+const words = (id, y, h, format, x = 0, w = 1) => ({ id, geometry: 'text', x, y, w, h, text: '{Name}', format: { Bold: true, Align: 'center', Valign: 'middle', ...format } });
+const others = (y, h, format, x = 0, w = 1) => ({ id: 'rest', rest: true, geometry: 'text', x, y, w, h, format: { Align: 'center', Valign: 'top', ...format } });
+const panelled = (y, h, format, x = 0, w = 1) => ({ id: 'rest', rest: true, geometry: 'rect', x, y, w, h, format: { ...PANEL, Align: 'center', Valign: 'middle', ...format } });
+const DESIGNS = [
+  { id: 'plain', name: 'Plain', base: {}, parts: [] },
+  { id: 'rule', name: 'Rule under the name', w: 148, h: 66, base: { Shape: 'rect' }, parts: [words('name', 0, 0.52, { Valign: 'bottom' }),
+    { id: 'rule', geometry: 'line', x: 0.12, y: 0.55, w: 0.76, h: 0, points: [[0.12, 0.55], [0.88, 0.55]], format: { Outline: '{Outline}', Weight: 0.75 } }, others(0.57, 0.43)] },
+  { id: 'header', name: 'Header band', w: 156, h: 72, base: { Shape: 'rect', Fill: ACCENT }, parts: [words('name', 0, 0.42), panelled(0.42, 0.58)] },
+  { id: 'side', name: 'Side band', w: 164, h: 64, base: { Shape: 'rect', Fill: ACCENT }, parts: [{ id: 'panel', geometry: 'rect', x: 0.08, y: 0, w: 0.92, h: 1, format: PANEL }, words('name', 0.04, 0.5, { Align: 'left', Valign: 'bottom' }, 0.08, 0.92), others(0.54, 0.46, { Align: 'left' }, 0.08, 0.92)] },
+  { id: 'corner', name: 'Corner tag', w: 156, h: 70, base: { Shape: 'rect' }, parts: [others(0.24, 0.76, { Valign: 'middle' }),
+    { id: 'tag', geometry: 'rect', x: 0.42, y: 0, w: 0.58, h: 0.24, text: '{?}', format: { Fill: ACCENT, Outline: 'none', Inset: { l: 2, r: 2, t: 1, b: 1 }, Align: 'center', Valign: 'middle' } }] },
+  { id: 'tiers', name: 'Two-tier', w: 148, h: 76, base: { Shape: 'rect', Fill: '#dbe5f1' }, parts: [words('name', 0, 0.5), panelled(0.5, 0.5)] },
+  { id: 'card', name: 'Card with a shadow', w: 156, h: 66, base: { Shape: 'rounded', Corner: 8, Outline: 'none', Shadow: { blur: 8, distance: 2.5, angle: 90, color: '#000000', transparency: 70 } }, parts: [words('name', 0.04, 0.5, { Align: 'left', Valign: 'bottom' }), others(0.54, 0.46, { Align: 'left' })] },
+  { id: 'person', name: 'Person', w: 176, h: 60, base: { Shape: 'rect' }, parts: [{ id: 'face', geometry: 'oval', x: 0.04, y: 0.14, w: 0.245, h: 0.72, text: '{Name|initials}', format: { Fill: ACCENT, Outline: 'none', Bold: true, Inset: { l: 0, r: 0, t: 0, b: 0 }, Align: 'center', Valign: 'middle' } },
+    words('name', 0.04, 0.5, { Align: 'left', Valign: 'bottom' }, 0.3, 0.7), others(0.54, 0.46, { Align: 'left' }, 0.3, 0.7)] },
+  { id: 'ticket', name: 'Ticket', w: 156, h: 66, base: { Shape: 'plaque' }, parts: [words('name', 0.04, 0.5, { Valign: 'bottom' }),
+    { id: 'tear', geometry: 'line', x: 0.1, y: 0.56, w: 0.8, h: 0, points: [[0.1, 0.56], [0.9, 0.56]], format: { Outline: '{Outline}', Weight: 0.75, Dash: 'dash' } }, others(0.58, 0.42)] },
+  { id: 'pill', name: 'Pill', w: 176, h: 44, base: { Shape: 'rounded', Corner: 50 }, parts: [] },
+  { id: 'org', name: 'Org-chart card', w: 156, h: 68, base: { Shape: 'rect', Fill: ACCENT }, parts: [{ id: 'panel', geometry: 'rect', x: 0, y: 0.1, w: 1, h: 0.9, format: PANEL }, words('name', 0.12, 0.46, { Valign: 'bottom' }), others(0.58, 0.42)] },
+  { id: 'triangle', name: 'Fund triangle', base: { Shape: 'triangle' }, parts: [] },
+];
+
 // ---- Pattern fills (dendra.md, Free shapes): PowerPoint's own, by the names its files have, each drawn as a tile: [prst, name, tile's side, its strokes, their width] ----
 const PATTERNS = [
   ['ltUpDiag', 'Light upward diagonal', 4, 'M-1,1 L1,-1 M0,4 L4,0 M3,5 L5,3', 0.7],
@@ -187,7 +213,7 @@ const inTheme = (colors = null) => {
 };
 
 return {
-  TAIL, CALLOUTS, OPEN, OFFICE, SLOTS, PATTERNS, patternDef, gradientDef, swatches, inTheme, shaded, gallery, ids: TABLE.map(t => t[0]), list: TABLE.map(t => [t[0], t[1]]),
+  TAIL, CALLOUTS, OPEN, OFFICE, SLOTS, PATTERNS, patternDef, gradientDef, swatches, inTheme, shaded, gallery, DESIGNS, ids: TABLE.map(t => t[0]), list: TABLE.map(t => [t[0], t[1]]),
   has: id => by.has(id),
   name: id => by.get(id)?.name ?? null,
   prst: id => by.get(id)?.prst ?? 'rect',

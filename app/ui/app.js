@@ -320,6 +320,7 @@ const App = (() => {
     if (!ids) named = [];
     fn(tx);
     if (keep && tx.size()) for (const k of keepers) k(tx);
+    if (sand && !sand.takes(tx)) { Shell.toast('Finish the design first: Done or Discard'); return null; }
     planned(tx);
     const c = tx.commit();
     if (typeof c === 'string') { Shell.toast(c); return null; }
@@ -334,6 +335,26 @@ const App = (() => {
     if (bare) { keptToday.add(chart.peek()); Shell.at({ asOf: out.day }); }
     if (said) { const off = Shell.toast(bare ? `${said}; showing the chart as of then` : said, { undo, ...(bare ? { go: ['Today', () => Shell.at(null)] } : when ? { go: [`Show ${when}`, () => Shell.at(out.day === Log.today() ? null : { asOf: out.day })] } : more && { go: more }) }); if (when || more) staying = off; }
     return c;
+  }
+  // A design being edited (dendra.md, Group designs): the workbook read from a copy of its log, what's drawn there this window's alone, in no one's History or
+  // file, with Undo's steps of its own, till Done writes the note, one change, or Discard. `takes`, whether a change is one that belongs there, what a hand draws; another says so, and nothing's lost.
+  let sand = null;
+  function sandbox(takes) {
+    if (sand) return false;
+    const real = book.peek(), copy = Log.open(real.changes());
+    sand = { real, took: stacks.peek(), takes, off: copy.subscribe(() => { version.value++; }) };
+    batch(() => { book.value = copy; version.value++; });
+    return true;
+  }
+  // (From what's stood on the page: nothing before it can be undone there.)
+  const sandboxBegun = () => { const c = chart.peek(); keep(c, { undo: [], redo: [] }); };
+  function unsandbox() {
+    if (!sand) return;
+    const s = sand;
+    sand = null;
+    s.off();
+    batch(() => { book.value = s.real; stacks.value = s.took; version.value++; });
+    try { sessionStorage.setItem('dendra.undo', JSON.stringify(s.took)); } catch {}
   }
   // The pages of a plan are one chart on several days, with one look and one set of places (dendra.md, The layout): what a
   // change puts on one of them, a place, a bend, a scale, a paper or a look, it puts on them all. A box's free text is its page's.
@@ -804,6 +825,7 @@ const App = (() => {
   function stage(p) {
     // (Viewing, it's a what-if: redlined in full, and made only from Editing.)
     if (Shell.time.peek()?.stood) { refuse(); return; }
+    if (sand) { Shell.toast('Finish the design first: Done or Discard'); return; }
     // Where the keys were as it was begun: what had them, the row it's in, and its part of the window.
     const was = pending.peek(), a = document.activeElement !== document.body ? document.activeElement : null;
     const back = a && { el: a, key: a.closest?.('[data-key]')?.dataset.key, region: a.closest?.('[data-region]') };
@@ -1981,6 +2003,6 @@ const App = (() => {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs,
     readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, interposable, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
-    enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken,
+    enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken, sandbox, sandboxBegun, unsandbox,
   };
 })();

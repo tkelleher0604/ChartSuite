@@ -274,6 +274,10 @@ function write(tx, c, label, value) {
   if (scope.root) return tx.note(label, viewSelf(c.scene()), value);
   // (Everything else's words are All text's: a box's look is its own.)
   if (scope.rest && TEXT_LABELS.has(label)) return tx.note(label, viewSelf(c.scene()), value);
+  // A part of a design selected takes whatever's given it (dendra.md, Group designs); a design given at the pen takes the place of a shape given there.
+  const part = label !== 'Design' && label !== 'Format' ? fieldOf(c) : null;
+  if (part && (part.it.of || (part.it.part && !(part.it.rested && TEXT_LABELS.has(label))))) return c.styleField(tx, part, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
+  if (label === 'Design') write(tx, c, 'Shape', undefined);
   const f = TEXT_LABELS.has(label) && label !== 'Format' ? fieldOf(c) : null;
   if (f) return c.styleField(tx, f, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
   const view = c.scene().view, tree = id => Tree.treeOf(App.state.peek(), id), texty = TEXT_LABELS.has(label) && label !== 'Format';
@@ -374,7 +378,7 @@ function preview(label, value) {
   if (!key) return c.restyle(null);
   if (label === 'Tidy') return c.restyle(c.tidied(), { moves: true });
   if (label === 'Tidy for every date') return c.restyle(c.tidiedEvery(), { moves: true });
-  c.restyle(trying(c, label, value), label === 'Size' || scopeOf(scopesOf(c).scopes)?.root ? { moves: true } : undefined);
+  c.restyle(trying(c, label, value), label === 'Size' || label === 'Design' || scopeOf(scopesOf(c).scopes)?.root ? { moves: true } : undefined);
 }
 // What keeps its own font or size under All text, a value going there: the styles, boxes and page's own texts a narrower
 // note gives it to. → { say, clear: [label, run] }, or null where it's all of it.
@@ -455,6 +459,9 @@ function value(label) {
   }
   const text = current.field?.it ?? scopeTexts()[0] ?? m.texts?.[0] ?? m.caption;
   if (TEXT_LABELS.has(label) && text) return text.look?.[label] ?? text.settings?.[label]?.value;
+  // (A part of a design selected: its own, as a free shape's.)
+  const part = current.field && Canvas.active.peek()?.partOf(current.field.m, current.field.it);
+  if (part) return part.look?.[label];
   return m.settings?.[label]?.value ?? m.look?.[label];
 }
 // The marks the scope reaches, and of them the texts a text property of it would change: with a field selected, that
@@ -1098,6 +1105,7 @@ const opener = {
   color: at => pop(at, close => html`<${Palette} label="Color" close=${close} />`),
   font: at => pop(at, close => html`<${Fonts} close=${close} />`),
   shape: at => pop(at, close => html`<${ShapePop} close=${close} />`),
+  design: at => pop(at, close => Designs.open(at, close)),
   paragraph: at => pop(at, () => html`<${ParagraphPop} />`),
 };
 
@@ -1448,6 +1456,7 @@ function Bar() {
     <button class="btn dd" aria-label="Paragraph" data-fb="paragraph" ...${writes('Alignment and spacing', !texty)} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
     <span class="sep" />
     <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape and shadow', !boxy)} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
+    <button class="btn dd" aria-label="Design" data-fb="design" ...${writes('Design', !s.marks.some(m => m.type === 'box' || m.type === 'line'))} onClick=${e => opener.design(e.currentTarget)}>${Shell.icon('LayoutTemplate')}</button>
     <button class="btn dd" aria-label="Fill" data-fb="fill" ...${writes('Fill', !boxy)} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-fb="outline" ...${writes('Outline', none || textStyle || footOnly)} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle && !footOnly ? value('Outline') : 'none')}</button>
     <span class="sep" />
@@ -1502,6 +1511,7 @@ function mount(el) {
     ['format.fill', 'Fill…', null, () => open('fill'), edit, ['Fill color', 'Background', 'Shading', 'Transparency']],
     ['format.outline', 'Outline…', null, () => open('outline'), edit, ['Border', 'Line color', 'Line weight', 'Dashes', 'Arrows']],
     ['format.shape', 'Change shape…', null, () => open('shape'), edit, ['Shape', 'Shadow', 'Rounded corners']],
+    ['format.design', 'Design…', null, () => open('design'), edit, ['Group design', 'Component', 'Card', 'Header band', 'Side band', 'Corner tag', 'Pill', 'Ticket', 'Org chart card', 'Person', 'Layout of a box', 'Preset']],
     ['format.paragraph', 'Paragraph…', null, () => open('paragraph'), edit, ['Align text', 'Alignment', 'Line spacing', 'Bullets', 'Numbering', 'Indent', 'Inner margins', 'Shrink text', 'Autofit']],
     ['draw.flipH', 'Flip across', null, () => Canvas.active.peek().flip('h'), edit, ['Flip', 'Flip horizontal', 'Mirror']],
     ['draw.flipV', 'Flip upside down', null, () => Canvas.active.peek().flip('v'), edit, ['Flip', 'Flip vertical', 'Mirror']],
@@ -1588,7 +1598,7 @@ function open(what, at) {
 }
 
 Shell.register('formatbar', { mount, relist: () => listHouses() });
-return { apply, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
+return { apply, preview, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
   copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim, aimedAt, lit, litOn, selectDiffers,
   reachOf: reachOfRow };
 })();

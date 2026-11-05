@@ -9,7 +9,7 @@ const { narrower, shapeOf, weight, key, bare, paramKey, treeOf, isObject, isChoi
 // The format properties, how a view draws what a note reaches: every label but the model's others (dendra.md,
 // Notes), so a new property is only a word in the scene's defaults and its drawing. A Text note, a box's free text,
 // is a note of its own, not a look.
-const OTHERS = new Set(['Name', 'Description', 'Order', 'Required', 'Fixed', 'Check', 'Start', 'End', 'Formula', 'Caption', 'Position', 'Bend', 'Layout', 'As Of', 'Changes', 'Plan', 'Page', 'Scale', 'Footer', 'Text']);
+const OTHERS = new Set(['Name', 'Description', 'Order', 'Required', 'Fixed', 'Check', 'Start', 'End', 'Formula', 'Caption', 'Position', 'Bend', 'Layout', 'As Of', 'Changes', 'Plan', 'Page', 'Scale', 'Footer', 'Text', 'Designs']);
 const FORMATS = { has: label => typeof label === 'string' && !OTHERS.has(label) };
 const typeOfSpec = t => !t ? 'tag' : 'field' in t.out ? 'field' : 'choice' in t.out ? 'choice' : 'tag';
 // Words begun mid-sentence, in lower case but for initials (GP, BDC); and the preposition a list's name ends
@@ -258,7 +258,9 @@ function houseLook(rows, view, { corner } = {}) {
   // The chart's own colors and what its new shapes take; and Everything else, what its boxes take that nothing else gives them.
   const palette = rows.find(r => 'note' in r && r.label === 'Palette' && !r.view)?.value, shapes = rows.find(r => 'note' in r && r.label === 'Shape Defaults' && !r.view)?.value;
   const rest = Object.fromEntries(rows.filter(r => 'note' in r && r.view === view && r.pattern.id === view && r.pattern.kind === 'View' && FORMATS.has(r.label)).map(r => [r.label, r.value]));
-  return { notes: [...kept, ...own.filter(r => r.label === 'Caption' && styled.has(key(r.pattern)))].map(note), order: index(own).styles(view).map(s => s.pattern), furniture, root, page, ...(footer && { footer }), ...(palette && { palette }), ...(shapes && { shapes }), ...(Object.keys(rest).length && { rest }) };
+  // And the designs it has saved (dendra.md, Group designs), plain data.
+  const designs = rows.find(r => 'note' in r && r.label === 'Designs' && !r.view)?.value?.list;
+  return { notes: [...kept, ...own.filter(r => r.label === 'Caption' && styled.has(key(r.pattern)))].map(note), order: index(own).styles(view).map(s => s.pattern), furniture, root, page, ...(footer && { footer }), ...(palette && { palette }), ...(shapes && { shapes }), ...(Object.keys(rest).length && { rest }), ...(designs?.length && { designs }) };
 }
 // A view takes a look, on tx. A style both have takes the look's: what the view gives its outputs and the look doesn't
 // goes. A style only in the look comes across; a style only in the view stays, after them, so what it says still
@@ -295,6 +297,8 @@ function takeLook(tx, rows, view, look, { begun = false, has = () => true } = {}
   if (look.palette && JSON.stringify(noted('Palette', { kind: 'View' }) ?? null) !== JSON.stringify(look.palette)) tx.note('Palette', { kind: 'View' }, look.palette);
   if (look.shapes && JSON.stringify(noted('Shape Defaults', { kind: 'View' }) ?? null) !== JSON.stringify(look.shapes)) tx.note('Shape Defaults', { kind: 'View' }, look.shapes);
   for (const [l, v] of Object.entries(look.rest ?? {})) tx.note(l, self, v, { view });
+  // (The designs it has saved join the chart's, in its gallery.)
+  if (look.designs?.length) { const list = noted('Designs', { kind: 'View' })?.list ?? [], mine = new Set(look.designs.map(d => d.id)); tx.note('Designs', { kind: 'View' }, { list: [...list.filter(d => !mine.has(d.id)), ...look.designs] }); }
   return { left: look.notes.filter(n => (begun || !owned(n)) && !has(n.pattern)).length };
 }
 // A look read from a file, as far as it's one: what a look may hold and nothing else, never a record. Null if it isn't one.
@@ -311,7 +315,8 @@ function lookFrom(data) {
     const palette = Array.isArray(data.palette?.colors) && data.palette.colors.length === 10 && data.palette.colors.every(c => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) ? { colors: data.palette.colors } : null;
     const shapes = data.shapes && typeof data.shapes === 'object' && !Array.isArray(data.shapes) ? Object.fromEntries(['shape', 'line', 'text'].filter(k => fits.format(data.shapes[k])).map(k => [k, data.shapes[k]])) : null;
     const rest = data.rest && typeof data.rest === 'object' && !Array.isArray(data.rest) ? Object.fromEntries(Object.entries(data.rest).filter(([l]) => ['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'].includes(l))) : null;
-    return { notes, order: (data.order ?? []).map(clean), furniture, ...(root && { root }), ...(paper(data.page) && { page: data.page }), ...(Object.keys(foot).length && { footer: foot }), ...(palette && { palette }), ...(shapes && Object.keys(shapes).length && { shapes }), ...(rest && Object.keys(rest).length && { rest }) };
+    const designs = Array.isArray(data.designs) ? data.designs.filter(d => d && typeof d === 'object' && typeof d.id === 'string' && typeof d.name === 'string' && Array.isArray(d.parts)) : [];
+    return { notes, order: (data.order ?? []).map(clean), furniture, ...(root && { root }), ...(paper(data.page) && { page: data.page }), ...(Object.keys(foot).length && { footer: foot }), ...(palette && { palette }), ...(shapes && Object.keys(shapes).length && { shapes }), ...(rest && Object.keys(rest).length && { rest }), ...(designs.length && { designs }) };
   } catch { return null; }
 }
 

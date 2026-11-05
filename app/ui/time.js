@@ -834,6 +834,7 @@ const Time = (() => {
     if (label === 'Indent') return v ? `Indented ${of} ${v} pt` : `Took the indent off ${of}`;
     if (label === 'Bullet') return v === 'none' ? `Took the bullets off ${of}` : v === 'number' ? `Numbered ${of}` : `Bulleted ${of}`;
     if (label === 'Shrink') return v ? `Made ${of} shrink its text to fit` : `Stopped ${of} shrinking its text`;
+    if (label === 'Design') return !v || v.id === 'plain' ? `Took the design off ${of}` : v.over && !v.parts && !v.base ? `Changed the design of ${of}` : `Gave ${of} the design ${v.name}`;
     const noun = NOUNS[label];
     if (!noun) return `Changed ${label} of ${of}`;
     if (v === 'none') return `Took the ${noun} off ${of}`;

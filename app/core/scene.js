@@ -66,8 +66,8 @@ const TEXT = { Font: 'Arial', Size: 10, Bold: false, Italic: false, Underline: f
 const CORNER = 16.667;
 const DEFAULTS = {
   box: { Shown: true, Shape: 'rect', Fill: '#ffffff', Gradient: null, Pattern: null, Transparency: 0, Outline: RULE, Weight: 0.5, Dash: 'solid', Shadow: 'none', Corner: CORNER, Tail: null, Valign: 'middle',
-    Frame: 'none', Layer: 0, ...TEXT },
-  line: { Shown: false, Outline: RULE, Weight: 0.75, Dash: 'solid', Arrow: 'none', Arrowhead: null, Connector: 'elbow', Above: null, Layer: 0, ...TEXT, Size: 9 },
+    Frame: 'none', Layer: 0, Design: null, ...TEXT },
+  line: { Shown: false, Outline: RULE, Weight: 0.75, Dash: 'solid', Arrow: 'none', Arrowhead: null, Connector: 'elbow', Above: null, Layer: 0, Design: null, ...TEXT, Size: 9 },
   text: { Shown: false, ...TEXT },
 };
 const TEXT_PROPS = Object.keys(TEXT);
@@ -78,12 +78,13 @@ const ROOT = ['Font', 'Size'], FOOTER = '·footer', NUMBER = '·number', REST = 
 const FORMLESS = { Outline: { value: '#7f7f7f', note: null }, Dash: { value: 'square-dot', note: null } };
 // What a swatch shows: the properties of a box or line that tell marks apart, a frame's kind, or a text's
 // look. A frame's caption says on the chart what it is, so the legend leaves frames out.
-const KEYED = { box: ['Shape', 'Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead'], frame: ['Frame'],
+const KEYED = { box: ['Shape', 'Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow', 'Corner', 'Design'], line: ['Shown', 'Outline', 'Weight', 'Dash', 'Arrow', 'Arrowhead', 'Design'], frame: ['Frame'],
   text: ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color'] };
-// A swatch: a box, line, frame or text in the defaults, with what an output's formats give it.
+// A swatch: a box, line, frame or text in the defaults, with what an output's formats give it; a design's base where they say nothing (see Group designs).
 function swatch(kind, f) {
   const sw = { kind, ...DEFAULTS[kind === 'frame' ? 'box' : kind] };
   for (const k of KEYED[kind]) if (k in f) sw[k] = f[k];
+  if (kind === 'box') for (const [k, v] of Object.entries(f.Design?.base ?? {})) if (!(k in f) && k in sw) sw[k] = v;
   return sw;
 }
 // An output's swatch where no mark says what it is: a relation's is a line, a box's a box, and an entry's a box
@@ -444,6 +445,7 @@ function units(para, t, most, name = false) {
 // tallest any of them needs (see level). A box whose name's size is typed is `wider` as that needs (see typedAt): nobody
 // having sized it, as its name is larger than the chart's own, and sized, as it printed where it was sized.
 function size(b, squeeze, at = null, grow = 1) {
+  if (b.design && (b.design.parts.length || b.design.value.w)) return sizeDesigned(b, squeeze, at);
   const shape = b.settings.Shape.value, own = b.pos?.w && b.pos.w * (b.wider?.own ?? 1), base = (own ?? (shape === 'triangle' ? WIDTH.triangle : shape === 'oval' ? WIDTH.box : WIDTH.box * grow) * (b.wider?.free ?? 1)) * squeeze;
   // (On a paper narrower than its page, which has the room down it, a triangle stands taller for its width.)
   const wide = { lines: own ?? base * 1.5, tall: base * 2, ratio: 1 / (squeeze * squeeze), opens: b.texts[0]?.typedAt == null && !own ? base * 1.25 : 0 };
@@ -679,8 +681,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // Or from a state that differs from this one only in records it neither draws nor styles (see unmoved).
     const ds = drawnFrom.get(whence) ?? [], alike = ds.filter(d => d.from.every((x, i) => i === 0 || x === from[i]));
     // An entry the view's free text may read, or a field shown beside another record, is never inert.
-    const N0 = wb.notes(chart), reads = N0.notes('Text').some(n => n.view === view), fielded = new Set(['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param && n.view === view).map(n => Tree.norm(n.param))));
-    const formatsOf = (recs, id) => { const r = recs[id], t = treeOf(recs, id); return r?.at && (reads || fielded.has(Tree.norm(r.edge ?? ''))) ? { Text: true } : t ? N0.formats(t, view) : {}; };
+    // (A design reads a relation's list too: see Group designs.)
+    const N0 = wb.notes(chart), lists = N0.notes('Design').some(n => n.view === view), reads = lists || N0.notes('Text').some(n => n.view === view), fielded = new Set(['Shown', ...TEXT_PROPS].flatMap(l => N0.notes(l).filter(n => n.param && n.view === view).map(n => Tree.norm(n.param))));
+    const formatsOf = (recs, id) => { const r = recs[id], t = treeOf(recs, id); return (r?.at && (reads || fielded.has(Tree.norm(r.edge ?? '')))) || (lists && r?.args) ? { Text: true } : t ? N0.formats(t, view) : {}; };
     const d = alike.find(d => d.from[0] === opts.state) ?? (alike[0] && unmoved(alike[0].scene, alike[0].from[0], opts.state, formatsOf) ? alike[0] : null);
     if (d) {
       if (d.laid && !opts.ahead) laidOut.set(drawnAs, d.laid);
@@ -899,9 +902,33 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     return [...mine, ...merged];
   };
 
+  // A box's design (dendra.md, Group designs): the Design notes that reach it, the narrowest last. The last whole one is its
+  // design, and what's said over it from there on is said over it, only what's different; so a narrow override never forks it.
+  // Its base is what the box takes where nothing else says, but that the box is its shape: a Shape note as narrow, or narrower, takes
+  // the box back from it, whole, as its parts by share would mean nothing there. Narrowness first, and the styles' order between what's as narrow.
+  const narrowRank = (n, depth) => [n.view ? 1 : 0, idsIn(n.pattern).size ? 1 : 0, n.param ? 1 : 0, Tree.weight(n.pattern), styleAt.get(key(bare(n.pattern))) ?? -1, -depth];
+  const designNotes = N.notes('Design').filter(n => n.view === view), designsAt = new Map();
+  if (designNotes.length) for (const id of ids) {
+    const fit = once(id, 'designs', () => designNotes.filter(n => Tree.narrower(tree(id), n.pattern)));
+    if (fit.length) for (const start of own.get(id) ?? []) {
+      const [h, depth] = hostOf(start);
+      if (h) (designsAt.get(h.id) ?? designsAt.set(h.id, []).get(h.id)).push(...fit.map(note => ({ note, rank: narrowRank(note, depth) })));
+    }
+  }
+  const giveDesign = m => {
+    const said = designsAt.get(m.id).sort((a, b) => beats(a.rank, b.rank) ? 1 : beats(b.rank, a.rank) ? -1 : 0), top = said.findLast(x => wholeDesign(x.note.value));
+    if (!top) return;
+    const under = said.slice(said.indexOf(top) + 1), value = under.reduce((d, x) => overDesign(d, x.note.value.over), overDesign(top.note.value, top.note.value.over)), c = m.cand.Shape;
+    if (m.type === 'box' && value.base?.Shape && !value.editing && c && !beats(top.rank, narrowRank(c.note, -c.rank.at(-1)))) { m.settings.Design = { value: null, note: null }; return; }
+    m.settings.Design = { value, note: said.at(-1).note };
+    m.design = { value, note: top.note, rank: top.rank, overs: [...(top.note.value.over ? [top.note] : []), ...under.map(x => x.note)], parts: [] };
+    // (While it's edited, what a hand gives the box itself is what it's given: see Edit design.)
+    for (const [l, v] of Object.entries(value.base ?? {})) if (l in m.settings && ((l === 'Shape' && !value.editing) || !m.settings[l].note)) m.settings[l] = { value: v, note: top.note };
+  };
   const boxes = [], lines = [];
   for (const m of marks.values()) if (drawn(m) && m.type !== 'text') {
     settle(m, DEFAULTS[m.type]);
+    if (designsAt.has(m.id)) giveDesign(m);
     (m.type === 'box' ? boxes : lines).push(m);
     m.texts = [];
     m.computed = !!state[m.record].computed;
@@ -959,15 +986,11 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       if (h && (!c || beats(r, c.rank))) freeOf.set(h.id, { ...res, rank: r });
     }
   }
-  const entryText = (at, label) => {
-    const k = Tree.norm(label), entries = Tree.index(state).entries;
-    for (let todo = [at], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { if (Tree.norm(state[e].edge) === k) return textOf(state[e], 'value', state[e].edge); todo.push(e); }
-    return '';
-  };
+  const reads = reader(state, N, opts.computed, day);
   function freeText(h) {
     const c = freeOf.get(h.id), v = c?.value;
     if (!v || typeof v !== 'object') return [];
-    const text = String(v.text ?? '').replace(/\{([^{}\n]+)\}/g, (_, l) => entryText(h.record, l)).split('\n').map(s => s.replace(/[ \t]+/g, ' ').trim()).join('\n').trim();
+    const text = cleaned(String(v.text ?? '').replace(TOKEN, (_, l) => reads(h.record, l).text));
     const given = {};
     for (const label of TEXT_PROPS) given[label] = label !== 'Format' && label in v ? { value: v[label], note: c.note } : h.settings[label];
     const settings = besideName(h, given);
@@ -985,7 +1008,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     return { ...it, id: `was:${it.id}`, text, settings, look: { ...it.look, ...look(settings) }, was: true, inline, computed: false, records: undefined, shownBy: null, free: undefined, listed: undefined };
   };
   const withWas = (m, texts) => !changes ? texts : [...texts.flatMap(it => changes.was.has(it.id) ? [saidBefore(it, changes.was.get(it.id), m.type === 'line'), it] : [it]), ...(changes.lost.get(m.id) ?? []).map(it => saidBefore(it, it.text))];
-  for (const b of boxes) { blanksIn(b); b.texts = withWas(b, [...gather(b.texts), ...freeText(b)]); inkOn(b); }
+  for (const b of boxes) { blanksIn(b); b.texts = withWas(b, [...gather(b.texts), ...freeText(b)]); if (!b.design?.value.parts?.length) inkOn(b); }
   // The key is of what the view draws: what's revealed for a while doesn't change it. While nothing is keyed, as on a
   // new chart's page, a Key isn't drawn, and the page is as it would be without it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
@@ -1041,6 +1064,24 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   }
   // What the comparison reads of the view as of another day: its marks and their texts, before anything is laid out.
   if (opts.looks) return { byId: new Map([...boxes, ...lines].map(m => [m.id, m])) };
+
+  // A design's parts take the fields they name out of the box's stack (see Group designs). Hidden, by a Shown false as narrow
+  // as the design or narrower, a token reads as nothing, so the eye and the pen hide it for one box or a group and the design stands.
+  const hasEntry = edge => Object.values(wb.schema(chart)).some(x => x.args?.length === 1 && same(x.args[0].edge, edge) && !x.args[0].loc.args && ('field' in x.out || 'choice' in x.out));
+  for (const b of boxes) if (b.design) designIn(b, reads, id => { const c = own.get(id)?.[0]?.cand.Shown; return c?.value === false && !beats(b.design.rank, narrowRank(c.note, 0)); }, hasEntry);
+  // While a design is edited (see Edit design), its parts stand on the page as free shapes over one box, each reading that box's words, in the look they'd have.
+  const editing = boxes.find(b => b.design?.value.editing);
+  if (editing) {
+    const kept = N.resolve('Scale', { id: view, kind: 'View' })?.value?.scale ?? 1, names = new Set((editing.design.value.names ?? []).map(Tree.norm));
+    for (let i = 0; i < onPage.length; i++) {
+      const r = onPage[i];
+      if (r.role || r.geometry === 'legend') continue;
+      if (r.rest) said.set(r.id, editing.fields.filter(it => !names.has(Tree.norm(state[it.id]?.edge ?? ''))).map(it => it.text).join('\n'));
+      else if (r.text) said.set(r.id, readWords(r.text, editing.record, reads));
+      // (Drawn since it began too: as it will be, a part.)
+      if (r.part || wb.made(r.shape) > editing.design.value.begun) { const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))); onPage[i] = { ...r, format: partFormat(editing, { p: r, item }, kept) }; }
+    }
+  }
 
   // Positions: entered ones win, and those a change pending `holds` (where the boxes it doesn't place stand now,
   // as making it enters them: see the canvas). A loose position, where a box was made on the chart before it was
@@ -1111,7 +1152,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // bracket's over its middle). A frame round one box alone would outline it twice: it's `lone`, its caption
   // alone.
   const headed = f => {
-    const name = inFrame(frames, f).map(id => drawnBoxes.get(id)?.texts[0]).filter(Boolean).sort((a, b) => b.look.Size - a.look.Size)[0], at = name?.look ?? TEXT;
+    const name = inFrame(frames, f).map(id => { const b = drawnBoxes.get(id); return b?.named ?? b?.texts[0]; }).filter(Boolean).sort((a, b) => b.look.Size - a.look.Size)[0], at = name?.look ?? TEXT;
     const t = { ...TEXT, Font: at.Font, Size: at.Size, Bold: true, Color: '#404040', Align: f.kind === 'bracket' ? 'center' : 'left' };
     f.caption = { id: f.id, type: 'text', look: t, text: f.caption?.text ?? f.text, ...(name?.typedAt && { typedAt: name.typedAt }) };
     f.caption.lines = breakLines(f.caption.text, t, 400);
@@ -1213,6 +1254,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
   });
   function* lay(squeeze, grow, ceil, whole = false) {
+    for (const b of boxes) if (b.design) b.designAt = ceil;
     sizes(boxes, squeeze, grow);
     yield;
     const placed = Layout.arrange({
@@ -1439,7 +1481,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // Every text at the sheet's half point nearest its size, placed again where it was; a line's label at the one at or
   // under its size, so it takes no more room than the layout made for it. A size typed stands as typed; but where
   // the chart can't hold it at any scale, at the half point at or under it, and the page says so.
-  for (const b of boxes) { b.texts.forEach(it => snap(it, s, it.typedAt !== undefined)); setText(b); }
+  for (const b of boxes) { b.texts.forEach(it => snap(it, s, it.typedAt !== undefined)); setText(b); if (b.design?.parts.length) setParts(b, s); }
   for (const l of lines) { l.texts.forEach(it => snap(it, s, true)); labelOf(l); }
   for (const [k, its] of groupBy(typedTexts.filter(it => it.typedAt !== s && !it.blank && it.lines?.length), it => `${state[it.id]?.edge ?? ''}|${it.settings.Size.value}`)) {
     const at = Math.min(...its.map(it => it.look.Size * s)), edge = k.split('|')[0];
@@ -1465,7 +1507,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const byId = new Map();
   // Each mark by its id, and each text by its record's, or by each of the relations one written in a box
   // names.
-  for (const m of [...boxes, ...lines, ...frames.values(), ...shapes]) {
+  for (const m of [...boxes, ...lines, ...frames.values(), ...shapes, ...boxes.flatMap(b => b.parts ?? [])]) {
     byId.set(m.id, m);
     for (const it of m.texts ?? []) { for (const id of it.records ?? [it.id]) if (!byId.has(id)) byId.set(id, it); if (it.runs?.length) spansIn(it, 1 / s); }
   }
@@ -1943,7 +1985,7 @@ function groupsOf(N, view, only = null) {
     const alone = keyed.length === 1 && same(outputName(N, keyed[0].pattern), name) && same(own(keyed[0].pattern) ?? name, name);
     for (const o of keyed) {
       if (only && !only.has(key(o.pattern))) continue;
-      const sw = swatchOf(o.pattern, o.formats), off = o.formats.Shown === false;
+      const sw = swatchOf(o.pattern, o.formats.Design ? { ...o.formats, Design: designAtPattern(N, o.pattern, view) } : o.formats), off = o.formats.Shown === false;
       if (sw.kind === 'text') for (const [l, v] of ofPage) if (!(l in o.formats)) sw[l] = v;
       const k = JSON.stringify([sw, off, sw.kind === 'frame' && captionOf(N, o.pattern, view)]);
       (looks.get(k) ?? looks.set(k, { style: s.key, order, name: alone ? null : name, swatch: sw, off, outputs: [] }).get(k)).outputs.push(o.pattern);
@@ -2061,6 +2103,189 @@ function shapeText(row, computed, day) {
   return /^\s*=/.test(text) && computed ? Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } })) : text;
 }
 
+// ---- Group designs (dendra.md, Group designs) ----
+
+// A design: { id, name, w, h, base: { Shape, …look }, parts: [row] }, one note, Design, at a pattern in a view; each part a free
+// shape's row, its place in shares of the box, its text with {Entry} tokens, or a formula; one may be its `rest`, where the fields it
+// doesn't name go. An override is { over: { base, parts: { [id]: { text, format } } } }, only what's different, or the same in a whole one's own.
+const TOKEN = /\{([^{}\n]+)\}/g;
+const cleaned = s => s.split('\n').map(x => x.replace(/[ \t]+/g, ' ').trim()).join('\n').trim();
+const tokensIn = text => [...String(text ?? '').matchAll(TOKEN)].map(m => m[1].split('|')[0].trim());
+const wholeDesign = v => !!v && (Array.isArray(v.parts) || !!v.base);
+function overDesign(d, over) {
+  if (!over) return d;
+  return { ...d, ...(over.base && { base: { ...d.base, ...over.base } }), parts: (d.parts ?? []).map(p => { const o = over.parts?.[p.id]; return !o ? p : { ...p, ...o, ...(o.format && { format: { ...p.format, ...o.format } }) }; }) };
+}
+// The design at a pattern, as a box of it would have it: for a Key's row and Styles', drawn in miniature.
+function designAtPattern(N, p, view) {
+  let d = null;
+  for (const n of N.notes('Design').filter(x => x.view === view && Tree.narrower(p, x.pattern)).sort((a, b) => Tree.weight(a.pattern) - Tree.weight(b.pattern)))
+    d = wholeDesign(n.value) ? overDesign(n.value, n.value.over) : d && overDesign(d, n.value.over);
+  return d;
+}
+// What a token reads at a record, as a form letter's field does, where it isn't there, as nothing: an entry of it, at any depth, as Text reads
+// one; `A › B`, an entry of an entry; `Side.Entry`, that entry of the record at a relation's side, or of the first at that side of a relation it's on;
+// a list's name, the names of the relatives it lists (Holdings); and `|initials`, its words' first letters. → { text, id }, id the entry read.
+function reader(state, N, computed, day) {
+  const below = (at, label) => { const { entries } = Tree.index(state), k = Tree.norm(label); for (let todo = [at], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { if (Tree.norm(state[e].edge) === k) return e; todo.push(e); } return null; };
+  const on = at => (Tree.index(state).relations.get(at) ?? []).map(id => ({ id, r: state[id] })).filter(x => x.r?.args);
+  const objectAt = at => Tree.objectOf(state, at) ?? at;
+  const atSide = (at, side) => { const r = state[at], here = r?.args?.find(a => same(a.edge, side)); if (here) return objectAt(here.at); for (const x of on(at)) { const a = x.r.args.find(y => same(y.edge, side) && objectAt(y.at) !== at); if (a) return objectAt(a.at); } return null; };
+  const listed = (at, label) => { const k = Tree.norm(label), names = []; for (const { id, r } of on(at)) { const t = treeOf(state, id); if (t) for (const a of r.args) if (objectAt(a.at) !== at && Tree.norm(N.listName(t, a.edge)) === k) names.push(N.shortOf(state, objectAt(a.at))); } return names; };
+  const valueOf = e => textOf(state[e], 'value', state[e].edge);
+  const read = (at, raw) => {
+    const [token, how] = String(raw).split('|').map(x => x.trim()), path = token.split(/\s*›\s*/), dot = /^(.+?)\.(.+)$/.exec(token);
+    let out = { text: '' };
+    if (path.length > 1) { let x = at; for (const e of path) x = x && below(x, e); if (x) out = { text: valueOf(x), id: x }; }
+    else { const e = below(at, token); if (e) out = { text: valueOf(e), id: e }; else if (dot) { const o = atSide(at, dot[1]); if (o) out = { text: read(o, dot[2]).text }; } else out = { text: listed(at, token).join(', ') }; }
+    return how === 'initials' ? { ...out, text: out.text.split(/\s+/).filter(w => /^[\p{L}\p{N}]/u.test(w)).slice(0, 3).map(w => w[0].toUpperCase()).join('') } : out;
+  };
+  read.formula = (text, at) => { if (!computed) return ''; const v = Formulas.evaluateAt(computed, text, at, { '@AsOf': { t: 'date', iso: day } }); return Formulas.text(computed, v); };
+  return read;
+}
+const readWords = (text, at, read) => /^\s*=/.test(text) ? read.formula(text, at) : cleaned(String(text).replace(TOKEN, (_, l) => read(at, l).text));
+// A box's parts as its record reads them: the fields they name out of its stack, and each its words. `hidden`, whether an entry's token reads as nothing;
+// `hasEntry`, whether the chart has an entry of a label, which a part that names it alone and has none yet stands blank for, to type into, as a field does.
+function designIn(b, read, hidden, hasEntry) {
+  const { value } = b.design, items = b.texts, named = new Set(), of = id => items.find(it => it.id === id || it.records?.includes(id));
+  b.fields = items;
+  b.named = items.find(it => it.name) ?? null;
+  // (While it's edited, its parts stand on the page, and the box draws its base alone.)
+  if (value.strip) { b.texts = []; b.design.parts = []; return; }
+  b.design.parts = (value.parts ?? []).filter(p => !p.hidden).map(p => {
+    if (p.rest) return { p };
+    const raw = String(p.text ?? ''), one = /^\s*\{([^{}\n]+)\}\s*$/.exec(raw);
+    let item = null, id = null, blank = null;
+    let text = /^\s*=/.test(raw) ? read.formula(raw, b.record) : cleaned(raw.replace(TOKEN, (_, l) => {
+      const r = read(b.record, l);
+      if (!r.id) return r.text;
+      const it = of(r.id);
+      if (it) { named.add(it); item ??= it; }
+      id ??= r.id;
+      return hidden(r.id) ? '' : it && !l.includes('|') ? it.text : r.text;
+    }));
+    if (one && !text && !id && hasEntry(one[1].trim())) { blank = { at: b.record, edge: one[1].trim() }; text = blank.edge; }
+    const runs = p.runs?.length ? (text === raw ? p.runs : runsAfter(raw, text, p.runs)) : null;
+    return { p, text, item, ...(one && id && text && !one[1].includes('|') && { id }), ...(blank && { blank }), ...(runs?.length && { runs }) };
+  });
+  b.texts = items.filter(it => !named.has(it));
+  // (What's left is read on what it stands on: the box, or the part it goes in.)
+  const rest = value.parts?.find(p => p.rest && !p.hidden);
+  if (value.parts?.length) inkOn({ texts: b.texts, settings: { Fill: { value: rest ? groundOf(b, rest) : b.settings.Fill.value }, Transparency: b.settings.Transparency } });
+}
+// What a part's words stand on: its own fill; or, clear, the fill of the part before it that it stands in the middle of; or the box's.
+function groundOf(b, p) {
+  const fill = q => (q.geometry === 'text' || q.geometry === 'line' || q.geometry === undefined ? q.format?.Fill ?? 'none' : q.format?.Fill ?? '#ffffff');
+  if (!none(fill(p))) return fill(p);
+  const parts = b.design?.value.parts ?? [], i = parts.findIndex(q => q.id === p.id), mx = p.x + p.w / 2, my = p.y + p.h / 2;
+  for (let k = i - 1; k >= 0; k--) { const q = parts[k]; if (!q.hidden && !none(fill(q)) && mx >= q.x && mx <= q.x + q.w && my >= q.y && my <= q.y + q.h) return fill(q); }
+  return b.settings.Fill.value;
+}
+// A part's look: what it says of itself; a look named as {Outline}, the box's; and of its words, what the chart says of the field it reads, or the box, as a text's in the box would have
+// it (All text's font; a style's bold; a size a note gives, as printed, else the chart's, at the sheet's half point). A colour that wouldn't read on what's under it gives way, as Ink.
+function partFormat(b, { p, item }, s) {
+  const f = { ...p.format }, src = item?.settings ?? b.settings, given = l => (src[l]?.note ? src[l].value : undefined);
+  for (const [k, v] of Object.entries(f)) { const m = typeof v === 'string' && /^\{(\w+)\}$/.exec(v); if (m) { const o = b.settings[m[1]]?.value; if (o === undefined) delete f[k]; else f[k] = m[1] === 'Weight' ? o * s : o; } }
+  f.Font ??= item?.look.Font ?? b.settings.Font.value;
+  if (f.Size === undefined) f.Size = Number.isFinite(given('Size')) ? given('Size') : half(item?.look.Size ?? BESIDE_NAME, s) * s;
+  for (const l of ['Bold', 'Italic', 'Underline', 'Strike', 'Spacing', 'Align']) if (f[l] === undefined && given(l) !== undefined) f[l] = given(l);
+  if (f.Color === undefined && !['line', 'picture'].includes(p.geometry)) { const ground = groundOf(b, { ...p, format: f }), c = given('Color'); if (c && (none(ground) || !unread(c, ground))) f.Color = c; else if (tooDark({ Fill: ground, Transparency: 0 })) f.Color = WHITE; }
+  return f;
+}
+// What a part's words keep in from its edges, the sheet's: its Inner margins, or PowerPoint's own.
+const insetOf = (format, u) => { const i = format.Inset, by = pts => pts * PT * u; return i ? { l: by(i.l ?? 7.2), r: by(i.r ?? 7.2), t: by(i.t ?? 3.6), b: by(i.b ?? 3.6) } : { l: 9.6 * u, r: 9.6 * u, t: 4.8 * u, b: 4.8 * u }; };
+// A part as a free shape's row, in a box w × h from where the box is.
+function partRow(b, pp, w, h, s) {
+  const { id, text, rest, x, y, w: pw, h: ph, points, format, runs, ...row } = pp.p, at = `${b.id}·${id}`, down = pp.down ?? (v => v);
+  return { ...row, id: at, shape: at, geometry: row.geometry ?? 'text', x: (b.x ?? 0) + x * w, y: (b.y ?? 0) + down(y) * h, w: pw * w, h: (down(y + ph) - down(y)) * h, format: partFormat(b, pp, s),
+    ...(pp.runs && { runs: pp.runs }), ...(points && { points: points.map(([u, v]) => [(b.x ?? 0) + u * w, (b.y ?? 0) + down(v) * h]) }) };
+}
+const longestWord = it => Math.max(0, ...String(it.text ?? '').split(/[\s ]+/).map(x => measure(x, widestLook(it))));
+// A box of a design: as wide as it says, but for a width a hand gave it, or a word too long for its part, which is never broken; as tall as it says, or as its parts' words need. A text
+// by its frame: a frame its words don't fit grows to hold them, what's below it moving down by as much and what it stands beside growing with it, and the box with them, as a Figma auto layout's.
+// Each part then takes its share of the box as that leaves it (`down`, from a share as the design has it to a share of this box), so a box taller than that, as tall as its rank, is by share again.
+function sizeDesigned(b, squeeze, at) {
+  const d = b.design.value, parts = b.design.parts, shape = b.settings.Shape.value, s = b.designAt ?? 1, u = 1 / s, hand = b.pos?.hand ? b.pos.w : null, rest = parts.find(x => x.p.rest)?.p, tall = d.h ?? 44;
+  let w = at ?? (hand ?? d.w ?? WIDTH.box) * squeeze;
+  const restIn = rest ? insetOf(rest.format ?? {}, u) : null;
+  for (const pp of parts) pp.down = null;
+  if (!hand && at === null) {
+    for (const pp of parts) if (pp.text && !pp.p.rest) { const f = partFormat(b, pp, s), i = insetOf(f, u), t = { ...TEXT, ...f, Size: f.Size * u }; w = Math.max(w, (Math.max(...pp.text.split(/\s+/).map(x => measure(x, t))) + i.l + i.r + 1) / (pp.p.w || 1) / textArea(pp.p.geometry === 'text' ? 'rect' : pp.p.geometry)); }
+    for (const it of b.texts) w = Math.max(w, rest ? (longestWord(it) + restIn.l + restIn.r + 1) / (rest.w || 1) : (longestWord(it) + 2 * INSET + 1) / textArea(shape));
+  }
+  // What each frame's words need beyond it, by the share its foot is at.
+  const more = new Map(), wants = (p, h) => { const had = p.h * tall; if (h > had + 0.01) { const foot = +(p.y + p.h).toFixed(4); more.set(foot, Math.max(more.get(foot) ?? 0, h - had)); } };
+  for (const pp of parts) if (pp.text && !pp.p.rest) {
+    const row = partRow(b, pp, w, tall, s), m = freeShape({ ...row, ...(row.geometry === 'text' && { h: 1 }) }, pp.text, u), it = m.texts[0];
+    if (!it) continue;
+    const r = textRect(row.geometry === 'text' ? 'rect' : row.geometry, m.w, Math.max(m.h, 1), row.format.Corner), i = insetOf(row.format, u), area = textArea(row.geometry === 'text' ? 'rect' : row.geometry);
+    wants(pp.p, (blockHeight([it]) + i.t + i.b + r.top + r.bottom) / Math.min(1, area < 1 ? area + 0.15 : 1));
+  }
+  const room = rest ? rest.w * w - restIn.l - restIn.r : Math.max(32, w * textArea(shape) - 2 * INSET);
+  for (const it of b.texts) it.lines = linesOf(it, Math.max(room, longestWord(it)));
+  b.texts = b.texts.filter(it => it.lines.length);
+  const tb = blockHeight(b.texts);
+  if (b.texts.length && rest) wants(rest, tb + restIn.t + restIn.b);
+  const feet = [...more].sort((p, q) => p[0] - q[0]), grown = feet.reduce((n, [, v]) => n + v, 0);
+  let need = tall + grown;
+  if (b.texts.length && !rest) need = Math.max(need, shape === 'oval' || shape === 'diamond' ? tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * PAD : tb + 2 * PAD + 8);
+  // A share as it falls in the box as grown, the box's foot where it was the design's.
+  const down = v => { let y = v * tall; for (const [foot, g] of feet) if (v >= foot - 1e-4) y += g; return y / (tall + grown); };
+  for (const pp of parts) pp.down = grown ? down : null;
+  const given = b.pos && !b.pos.kept ? b.pos.h : null;
+  b.need = need;
+  b.spills = !!b.exact && given != null && !b.pos.soft && given < need;
+  Object.assign(b, { w, h: b.exact && given != null ? (b.pos.soft ? Math.max(given, need) : given) : Math.max(need, given ?? 0), shape, base: w });
+  if (shape === 'triangle') b.column = columnOf(b);
+}
+// A box's parts, set where it's come to stand: each the free shape its row makes, `of` the box, its words in it, where the canvas, the PDF and the deck draw a free shape's;
+// `rest`, the fields it doesn't name, stacked in that part. The box's `texts` are then all its fields, those in a part `part`, placed from the box's top left, what reads, selects and is typed over a field reads.
+function setParts(b, s) {
+  const u = 1 / s, stack0 = b.texts, inBox = (it, m) => ({ ...it, part: m.part, lines: it.lines.map(l => ({ ...l, x: l.x + m.x - b.x, y: l.y + m.y - b.y, ...(l.bulletAt != null && { bulletAt: l.bulletAt + m.x - b.x }) })) });
+  b.parts = b.design.parts.map(pp => {
+    const row = partRow(b, pp, b.w, b.h, s), m = freeShape(row, pp.p.rest ? '' : pp.text, u);
+    Object.assign(m, { of: b.id, part: pp.p.id });
+    if (pp.p.rest) {
+      const items = stack0.map(it => ({ ...it, rested: true, look: { ...it.look, ...(row.format.Align && { Align: row.format.Align }) } }));
+      const i = insetOf(row.format, u);
+      let y = valigned(m.look.Valign, 0, m.h, blockHeight(items), i.t);
+      for (const it of items) y = stack(it, i.l, m.w - i.l - i.r, y);
+      m.texts = items;
+      m.column = { x: i.l, width: m.w - i.l - i.r };
+    } else if (m.texts[0]) {
+      const it = m.texts[0], f = pp.item;
+      Object.assign(it, { id: pp.id ?? m.id, computed: !!f?.computed, shownBy: f?.shownBy ?? null, ...(f?.name && { name: true }), ...(pp.blank && { blank: pp.blank }) });
+    }
+    return m;
+  });
+  const all = b.parts.flatMap(m => m.texts.map(it => inBox(it, m))), has = b.design.parts.some(x => x.p.rest);
+  b.texts = [...all.filter(it => it.name), ...has ? [] : stack0, ...all.filter(it => !it.name)];
+}
+// A box as it would be with a design, by the renderer's own hand, in its own words, from its place at the page's top left: a gallery's thumbnail.
+function instance(scene, id, value, N, computed) {
+  const m = scene.byId.get(id), s = scene.page.scale ?? 1;
+  if (m?.type !== 'box') return null;
+  const settings = Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.note?.label === 'Design' ? { value: DEFAULTS.box[k], note: null } : v]));
+  for (const [l, v] of Object.entries(value?.base ?? {})) if (l in settings && (l === 'Shape' || !settings[l].note)) settings[l] = { value: l === 'Weight' ? v / s : v, note: null };
+  const texts = (m.fields ?? m.texts).filter(it => !it.part).map(it => ({ ...it, lines: it.lines.map(l => ({ ...l })) }));
+  const b = { id, type: 'box', record: m.record, x: 0, y: 0, settings, texts, design: { value: value ?? {}, parts: [], rank: [] }, designAt: s };
+  if (!value) b.design = null; else designIn(b, reader(scene.state, N, computed, scene.day), () => false, () => false);
+  size(b, 1, null, 1);
+  b.texts.forEach(it => snap(it, s, it.typedAt !== undefined));
+  setText(b);
+  if (b.design?.parts.length) setParts(b, s);
+  return b;
+}
+// A Key's row or a Styles' swatch of a design, in miniature: its parts' shapes in a swatch's rect, with no words, in the look of what it stands for.
+function swatchParts(sw, box, u = 1) {
+  if (!sw.Design?.parts?.length) return [];
+  const on = { settings: Object.fromEntries(Object.keys(DEFAULTS.box).map(k => [k, { value: sw[k], note: null }])) };
+  return sw.Design.parts.filter(p => !['text', undefined].includes(p.geometry)).map(p => {
+    const { id, text, rest, x, y, w, h, points, format, runs, ...row } = p, f = partFormat(on, { p }, 1);
+    return freeShape({ ...row, id, shape: id, x: box.x + x * box.w, y: box.y + y * box.h, w: w * box.w, h: h * box.h, ...(points && { points: points.map(([a, c]) => [box.x + a * box.w, box.y + c * box.h]) }), format: { ...f, Weight: Math.min(f.Weight ?? 0.5, 0.5) } }, '', u);
+  });
+}
+
 // A legend's rows laid out in its columns under its title, `sheet` pixels of the page to the sheet's. A row
 // merging outputs that look alike may have a caption of the legend's own, which no output shares. `all` is
 // every row it could show, each `shown` or not. A legend nobody has sized is as wide as its captions need,
@@ -2115,7 +2340,7 @@ function layoutLegend(m, rows, sheet = 1, k = 1) {
 
 // The Key's size, as a share of the sheet's: none larger than the names it explains, as a page drawn at s prints them,
 // the least of them, its 8 pt where they're as large.
-const keyAt = (boxes, s) => Math.min(1, ...boxes.filter(b => b.texts?.[0]?.look).map(b => printed(b.texts[0], s) / 8));
+const keyAt = (boxes, s) => Math.min(1, ...boxes.filter(b => (b.named ?? b.texts?.[0])?.look).map(b => printed(b.named ?? b.texts[0], s) / 8));
 // A view's sheet: its Page note at the View object, a named size or { w, h }, or a named size turned, { size, portrait };
 // a slide where none says. On a paper, that paper's size, turned as the view's own is, or as `paper` says ("letter
 // portrait", "letter landscape"), or a size of its own, "custom:816x1056". Its margins, each side's, in points as printed (`margins` in its note, or "m:36,36,36,36" in `paper`, top, right,
@@ -2442,7 +2667,7 @@ function says(scene, name, paper) {
   for (const k of scene.marks) if (k.geometry === 'legend') for (const f of scene.marks) if (f.type === 'frame' && !f.lone && over(k, f)) out.push(`The Key overlaps the ${f.caption.text} frame`);
   // What's too small for its text says so, never broken mid-word for it.
   for (const b of boxes) if (b.spills) out.push(`${called(b)}: its text runs out of its box`);
-  for (const m of scene.marks) if (m.type === 'shape' && m.spills) out.push(`“${m.texts[0]?.text?.split('\n')[0] ?? 'A shape'}” runs out of its shape`);
+  for (const m of scene.marks) for (const q of m.type === 'shape' ? [m] : m.parts ?? []) if (q.spills) out.push(`“${q.texts[0]?.text?.split('\n')[0] ?? 'A shape'}” runs out of its shape`);
   // A box given by hand the very look a Key row says means something else makes the Key lie: said by what it reads as.
   for (const { b, row } of keyLies(scene)) out.push(`${called(b)} looks like ${row.caption} in the Key, but isn't`);
   if (p.paper) boxes.forEach((a, i) => boxes.slice(i + 1).forEach(b => { if (over(a, b)) out.push(`${called(a)} overlaps ${called(b)}`); }));
@@ -2451,6 +2676,7 @@ function says(scene, name, paper) {
 
 return {
   of, looks, steps: drawing, reflow, shapeOf, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  instance, swatchParts, wholeDesign, overDesign, designAtPattern, tokensIn, reader, readWords,
   toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),
 };

@@ -296,10 +296,12 @@ function swatch(sw, { x, y, w, h }) {
   // (Its arrowheads as its lines', but Auto, which is by which way a line runs.)
   if (sw.kind === 'line') return route([[x, y + h / 2], [x + w, y + h / 2]], { ...sw, Arrow: sw.Arrow === 'auto' ? 'none' : sw.Arrow });
   if (sw.kind === 'frame') return g(x, y, body('rect', w, h, { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }));
-  return g(x, y, body(sw.Shape ?? 'rect', w, h, sw));
+  return g(x, y, body(sw.Shape ?? 'rect', w, h, sw)) + Scene.swatchParts(sw, { x, y, w, h }).map(p => markSvg(p)).join('');
 }
 function markSvg(m, pdf) {
   const s = look(m);
+  // (A box of a design: its body, its parts, each as a free shape's drawn, then what's in no part: dendra.md, Group designs.)
+  if (m.type === 'box' && m.parts?.length) return g(m.x, m.y, body(m.shape, m.w, m.h, s)) + m.parts.map(p => markSvg(p, pdf)).join('') + g(m.x, m.y, texts(m.texts.filter(it => !it.part), pdf));
   if (m.type === 'box') return g(m.x, m.y, body(m.shape, m.w, m.h, s) + texts(m.texts, pdf));
   if (m.type === 'line') return route(m.points, s, m.runs) + (m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, texts(m.texts, pdf)) : '');
   if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, look(m).Weight)}/>`) + texts([m.caption], pdf));
@@ -652,9 +654,11 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
   const write = m => {
     const s = look(m);
     if (m.type === 'box') {
-      const box = () => { ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : VALIGN[s.Valign] ?? 'ctr', inset: CHART, wrap: wrapsAt(m) })); return [rect(m)]; };
-      const own = carried.get(m.id);
-      return own ? group(m.texts[0]?.text ?? 'Shape', () => [...box(), ...own.map(l => textBox(l.texts, l.labelAt.x, l.labelAt.y, CHART))]) : box();
+      // (A box of a design: a native group of its body and its parts, each an editable shape with its own words, its connectors glued to the body: dendra.md, Group designs.)
+      const whose = (m.parts?.length ? m.texts.find(it => it.name)?.text : null) ?? m.texts[0]?.text ?? 'Shape', items = m.parts?.length ? m.texts.filter(it => !it.part) : m.texts;
+      const box = () => { ids.set(m.id, shape(rect(m), m.shape, s, whose, { items, anchor: m.shape === 'triangle' ? 'b' : VALIGN[s.Valign] ?? 'ctr', inset: CHART, wrap: m.parts?.length ? null : wrapsAt(m) })); return [rect(m)]; };
+      const own = carried.get(m.id), parts = m.parts ?? [];
+      return own || parts.length ? group(whose, () => [...box(), ...parts.flatMap(write), ...(own ?? []).map(l => textBox(l.texts, l.labelAt.x, l.labelAt.y, CHART))]) : box();
     }
     if (m.type === 'line') {
       // Lines said as one are one group, named for them all and described so, each line in it named for its own
@@ -695,7 +699,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
         const sw = r.swatch, box = { x: m.x + r.sw.x, y: m.y + r.sw.y, w: r.sw.w, h: r.sw.h }, name = r.caption.text;
         if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: sw.Arrow === 'auto' ? 'none' : sw.Arrow, Connector: 'straight' }, null, name);
         else if (sw.kind === 'frame') shape(rect(box), 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }, name);
-        else shape(rect(box), sw.Shape ?? 'rect', sw, name);
+        else { shape(rect(box), sw.Shape ?? 'rect', sw, name); Scene.swatchParts(sw, box).forEach(write); }
         textBox([r.caption], m.x, m.y, PAGE);
       }
       return [rect(m)];
@@ -1129,6 +1133,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   }
   api.open = open;
 }
+// A box by itself, as this draws it, for a gallery's thumbnail (dendra.md, Group designs): at the scale its page is drawn at, from its own top left.
+api.markSvgOf = (m, scale = 1) => { at = scale; const pad = 6; return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-pad} ${-pad} ${n(m.w + 2 * pad)} ${n(m.h + 2 * pad)}">${markSvg(m)}</svg>`; };
 
 return api;
 })();
