@@ -833,7 +833,7 @@ function Palette({ label, none, close, of, children }) {
   const entered = e => { const c = e.key === 'Enter' && hexOf(e.currentTarget.value); if (c) { e.preventDefault(); e.stopPropagation(); close?.(); apply(label, c); } };
   const more = () => html`<div class="palette grid" data-grid=":scope > button" role="group" aria-label="More colors" onPointerLeave=${() => preview()}>${table.theme.map((c, i) => swatch(c, table.names[i], false))}<i />${STANDARD.map((c, i) => swatch(c, STANDARD_NAMES[i], false))}</div>`;
   return html`<div class="palette" role="group" aria-label=${label} onPointerLeave=${e => rest(e.currentTarget)}>
-    <div class="own" data-grid=":scope > button">${ownColors().map(c => swatch(c, colorName(c) ?? c.toUpperCase()))}</div>
+    <div class="own" data-grid=":scope > button" onPointerLeave=${e => rest(e.currentTarget.parentElement)}>${ownColors().map(c => swatch(c, colorName(c) ?? c.toUpperCase()))}</div>
     <div class="more">
       ${mixed ? html`<div class="menu-head">${mixed}</div>` : null}
       <div class="menu-item withfield"><${Sub} label="More colors" of=${of} pane=${more} />
@@ -925,7 +925,7 @@ const FillPop = ({ close, of }) => html`<${Palette} label="Fill" none close=${cl
   <${Sub} label="Pattern" of=${of} items=${patternItems} />
   <button class="menu-item" onClick=${() => { close?.(); pickFillPicture(); }}><span class="label">Picture…</span></button>
   <${Sub} label="Texture" of=${of} items=${textureItems} />
-  ${value('Picture') ? html`<button class="menu-item" onClick=${() => { close?.(); apply('Picture', null); }}><span class="label">Take the picture off</span></button>` : null}
+  <button class="menu-item" disabled=${!value('Picture')} onClick=${() => { close?.(); apply('Picture', null); }}><span class="label">Take the picture off</span></button>
   <${Slider} label="Transparency" k="Transparency" v=${Math.round(value('Transparency') ?? 0)} /></${Palette}>`;
 // A picture or a texture filling it, which a gradient and a pattern give way to, as each does to the other.
 const fillIs = (label, v) => applyAll([[label, v], ...['Picture', 'Gradient', 'Pattern'].filter(l => l !== label && value(l)).map(l => [l, null])]);
@@ -1015,9 +1015,9 @@ function OutlinePop({ close, of }) {
     <${Sub} label="Compound" of=${of} items=${() => choices('Compound', COMPOUNDS, value('Compound') ?? 'single')} />
     <${Sub} label="Gradient" of=${of} items=${lineGradientItems} />
     <${Slider} label="Transparency" k="Line Transparency" v=${Math.round(value('Line Transparency') ?? 0)} />
-    ${lines ? html`<${Sub} label="Arrows" of=${of} items=${arrowItems} />
-      <${Sub} label="Route" of=${of} items=${() => choices('Connector', [['elbow', 'Elbow'], ['straight', 'Straight']], value('Connector'))} />` : null}
-    ${framed ? html`<${Sub} label="Frame" of=${of} items=${() => choices('Frame', [['none', 'None'], ['dashed', 'Dashed box'], ['solid', 'Box'], ['bracket', 'Bracket']], value('Frame') ?? 'none', frameGlyph)} />` : null}
+    <${Sub} label="Arrows" of=${of} disabled=${!lines} items=${arrowItems} />
+    <${Sub} label="Route" of=${of} disabled=${!lines} items=${() => choices('Connector', [['elbow', 'Elbow'], ['straight', 'Straight']], value('Connector'))} />
+    <${Sub} label="Frame" of=${of} disabled=${!framed} items=${() => choices('Frame', [['none', 'None'], ['dashed', 'Dashed box'], ['solid', 'Box'], ['bracket', 'Bracket']], value('Frame') ?? 'none', frameGlyph)} />
     <div class="menu-sep" /></${Palette}>`;
 }
 // Shape: PowerPoint's basic shapes, each a preset of its in the deck, a rounded rectangle's Rounding, and its Shadow. It
@@ -1065,7 +1065,7 @@ function ShapePop({ close, of }) {
   return html`<div class="picker shape">
     <div class="gallery" data-grid=".shapes > button" role="group" aria-label="Shape" onPointerLeave=${() => preview()}>${Shapes.gallery().map(g => html`<div class="menu-head">${g.head}</div><div class="shapes">${g.shapes.map(([id, name]) => html`<button aria-label=${name} data-tip=${name} aria-pressed=${now === id} autofocus=${now === id} onPointerEnter=${() => preview('Shape', id)} onFocus=${e => { if (e.currentTarget.matches(':focus-visible')) preview('Shape', id); }} onClick=${() => { setPicked(id); apply('Shape', id); }}>${shapeGlyph(id)}</button>`)}</div>`)}</div>
     <${Slider} label="Rounding" k="Corner" v=${Math.round(value('Corner') ?? Scene.CORNER)} max="50" disabled=${!rounded} />
-    ${current?.marks.length === 1 ? html`<button class="menu-item" onClick=${() => { close?.(); Canvas.active.peek()?.editPoints(); }}><span class="label">Edit points</span></button>` : null}
+    <button class="menu-item" disabled=${current?.marks.length !== 1} onClick=${() => { close?.(); Canvas.active.peek()?.editPoints(); }}><span class="label">Edit points</span></button>
   </div>`;
 }
 // Effects, as PowerPoint's Shape Effects: its shadow, its other effects, each its own.

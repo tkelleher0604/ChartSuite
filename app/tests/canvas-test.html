@@ -111,6 +111,9 @@ function titleAt() {
 const key = (k, o = {}) => { const e = new KeyboardEvent('keydown', { key: k, code: o.code ?? k, bubbles: true, cancelable: true, ...o }); cv().root.dispatchEvent(e); };
 const menuItems = () => $$('.float .menu-item').map(txt);
 const closeMenus = async () => { document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); await tick(); };
+// A color's menu's flyout, the whole palette; the rows under a right-click's More.
+const moreColors = async () => { $$('.float .palette .menu-item.sub').find(b => txt(b) === 'More colors').click(); await tick(120); };
+const underMore = async () => { const b = $$('.float .menu-item').find(e => txt(e) === 'More'); b.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120); };
 
 async function run() {
   await until(() => App.views.peek().length && sc(), 15000);
@@ -300,16 +303,17 @@ async function run() {
   // ---- Live preview: a swatch or an option pointed at is drawn, and leaving ends it ----
   const changes = App.wb.changes().length, fillOf = id => sc().byId.get(id).settings.Fill.value;
   $('[data-fb="fill"]').click(); await tick(120);
-  const swatch = $$('.float .palette > button').find(b => b.getAttribute('aria-label') === 'Blue, Accent 1, Lighter 60%');
+  await moreColors();
+  const swatch = $$('.float .palette.grid > button').find(b => b.getAttribute('aria-label') === 'Blue, lighter 60%');
   swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
   check('pointing at a swatch draws the box in it', fillOf('halvard') === '#b4c7e7' && App.scene.peek().byId.get('halvard').settings.Fill.value !== '#b4c7e7', fillOf('halvard'));
   check('… and changes nothing', App.wb.changes().length === changes);
-  $('.float .palette').dispatchEvent(new PointerEvent('pointerleave')); await tick(80);
+  $('.float .palette.grid').dispatchEvent(new PointerEvent('pointerleave')); await tick(80);
   check('leaving the swatches ends the preview', fillOf('halvard') === App.scene.peek().byId.get('halvard').settings.Fill.value);
   swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
   cv().nudge(1, 0); await tick(120);
   check('a change to the chart ends a preview of it as it was', sc() === App.scene.peek() && fillOf('halvard') !== '#b4c7e7');
-  $('.float .palette').dispatchEvent(new PointerEvent('pointerleave')); await tick(40);
+  $('.float .palette.grid').dispatchEvent(new PointerEvent('pointerleave')); await tick(40);
   swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
   await closeMenus(); await tick(80);
   check('closing the palette ends it too', sc() === App.scene.peek() && App.wb.changes().length === changes + 1);
@@ -416,21 +420,23 @@ async function run() {
   await size(1440, 900);
 
   // ---- Colors by PowerPoint's names, in PowerPoint's whole palette, and any other by its hex ----
-  const names = [['#DAE3F3', 'Blue, Accent 1, Lighter 80%'], ['E2F0D9', 'Green, Accent 6, Lighter 80%'], ['#f2f2f2', 'White, Background 1, Darker 5%'], ['#595959', 'Black, Text 1, Lighter 35%'],
-    ['#C00000', 'Dark Red'], ['#7f7f7f', 'Black, Text 1, Lighter 50%'], ['#ffc000', 'Gold, Accent 4'], ['#000000', 'Black, Text 1'], ['#E7E6E6', 'Light Gray, Background 2'],
-    ['#AFABAB', 'Light Gray, Background 2, Darker 25%'], ['#44546A', 'Blue-Gray, Text 2'], ['#D6DCE5', 'Blue-Gray, Text 2, Lighter 80%'], ['#FFFF00', 'Yellow'], ['#92D050', 'Light Green'], ['#123456', null]];
+  const names = [['#DAE3F3', 'Blue, lighter 80%'], ['E2F0D9', 'Green, lighter 80%'], ['#f2f2f2', 'White, darker 5%'], ['#595959', 'Black, lighter 35%'],
+    ['#C00000', 'Dark Red'], ['#7f7f7f', 'Black, lighter 50%'], ['#ffc000', 'Gold'], ['#000000', 'Black'], ['#E7E6E6', 'Light Gray'],
+    ['#AFABAB', 'Light Gray, darker 25%'], ['#44546A', 'Blue-Gray'], ['#D6DCE5', 'Blue-Gray, lighter 80%'], ['#FFFF00', 'Yellow'], ['#92D050', 'Light Green'], ['#123456', null]];
   const bad = names.filter(([c, n]) => FormatBar.colorName(c) !== n);
-  check('FormatBar.colorName gives PowerPoint’s name for a theme color, and null for a custom one', !bad.length, bad.map(([c]) => `${c}: ${FormatBar.colorName(c)}`).join('; '));
+  check('FormatBar.colorName gives a plain name for a theme color, never a slot of a theme, and null for a custom one', !bad.length, bad.map(([c]) => `${c}: ${FormatBar.colorName(c)}`).join('; '));
   toTitle();
   Shell.select(['halvard']); await tick(120);
   $('[data-fb="fill"]').click(); await tick(120);
-  const swatches = $$('.float .palette > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
-  check('a swatch is named so on hover', tips.join() === 'White, Background 1,Black, Text 1,Light Gray, Background 2', tips.join(' | '));
-  const fillRows = $$('.float .palette .menu-item').map(txt);
-  check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, the chart’s own, then More colors, the Eyedropper, Transparency and No fill', swatches.length >= 70 && swatches.length <= 80 && swatches.slice(70).every(b => /^#[0-9A-F]{6}$/.test(b.dataset.tip))
-    && getComputedStyle($('.float .palette')).gridTemplateColumns.split(' ').length === 10
-    && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple'
-    && fillRows.length === 9 && fillRows[0] === 'More colors#' && fillRows[1] === 'Eyedropper' && /^Set this chart.s colors/.test(fillRows[2]) && fillRows[3] === 'Gradient' && fillRows[4] === 'Pattern' && fillRows[5] === 'Picture…' && fillRows[6] === 'Texture' && /^Transparency ?\d*%$/.test(fillRows[7]) && fillRows[8] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
+  const ownFirst = $$('.float .palette > .own > button'), fillRows = $$('.float .palette > .more > .menu-item').map(txt);
+  check('a color’s menu leads with the chart’s own, large, what it’s painted in among them, then its rows; none of Office’s grid till asked', ownFirst.length > 2 && ownFirst[0].getBoundingClientRect().width >= 36 && ownFirst[0].getBoundingClientRect().top < $('.float .palette > .more').getBoundingClientRect().top && !$('.float .palette.grid')
+    && fillRows.join('|').startsWith('More colors#|Eyedropper|') && /^Set this chart.s colors/.test(fillRows[2]) && fillRows[3] === 'Gradient' && fillRows[4] === 'Pattern' && fillRows[5] === 'Picture…' && fillRows[6] === 'Texture' && fillRows[7] === 'Take the picture off' && /^Transparency ?\d*%$/.test(fillRows[8]) && fillRows[9] === 'No fill' && !$('input[type="color"]'), `${ownFirst.length} | ${fillRows}`);
+  await moreColors();
+  const swatches = $$('.float .palette.grid > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
+  check('a swatch is named so on hover', tips.join() === 'White,Black,Light Gray', tips.join(' | '));
+  check('More colors is PowerPoint’s whole palette: its theme’s ten columns of six, then its ten standard colors', swatches.length === 70
+    && getComputedStyle($('.float .palette.grid')).gridTemplateColumns.split(' ').length === 10
+    && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple', `${swatches.length}: ${standard.join(', ')}`);
   // Every swatch has one hairline, drawn on the menu, not on its own colour, so in either theme the swatches
   // nearest the menu's colour keep their edges: White on the light menu, the near-blacks on the dark.
   const rgb = s => s.match(/[\d.]+/g).slice(0, 3).map(Number), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
@@ -452,8 +458,8 @@ async function run() {
   check('… and Enter makes it, and closes the palette', App.scene.peek().byId.get('halvard').settings.Fill.value === '#1f5fbf' && !$('.float .palette'), App.scene.peek().byId.get('halvard').settings.Fill.value);
   Shell.select(['northpine']); await tick(120);
   $('[data-fb="outline"]').click(); await tick(120);
-  const own = $$('.float .palette > button').slice(70).map(b => b.dataset.tip);
-  check('… and the chart’s own colors follow the standard ones, as PowerPoint’s Recent Colors do', own[0] === '#1F5FBF', own.join(' | '));
+  const own = $$('.float .palette > .own > button').map(b => b.dataset.tip);
+  check('… and what was last given leads the chart’s own colors', own[0] === '#1F5FBF', own.join(' | '));
   await closeMenus();
   Shell.parts.peek().undo.undo(); await tick(150);
 
@@ -865,11 +871,11 @@ async function run() {
   // and Route ▸, then No outline; each ▸ a menu of the popover's, the value the line has checked ----
   Shell.select([line.id]); await tick(120);
   $('[data-fb="outline"]').click(); await tick(150);
-  const subs = $$('.float .palette .menu-item.sub').map(txt), outlineRows = $$('.float .palette .menu-item').map(txt);
+  const subs = $$('.float .palette .menu-item.sub:not(:disabled)').map(txt), outlineRows = $$('.float .palette .menu-item').map(txt);
   $$('.float .palette .menu-item.sub').find(b => txt(b) === 'Weight')?.click(); await tick(150);
   const lineWeight = +Scene.toSlide(sc().page, sc().byId.get(line.id).settings.Weight.value).toFixed(2), checkedW = $$('.float .menu-item[aria-checked="true"]').map(txt);
   check('Outline offers its palette, then Weight ▸, Dashes ▸, Arrows ▸ and Route ▸ for a line, then No outline; Weight ▸ checks the weight the line has, and the popover stays open beside it',
-    subs.join() === 'Weight,Dashes,Compound,Gradient,Arrows,Route' && outlineRows.at(-1) === 'No outline' && checkedW.includes(`${lineWeight} pt`) && !!$('.float .palette'), `${outlineRows.join(' | ')}; ${checkedW}`);
+    subs.join() === 'More colors,Weight,Dashes,Compound,Gradient,Arrows,Route' && outlineRows.at(-1) === 'No outline' && checkedW.includes(`${lineWeight} pt`) && !!$('.float .palette'), `${outlineRows.join(' | ')}; ${checkedW}`);
   $$('.float .menu-item').find(e => txt(e) === '3 pt')?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120);
   check('… and a weight pointed at in it is drawn on the line, changing nothing', Math.abs(Scene.toSlide(sc().page, sc().byId.get(line.id).settings.Weight.value) - 3) < 0.01
     && sc() !== App.scene.peek());
@@ -877,9 +883,9 @@ async function run() {
   check('… until the popover closes', sc() === App.scene.peek());
   { toTitle(); Shell.select(['fund']); await tick(120);
     $('[data-fb="outline"]').click(); await tick(150);
-    const boxSubs = $$('.float .palette .menu-item.sub').map(txt);
+    const boxSubs = $$('.float .palette .menu-item.sub:not(:disabled)').map(txt), allSubs = $$('.float .palette .menu-item.sub').map(txt);
     await closeMenus();
-    check('a box’s Outline has no Arrows ▸ or Route ▸, and the Line and Arrowheads buttons are gone', boxSubs.join() === 'Weight,Dashes,Compound,Gradient' && !$('[data-fb="line"]') && !$('[data-fb="arrow"]'), boxSubs.join()); }
+    check('a box’s Outline has the same rows, in the same places, Arrows ▸ and Route ▸ grey, and the Line and Arrowheads buttons are gone', boxSubs.join() === 'More colors,Weight,Dashes,Compound,Gradient' && allSubs.join() === 'More colors,Weight,Dashes,Compound,Gradient,Arrows,Route,Frame' && !$('[data-fb="line"]') && !$('[data-fb="arrow"]'), boxSubs.join()); }
 
   // ---- Fonts: found as typed, each in its own face, the chart's own first, then by class; one not on this computer
   // greyed and said so; any font on it taken by its name ----
@@ -2664,7 +2670,8 @@ async function format() {
   check('a text with no color of its own is drawn white on a fill too dark for ink', fundBox().texts.every(it => it.look.Color === '#ffffff'), fundBox().texts.map(it => it.look.Color).join());
   // Text color at a group means every field it shows, as a shape's in PowerPoint.
   $('[data-fb="color"]').click(); await tick(120);
-  const swatchRed = $$('.float .palette > button').find(b => b.getAttribute('aria-label') === 'Yellow');
+  await moreColors();
+  const swatchRed = $$('.float .palette.grid > button').find(b => b.getAttribute('aria-label') === 'Yellow');
   swatchRed.dispatchEvent(new PointerEvent('pointerenter')); swatchRed.click(); await tick(400);
   check('a text color given a group of boxes goes to every field they show', fundBox().texts.every(it => it.look.Color === '#ffff00'), fundBox().texts.map(it => it.look.Color).join());
   cap('Funds').click(); await tick(150);

@@ -136,6 +136,7 @@ button.lk.hint { margin-left: 8px; color: var(--accent-ink); white-space: nowrap
 .btn.onchart[aria-pressed="true"], .btn.onchart:hover { background-image: none; }
 .onchart > svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.3; }
 .onchart:not(.on) > svg > circle { opacity: .35; }
+.insp:hover .onchart:not(.on) { opacity: .3; }
 .row:hover > .onchart, .onchart:focus-visible { opacity: 1; }
 .onchart.on { opacity: .55; }
 .row:hover > .onchart.on { opacity: 1; color: var(--accent); }

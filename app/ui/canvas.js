@@ -2892,7 +2892,7 @@ function mount(el) {
   // Northpine Software, LLC.
   const lineOf = id => { const N = App.notes.peek(), st = App.state.peek(); return `${N.nameOf(st, id)}: ${N.segmentOf(st, id)}`; };
   const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? lineOf(m.record) : m.type === 'frame' ? `the ${m.caption.text} frame`
-    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : m.role === 'footnotes' ? 'the footnotes' : `the ${SHAPE[m.geometry] ?? 'shape'}`;
+    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : m.role === 'footnotes' ? 'the footnotes' : m.name ?? `the ${SHAPE[m.geometry] ?? 'shape'}`;
   const counted = ms => ms.length === 1 ? ms[0].name : ms.every(m => m.type === 'box') ? `${ms.length} boxes` : ms.every(m => m.type === 'line') ? `${ms.length} lines` : `${ms.length} items`;
   function said(hid, gone, view) {
     const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row');
