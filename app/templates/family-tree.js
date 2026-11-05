@@ -18,6 +18,9 @@ Templates.register({
     t.shown('tree', t.entry('Born', person), { Color: '#6b6256', Format: 'label' });
     t.shown('tree', field('Died', 'date'), { Color: '#6b6256', Format: 'label' });
     t.style('tree', person, 'Person', { Shape: 'rounded', Fill: '#f6f1e7', Outline: '#7a6a52', Weight: 1 });
+    t.design('tree', person, { id: 'tree-person', name: 'A rule at their foot', base: { Shape: 'rounded' }, parts: [
+      { id: 'rest', rest: true, geometry: 'text', x: 0, y: 0, w: 1, h: 0.86, format: { Align: 'center', Valign: 'middle' } },
+      { id: 'rule', geometry: 'line', x: 0.3, y: 0.86, w: 0.4, h: 0, points: [[0.3, 0.86], [0.7, 0.86]], format: { Outline: '{Outline}', Weight: 1 } }] });
     t.style('tree', { out: { tag: true }, ...parent }, 'Parent of', { Outline: '#7a6a52', Weight: 1 });
     t.note('Shown', { out: { tag: true }, ...parent }, true, { view: 'tree' });
     t.note('Format', { out: { tag: true }, ...parent }, 'none', { view: 'tree' });

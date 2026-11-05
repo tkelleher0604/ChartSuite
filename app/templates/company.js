@@ -31,6 +31,12 @@ Templates.register({
     t.style('structure', type('Limited Liability Company'), 'Limited liability company', { Shape: 'rounded', Fill: '#eef2f7' });
     t.style('structure', type('Limited Partnership'), 'Partnership', { Shape: 'triangle', Fill: '#dde4ec' });
     t.style('structure', type('General Partnership'), 'Partnership', { Shape: 'triangle', Fill: '#dde4ec' });
+    // (At each row it's for, so no row of its own in the Key, and a partnership keeps its triangle.)
+    const banded = { id: 'company-entity', name: 'A band at its side', base: {}, parts: [
+      { id: 'band', geometry: 'rect', x: 0, y: 0, w: 0.05, h: 1, format: { Fill: '{Outline}', Outline: 'none' } },
+      { id: 'rest', rest: true, geometry: 'text', x: 0.05, y: 0, w: 0.95, h: 1, format: { Align: 'center', Valign: 'middle' } }] };
+    t.design('structure', type('Corporation'), banded);
+    t.design('structure', type('Limited Liability Company'), banded);
     t.style('structure', { out: { tag: true }, ...owns }, 'Ownership', { Outline: '#3a4653', Weight: 1 });
     t.note('Shown', { out: { tag: true }, ...owns }, true, { view: 'structure' });
     t.note('Format', { out: { tag: true }, ...owns }, 'none', { view: 'structure' });

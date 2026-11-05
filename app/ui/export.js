@@ -350,12 +350,14 @@ function swatch(sw, { x, y, w, h }) {
   // (Its arrowheads as its lines', but Auto, which is by which way a line runs.)
   if (sw.kind === 'line') return route([[x, y + h / 2], [x + w, y + h / 2]], { ...sw, Arrow: sw.Arrow === 'auto' ? 'none' : sw.Arrow });
   if (sw.kind === 'frame') return g(x, y, body('rect', w, h, { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }));
-  return g(x, y, body(sw.Shape ?? 'rect', w, h, sw));
+  return g(x, y, body(sw.Shape ?? 'rect', w, h, sw)) + Scene.swatchParts(sw, { x, y, w, h }).map(p => markSvg(p)).join('');
 }
 function markSvg(m, pdf) {
   const s = look(m), deep = inner => { const t = s['Turn 3D']; return t ? `<g transform="translate(${n(m.x)} ${n(m.y)}) ${Shapes.turned3d(t, m.w, m.h)} translate(${n(-m.x)} ${n(-m.y)})">${inner}</g>` : inner; };
+  // (A box of a design: its body, its parts, each as a free shape's drawn, then what's in no part: dendra.md, Group designs.)
+  if (m.type === 'box' && m.parts?.length) return deep(g(m.x, m.y, body(m.shape, m.w, m.h, s, null, m)) + m.parts.map(p => markSvg(p, pdf)).join('') + g(m.x, m.y, texts(m.texts.filter(it => !it.part), pdf)));
   if (m.type === 'box') return deep(g(m.x, m.y, body(m.shape, m.w, m.h, s, null, m) + texts(m.texts, pdf)));
-  if (m.type === 'line') return route(m.points, s, m.runs) + (m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, texts(m.texts, pdf)) : '');
+  if (m.type === 'line') return route(m.points, s, m.runs) + (m.labelAt && m.texts.length ? g(m.labelAt.x, m.labelAt.y, (m.chip ? g(-4, -1, body(m.chip.Shape ?? 'rect', m.label.w + 8, m.label.h + 2, m.chip)) : '') + texts(m.texts, pdf)) : '');
   if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, look(m).Weight)}/>`) + texts([m.caption], pdf));
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
@@ -614,8 +616,9 @@ function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = 
     // Part of a line in another look: a run of its own, a superscript by PowerPoint's own baseline, at its full size, as PowerPoint makes it smaller itself.
     const spanRuns = l => l.spans.map(sp => { const s = sp.look, z = Math.max(100, Math.round((sp.base ? s.Size / 0.66 : s.Size) * k * 100)), f = esc(s.Font);
       return `<a:r><a:rPr lang="en-US" sz="${z}"${s.Bold ? ' b="1"' : ' b="0"'}${s.Italic ? ' i="1"' : ' i="0"'}${s.Underline ? ' u="sng"' : ''}${s.Strike ? ' strike="sngStrike"' : ''}${sp.base ? ` baseline="${sp.base === 'up' ? 30000 : -25000}"` : ''} dirty="0"><a:solidFill>${clr(s.Color)}</a:solidFill><a:latin typeface="${faceRef(s.Font)}"/><a:cs typeface="${faceRef(s.Font, 'cs')}"/></a:rPr><a:t>${esc(sp.text.replace(/ /g, ' '))}</a:t></a:r>`; }).join('');
-    // A blank field keeps its lines' room, each an empty paragraph. A paragraph's mark is in its text's look, so PowerPoint's
-    // font box shows the font, and what's typed there matches.
+    // A blank field keeps its lines' room, each an empty paragraph, but in a box of a design, where its room is under the words, which stand as what's printed.
+    // A paragraph's mark is in its text's look, so PowerPoint's font box shows the font, and what's typed there matches.
+    if (it.blank && it.under) return [];
     if (it.inline) { before = `<a:r>${rPr}<a:t>${esc(it.text)}</a:t></a:r><a:r><a:rPr lang="en-US" sz="${sz}" dirty="0"/><a:t> </a:t></a:r>`; return []; }
     const runsBefore = before;
     before = '';
@@ -644,6 +647,8 @@ const fillOf = s => { if (s.Picture?.src) return blipXml(s.Picture, s); const g 
 function adjusts(geometry, s) {
   const gd = (name, v) => `<a:gd name="${name}" fmla="val ${Math.round(v)}"/>`, t = s.Tail ?? Shapes.TAIL;
   if (geometry === 'rounded') return gd('adj', Math.min(50, Math.max(0, s.Corner ?? Scene.CORNER)) * 1000);
+  // (Its corners told, as a part of a design's are, following the box's own: dendra.md, Group designs.)
+  if (geometry === 'round2' && s.Corner != null && Math.abs(s.Corner - Scene.CORNER) > 0.01) return gd('adj1', Math.min(50, Math.max(0, s.Corner)) * 1000) + gd('adj2', 0);
   if (geometry === 'callout' || geometry === 'callout-oval') return gd('adj1', t[0] * 1e5) + gd('adj2', t[1] * 1e5);
   if (geometry === 'callout-round') return gd('adj1', t[0] * 1e5) + gd('adj2', t[1] * 1e5) + gd('adj3', 16667);
   if (geometry === 'callout-line') { const X = 0.5 + t[0], Y = 0.5 + t[1], fx = X < 0 ? 0 : X > 1 ? 1 : 0.5, fy = X < 0 || X > 1 ? 0.5 : Y < 0 ? 0 : 1; return gd('adj1', fy * 1e5) + gd('adj2', fx * 1e5) + gd('adj3', Y * 1e5) + gd('adj4', X * 1e5); }
@@ -719,7 +724,9 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset, { fit, upright: !!flip?.v, wrap: wrap === null ? null : L(wrap), look: s }), { box, title, rotate, flip, alt, locked, link }));
   // Texts on their own, their lines placed from (x0, y0): a text box at the side they're aligned to, from
   // their first line's top, its margins round them. → its rect.
-  const textBox = (items, x0, y0, inset) => {
+  const textBox = (items, x0, y0, inset, line = null) => {
+    // (A line's label as a small design: its shape under its words, as native as they are.)
+    if (line?.chip) shape(rect({ x: x0 - 4, y: y0 - 1, w: line.label.w + 8, h: line.label.h + 2 }), line.chip.Shape ?? 'rect', line.chip, items[0].text);
     const first = items[0], w = Math.max(...items.flatMap(it => it.lines.map(l => it.inline ? 0 : items[items.indexOf(it) - 1]?.inline ? l.x + l.w : l.w))), { top, bottom } = block(items), [mx, my] = inset === PAGE ? [0.1, 0.05] : [inset, inset];
     const r = { x: X(x0 + first.lines[0].x - w * (BEFORE[first.look.Align] ?? 0.5)) - mx, y: Y(y0 + top) - my, w: L(w) + 2 * mx, h: L(bottom - top) + 2 * my };
     shape(r, 'rect', { Fill: 'none' }, first.text, { items, anchor: 't', inset, box: true });
@@ -734,7 +741,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
   const connector = (points, s, ends, name, { label = null, alt, link = null } = {}) => {
     const draw = () => {
       put(id => cxn(id, name, points, s, ends?.map((b, i) => glue(scene.byId.get(b), points, i)), { X, Y, k, alt: label ? null : alt, link }));
-      return [...points.map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])];
+      return [...points.map(([x, y]) => ({ x: X(x), y: Y(y), w: 0, h: 0 })), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART, label[2])] : [])];
     };
     return label ? group(name, draw, alt) : draw();
   };
@@ -760,21 +767,23 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
   const write = m => {
     const s = look(m);
     if (m.type === 'box') {
-      const box = () => { ids.set(m.id, shape(rect(m), m.shape, s, m.texts[0]?.text ?? 'Shape', { items: m.texts, anchor: m.shape === 'triangle' ? 'b' : VALIGN[s.Valign] ?? 'ctr', inset: CHART, wrap: wrapsAt(m), alt: s['Alt Text'] })); return [rect(m)]; };
-      const own = carried.get(m.id);
-      return own ? group(m.texts[0]?.text ?? 'Shape', () => [...box(), ...own.map(l => textBox(l.texts, l.labelAt.x, l.labelAt.y, CHART))]) : box();
+      // (A box of a design: a native group of its body and its parts, each an editable shape with its own words, its connectors glued to the body: dendra.md, Group designs.)
+      const whose = (m.parts?.length ? m.texts.find(it => it.name)?.text : null) ?? m.texts[0]?.text ?? 'Shape', items = m.parts?.length ? m.texts.filter(it => !it.part) : m.texts;
+      const box = () => { ids.set(m.id, shape(rect(m), m.shape, s, whose, { items, anchor: m.shape === 'triangle' ? 'b' : VALIGN[s.Valign] ?? 'ctr', inset: CHART, wrap: m.parts?.length ? null : wrapsAt(m), alt: s['Alt Text'] })); return [rect(m)]; };
+      const own = carried.get(m.id), parts = m.parts ?? [];
+      return own || parts.length ? group(whose, () => [...box(), ...parts.flatMap(write), ...(own ?? []).map(l => textBox(l.texts, l.labelAt.x, l.labelAt.y, CHART, l))]) : box();
     }
     if (m.type === 'line') {
       // Lines said as one are one group, named for them all and described so, each line in it named for its own
       // relation; a line alone is named for its relation. Each is described with what its label says.
       if (done.has(m.id)) return [];
-      const ls = fellows.get(m.id), drawn = ls.filter(l => !l.merged), lab = drawn.find(l => l.labelAt && l.texts.length), label = lab ? [lab.texts, lab.labelAt] : null;
+      const ls = fellows.get(m.id), drawn = ls.filter(l => !l.merged), lab = drawn.find(l => l.labelAt && l.texts.length), label = lab ? [lab.texts, lab.labelAt, lab] : null;
       drawn.forEach(l => done.add(l.id));
       const rels = ls.map(l => l.record), caption = scene.byId.get(m.landed)?.caption.text, said = say(rels, caption), name = said ?? (lab ?? m).texts[0]?.text ?? 'Line';
       const alt = said && say(rels, caption, ls.flatMap(l => l.texts.map(it => it.id)));
       const line = (l, name, more) => connector(l.points, look(l), [l.from, l.to], name, more);
       return drawn.length === 1 ? line(m, name, { label: carried.get(m.to)?.includes(m) ? null : label, alt })
-        : group(name, () => [...drawn.flatMap(l => line(l, say([l.record]) ?? name)), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART)] : [])], alt);
+        : group(name, () => [...drawn.flatMap(l => line(l, say([l.record]) ?? name)), ...(label ? [textBox(label[0], label[1].x, label[1].y, CHART, label[2])] : [])], alt);
     }
     if (m.type === 'frame') {
       // Its outline, a rectangle or a bracket, and its caption; round one box alone, its caption alone.
@@ -805,7 +814,7 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
         const sw = r.swatch, box = { x: m.x + r.sw.x, y: m.y + r.sw.y, w: r.sw.w, h: r.sw.h }, name = r.caption.text;
         if (sw.kind === 'line') connector([[box.x, box.y + box.h / 2], [box.x + box.w, box.y + box.h / 2]], { ...sw, Arrow: sw.Arrow === 'auto' ? 'none' : sw.Arrow, Connector: 'straight' }, null, name);
         else if (sw.kind === 'frame') shape(rect(box), 'rect', { Fill: 'none', Outline: FRAME.stroke, Weight: sw.Weight, Dash: 'dashed' }, name);
-        else shape(rect(box), sw.Shape ?? 'rect', sw, name);
+        else { shape(rect(box), sw.Shape ?? 'rect', sw, name); Scene.swatchParts(sw, box).forEach(write); }
         textBox([r.caption], m.x, m.y, PAGE);
       }
       return [rect(m)];
@@ -814,7 +823,8 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only
     // A table is PowerPoint's own, its words in its cells, each a text to edit there.
     if (m.geometry === 'table') { const r = rect(m); put(id => tableFrame(id, m, r, s, k, L)); return [r]; }
     if (FOOT[m.role] && feet[m.role]) { put(id => footSlide(id, m, rect(m), k, feet[m.role])); return [rect(m)]; }
-    const text = m.geometry === 'text' || m.geometry === 'frame', ins = s.Inset ? { l: (s.Inset.l ?? 7.2) / 72, t: (s.Inset.t ?? 3.6) / 72, r: (s.Inset.r ?? 7.2) / 72, b: (s.Inset.b ?? 3.6) / 72 } : PAGE;
+    // (A part of a design keeps its margins at the chart's size, as a box does.)
+    const text = m.geometry === 'text' || m.geometry === 'frame', by = m.of ? k : 1, ins = s.Inset ? { l: (s.Inset.l ?? 7.2) / 72 * by, t: (s.Inset.t ?? 3.6) / 72 * by, r: (s.Inset.r ?? 7.2) / 72 * by, b: (s.Inset.b ?? 3.6) / 72 * by } : m.of ? { l: 0.1 * k, t: 0.05 * k, r: 0.1 * k, b: 0.05 * k } : PAGE;
     ids.set(m.id, shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.name ?? m.texts[0]?.text ?? Shapes.name(m.geometry) ?? 'Shape',
       { items: m.texts, anchor: VALIGN[s.Valign] ?? (text ? 't' : 'ctr'), box: m.geometry === 'text', title: m.role === 'title', rotate: m.rotate, flip: m.flip, alt: m.alt, locked: m.locked, inset: ins, fit: s.Shrink ? m.shrunk ?? 1 : false, link: m.link }));
     return [rect(m)];
@@ -1256,6 +1266,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   }
   api.open = open;
 }
+// A box by itself, as this draws it, for a gallery's thumbnail (dendra.md, Group designs): at the scale its page is drawn at, from its own top left.
+api.markSvgOf = (m, scale = 1) => { at = scale; const pad = 6; return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-pad} ${-pad} ${n(m.w + 2 * pad)} ${n(m.h + 2 * pad)}">${markSvg(m)}</svg>`; };
 
 return api;
 })();

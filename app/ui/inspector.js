@@ -1283,6 +1283,7 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
   : label === 'Points' ? 'Its own' : label === 'Picture' ? (v?.tile ? 'Texture' : 'Picture') : label === 'Glow' ? `${v.size ?? 8} pt` : label === 'Soft Edge' ? `${v} pt` : label === 'Reflection' ? `${v.size ?? 50}%` : label === 'Inner Shadow' ? shadowSaid(v) : label === 'Bevel' ? upper(String(v.type ?? 'circle')) : label === 'Turn 3D' ? `${v.x ?? 0}°, ${v.y ?? 0}°, ${v.z ?? 0}°`
   : label === 'Columns' ? `${v.n}` : label === 'Tabs' ? `${v.join(', ')} pt` : label === 'First Line' ? `${v} pt` : label === 'Line Gradient' || label === 'Text Gradient' ? `Gradient, ${v?.angle ?? 0}°` : label === 'Text Outline' ? `${v.weight ?? 0.75} pt` : label === 'Line Transparency' ? `${Math.round(v)}%`
   : label === 'Inset' ? `${v.l ?? 7.2}, ${v.t ?? 3.6}, ${v.r ?? 7.2}, ${v.b ?? 3.6} pt` : label === 'Indent' ? `${v} pt` : label === 'Layer' ? (v > 0 ? 'Brought forward' : v < 0 ? 'Sent back' : 'As it was made') : label === 'Tail' ? 'Moved' : label === 'Connector' ? upper(String(v))
+  : label === 'Design' ? v?.name ?? 'What’s said over its design'
   : label === 'Shape' ? (typeof FormatBar !== 'undefined' && FormatBar.shapeName?.(v)) || SHAPES[v] || upper(String(v)) : upper(String(v));
 function LookSection({ look, reset, named }) {
   if (!look.length) return null;
@@ -1627,7 +1628,7 @@ function Swatch({ sw, off }) {
     : sw.kind === 'text' ? html`<text x="14" y="12" text-anchor="middle" font-family=${Scene.fontFamily(sw.Font)} font-size="11" fill=${sw.Color}
         font-weight=${sw.Bold ? 700 : 400} font-style=${sw.Italic ? 'italic' : 'normal'}>Aa</text>`
     : html`${fancy ? html`<defs dangerouslySetInnerHTML=${{ __html: sw.Gradient?.stops?.length ? Shapes.gradientDef(fancy, sw.Gradient) : Shapes.patternDef(fancy, sw.Pattern, sw.Fill) }} />` : null}<path d=${Scene.path(sw.Shape ?? 'rect', 24 - w, 12 - w)} transform=${`translate(${2 + w / 2} ${2 + w / 2})`} fill=${fancy ? `url(#${fancy})` : sw.Fill === 'none' ? 'none' : sw.Fill} fill-opacity=${sw.Transparency ? 1 - sw.Transparency / 100 : null} stroke=${stroke}
-        stroke-width=${w} stroke-dasharray=${dash} />`}</svg>`;
+        stroke-width=${w} stroke-dasharray=${dash} />${Scene.swatchParts(sw, { x: 2, y: 2, w: 24, h: 12 }).map(p => p.points ? html`<path d=${`M${p.points.map(q => q.join(',')).join(' L')}`} fill="none" stroke=${p.look.Outline} stroke-width="1" />` : html`<path d=${Scene.path(p.geometry === 'frame' ? 'rect' : p.geometry, p.w, p.h, p.look.Corner)} transform=${`translate(${p.x} ${p.y})`} fill=${p.look.Fill === 'none' ? 'none' : p.look.Fill} stroke=${p.look.Outline === 'none' ? 'none' : p.look.Outline} stroke-width=${p.look.Outline === 'none' ? 0 : 0.5} />`)}`}</svg>`;
 }
 // A view's styles (those reaching `only`, if given), each with the outputs it formats: an output that only
 // shows or hides is a filter, which the legend doesn't key and nor does this.
@@ -1667,7 +1668,7 @@ function Styles({ v, only }) {
     const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]), on = reached.get(g) ?? { own: 0, masked: [] };
     // What doesn't read as this row: those of its marks with a look of their own, and what another style decides of them all.
     const notes = [...on.own ? [`${on.own} ${on.own === 1 ? 'keeps its' : 'keep their'} own`] : [], ...on.masked.map(([l, by]) => `${l} decided by ${by}`)], whose = on.ownNames?.length ? on.ownNames.join(', ') : null;
-    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onPointerDown=${alone ? press(alone) : null} onClick=${e => { if (!e.target.closest('.pen, .cellbox, input, .lk')) aimAt(g); }}><${Pen} w=${{ style: g }} row=${`row:${g.style}|${T.key(g.outputs[0])}`} /><div class="k" onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
+    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onPointerDown=${alone ? press(alone) : null} onClick=${e => { if (!e.target.closest('.pen, .cellbox, input, .lk')) aimAt(g); }}><${Pen} w=${{ style: g }} row=${`row:${g.style}|${T.key(g.outputs[0])}`} /><div class="k" onDblClick=${() => Designs.editRow(g)} onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
       <div class="v" title=${said && names.length === 1 ? names[0] : null}><span class="capline"><${Caption} g=${keyWord(g) ? { ...g, caption: keyWord(g) } : g} label=${names.join(', ')} put=${out => cap(g, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
         ${notes.length ? html`<span class="onote" title=${whose ?? notes.join(', ')}>${on.own && fb ? html`<button type="button" class="lk" data-tip=${whose} onClick=${() => fb.selectDiffers()}>${notes[0]}</button>` : notes[0]}${notes.length > 1 ? `, ${notes.slice(1).join(', ')}` : ''}</span>` : null}</span>
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;

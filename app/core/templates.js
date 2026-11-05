@@ -112,6 +112,11 @@ const Templates = (() => {
         if (caption) note('Caption', pattern, caption, { view });
         for (const [label, value] of Object.entries(looks)) note(label, pattern, value, { view });
       },
+      // A design what it reaches takes, plain data, which the chart's gallery offers too (dendra.md, Group designs).
+      design(view, pattern, value) {
+        note('Design', pattern, value, { view });
+        note('Designs', { kind: 'View' }, { list: [value] });
+      },
       // A field a box or a line shows, with its look.
       shown(view, pattern, looks = {}) {
         note('Shown', pattern, true, { view });

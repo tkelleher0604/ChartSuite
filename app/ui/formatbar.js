@@ -360,7 +360,8 @@ function byItself(c, s, forBox = false) {
   if (!bound.length || bound.length < s.marks.length || s.scopes.length < 2) return s.scopes.some(x => x.own) ? { own: true } : null;
   if (bound.length > 1) return s.narrowest && s.narrowest.marks.size === new Set(bound.map(m => m.merged ?? m.id)).size ? { group: s.narrowest.key } : { own: true };
   const m = bound[0], st = App.state.peek(), mine = n => n?.view === sc.view && Tree.idsIn(n.pattern).size > 0;
-  const f = forBox ? null : fieldOf(c);
+  // (A part of a design is the box's, as its design is; a field in the part the rest go in is a field still.)
+  const f = forBox ? null : (x => x?.it.of || (x?.it.part && !x.it.rested) ? null : x)(fieldOf(c));
   if (f) {
     const n = f.it.shownBy ?? null;
     if (n && Tree.idsIn(n.pattern).size) return { own: true };
@@ -376,6 +377,11 @@ function byItself(c, s, forBox = false) {
     if (g) return locOf(c, s, g);
   }
   return { kind: true };
+}
+// What's of a box rather than of the field picked in it (a design, another field shown, a free text, a footnote) goes where the pen stands for the box: where it would by itself with no field picked, unless a hand has put it somewhere.
+function boxScope(c, s) {
+  const l = !level.peek() && fieldOf(c) ? byItself(c, s, true) : null;
+  return (l && place(c, s, l)) ?? scopeOf(s.scopes);
 }
 // Moved by a hand: a scope, or a location.
 function penTo(c, s, g) { level.value = locOf(c, s, g); if (!g?.own && g?.key) liked.value = g.key; }
@@ -466,6 +472,7 @@ const givenTo = (view, scope) => [...new Set(App.notes.peek().styles(view).flatM
 const keepers = ks => ks.length === 1 ? App.notes.peek().nameOf(App.state.peek(), ks[0].m.record)
   : `${ks.length} ${ks.every(k => k.m.type === 'line') ? 'lines' : ks.every(k => k.m.type === 'box') ? 'boxes' : 'marks'}`;
 const possessive = s => s.endsWith('s') ? `${s}’` : `${s}’s`;
+const lowerFirst = s => s[0].toLowerCase() + s.slice(1);
 const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
 
 // ---- Making a change ----
@@ -474,8 +481,15 @@ const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(
 // the view, and a free shape's own format; for a style, a note at each of its outputs in the view. With a field of a
 // box selected (a text in it, clicked), a text property is that field's, as a text selected in a PowerPoint shape is
 // formatted: at the field's own pattern, at the scope (the canvas's styleField).
+// A part of a design picked, where what's given goes to the part: all but a text's look given to a field in the part the rest go in, which is that field's.
+function partPicked(c, label) {
+  const f = label === 'Design' || label === 'Format' ? null : fieldOf(c);
+  return f && (f.it.of || (f.it.part && !(f.it.rested && TEXT_LABELS.has(label)))) ? f : null;
+}
 function write(tx, c, label, value) {
-  const { marks, scopes } = scopesOf(c), scope = scopeOf(scopes);
+  // (A design, and a part of one, are the box's: where the pen stands for the box, whatever's picked in it.)
+  const s = scopesOf(c), { marks, scopes } = s, part = partPicked(c, label);
+  const scope = label === 'Design' || part ? boxScope(c, s) : scopeOf(scopes);
   if (!scope) return;
   if (scope.root) return tx.note(label, viewSelf(c.scene()), value);
   // (A cell of a table picked: that cell's, kept with the words it's written at.)
@@ -486,6 +500,9 @@ function write(tx, c, label, value) {
   }
   // (Everything else's words are All text's: a box's look is its own.)
   if (scope.rest && TEXT_LABELS.has(label)) return tx.note(label, viewSelf(c.scene()), value);
+  // A part of a design selected takes whatever's given it (dendra.md, Group designs); and a shape given at a design's own pattern is said over the design.
+  if (part) return c.styleField(tx, part, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
+  if ((label === 'Shape' || label === 'Corner') && Designs.atPen(tx, c.scene(), scope, marks, label, value)) return;
   const f = TEXT_LABELS.has(label) && label !== 'Format' ? fieldOf(c) : null;
   if (f) return c.styleField(tx, f, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
   const view = c.scene().view, tree = id => Tree.treeOf(App.state.peek(), id), texty = TEXT_LABELS.has(label) && label !== 'Format';
@@ -548,10 +565,13 @@ function apply(label, value) {
   // A change for a group says at once what of it keeps its own, which the scope's menu then offers to clear; and
   // where a later style gives some of it otherwise, says which still decides, and offers to put this one after it,
   // the rows holding their order till that's asked. All text says what no longer takes it, with a way to make it do so.
-  const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]), first = firstFor(c, scope, label, value), under = scope.root ? narrower(c.scene(), label, value) : null;
+  // (What's said of a part of a design is said over the design: no style decides it, and nothing keeps its own from it.)
+  const part = partPicked(c, label), scope = label === 'Design' || part ? boxScope(c, scopesOf(c)) : scopeOf(scopesOf(c).scopes), kept = part ? [] : keeping(c, scope, [label]), first = part ? {} : firstFor(c, scope, label, value), under = scope.root ? narrower(c.scene(), label, value) : null;
   const says = [kept.length && `${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own`, first.say, under?.say].filter(Boolean);
   // (A text property goes to every field, so to more notes than one: said as the one act it is.)
   const inView = `${Time.looked(label, value, scope.caption)} in ${scope.root ? lookTaker(c.scene().view) : App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && (!!scope.outputs || !!scope.root) && !fieldOf(c);
+  // (What's selected of a design, or a design given, is said so; History can't read it from what it's written as.)
+  const ofDesign = label === 'Design' ? Time.looked(label, value, scope.own ? scopesOf(c).marks.map(m => App.notes.peek().nameOf(App.state.peek(), m.record)).join(', ') : lowerFirst(allOf(scope, scope.marks?.size ?? 0))) : part ? Time.looked(label, value, 'a part of the design') : null;
   // (The footer's the chart's, on every page.)
   const marks = scopesOf(c).marks, ofFoot = !!marks.length && marks.every(isFoot) && Time.looked(label, value, 'the footer');
   // (A free shape's look is its row's, which History can't read words from: said as it's done.)
@@ -559,7 +579,7 @@ function apply(label, value) {
   const sceneWas = App.scene.peek();
   // The first change of a session that reaches more than one box says what it reached, with a way to have given it to this one alone.
   const reach = firstReach(c, scope, label, value), just = reach && (() => { Shell.parts.peek().undo?.undo(); const s = scopesOf(c); penTo(c, s, s.scopes.find(x => x.own)); apply(label, value); Shell.toast(label === 'Fill' && value !== 'none' ? `Filled just ${reach.own}` : Time.looked(label, value, `just ${reach.own}`), { undo: () => Shell.parts.peek().undo?.undo() }); });
-  App.change(tx => { write(tx, c, label, value); if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: reach ? [reach.said, ...says].join('; ') : says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null,
+  App.change(tx => { write(tx, c, label, value); if (ofDesign) tx.says(ofDesign); else if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: reach ? [ofDesign || reach.said, ...says].join('; ') : ofDesign || (says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null),
     go: () => first.also ? [first.offer, () => App.change(first.also, { dated: false, say: first.done })] : under?.clear ?? (just && reach.own ? [`Just ${reach.own}`, just] : null) });
   if (label === 'Fill' && scope.own) sayLies(sceneWas);
   // A size the chart can't hold is said, never left to be seen.
@@ -600,7 +620,7 @@ function preview(label, value) {
   if (!key) return c.restyle(null);
   if (label === 'Tidy') return c.restyle(c.tidied(), { moves: true });
   if (label === 'Tidy for every date') return c.restyle(c.tidiedEvery(), { moves: true });
-  c.restyle(trying(c, label, value), label === 'Size' || scopeOf(scopesOf(c).scopes)?.root ? { moves: true } : undefined);
+  c.restyle(trying(c, label, value), label === 'Size' || label === 'Design' || scopeOf(scopesOf(c).scopes)?.root ? { moves: true } : undefined);
 }
 // What keeps its own font or size under All text, a value going there: the styles, boxes and page's own texts a narrower
 // note gives it to. → { say, clear: [label, run] }, or null where it's all of it.
@@ -682,6 +702,9 @@ function value(label) {
   const text = current.field?.it ?? scopeTexts()[0] ?? m.texts?.[0] ?? m.caption, cell = m.geometry === 'table' ? cellOf(m) : null;
   if (cell && label === 'Fill') return cell.fill;
   if (TEXT_LABELS.has(label) && text) return text.look?.[label] ?? text.settings?.[label]?.value;
+  // (A part of a design selected: its own, as a free shape's.)
+  const part = current.field && Canvas.active.peek()?.partOf(current.field.m, current.field.it);
+  if (part) return label === 'Shape' ? part.geometry : part.look?.[label];
   return m.settings?.[label]?.value ?? m.look?.[label];
 }
 // The marks the scope reaches, and of them the texts a text property of it would change: with a field selected, that
@@ -1414,6 +1437,7 @@ const opener = {
     <${Sub} label="Text outline" of=${of} items=${() => { const c = inkNow(); return looksLike('Text Outline', [[null, 'None'], ...[0.25, 0.5, 0.75, 1, 1.5].map(weight => [{ color: c, weight }, `${weight} pt`])], value('Text Outline')); }} /></${Palette}>`),
   font: at => pop(at, close => html`<${Fonts} close=${close} />`),
   shape: at => pop(at, (close, of) => html`<${ShapePop} close=${close} of=${of} />`),
+  design: at => pop(at, close => Designs.open(at, close)),
   effects: at => pop(at, (close, of) => html`<${EffectsPop} of=${of} />`),
   paragraph: at => pop(at, () => html`<${ParagraphPop} />`),
 };
@@ -1766,6 +1790,7 @@ function Bar() {
     <button class="btn dd" aria-label="Paragraph" data-fb="paragraph" ...${writes('Alignment and spacing', !texty)} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
     <span class="sep" />
     <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
+    <button class="btn dd" aria-label="Design" data-fb="design" ...${writes('Design', !s.marks.some(m => m.type === 'box' || m.type === 'line'))} onClick=${e => opener.design(e.currentTarget)}>${Shell.icon('LayoutTemplate')}</button>
     <button class="btn dd" aria-label="Effects" data-fb="effects" ...${writes('Shadow, glow, reflection and more', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.effects(e.currentTarget)}>${Shell.icon('Sparkles')}</button>
     <button class="btn dd" aria-label="Fill" data-fb="fill" ...${writes('Fill', !boxy)} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-fb="outline" ...${writes('Outline', none || textStyle || footOnly)} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle && !footOnly ? value('Outline') : 'none')}</button>
@@ -1827,6 +1852,7 @@ function mount(el) {
     ['format.fill', 'Fill…', null, () => open('fill'), edit, ['Fill color', 'Background', 'Shading', 'Transparency']],
     ['format.outline', 'Outline…', null, () => open('outline'), edit, ['Border', 'Line color', 'Line weight', 'Dashes', 'Arrows']],
     ['format.shape', 'Change shape…', null, () => open('shape'), edit, ['Shape', 'Rounded corners']],
+    ['format.design', 'Design…', null, () => open('design'), edit, ['Group design', 'Component', 'Card', 'Header band', 'Side band', 'Corner tag', 'Pill', 'Ticket', 'Org chart card', 'Person', 'Layout of a box', 'Preset']],
     ['format.effects', 'Effects…', null, () => open('effects'), edit, ['Shadow', 'Glow', 'Soft edges', 'Reflection', 'Inner shadow', 'Bevel', '3-D rotation', '3D', 'Shape effects']],
     ['format.paragraph', 'Paragraph…', null, () => open('paragraph'), edit, ['Align text', 'Alignment', 'Line spacing', 'Bullets', 'Numbering', 'Indent', 'Inner margins', 'Shrink text', 'Autofit']],
     ['draw.flipH', 'Flip across', null, () => Canvas.active.peek().flip('h'), edit, ['Flip', 'Flip horizontal', 'Mirror']],
@@ -1911,7 +1937,7 @@ const typing = () => !!document.activeElement?.closest?.('input, textarea, [cont
 function describe(forBox = false) {
   const c = Canvas.active.peek();
   if (!c?.scene()) return null;
-  const s = scopesOf(c), sc = forBox && !level.peek() && fieldOf(c) ? place(c, s, byItself(c, s, true)) ?? scopeOf(s.scopes) : scopeOf(s.scopes);
+  const s = scopesOf(c), sc = forBox ? boxScope(c, s) : scopeOf(s.scopes);
   if (!sc || sc.root) return null;
   const by = c.scene().byId, ids = sc.own ? s.marks.map(m => m.id) : [...sc.marks ?? []], records = [...new Set(ids.map(id => by.get(id)?.record).filter(Boolean))];
   const base = { label: named(c, sc), view: c.scene().view, records };
@@ -1926,7 +1952,7 @@ function open(what, at) {
 }
 
 Shell.register('formatbar', { mount, relist: () => listHouses() });
-return { defineFonts, applyPairs: applyAll, apply, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
+return { defineFonts, applyPairs: applyAll, apply, preview, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
   copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim: g => (g ? aim(g) : void pen.home()), aimedAt, lit, litOn, selectDiffers,
   reachOf: reachOfRow, pen };
 })();
