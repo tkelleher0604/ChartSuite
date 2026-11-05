@@ -1596,7 +1596,7 @@ function groupDesigns() {
   const w10 = Log.open(SAMPLE);
   edit(w10, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); tx.add('shape', { view: MAIN, geometry: 'text', role: 'footnotes', name: 'Footnotes', text: '' }); tx.note('Footnote', LLC, { text: 'Every one' }, { view: MAIN, param: 'f1' }); tx.note('Footnote', LLC, { text: 'Where', field: 'Jurisdiction' }, { view: MAIN, param: 'f2' }); });
   const noted = scene(w10).byId.get(llcs[0].id), feet = p => p.texts.flatMap(it => it.lines).filter(l => l.spans?.some(x => x.foot));
-  check('a footnote on a box of a design: its marker is on the part that draws its name', feet(noted.parts[0]).length === 1 && feet(noted.parts[0])[0].text === noted.parts[0].texts[0].lines[0].text, JSON.stringify(noted.parts.map(p => feet(p).length)));
+  check('a footnote on a box of a design: its marker is on the part that draws its name', feet(noted.parts[0]).length === 1 && feet(noted.parts[0])[0].text === noted.parts[0].texts[0].lines.at(-1).text, JSON.stringify(noted.parts.map(p => feet(p).length)));
   check('… and a field’s on the field, where the part draws it', feet(noted.parts[1]).length === 1, JSON.stringify(noted.parts.map(p => feet(p).length)));
   check('… and the box says it too, for a click on the marker', noted.feet.length === 2 && noted.texts.some(it => it.lines[0]?.footW));
   // A field blank among the rest: its room under the words, which stand as what's printed stands.

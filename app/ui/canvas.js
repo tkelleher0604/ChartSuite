@@ -2312,6 +2312,8 @@ function mount(el) {
   // ---- Right-click: what applies to what's under the pointer ----
   root.addEventListener('contextmenu', e => {
     e.preventDefault();
+    // (On a box's dots or grips: the box's menu, no dead click for standing on them.)
+    if (!e.keyed && e.target.closest?.('.dc-handle, .x6-widget-transform')) { if (near && !selected().some(x => x.id === near.id)) Shell.select([near.id]); return void setTimeout(() => { if (selected().length) Shell.menu({ x: e.clientX, y: e.clientY }, markItems()); }); }
     if (!e.keyed) return;
     // Shift+F10 or the context-menu key: what's selected, as a right-click on it, its menu under it; or the page's, at the middle of the screen.
     const ms = selected(), r = root.getBoundingClientRect(), m = ms[0], b = m && !m.points && graph.localToClient(m.x + m.w / 2, m.y + m.h);

@@ -3127,6 +3127,16 @@ async function designing(st) {
   fileEye().dispatchEvent(new PointerEvent('pointerenter')); await tick(60);
   check('… and the eye is on, those with no such entry not counting against it, so it flips to Hide', fileEye().dataset.tip === 'Hide from all 5 limited partnerships' && fileEye().getAttribute('aria-pressed') === 'true', fileEye().dataset.tip);
   fileEye().dispatchEvent(new PointerEvent('pointerleave')); await undo();
+  // "All" can mean all: what a narrower note keeps, said by what keeps it, and taken back at a word.
+  { const jEye = () => $$('.insp .ent > .row').find(r => txt(r.querySelector('.lbl')) === 'Jurisdiction').querySelector('.onchart');
+    jEye().click(); await tick(250);
+    kindPen().click(); kindPen().dispatchEvent(new PointerEvent('pointerleave')); await tick(100);
+    jEye().click(); await tick(250);
+    check('where a narrower note keeps it, the toast says which, by what, with a way to have it all', /^Nothing changed; .* still hides it in 5/.test(toast()) && $$('.toast button').some(b => txt(b) === 'Show it in those too'), toast());
+    $$('.toast button').find(b => txt(b) === 'Show it in those too').click(); await tick(250);
+    check('… which does', [...FormatBar.scope().marks].every(id => sc().byId.get(id).texts.some(it => /Delaware|Cayman|Maryland|Minnesota/.test(it.text ?? '') || it.blank?.edge === 'Jurisdiction')), toast());
+    await undo(); await undo(); await undo(); P.home(); Shell.select(['fund']); await tick(150);
+    rowPen('Entity Type').click(); await tick(100); $$('.float .menu-item').find(x => /^5 limited partnerships$/.test(txt(x))).click(); await tick(100); }
   // A size typed goes where the pen is, as one change.
   { const ids = [...FormatBar.scope().marks], before = App.wb.changes().length, wide = Scene.fromSlide(sc().page, 130) * Scene.PT;
     cv().sizeAtPen('fund', { w: wide }); await tick(250);
@@ -3159,7 +3169,7 @@ async function designing(st) {
     check('a choice’s answers are its options, each a pattern at any object', ans?.answers.length > 2 && ans.answers.every(p => p.out?.choice && !Tree.idsIn(p).size), JSON.stringify(ans?.answers.slice(0, 2)));
     FormatBar.lookForEach('fund_juris'); await tick(300);
     const groups = Scene.groupsOf(App.notes.peek(), v).filter(g => g.outputs.some(p => p.args?.[0]?.edge === 'Jurisdiction' && p.out?.choice)), inKey = sc().marks.find(m => m.geometry === 'legend').rows.map(r => r.caption.text), fills = groups.map(g => g.swatch.Fill);
-    check('A look for each: a Styles row each, on a colour of its own, in the Key, one change', groups.length > 2 && new Set(fills).size === fills.length && inKey.includes('Cayman Islands') && /^Gave each Jurisdiction a look/.test(toast()), `${groups.map(g => g.caption)} ${fills} ${inKey}`);
+    check('A look for each: a Styles row each, on a colour of its own, in the Key, one change', groups.length > 2 && new Set(fills).size === fills.length && inKey.includes('Cayman Islands') && /^Gave each answer of Jurisdiction a look/.test(toast()), `${groups.map(g => g.caption)} ${fills} ${inKey}`);
     check('… what says a condition stays over it', !!flagged && condition() === flagged, `${flagged} / ${condition()}`);
     const was = App.notes.peek().notes('Fill').length;
     FormatBar.lookForEach('fund_juris'); await tick(150);

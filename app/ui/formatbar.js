@@ -1,6 +1,6 @@
 // The format bar: one bar over the chart, in place of the ribbon. Insert adds a box of one of the chart's
 // kinds, or a shape, a text box, a line or the key. The scope says what a change applies to, in two parts: the
-// selection, as in PowerPoint ("This box", "These 3 boxes"), and all like it ("All Funds (6)"), the narrowest
+// selection, as in PowerPoint ("This box", "These 3 boxes"), and all like it ("6 funds"), the narrowest
 // group that reaches it, whose ▾ offers every group that does: the Styles rows, as Styles lists and calls them,
 // and the selection's own groups, its kind and each of its options and tags ("Jurisdiction: Delaware (13)"),
 // each with its reach. The scope is the pen (see The pen): the panel's second way to see and move it. What it reaches has a
@@ -497,7 +497,9 @@ const pen = {
   // Moves it there.
   put(w) {
     const c = Canvas.active.peek(), n = pen.next(w);
-    if (!n || n.here) return;
+    if (!n) return;
+    // (A click on it where it stands is a hand's too.)
+    if (n.here) { if (n.to) penTo(c, n.s, n.to); return; }
     cue(null);
     if (n.root) { aim(null); level.value = null; return; }
     if (n.aim) return aim(n.aim, true);
@@ -536,11 +538,11 @@ function lookForEach(id) {
   // (A list longer than the colours, the fifty states, only those the chart has: a row for each of what no box says would tell nothing apart.)
   const COLOURS = 18, taken = new Set(found.answers.map(p => given(p)?.value).filter(Boolean)), free = (function* () { for (let i = 0; ; i++) if (i >= COLOURS || !taken.has(look(i).Fill)) yield look(i); })();
   const lacking = found.answers.filter(p => !given(p)), used = lacking.filter(inUse), fresh = [...used, ...found.answers.length > COLOURS ? [] : lacking.filter(p => !inUse(p))].map(p => [p, free.next().value]);
-  if (!fresh.length) return Shell.toast(`Each ${found.name} has its look already`);
+  if (!fresh.length) return Shell.toast(`Each answer of ${found.name} has its look already`);
   const pattern = Tree.bare(found.answers[0]), key = Tree.key(pattern), all = N.styles(view), isTag = s => s.outputs.length && s.outputs.every(o => o.pattern.out && 'tag' in o.pattern.out);
   // (A new style comes before what says a condition, Vacant, Not in good standing, so those still show on what they're said of.)
   const order = all.some(s => s.key === key) ? null : [...all.filter(s => !isTag(s)), { pattern }, ...all.filter(isTag)];
-  const pages = chartViews().length > 1, said = `Gave each ${found.name} a look${pages ? ` on ${viewNamed(view)}` : ''}`, noKey = !sc.marks.some(m => m.geometry === 'legend') && !App.shown.peek().rows(App.chart.peek()).some(r => 'shape' in r && r.view === view && r.geometry === 'legend');
+  const pages = chartViews().length > 1, said = `Gave each answer of ${found.name} a look${pages ? ` on ${viewNamed(view)}` : ''}`, noKey = !sc.marks.some(m => m.geometry === 'legend') && !App.shown.peek().rows(App.chart.peek()).some(r => 'shape' in r && r.view === view && r.geometry === 'legend');
   let wrote = [];
   App.change(tx => {
     order?.forEach((s, i) => { if (s.order !== i + 1) tx.note('Order', s.pattern, i + 1, { view }); });
@@ -548,8 +550,9 @@ function lookForEach(id) {
     if (noKey) tx.add('shape', { view, geometry: 'legend', title: 'Key', columns: 2 });
     wrote = wroteHere(tx, c).filter(r => r.label !== 'Order');
     tx.says(said);
-  }, { dated: false, say: said, go: () => { const more = everyPage(wrote, `each ${found.name}`); return more ? [more] : null; } });
+  }, { dated: false, say: said, go: () => { const more = everyPage(wrote, `each answer of ${found.name}`); return more ? [more] : null; } });
 }
+
 // A footnote's notes on a page, and the shape the page lists them in, which comes with the first there.
 function footOn(tx, view, patterns, key, value) {
   const row = App.shown.peek().rows(App.chart.peek()).find(r => 'shape' in r && r.view === view && r.role === 'footnotes');
@@ -695,7 +698,7 @@ function apply(label, value) {
   // (A text property goes to every field, so to more notes than one: said as the one act it is.)
   const inView = `${Time.looked(label, value, scope.caption)} in ${scope.root ? lookTaker(c.scene().view) : App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && (!!scope.outputs || !!scope.root) && !fieldOf(c);
   // (What's selected of a design, or a design given, is said so; History can't read it from what it's written as.)
-  const ofDesign = label === 'Design' ? Time.looked(label, value, scope.own ? scopesOf(c).marks.map(m => App.notes.peek().nameOf(App.state.peek(), m.record)).join(', ') : lowerFirst(allOf(scope, scope.marks?.size ?? 0))) : part ? Time.looked(label, value, 'a part of the design') : null;
+  const ofDesign = label === 'Design' ? Time.looked(label, value, scope.own ? scopesOf(c).marks.map(m => App.notes.peek().nameOf(App.state.peek(), m.record)).join(', ') : lowerFirst(allOf(scope, countOf(c, scope)))) : part ? Time.looked(label, value, 'a part of the design') : null;
   // (The footer's the chart's, on every page.)
   const marks = scopesOf(c).marks, ofFoot = !!marks.length && marks.every(isFoot) && Time.looked(label, value, 'the footer');
   // (A free shape's look is its row's, which History can't read words from: said as it's done.)
@@ -704,7 +707,7 @@ function apply(label, value) {
   // The first change of a session that reaches more than one box says what it reached, with a way to have given it to this one alone; on a chart of several pages, every such change says the page, with a way to go further.
   const reach = firstReach(c, scope, label, value), just = reach?.just && (() => { Shell.parts.peek().undo?.undo(); const s = scopesOf(c); penTo(c, s, s.scopes.find(x => x.own)); apply(label, value); Shell.toast(label === 'Fill' && value !== 'none' ? `Filled just ${reach.own}` : Time.looked(label, value, `just ${reach.own}`), { undo: () => Shell.parts.peek().undo?.undo() }); });
   let said = [];
-  App.change(tx => { write(tx, c, label, value); said = wroteHere(tx, c); if (ofDesign) tx.says(ofDesign); else if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: reach ? [ofDesign || reach.said, ...says].join('; ') : ofDesign || (says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null),
+  App.change(tx => { write(tx, c, label, value); said = wroteHere(tx, c); if (ofDesign) tx.says(ofDesign); else if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: reach ? [ofDesign ? `${ofDesign}${reach.page}` : reach.said, ...says].join('; ') : ofDesign || (says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null),
     go: () => [first.also ? [first.offer, () => App.change(first.also, { dated: false, say: first.done })] : under?.clear ?? (just && reach.own ? [`Just ${reach.own}`, just] : null), reach ? everyPage(said, reach.of) : null].filter(Boolean) });
   if (label === 'Fill' && scope.own) sayLies(sceneWas);
   // A size the chart can't hold is said, never left to be seen.
@@ -731,8 +734,8 @@ function firstReach(c, scope, label, value) {
   if (n < 2 || (reachTold && !pages)) return null;
   const first = !reachTold;
   reachTold = true;
-  const all = allOf(scope, n), of = lowerFirst(all), own = scopesOf(c).scopes.find(x => x.own)?.label, done = label === 'Fill' && value !== 'none' ? `Filled ${of}` : Time.looked(label, value, of);
-  return { said: pages ? `${done} on ${viewNamed(c.scene().view)}` : done, of, just: first, own: own && lowerFirst(own) };
+  const all = allOf(scope, n), of = lowerFirst(all), own = scopesOf(c).scopes.find(x => x.own)?.label, done = label === 'Fill' && value !== 'none' ? `Filled ${of}` : Time.looked(label, value, of), page = pages ? ` on ${viewNamed(c.scene().view)}` : '';
+  return { said: `${done}${page}`, page, of, just: first, own: own && lowerFirst(own) };
 }
 // The notes a change has written on the page shown, and a way for them to go further, as one change.
 const wroteHere = (tx, c) => tx.noted?.(r => r.view === c.scene().view).added ?? [];
