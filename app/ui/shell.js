@@ -888,16 +888,9 @@ const Shell = (() => {
   function chartMenu() {
     const wb = part('workbook'), items = [];
     if (wb) items.push({ label: 'Rename', disabled: App.readOnly.value, run: nameChart }, ...wb.menu(), '-');
-    const themes = { order: 30, seg: THEMES.map(([label, t]) => ({ label, pressed: theme.value === t, run: () => setTheme(t) })) };
-    // Editing or Viewing, as the title bar's switch says it.
-    const modes = { order: 5, seg: [['Editing', false], ['Viewing', true]].map(([label, on]) => ({ label, pressed: App.viewing.value === on, run: () => App.setViewing(on) })) };
-    const acts = many('action').filter(a => a.menu === 'chart').map(a => ({ order: a.order ?? 25, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run }));
-    for (const it of [...acts, modes, themes].sort((a, b) => a.order - b.order)) {
-      if (it.seg && items.length && items[items.length - 1] !== '-') items.push('-');
-      items.push(it);
-      if (it.seg) items.push('-');
-    }
-    if (items[items.length - 1] === '-') items.pop();
+    const acts = many('action').filter(a => a.menu === 'chart').map(a => ({ order: a.order ?? 25, label: a.name, keys: a.keys, disabled: a.enabled && !a.enabled(), run: a.run })).sort((a, b) => a.order - b.order);
+    // In its three: the file, what the chart holds and the window's own, and help.
+    acts.forEach((it, i) => { if (i && (it.order >= 10 && acts[i - 1].order < 10 || it.order >= 30 && acts[i - 1].order < 30)) items.push('-'); items.push(it); });
     return items;
   }
   // A name cut short is shown whole on hover, as the formula bar's is.

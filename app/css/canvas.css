@@ -405,8 +405,8 @@ text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-seri
 .dc-smart { stroke: #d6336c; pointer-events: none; }
 .dc-pin { fill: none; stroke: var(--accent); pointer-events: none; stroke-linecap: round; stroke-linejoin: round; }
 /* The chart's master, being edited: a bar over its page. */
-.dc-over > .dc-masterhost { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); pointer-events: none; }
-.dc-masterbar { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 4px 4px 4px 12px; background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r); box-shadow: 0 6px 18px rgb(0 0 0 / .12); font-weight: 600; }
+.dc-over > .dc-masterhost { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 3; }
+.dc-masterbar { pointer-events: auto; }
 .picker:has(> button.menu-item) { gap: 2px; }
 .fonts > button.menu-item { margin-top: 4px; border-top: 1px solid var(--rule); }
 /* A table on the page: the cell picked; the rule between two columns, to drag; Insert's grid of rows and columns. */
@@ -523,8 +523,10 @@ input.cell.tabs { width: 88px; }
 .picker.designs .menu-head { margin-top: 6px; }
 .picker.designs .acts { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 0; }
 .dc .x6-cell.dc-locked, .dc .x6-cell.dc-locked * { pointer-events: none !important; }
-.dc-over > .dc-designbar { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 5px 6px 5px 12px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); color: var(--ink); font: var(--t13, var(--t12)); box-shadow: var(--shadow-1, 0 1px 4px rgba(0, 0, 0, .18)); pointer-events: auto; white-space: nowrap; z-index: 3; }
-.dc-over > .dc-designbar > span { overflow: hidden; text-overflow: ellipsis; margin-right: 6px; }
+/* While the page is given over to one thing, the master or a design: one bar, over the page, saying what's being edited, with the way out at its end. */
+.dc-over > .dc-designbar { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px); pointer-events: auto; z-index: 3; }
+.dc-designbar, .dc-masterbar { display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); color: var(--ink); font: var(--t13); box-shadow: var(--shadow-pop); white-space: nowrap; }
+.dc-over > .dc-designbar > span, .dc-masterbar > span { overflow: hidden; text-overflow: ellipsis; margin-right: 6px; }
 .dc-over > .dc-designbar > input.cell { width: 120px; height: 26px; min-width: 0; margin: 0; padding: 0 6px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); }
 /* The design's name on the bar, in room kept for it, said or not, so nothing beside it moves as the selection does. */
 .fb .design-now { width: 112px; justify-content: flex-start; }

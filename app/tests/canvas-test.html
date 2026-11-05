@@ -3420,7 +3420,7 @@ async function designing(st) {
   App.change(tx => tx.note('Theme Fonts', { kind: 'View' }, undefined), { dated: false }); await tick(200);
   const shownBefore = App.scene.peek().view;
   App.mastering.value = true; await tick(300);
-  check('Edit master shows its page alone, with a bar that says so', sc().view === Scene.MASTER && !sc().marks.some(m => m.type === 'box') && txt($('.dc-masterbar')).startsWith('Master'), sc().view);
+  check('Edit master shows its page alone, with a bar that says so', sc().view === Scene.MASTER && !sc().marks.some(m => m.type === 'box') && txt($('.dc-masterbar')).startsWith('Editing the master'), sc().view);
   check('… and has nothing of a kind to add', Canvas.kinds().length === 0);
   $('[data-fb="insert"]').click(); await tick(150);
   check('… Insert there offers its footer, date and page number', ['Footer', 'Date', 'Page number'].every(w => $$('.float .insert .menu-item').some(b => txt(b) === w)), $$('.float .insert .menu-item').map(txt).join());

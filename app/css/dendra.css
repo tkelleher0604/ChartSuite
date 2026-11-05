@@ -274,7 +274,7 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 /* The arrow beside Undo, and the list it drops, the steps a pick takes lit. */
 .titlebar .btn.icon.undo-list { width: 16px; margin-left: -4px; }
 .titlebar .btn.icon.undo-list > svg { width: 12px; height: 12px; }
-.menu.undolist { width: min(440px, calc(100vw - 32px)); max-width: none; max-height: min(420px, 70vh); overflow: auto; }
+.menu.undolist { max-width: min(440px, calc(100vw - 32px)); max-height: min(420px, 70vh); overflow: auto; }
 .menu.undolist .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- A change pending: the bar under the view, what it does, when it holds, Discard and its verb ---- */
@@ -491,6 +491,8 @@ button.ol-head { cursor: pointer; }
 .settings { display: grid; gap: 8px; }
 .settings .field { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; column-gap: 12px; min-height: var(--row); color: var(--ink-2); }
 .settings .field > input { color: var(--ink); }
+.settings .field > .menu-seg { margin: 0; justify-self: start; }
+.settings .field > .menu-seg > button { flex: none; width: 72px; }
 .settings .account { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .settings .who { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings summary { display: flex; align-items: center; gap: 6px; width: max-content; height: var(--row); color: var(--ink-2); list-style: none; cursor: default; user-select: none; border-radius: var(--r); }
