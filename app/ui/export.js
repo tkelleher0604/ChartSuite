@@ -1223,6 +1223,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
       ${broke ? html`<p class="ex-says ex-broken" role="alert">${broke}</p>` : null}
       ${open.length ? html`<p class="ex-says ex-off"><span>Still open on this chart: ${open.map((c, i) => html`${i ? ', ' : ''}<span class=${'said-' + c.kind}>${c.said}</span>`)}</span> <button type="button" class="btn" onClick=${() => { close(false); setTimeout(() => Shell.listProblems(open[0].kind)); }}>See them</button></p>` : null}
       ${drawn ? ids.map(narrowed).filter(Boolean).map(t => html`<p class="ex-says ex-off">${t}</p>`) : null}
+      ${drawn ? FormatBar.footsOff(chosen).slice(0, 3).map(x => html`<p class="ex-says ex-off"><span>The footnote “${x.text}” is on ${x.from}, not on ${x.on}</span> ${App.readOnly.peek() ? null : html`<button type="button" class="btn" onClick=${() => { x.put(); setFits(n => n + 1); }}>Put it there</button>`}</p>`) : null}
       ${oneOff ? html`<p class="ex-says">${PAPERS[paper]} for this file only. ${stay.length === 1 && stay[0] ? `The page stays ${PAPERS[stay[0]]}.` : 'The pages stay as they are.'}</p>` : null}
       ${said.length ? html`<div class="ex-warns">
         ${said.filter(x => !x.off).slice(0, 4).map(x => html`<p class="ex-says">${named(x)}</p>`)}

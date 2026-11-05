@@ -125,7 +125,7 @@ async function run() {
   check('Step 3 points at the scope, both its parts, above the chart', !!like && around(like) && !!own && !!like.querySelector('[data-fb="like"]'), like && txt(like));
   check('… its card clear of the bars under what it points at', $('.tour-card').getBoundingClientRect().top >= ($('#view .formulabar')?.getBoundingClientRect().bottom ?? like.getBoundingClientRect().bottom), JSON.stringify(card()));
   own.click(); await tick(200);
-  check('Either part does step 3, “This box” as well as “All …”, and the name typed in is left as it was', step() === '4 / 7' && !$('.dc-edit') && N() === n0, `${step()} ${!!$('.dc-edit')} ${N() - n0}`);
+  check('Either part does step 3, “This box” as well as what’s beside it, and the name typed in is left as it was', step() === '4 / 7' && !$('.dc-edit') && N() === n0, `${step()} ${!!$('.dc-edit')} ${N() - n0}`);
   check('Step 4’s dots stand on the box it points at', !!$('.tour-dots:not([hidden]) i'), $('.tour-dots')?.outerHTML.slice(0, 60));
 
   // 4. Drag to another: the canvas asks for the two boxes' relations.

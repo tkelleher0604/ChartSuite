@@ -29,7 +29,7 @@ const Tour = (() => {
   const STEPS = [
     { can: anyBox, event: 'select', target: 'box', act: 'Click a box.', keys: 'Tab to a box.', say: 'Every box is a record.', when: s => s?.length },
     { can: anyBox, event: 'field-edit', target: 'box', act: 'Double-click a box’s name.', keys: 'Press Enter on a box.', say: 'Type here or in the panel: it’s the same record.', ends: unedit },
-    { can: twoBoxes, click: true, event: 'scope-toggled', target: 'scope', act: 'Click “This box” or “All …” above the chart.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+KeyA')}.`, say: 'That moves the pen in the panel: a change goes where the pen is, what it reaches outlined. Click a pen on any row to move it there.', ends: unlike },
+    { can: twoBoxes, click: true, event: 'scope-toggled', target: 'scope', act: 'Click “This box” or what’s beside it, above the chart.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+KeyA')}.`, say: 'That moves the pen in the panel: a change goes where the pen is, what it reaches outlined. Click a pen on any row to move it there.', ends: unlike },
     // (Its dots stand on the box it points at, so what it says to drag can be seen.)
     { can: twoBoxes, dots: true, event: 'relate-open', target: 'box', act: 'Drag a dot on a box’s edge to another box.', keys: 'Press Shift+F10 on a box, choose Relate…, Tab to another box and press Enter.', say: 'The panel then says how the two are connected.' },
     // What the drag made, the two boxes' panel, shown before anything takes its place.

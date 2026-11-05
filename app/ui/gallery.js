@@ -23,7 +23,7 @@ const Gallery = (() => {
       Templates.exampleOf(tx, t);
       const made = tx.commit();
       if (typeof made === 'string') throw new Error(made);
-      const day = Log.today(), N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, day), N.definitions(S), { relations: N.relations(S) });
+      const day = Log.today(), N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, day), N.definitions(S), { relations: N.relations(S), schema: S });
       const v = t.rows.find(r => 'record' in r && !t.rows.some(n => n.label === 'Layout' && n.pattern.id === r.record))?.record;
       out = Export.sketch(Scene.of(wb, c, ids.get(v), day, { state: R.records, computed: R }), { bars: true, at: FRAME });
     } catch (e) { console.warn(`The ${t.name} card`, e); }

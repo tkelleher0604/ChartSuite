@@ -2,7 +2,7 @@
 // script as the sample is, that registers { id, name, rows, example }: its specifications, its notes, the views and
 // tables it opens with and their furniture, and no records. A row is as the log keeps it, less its id, its item named
 // for now: { tree } a specification; { record, kind: 'View' } a view; { label, pattern, value, view?, param? } a note;
-// { shape, view, … } a free shape, the one whose role is the title saying the chart's name. Nothing here, or anywhere in
+// { shape, view, … } a free shape, the one whose role is the title saying the chart's name, and its own `text` after it. Nothing here, or anywhere in
 // the app's code, names a template's kind, entry or relation: they're the templates' own to say. `example`, a few records
 // (see exampleOf), is what its card in the New chart gallery draws.
 const Templates = (() => {
@@ -21,7 +21,7 @@ const Templates = (() => {
       if ('tree' in r) tx.add('spec', { tree: r.tree });
       else if ('record' in r) tx.add('record', { kind: r.kind }, to(r.record));
       else if ('label' in r) tx.note(r.label, moved(r.pattern, to), r.value, { view: r.view && to(r.view), param: r.param });
-      else { const { shape: _, view, ...x } = r; tx.add('shape', { view: to(view), ...x, ...(x.role === 'title' && { text: title }) }); }
+      else { const { shape: _, view, ...x } = r; tx.add('shape', { view: to(view), ...x, ...(x.role === 'title' && { text: title + (x.text ?? '') }) }); }
     }
     return ids;
   }
@@ -62,6 +62,7 @@ const Templates = (() => {
       note,
       entries,
       entry,
+      spec: tree => { out.push({ tree }); },
       kind: (kind, list) => { out.push({ tree: { kind } }); entries({ kind }, list); },
       // A relation of two sides: its name, its sides (the first drawn on top, unless it says `above`), the kinds at each,
       // its lists' names, what's entered at it (`at`), and `roles`, its options where it isn't a yes-or-no (Director, Officer).

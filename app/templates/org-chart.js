@@ -5,7 +5,10 @@ Templates.register({
   order: 2,
   rows: Templates.rows(t => {
     const person = { kind: 'Person' }, field = (edge, type = 'text') => ({ out: { field: type }, ...t.entry(edge, {}) });
-    t.kind('Person', { Name: 'text', Title: 'text', Department: 'text', Location: 'text', Email: 'text', 'Start Date': 'date', 'End Date': 'date', Vacant: 'tag' });
+    // (Department and Location are choices, so the chart can style by each answer; what's typed that isn't one yet becomes one.)
+    t.kind('Person', { Name: 'text', Title: 'text', Department: ['Executive', 'Finance', 'Operations', 'People', 'Sales', 'Marketing', 'Engineering'], Location: ['Headquarters', 'Remote'], Email: 'text', 'Start Date': 'date', 'End Date': 'date', Vacant: 'tag' });
+    t.note('Grows', t.entry('Department', person), true);
+    t.note('Grows', t.entry('Location', person), true);
     t.undated();
     t.starts('Start Date', person);
     t.ends('End Date', person);

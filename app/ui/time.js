@@ -52,7 +52,7 @@ const Time = (() => {
     App.version.value;
     const c = App.chart.value, wb = App.shown.value, N = App.notes.value;
     if (!c) return [];
-    const rows = wb.rows(c).filter(r => 'record' in r), recs = recordsOf(rows), out = new Map();
+    const rows = wb.rows(c).filter(r => 'record' in r && !r.calendar), recs = recordsOf(wb.rows(c).filter(r => 'record' in r)), out = new Map();
     // A day's weight, on the ruler, is the most it does: 3, something comes to be or ends; 2, a relation or a stake moves; 1, a date is only noted.
     const add = (d, [what, of], w) => { if (!out.has(d)) out.set(d, Object.assign(new Map(), { w: 0 })); const m = out.get(d); m.set(what + '·' + of, { what, of }); m.w = Math.max(m.w, w); };
     const weigh = id => { const x = recs[id]; return !x ? 1 : x.args ? 2 : Tree.isObject(x) ? 3 : recs[x.at]?.args ? 2 : 1; };

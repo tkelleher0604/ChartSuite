@@ -91,6 +91,18 @@ async function run() {
   while (!App.chart.value) await tick(50);
   const C = App.chart.value, n0 = App.wb.changes().length;
   Shell.select(['fund']); await tick();
+  { // Typed in a short list, it finds what begins with all that's typed, and no key of it gets out.
+    const got = [], offer = async () => { Shell.menu($('.ih'), [{ label: '3(c)(1)', run: () => got.push(1) }, { label: '3(c)(7)', run: () => got.push(7) }]); await tick(60); };
+    let out = 0; const spy = e => { if (!e.defaultPrevented) out++; };
+    const keys = t => [...t].forEach(key => $('.float .menu').dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })));
+    addEventListener('keydown', spy);
+    await offer(); keys('3(c)(7)'); await tick(); keys(['Enter']); await tick();
+    check('typed in a short list, it goes to what begins with all that’s typed, and Enter chooses it', got.join() === '7', got.join());
+    await offer(); keys('3(c)(9)'); await tick(); keys(['Enter']); await tick();
+    check('… what finds nothing is chosen by no Enter', got.join() === '7' && !!$('.float .menu'), got.join());
+    Shell.closeAll(); removeEventListener('keydown', spy); await tick();
+    check('… and no key of it reaches the chart', out === 0, out);
+  }
   check('a record shows its name and path', Tree.clean($('.ih .cell')?.value) === 'Calder Ridge Capital Partners III, L.P.' && $('.ih .path')?.textContent.includes('Entity'), $('.ih')?.textContent);
   check('… its suffix kept to it, as the chart sets it, and its lines balanced', $('.ih .cell').value.endsWith('III,\u00a0L.P.') && getComputedStyle($('.ih .cell')).textWrap.includes('balance'), JSON.stringify($('.ih .cell').value));
   check('entries follow Order, with Name as the title', $$('.rows > .ent > .row > .k').slice(0, 3).map(k => k.textContent.trim()).join() === 'Short Name,Vehicle Type,Entity Type', $$('.rows > .ent > .row > .k').slice(0, 3).map(k => k.textContent.trim()).join());
@@ -841,7 +853,7 @@ async function run() {
   Shell.select(['fund']); await tick();
   rowOf('Jurisdiction').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
   check('Alt+click on a label shows the entry in general', Shell.selection.value[0]?.startsWith('~') && $('.ih .cell')?.value === 'Jurisdiction' && $$('.sect > .fold').some(s => s.textContent === 'Options'));
-  const req = rowOf('A blank needs filling in')?.querySelector('input');
+  const req = rowOf('Required')?.querySelector('input');
   check('…with whether a blank needs filling in', req?.checked === true);
   Shell.select(['fund']); await tick();
   rowOf('EIN').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
@@ -1084,6 +1096,8 @@ async function run() {
   const paidSaid = 'Paid AIV-1’s annual tax for 2025 on Oct 26, 2026';
   check('… and History and its toast say it as a payment', Time.describe(last()) === paidSaid
     && document.querySelector('.toast')?.textContent.startsWith(paidSaid), `${Time.describe(last())} / ${document.querySelector('.toast')?.textContent}`);
+  check('… paid after the day it fell due, it says so: in its toast, in its own note for History, and the year holds Paid Late', document.querySelector('.toast')?.textContent.includes('late: it was due Jun 1, 2026') && last().note === 'Late: it was due Jun 1, 2026'
+    && Object.values(st()).some(r => r.at === year?.record && r.edge === 'Paid Late' && r.tag === true), `${document.querySelector('.toast')?.textContent} / ${last().note}`);
   check('… the selection staying on the year, now entered, at the payment’s row', Shell.selection.peek()[0] === year?.record && document.activeElement?.closest('[data-key]')?.dataset.key === payment?.record,
     `${Shell.selection.peek()} ${document.activeElement?.outerHTML.slice(0, 120)}`);
   // As the sample's are, a payment is recorded from the day it was made, the year with it: as of a day

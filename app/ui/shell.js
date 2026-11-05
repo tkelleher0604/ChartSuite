@@ -564,7 +564,7 @@ const Shell = (() => {
     // Opened by the keys, it's on its ticked item, or its first, so Enter does something and what's on is seen; by the pointer, on nothing.
     const [act, setAct] = useState(() => { if (!keyed || f.search) return -1; const k = items.findIndex(it => it && it.checked && selectable(it)); return k >= 0 ? k : live.find(i => selectable(items[i])) ?? -1; });
     const active = f.search && q.trim() && act < 0 ? live.find(i => selectable(items[i]) && !items[i].asked) ?? live.find(i => selectable(items[i])) ?? -1 : act;
-    const checks = items.some(it => it && it.checked !== undefined);
+    const checks = items.some(it => it && it.checked !== undefined), typed = useRef({ s: '', t: 0 });
     const mi = i => `mi${f.id}-${i}`, el = i => document.getElementById(mi(i));
     const run = it => {
       if (it.items) return openSub(it, el(items.indexOf(it)));
@@ -588,21 +588,23 @@ const Shell = (() => {
       else if (e.key === 'End' && !f.search) setAct(live[live.length - 1]);
       else if (it?.seg && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { const n = it.seg[it.seg.findIndex(s => s.pressed) + (e.key === 'ArrowRight' ? 1 : -1)]; if (n && !n.pressed) n.run(); }
       else if (it?.seg && e.key === 'Enter') closeAll();
-      else if (e.key === 'Enter' && it) run(it);
+      else if (e.key === 'Enter') { if (it) run(it); }
       else if (e.key === 'ArrowRight' && it?.items) run(it);
       else if (e.key === 'ArrowLeft' && f.parent) f.close();
       else if (e.key === 'Tab') return closeAll();   // and focus goes on from what opened it
       else if (!f.search && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const k = e.key.toLowerCase(), from = live.indexOf(active);
-        const next = [...live.slice(from + 1), ...live.slice(0, from + 1)].find(i => items[i].label?.toLowerCase().startsWith(k));
-        if (next === undefined) return;
-        setAct(next);
+        // Typed, a list goes to what begins with all that's typed ("3(c)(7)"), a pause beginning again; one letter again goes on through what it begins. What finds nothing lights nothing, so Enter chooses no other, and no key of it reaches the chart.
+        const t = typed.current; clearTimeout(t.t); t.s += e.key.toLowerCase(); t.t = setTimeout(() => { t.s = ''; }, 800);
+        const from = live.indexOf(active), round = k => [...live.slice(k), ...live.slice(0, k)], begins = s => i => items[i].label?.toLowerCase().startsWith(s);
+        setAct((t.s.length > 1 ? round(Math.max(from, 0)).find(begins(t.s)) : undefined) ?? ([...t.s].every(c => c === t.s[0]) ? round(from + 1).find(begins(t.s[0])) : undefined) ?? -1);
       } else return;
       e.preventDefault();
     };
     useLayoutEffect(() => { el(active)?.scrollIntoView({ block: 'nearest' }); }, [active]);
-    // An item pointed at, or reached by the keys, shows what it would do (its `point`) until it's left.
-    const pointed = items[active]?.point;
+    // An item pointed at, or reached by the keys, shows what it would do (its `point`) until it's left. (What's lit as a menu opens hasn't been reached by anyone: opening previews nothing.)
+    const opened = useRef(act);
+    if (active !== opened.current) opened.current = null;
+    const pointed = active === opened.current ? null : items[active]?.point;
     useEffect(() => { if (!pointed) return; pointed(true); return () => pointed(false); }, [pointed]);
     // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
     const at = active >= 0 && items[active] ? mi(active) : null;
@@ -739,7 +741,9 @@ const Shell = (() => {
   const toasts = signal([]);
   let tid = 0;
   function toast(text, o = {}) {
-    const t = { id: ++tid, text, acts: [...(o.go ? [o.go] : []), ...(o.undo ? [['Undo', o.undo]] : o.redo ? [['Redo', o.redo]] : [])], stay: !!o.go, timer: 0 };
+    // (`go`, what it offers beside Undo: one [label, run], or several.)
+    const gos = !o.go?.length ? [] : Array.isArray(o.go[0]) ? o.go : [o.go];
+    const t = { id: ++tid, text, acts: [...gos, ...(o.undo ? [['Undo', o.undo]] : o.redo ? [['Redo', o.redo]] : [])], stay: !!gos.length, timer: 0 };
     const dismiss = () => { clearTimeout(t.timer); toasts.value = toasts.peek().filter(x => x !== t); };
     t.arm = () => { clearTimeout(t.timer); if (!t.stay) t.timer = setTimeout(dismiss, o.ms || 6000); };
     t.dismiss = dismiss;
