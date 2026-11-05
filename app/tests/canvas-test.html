@@ -1111,7 +1111,7 @@ async function run() {
         off.push(`${what}: ${red === base ? 'no redline; ' : ''}${goes && !n ? 'nothing struck; ' : ''}${keyed.length ? `through the Key: ${keyed}; ` : ''}${bad.slice(0, 2).join(', ')}${App.scene.peek() !== red ? ' Enter drew another scene' : ''} ${after.slice(0, 2).join(', ')}`);
       Shell.parts.peek().undo.undo(); await tick(160);
     };
-    const tickRow = async (a, b, re) => { Shell.emit('relate-open', [a, b]); await tick(120); $$('.rr .add-entry').find(x => txt(x) === 'Add a relation')?.click(); await tick(60);
+    const tickRow = async (a, b, re) => { Shell.emit('relate-open', [a, b]); await tick(120); $$('.rr .add-entry').find(x => txt(x) === 'Add a connection')?.click(); await tick(60);
       $$('.rr').find(r => re.test(txt(r.querySelector('.nm'))))?.querySelector('.ctl .tag')?.click(); await tick(60); };
     await show(charts()[0]);
     await pending('a relation added from today', () => tickRow('pension', 'fund', /is an owner of Fund III$/));
@@ -1137,7 +1137,7 @@ async function run() {
     // shows it, so its redline has its line, and Enter draws that
     {
       Shell.emit('relate-open', ['pension', 'bdc']); await tick(120);
-      $$('.rr .add-entry').find(x => txt(x) === 'Add a relation')?.click(); await tick(60); $$('.rr .add-entry').find(x => txt(x) === 'New relation')?.click(); await tick(60);
+      $$('.rr .add-entry').find(x => txt(x) === 'Add a connection')?.click(); await tick(60); $$('.rr .add-entry').find(x => txt(x) === 'New connection')?.click(); await tick(60);
       const ins = $$('.rr.new input'), n0 = App.wb.changes().length;
       for (const [i, v] of ['Lender', 'Lender', 'Borrower'].entries()) { ins[i]?.focus(); if (ins[i]) { ins[i].value = v; ins[i].dispatchEvent(new Event('input', { bubbles: true })); } await tick(10); }
       await tick(160);
@@ -2306,7 +2306,7 @@ async function stillAsMade() {
   check('History says each change as it was made, nothing of the boxes kept where they stood', !says.some(s => /^Moved Larkspur Credit GP|^Moved Larkspur Capital|, and \d+ more/.test(s)), says.join(' | '));
   // The Key keeps its corner as the chart is edited (gui2 D-16): a change keeps it where it's drawn on the sheet, which
   // History doesn't say; Tidy places it afresh, as it does the chart.
-  const keyMark = () => sc().marks.find(m => m.geometry === 'legend'), keyAt = () => [keyMark().x * sc().page.scale, keyMark().y * sc().page.scale], keyRow = () => App.wb.rows(App.chart.peek()).find(r => r.geometry === 'legend' && r.view === Shell.view.peek());
+  const keyMark = () => sc().marks.find(m => m.geometry === 'legend'), keyAt = () => [keyMark().x * sc().page.scale, keyMark().y * sc().page.scale], keyRow = () => App.wb.rows(App.chart.peek()).find(r => r.geometry === 'legend' && r.view === sc().view);
   const k0 = keyAt(), f3 = box('Larkspur Credit Fund');
   await dot(f3, 'e', [f3.x + f3.w + 200, f3.y + f3.h + 110]);
   await name('State of Ohio Public Employees Deferred Compensation Retirement Trust');
@@ -2329,7 +2329,7 @@ async function stillAsMade() {
 
 // ---- The format bar and house styles (FIXG3, F), on the sample chart ----
 async function format() {
-  // (This page is at the suite's budget. What's here is drawn and read, no timer to outlast, so it waits less; what's elsewhere times a gesture.)
+  // (This page is near the suite's budget: less of a wait here, what's waited for being drawn by then.)
   const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.6));
   await until(() => App.views.peek().length && sc(), 15000);
   const wbPart = Shell.parts.peek().workbook, sample = App.wb.charts().find(c => /Calder Ridge/.test(c.name));
@@ -3455,6 +3455,7 @@ async function designing(st) {
 // New charts: the gallery and the templates, on the sample as it opens.
 const j2 = x => JSON.stringify(x);
 async function templates() {
+  const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.5));
   await until(() => App.views.peek().length && sc(), 15000);
   const sample = App.chart.peek(), wb = () => App.wb;
   // What a chart's rows say, whatever its ids: each view by its name.
@@ -3471,8 +3472,11 @@ async function templates() {
   document.activeElement?.blur?.();
   const like = App.chart.peek(), likeRows = wb().rows(like).filter(r => !('chart' in r) && !r.calendar);
   App.begin({ template: 'fund-structure', name: 'From the template' }); await tick(300);
+  $('.dc-edit')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(100);
+  const likePages = App.wb.rows(like).filter(r => 'note' in r && r.label === 'Name' && r.pattern.kind === 'View').map(r => r.value);
   const tmpl = App.chart.peek(), tmplRows = wb().rows(tmpl).filter(r => !('chart' in r) && !r.calendar), a = said(likeRows), b = said(tmplRows), onlyA = a.filter(x => !b.includes(x)), onlyB = b.filter(x => !a.includes(x));
   check('the fund template is the sample’s chart less its records, so the two can’t drift', like !== sample && tmpl !== like && !onlyA.length && !onlyB.length, `${onlyA.slice(0, 3).join(' | ')} ::: ${onlyB.slice(0, 3).join(' | ')}`);
+  check('Like this chart brings the chart’s pages, empty', likePages.includes('40 Act') && !App.wb.rows(like).some(r => 'record' in r && r.kind !== 'View' && !r.tree && !r.calendar), likePages.join());
   check('… and it has no record but its views', !tmplRows.some(r => 'record' in r && r.kind !== 'View'));
   check('… a template is one change, in History as any is', wb().changes().filter(c => c.chart === tmpl).length === 1);
   // Each of them: what it brings, none naming what's in the app's code.
@@ -3484,8 +3488,12 @@ async function templates() {
   check('Blank is one kind, Box, with Name, and no relation', kinds('blank').join() === 'Box' && !Object.values(specs('blank')).some(s => s.args?.length > 1) && Object.values(specs('blank')).filter(s => s.args).map(s => s.args[0].edge).join() === 'Name');
   check('no template but the fund’s has a fund’s words in it', ['blank', 'org-chart', 'family-tree', 'company'].every(id => !/fund|investor|§|3\(c\)|vehicle|LEI\b/i.test(JSON.stringify(Templates.of(id).rows))));
   // Blank's first page isn't an error, and a chart with no relation works throughout.
-  App.begin({ template: 'blank', name: 'Nothing yet' }); await tick(400);
-  check('Blank’s first page isn’t an error: nothing to attend to, and a box to add', !App.needs.peek().length && !sc().marks.some(m => m.type === 'box') && !!$('.empty.void button') && txt($('.empty.void button')) === 'Add a box', JSON.stringify(App.needs.peek()));
+  const esc = el => el?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  App.begin({ template: 'blank', name: 'Nothing yet' }); await tick(500);
+  check('Begin lands naming the first box, no Add a box to find; nothing to attend to, and no box till it’s named', !!$('.dc-edit') && !App.needs.peek().length && !sc().marks.some(m => m.type === 'box'), JSON.stringify(App.needs.peek()));
+  check('a chart that keeps no dated record says so, and Blank’s page has no As of line', !App.isDated.peek() && !sc().marks.some(m => m.role === 'date'));
+  esc($('.dc-edit')); await tick(150);
+  check('… and Esc leaves Add a box', !!$('.empty.void button') && txt($('.empty.void button')) === 'Add a box');
   const blankChart = App.chart.peek();
   $('.empty.void button').click(); await tick(200);
   check('with one kind, Add a box begins it, naming it', !!$('.dc-edit') && !!$('.dc-kind') && txt($('.dc-kind')) === 'Box');
@@ -3501,39 +3509,51 @@ async function templates() {
   check('still nothing to attend to, with a kind and no relation', !App.needs.peek().length);
   // Two boxes, a new relation: on top as they stand; said of the side it's named for.
   const sam = (() => { let id; App.change(tx => { id = tx.add('record', { kind: 'Person' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: 'Sam Okoye' }); }); return id; })(); await tick(200);
-  Shell.emit('relate-open', [ana, sam]); Shell.select([ana, sam]); await tick(200);
-  $$('.rr .add-entry').find(x => txt(x) === 'New relation')?.click(); await tick(100);
+  Shell.emit('relate-open', Object.assign([ana, sam], { way: 'across' })); await tick(200);
   const typeIn = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
   const cells = () => $$('.rr.new input.cell');
+  check('with nothing to offer, the form’s open by itself, its name having the keys', document.activeElement === cells()[0] && !!$('.rr.new .form-acts'), document.activeElement?.tagName);
   typeIn(cells()[0], 'Reports To'); await tick(40); typeIn(cells()[1], 'Manager'); await tick(40); typeIn(cells()[2], 'Report'); await tick(120);
-  check('the form asks how the two stand, once it has two roles', $$('.rr.new .sel').some(x => /Manager on top/.test(txt(x))), $$('.rr.new .sel').map(txt).join());
-  App.commit(); await tick(400);
+  check('the form asks how the two stand, first as the dot was dragged: across, side by side', $$('.rr.new .sel').some(x => /Side by side/.test(txt(x))), $$('.rr.new .sel').map(txt).join());
+  $$('.rr.new .sel')[0].click(); await tick(60);
+  check('… or either above, by what it is', menuItems().join() === 'Manager above,Report above,Side by side,Neither above', menuItems().join());
+  $$('.float .menu-item')[0].click(); await tick(120);
+  check('nothing’s made till it’s asked, and there’s no bar: Add is in the form', App.pending.peek()?.formed && !$('.view > .pendbar') && !Object.keys(App.state.peek()).some(id => App.state.peek()[id].args));
+  $('.rr.new .form-acts .primary').click(); await tick(400);
   const rel = Object.keys(App.state.peek()).find(id => App.state.peek()[id].args);
-  check('New relation makes it, Manager on top, and a blank chart’s page has no Key till one’s inserted', !!rel && sc().byId.get(rel)?.from === ana && !sc().marks.some(m => m.geometry === 'legend'), JSON.stringify([sc().byId.get(rel)?.from, ana]));
+  check('New connection makes it, Manager above, and a blank chart’s page has no Key till one’s inserted', !!rel && sc().byId.get(rel)?.from === ana && !sc().marks.some(m => m.geometry === 'legend'), JSON.stringify([sc().byId.get(rel)?.from, ana]));
   check('it reads as its name says: the report reports to the manager', /Sam Okoye reports to Ana Reyes/.test(txt($('.relate'))), txt($('.relate')));
+  check('… all along, and says nothing on its line', !App.wb.item(App.chart.peek(), rel)[0].since && !sc().byId.get(rel)?.texts?.length);
+  check('its name can be shown, and hidden again, one note', (() => { App.nameLine(rel, true); return true; })() && App.lineNamed(rel));
+  await tick(200);
+  check('… said on its line', sc().byId.get(rel)?.texts?.some(t => /Reports To/.test(t.text)), j2(sc().byId.get(rel)?.texts?.map(t => t.text)));
+  Shell.parts.peek().undo.undo(); await tick(200);
+  // A second relation behaves as the first, and English from one place.
+  check('plurals and singulars from one place', Tree.plural('Wife') === 'Wives' && Tree.singular('Wives') === 'Wife' && Tree.plural('Child') === 'Children' && Tree.singular('Children') === 'Child' && Tree.plural('Half') === 'Halves' && Tree.singular('Lives') === 'Life' && Tree.plural('Entity') === 'Entities' && Tree.singular('Owners') === 'Owner' && Tree.singular('Statuses') === 'Status' && Tree.singular('Analyses') === 'Analysis' && Tree.plural('Assets') === 'Assets' && Tree.singular('Spouses') === 'Spouse' && Tree.singular('Status') === 'Status' && Tree.singular('Taxes') === 'Tax' && Tree.texts('Born') === 'Born' && Tree.texts('Died') === 'Died' && Tree.texts('Name') === 'Names');
   check('the next pair offers it first', (() => { const r = App.notes.peek().relations(App.schema.peek()); return r.some(x => x.name === 'Reports To'); })());
   check('a right-click adds what the page draws', Shell.parts.peek().inspector.adds(ana).map(x => x.label).join() === 'Add manager…,Add report…', Shell.parts.peek().inspector.adds(ana).map(x => x.label).join());
   // The gallery.
   Gallery.open(); await tick(300); await until(() => $$('.gal-card svg').length >= 5, 3000); await tick(60);
   const cardName = c => txt(c.querySelector('.gal-name'));
-  check('New chart opens one dialog: a card for each template, and one like the chart shown', $$('dialog .gal-card').map(cardName).join() === `${Templates.list().map(t => t.name).join()},Like this chart`, $$('dialog .gal-card').map(cardName).join());
-  check('… each a real drawing, of boxes and lines', $$('dialog .gal-card').slice(1).every(c => c.querySelectorAll('svg path').length > 1), $$('dialog .gal-card').map(c => c.querySelectorAll('svg path').length).join());
-  check('… the name field has the keys', document.activeElement === $('dialog .gal-more input'));
+  check('New chart opens one dialog: a card for each template, by its short name, and one like the chart shown', $$('dialog .gal-card').map(cardName).join() === 'Blank,Org chart,Family tree,Company structure,Fund structure,Like this chart', $$('dialog .gal-card').map(cardName).join());
+  check('… what a name’s brackets say on hover', $$('dialog .gal-card').find(c => cardName(c) === 'Fund structure').dataset.tip === 'Investment Company Act', $$('dialog .gal-card').map(c => c.dataset.tip).join());
+  check('… each a real drawing, of boxes and lines, bars for its words', $$('dialog .gal-card').slice(1).every(c => c.querySelectorAll('svg path').length > 1 && !c.querySelector('svg text')), $$('dialog .gal-card').map(c => c.querySelectorAll('svg path').length).join());
+  check('… it begins on Blank, and the name field has the keys', cardName($('dialog .gal-card.on')) === 'Blank' && document.activeElement === $('dialog .gal-more input'));
   const nameIn = $('dialog .gal-more input'), n0 = wb().charts().length; typeIn(nameIn, 'The Tree');
   $$('dialog .gal-card').find(c => cardName(c) === 'Family tree').click(); await tick(60);
   check('a click on a card chooses it, begins nothing, and the keys go back to its name', cardName($('dialog .gal-card.on')) === 'Family tree' && wb().charts().length === n0 && document.activeElement === nameIn, wb().charts().map(c => c.name).join());
-  $$('dialog .dlg-foot button').find(b => txt(b) === 'Begin').click(); await tick(400);
+  $$('dialog .dlg-foot button').find(b => txt(b) === 'Begin').click(); await tick(500);
   check('Begin begins it, named', wb().charts().length === n0 + 1 && wb().charts().at(-1).name === 'The Tree' && !$('dialog.dlg'), wb().charts().map(c => c.name).join());
-  check('… on its first page, with its tables, its page’s title its name', App.views.peek().map(v => v.name).join() === 'Family Tree,People' && sc().marks.find(m => m.role === 'title')?.texts[0].text === 'The Tree', App.views.peek().map(v => v.name).join());
-  check('… and the card it was is the one offered next', Shell.store.get('template') === 'family-tree');
+  check('… on its first page, with its tables, its page’s title its name, and no As of line', App.views.peek().map(v => v.name).join() === 'Family Tree,People' && sc().marks.find(m => m.role === 'title')?.texts[0].text === 'The Tree' && !sc().marks.some(m => m.role === 'date'), App.views.peek().map(v => v.name).join());
+  esc($('.dc-edit')); await tick(150);
   Gallery.open(); await tick(300);
-  check('the dialog begins on the card chosen last', $('dialog .gal-card.on') && cardName($('dialog .gal-card.on')) === 'Family tree');
+  check('the dialog begins on Blank again', $('dialog .gal-card.on') && cardName($('dialog .gal-card.on')) === 'Blank');
   $$('dialog .dlg-foot button').find(b => txt(b) === 'Cancel').click(); await tick(150);
   const scheme = Object.values(App.schema.peek()).filter(s => s.args?.length === 2).map(s => App.notes.peek().name(Tree.bare(s)));
   check('a family tree’s relations are its own', scheme.includes('Parent Of') && scheme.includes('Married To'), scheme.join());
   check('with no boxes yet it offers no reason to worry', !App.needs.peek().length);
   // A person's End Date is End, and a template can say its verb.
-  App.begin({ template: 'org-chart', name: 'People' }); await tick(400);
+  App.begin({ template: 'org-chart', name: 'People' }); await tick(500); esc($('.dc-edit')); await tick(100);
   let boss; App.change(tx => { boss = tx.add('record', { kind: 'Person' }); tx.add('record', { at: boss, edge: 'Name', field: 'text', value: 'Lee Park' }); }); await tick(200);
   check('a person’s end is End…', App.deleteVerb([boss]) === 'End', App.deleteVerb([boss]));
   check('… as a fund’s is Dissolve', (() => { const t = Templates.of('fund-structure'); return t.rows.some(r => r.label === 'End' && r.pattern.args[0].edge === 'Dissolution Date') && App.actOf('Dissolution Date')?.[0] === 'Dissolve'; })());
@@ -3541,19 +3561,60 @@ async function templates() {
   let rep, line; App.change(tx => { rep = tx.add('record', { kind: 'Person' }); tx.add('record', { at: rep, edge: 'Name', field: 'text', value: 'Mo Haddad' }); line = tx.add('record', { args: [{ edge: 'Manager', at: boss }, { edge: 'Report', at: rep }], tag: true }); }); await tick(200);
   check('in a chart that says no figures, a line takes one between, by its kind’s word', App.interposable(line) && App.interposeWord(line) === 'Insert a person between…', App.interposeWord(line));
   check('… as a fund’s still takes an entity', (() => { const t = Templates.of('fund-structure'); return t.rows.some(r => r.tree?.out?.field === 'percent' && r.tree.args?.[0]?.edge === 'Percentage'); })());
+  // Added at once, Undo in the toast; ending someone with reports asks who takes them, opening on End.
+  const nOrg = wb().changes().length; let ceo; App.change(tx => { ceo = tx.add('record', { kind: 'Person' }); tx.add('record', { at: ceo, edge: 'Name', field: 'text', value: 'Ana Reyes' }); }); await tick(150);
+  const nOrg1 = wb().changes().length;
+  App.relating({ args: [{ edge: 'Manager', at: ceo }, { edge: 'Report', at: boss }], tag: true }, { what: 'Reports To', source: 'test', needs: [ceo, boss], make: tx => tx.add('record', { args: [{ edge: 'Manager', at: ceo }, { edge: 'Report', at: boss }], tag: true }), say: 'Lee reports to Ana' }); await tick(200);
+  check('on a chart that keeps no dated record, a relation’s made as it’s said, all along, no bar', wb().changes().length === nOrg1 + 1 && !App.pending.peek() && !$('.view > .pendbar') && /Lee reports to Ana/.test(txt($$('.toast').at(-1))) && /Undo/.test(txt($$('.toast').at(-1))), `${nOrg} ${wb().changes().length} ${txt($$('.toast').at(-1))}`);
+  Shell.select([boss]); await tick(150);
+  App.deleting([boss], 'Lee Park', { source: 'delete' }); await tick(200);
+  check('Delete on a person opens on End, not as a mistake, with her End Date', App.pending.peek()?.asks === 'until' && App.pending.peek()?.day !== null && /End Date/.test(txt($('.pendbar'))), txt($('.pendbar')));
+  check('… and with reports, asks who takes them', /Who takes Mo Haddad\?/.test(txt($('.pendbar .heirs'))), txt($('.pendbar')));
+  $('.pendbar .heirs .sel').click(); await tick(80);
+  $$('.float .menu-item').find(x => txt(x) === 'Ana Reyes').click(); await tick(120);
+  App.commit(); await tick(300);
+  check('… one change: she’s ended, and who was hers now reports to who was named', sc().byId.get(rep)?.type === 'box' && Object.values(App.state.peek()).some(r => r.args?.some(a => a.edge === 'Manager' && a.at === ceo) && r.args?.some(a => a.edge === 'Report' && a.at === rep)), j2(Object.values(App.state.peek()).filter(r => r.args)));
+  // A title typed over: at once, and its toast can say from when.
+  Shell.select([ceo]); await tick(120);
+  App.put(null, { at: ceo, edge: 'Title' }, { field: 'text', value: 'Chief Executive' }); await tick(150);
+  const titled = Tree.entryAt(App.state.peek(), ceo, 'Title');
+  App.put(titled, App.state.peek()[titled], { field: 'text', value: 'President' }); await tick(200);
+  check('a title typed over is made at once, and its toast offers From when…', App.state.peek()[titled]?.value === 'President' && !App.pending.peek() && /From when/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  $$('.toast button').find(b => /From when/.test(txt(b))).click(); await tick(200);
+  check('… which takes it back, and asks, in the bar', App.state.peek()[titled]?.value === 'Chief Executive' && App.pending.peek()?.asks === 'from' && !!$('.view > .pendbar'), j2(App.state.peek()[titled]));
+  App.discard({ quiet: true }); await tick(100);
   // A couple's child, begun from one of them.
-  App.begin({ template: 'family-tree', name: 'Pair' }); await tick(400);
+  App.begin({ template: 'family-tree', name: 'Pair' }); await tick(500); esc($('.dc-edit')); await tick(100);
   let he, she; App.change(tx => { he = tx.add('record', { kind: 'Person' }); tx.add('record', { at: he, edge: 'Name', field: 'text', value: 'Tom Hale' }); she = tx.add('record', { kind: 'Person' }); tx.add('record', { at: she, edge: 'Name', field: 'text', value: 'Rose Hale' }); tx.add('record', { args: [{ edge: 'Spouse', at: she }, { edge: 'Partner', at: he }], tag: true }); }); await tick(300);
   check('a box’s right-click on a family tree adds what the tree draws', Shell.parts.peek().inspector.adds(she).map(x => x.label).join() === 'Add parent…,Add child…,Add spouse…', Shell.parts.peek().inspector.adds(she).map(x => x.label).join());
   Shell.select([she]); await tick(150);
   Shell.parts.peek().inspector.adds(she).find(x => x.label === 'Add child…').run({ x: 300, y: 300 }); await tick(150);
   const find = $('.float .menu-find'); find.textContent = 'Ada Hale'; find.dispatchEvent(new Event('input', { bubbles: true })); await tick(80);
   check('a child of one of a couple is offered as of both first', menuItems()[0] === 'New Person: Ada Hale, with Tom Hale' && menuItems()[1] === 'New Person: Ada Hale', menuItems().join(' | '));
-  $$('.float .menu-item')[0].click(); await tick(150); App.commit(); await tick(350);
+  $$('.float .menu-item')[0].click(); await tick(350);
+  check('… made as it’s said, with no bar', !App.pending.peek() && !$('.view > .pendbar'));
   const ada = Object.keys(App.state.peek()).find(id => App.notes.peek().nameOf(App.state.peek(), id) === 'Ada Hale' && App.state.peek()[id].kind), fromBoth = [she, he].map(p => sc().marks.find(m => m.type === 'line' && m.from === p && m.to === ada));
   check('… one change, a line from each, drawn as one', fromBoth.every(Boolean) && j2(fromBoth[0].points.slice(1)) === j2(fromBoth[1].points.slice(1)), j2(fromBoth.map(l => l?.points)));
   // What the format bar counts counts the one just added by a redline, whose scene is the one the change, made, draws.
   check('… and the format bar counts the one just added', txt($('[data-fb=like]')) === '3 people', txt($('[data-fb=like]')));
+  // A dot dropped on a marriage: a child of both, one stem, at once.
+  let kid; App.change(tx => { kid = tx.add('record', { kind: 'Person' }); tx.add('record', { at: kid, edge: 'Name', field: 'text', value: 'Ben Hale' }); }); await tick(250);
+  const marriage = Object.keys(App.state.peek()).find(id => App.state.peek()[id].args?.some(a => a.edge === 'Spouse'));
+  Shell.emit('relate-open', [kid, marriage]); await tick(350);
+  const fromTwo = [she, he].map(p => sc().marks.find(m => m.type === 'line' && m.from === p && m.to === kid));
+  check('a dot dropped on a marriage makes a child of both, one stem, and the panel’s on the child', fromTwo.every(Boolean) && j2(fromTwo[0].points.slice(1)) === j2(fromTwo[1].points.slice(1)) && Shell.selection.peek().join() === kid, j2(fromTwo.map(l => l?.points)));
+  const line0 = fromTwo[0];
+  let kid2; App.change(tx => { kid2 = tx.add('record', { kind: 'Person' }); tx.add('record', { at: kid2, edge: 'Name', field: 'text', value: 'Joe Hale' }); }); await tick(250);
+  Shell.emit('relate-open', [kid2, line0.record]); await tick(350);
+  check('… on a line down from the couple, another of theirs', [she, he].every(p => sc().marks.some(m => m.type === 'line' && m.from === p && m.to === kid2)), j2(Shell.selection.peek()));
+  // A name left unsaid, and no relation to a relation.
+  Shell.select([she]); await tick(200);
+  check('on a family tree a person’s last row is Delete, at once, no End', App.deleteLabel([she]) === 'Delete' && App.endOf(she) === false, App.deleteLabel([she]));
+  const cp = wb().changes().length; App.deleting([kid2], 'Joe Hale', { source: 'delete' }); await tick(250);
+  check('… which is one change, with Undo in the toast', wb().changes().length === cp + 1 && !App.pending.peek() && !App.state.peek()[kid2] && /Undo/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  Shell.parts.peek().undo.undo(); await tick(200);
+  check('a table’s people are on the chart: nothing keeps them off', (() => { let off; App.change(tx => { const id = tx.add('record', { kind: 'Person' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: 'Zed' }); off = App.keepOff(tx, [id]); }); return off.length === 0; })());
+  await tick(200);
   // Like this chart keeps its master: what every page of it has.
   App.change(tx => { tx.add('shape', { view: Scene.MASTER, geometry: 'text', text: 'Confidential', x: 40, y: 40, w: 200, h: 24 }); }, { dated: false }); await tick(250);
   App.newChart(); await tick(350); await until(() => !$('.chartmenu.naming input')); $('.chartmenu.naming input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(80);

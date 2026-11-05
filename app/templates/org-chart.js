@@ -9,9 +9,11 @@ Templates.register({
     t.kind('Person', { Name: 'text', Title: 'text', Department: ['Executive', 'Finance', 'Operations', 'People', 'Sales', 'Marketing', 'Engineering'], Location: ['Headquarters', 'Remote'], Email: 'text', 'Start Date': 'date', 'End Date': 'date', Vacant: 'tag' });
     t.note('Grows', t.entry('Department', person), true);
     t.note('Grows', t.entry('Location', person), true);
+    t.undated();
     t.starts('Start Date', person);
     t.ends('End Date', person);
-    const reports = t.relation('Reports To', ['Manager', 'Report'], { kinds: [['Person', 'Person']], lists: { Manager: 'Manager', Report: 'Reports' } });
+    // (Said from the one who reports, as its name says it: "Reports To: Bea Cole → Avery Stone"; the manager drawn above.)
+    const reports = t.relation('Reports To', ['Report', 'Manager'], { kinds: [['Person', 'Person']], lists: { Manager: 'Manager', Report: 'Reports' }, above: 'Manager' });
     const dotted = t.relation('Dotted Line To', ['Dotted Line Manager', 'Dotted Line Report'], { kinds: [['Person', 'Person']], lists: { 'Dotted Line Manager': 'Dotted Line Managers', 'Dotted Line Report': 'Dotted Line Manager Of' }, above: 'none' });
     t.rule('Direct Reports', { at: person, type: 'number', rows: [['', '= COUNT(Reports)']], about: 'How many people report to this person.' });
     t.rule('Span', { at: person, type: 'number', rows: [['Reports, and all under them', '= COUNT(Reports) + SUM(EACH(Reports, @.Span))']], about: 'How many people are under this person, at every level.' });

@@ -29,8 +29,11 @@ const App = (() => {
   Store.open({ sample: SAMPLE }).then(use, () => use(Log.open(SAMPLE)));
 
   const who = () => Store.who() || 'You';
+  // Today, which turns over at midnight with the window open, so a page and what's said of it never show two days.
+  const today = signal(Log.today());
+  setInterval(() => { if (today.peek() !== Log.today()) today.value = Log.today(); }, 30000);
   // The day shown: the one asked for; of the log as it stood, the day of that moment, for everything was as it was; else today.
-  const day = computed(() => { const t = Shell.time.value; return t?.asOf ?? (t?.stood ? Tree.isoOf(new Date(t.at ?? book.value.changes().find(c => c.id === t.stood)?.when ?? Date.now())) : Log.today()); });
+  const day = computed(() => { const t = Shell.time.value; return t?.asOf ?? (t?.stood ? Tree.isoOf(new Date(t.at ?? book.value.changes().find(c => c.id === t.stood)?.when ?? Date.now())) : today.value); });
   // Viewing or Editing, the window's (dendra.md, Workbook): each chart's, for this tab; a chart opens as this browser was
   // told to open it, or else in Editing. Viewing, nothing writes.
   const modes = signal((() => { try { return JSON.parse(sessionStorage.getItem('dendra.modes')) ?? {}; } catch { return {}; } })());
@@ -257,7 +260,7 @@ const App = (() => {
   const stackOf = c => stacks.value[c] ?? { undo: [], redo: [] };
   const keep = (c, s) => { stacks.value = { ...stacks.peek(), [c]: s }; try { if (!sand) sessionStorage.setItem('dendra.undo', JSON.stringify(stacks.peek())); } catch {} };
   const made = c => { lastDiscarded.value = null; const s = stackOf(c.chart); keep(c.chart, { undo: [...s.undo, { id: c.id, act: c.id }], redo: [] }); return c; };
-  function step(back) {
+  function step(back, quiet) {
     if (Shell.time.peek()?.stood) return refuse();
     // With a change pending, Undo discards it first, and says so, Redo bringing it back; it never undoes past it. A
     // change pending discarded is the latest thing undone, so Redo brings it back first, until something's made or begun.
@@ -269,11 +272,11 @@ const App = (() => {
     if (viewing.peek() || !top) return stepLook(back);
     const r = top ? book.peek().reverse(top.id, who()) : null;
     // A change kept from before a reload that never reached the workbook is passed over.
-    if (r === null && top) { keep(c, { ...s, [from]: s[from].slice(0, -1) }); return step(back); }
+    if (r === null && top) { keep(c, { ...s, [from]: s[from].slice(0, -1) }); return step(back, quiet); }
     if (!r) return Shell.toast(back ? 'Nothing to undo' : 'Nothing to redo', { ms: 2000 });
     if (typeof r === 'string') return Shell.toast(r);
     keep(c, { [from]: s[from].slice(0, -1), [to]: [...s[to], { id: r.id, act: top.act }] });
-    Shell.toast(Time.describe(r), back ? { redo } : { undo });
+    if (!quiet) Shell.toast(Time.describe(r), back ? { redo } : { undo });
   }
   const undo = () => step(true), redo = () => step(false);
   // A look taken back or put back, as Viewing's Undo does it, and a look's own toast.
@@ -367,6 +370,9 @@ const App = (() => {
     for (const r of removed) if (!stays.has(at(r))) put(r, undefined);
     for (const r of added) put(r, r.value);
   }
+  // Whether a line says its name on the page shown, and saying so: one note, at its relation in that view, from its right-click and its page alike. (dendra.md, From nothing)
+  const lineNamed = (rid, view = Shell.view.peek()) => { const t = Tree.treeOf(state.peek(), rid); return !!t && notes.peek().value('Format', t, view) !== 'none'; };
+  const nameLine = (rid, on, view = Shell.view.peek()) => { const recs = state.peek(), t = Tree.treeOf(recs, rid), N = notes.peek(); if (!t) return; const name = N.name(t), p = { ...('tag' in (t.out ?? {}) && { out: { tag: true } }), ...N.relationPattern(t) }; change(tx => tx.note('Format', p, on ? 'value' : 'none', { view }), { dated: false, say: `${on ? 'Showed' : 'Hid'} the name on ${name} lines` }); };
   // A chart with nothing to draw on the day shown, every box of it not yet formed, opens on the first day it has one: a fund
   // about to be formed is a chart worth drawing. Only for this window, as a day picked is, and only till the user asks for today.
   const nothingDrawn = () => { const s = typeof Scene !== 'undefined' && scene.peek(); return !!s && !s.marks.some(m => m.type === 'box'); };
@@ -433,7 +439,8 @@ const App = (() => {
     const r = recs[id];
     if (!r || r.computed || !(Tree.isObject(r) || r.args?.length > 1)) return false;
     const t = Tree.treeOf(recs, id), N = notes.peek();
-    return N.notes('End').map(n => n.pattern.args?.length === 1 && n.pattern.args[0].edge).find(e => e && N.isEnd({ out: { field: 'date' }, args: [{ edge: e, loc: t }] })) ?? true;
+    // (On a chart that keeps no dated record, what has no end entry has no day to end on: it's only deleted.)
+    return N.notes('End').map(n => n.pattern.args?.length === 1 && n.pattern.args[0].edge).find(e => e && N.isEnd({ out: { field: 'date' }, args: [{ edge: e, loc: t }] })) ?? isDated.peek();
   }
   // The act a start or an end entry records, by its name, as a verb and as what's then so: Dissolution Date dissolves
   // (Dissolved), Formation Date forms (Formed), Withdrawal Date withdraws, Admission Date admits; Start Date and End
@@ -455,6 +462,9 @@ const App = (() => {
     if (!ends.some(e => e !== false)) return 'Delete';
     return (words.length === 1 && ends.every(e => e === words[0] || e === false) && actOf(words[0])?.[0]) || 'End';
   }
+  // Its row on a menu, which asks more only where it stops at the bar: "Dissolve…", or on a chart that keeps no dated record, "Delete".
+  const deleteLabel = (ids, recs = state.peek()) => { const v = deleteVerb(ids, recs); return v === 'Delete' && !isDated.peek() ? v : `${v}…`; };
+  const mistakeLabel = () => (isDated.peek() ? 'Delete as a mistake…' : 'Delete as a mistake');
   // Whether a record was made lately, as a slip is: today, or since its chart was opened in this tab, by the first
   // change that added it.
   const openedAt = new Map();
@@ -464,11 +474,12 @@ const App = (() => {
     const c = chart.peek();
     return lately(book.peek().changes().find(x => x.chart === c && x.adds.some(r => r.record === id)));
   }
-  // Whether a record is a slip, what taking it back as never held rewrites no past of: made since its chart was opened in this tab, one by itself. So
-  // not what was made earlier today, which may be a day's work, or an import's or a paste's rows, each a record someone meant.
+  // Whether a record is a slip, what taking it back as never held rewrites no past of: made by the chart's last change, nothing done since, one by itself.
+  // So not what was made earlier in the sitting, which may be a day's work, nor an import's or a paste's rows, each a record someone meant: a person leaving
+  // ends, as the menu that deleted them said, though they were typed in this morning.
   function aSlip(id) {
-    const c = chart.peek(), x = book.peek().changes().find(y => y.chart === c && y.adds.some(r => r.record === id));
-    if (!x || x.when < (openedAt.get(c) ?? '9')) return false;
+    const c = chart.peek(), all = book.peek().changes().filter(y => y.chart === c), x = all.find(y => y.adds.some(r => r.record === id));
+    if (!x || x !== all.at(-1) || x.when < (openedAt.get(c) ?? '9')) return false;
     const made = x.adds.filter(r => 'record' in r && !r.at && !r.field), objects = made.filter(r => r.kind !== undefined).length;
     return objects <= 1 && made.length - objects <= 1;
   }
@@ -591,16 +602,26 @@ const App = (() => {
     if (!out && id && result.peek().covered[id]?.agrees === false) return backToRule(id);
     // (The first of a date that recurs holds from its own day, as what comes after does.)
     const first = !id && out?.field === 'date' && slot?.at && out.value <= day.peek() && recursAt(slot);
-    if (!asksFrom(id, out) && !overRule(id, out) && !over && !now?.some(t => t.id === id)) return change(tx => putting(tx, id, slot, first ? { ...out, since: out.value } : out), { told: replaces(id, out), dated: first ? false : !fixedAt(id, slot) });
+    // (On a chart that keeps no dated record, a value typed over another is made at once, a correction, and its toast says so, with a way to say from when.)
+    const later = !isDated.peek() && id && !over && !overRule(id, out) && canSayFrom(id, out);
+    if (!asksFrom(id, out) && !overRule(id, out) && !over && !now?.some(t => t.id === id)) return change(tx => putting(tx, id, slot, first ? { ...out, since: out.value } : out), { told: replaces(id, out), dated: first ? false : !fixedAt(id, slot), ...(later && { say: typedWords({ id, slot, out }), go: () => fromWhen(id, slot, out) }) });
     const typed = [...(now ?? []).filter(t => t.id !== id), { id, slot, out, over }];
     if (now) { amend(p, { ...typedPending(typed), instead: null }); if (auto) setTimeout(() => { const i = document.querySelector('.pendbar .when input'); i?.focus(); i?.select(); }); return; }
-    let told = null;
     // (A date that recurs is offered its own day: the day it says, All along if it only corrects.)
     const own = id && recurs(id, state.peek()[id], out) && out.value <= day.peek();
-    stage({ verb: 'Change', source: 'typed', asks: 'from', day: own ? out.value : day.peek(), auto, along: 'a correction', instead: partOfTransfer(id, out), ...typedPending(typed),
-      make: (tx, d, q) => { told = d && q.typed.length === 1 && !('tag' in q.typed[0].out) ? `${typedWords(q.typed[0])}${q.typed[0].out.field === 'date' && q.typed[0].out.value === d ? '' : ` from ${Tree.formatDate(d, 'short')}`}` : null; q.typed.forEach(t => putting(tx, t.id, t.slot, q.until && (t.over || overRule(t.id, t.out)) ? { ...t.out, before: q.until } : t.out)); },
-      say: c => told ?? Time.describe(c) });
+    stageTyped(typed, { auto, day: own ? out.value : isDated.peek() ? day.peek() : begins(), instead: partOfTransfer(id, out), ...(later && { go: () => fromWhen(id, slot, out), say: () => typedWords({ id, slot, out }) }) });
   }
+  // A value typed over, asking from when, as one change pending.
+  function stageTyped(typed, o) {
+    let told = null;
+    stage({ verb: 'Change', source: 'typed', asks: 'from', along: 'a correction', ...typedPending(typed),
+      make: (tx, d, q) => { told = d && q.typed.length === 1 && !('tag' in q.typed[0].out) ? `${typedWords(q.typed[0])}${q.typed[0].out.field === 'date' && q.typed[0].out.value === d ? '' : ` from ${Tree.formatDate(d, 'short')}`}` : null; q.typed.forEach(t => putting(tx, t.id, t.slot, q.until && (t.over || overRule(t.id, t.out)) ? { ...t.out, before: q.until } : t.out)); },
+      say: c => told ?? Time.describe(c), ...o });
+  }
+  // Whether a value typed over another could say from when: words or a choice that changes over time; not a name, a date, nor a fixed fact.
+  const canSayFrom = (id, out) => { const r = state.peek()[id]; return !!r && !result.peek().computed[id] && ('value' in out || 'choice' in out) && out.field !== 'date' && r.field !== 'date' && !fixedAt(id) && !Tree.same(r.edge ?? '', 'Name'); };
+  // A correction said after all to have been a change from a day: taken back, and asked, in the bar. Its toast's offer.
+  const fromWhen = (id, slot, out) => ['From when…', () => { step(true, true); stageTyped([{ id, slot, out, over: false }], { auto: true, day: day.peek(), held: true }); }];
   // A date typed over another is made at once, a date saying its own day, and says what it replaces (dendra.md, Time).
   function replaces(id, out) {
     const r = id && state.peek()[id];
@@ -761,7 +782,7 @@ const App = (() => {
       if (keys.current) { if (input.current) { input.current.focus(); if (caret.current) { caret.current = false; const n = input.current.value.length; setTimeout(() => input.current?.setSelectionRange(n, n)); } else input.current.select(); } else button.current?.focus(); }
       keys.current = false;
     }, [day === null]);
-    const words = asks === 'until' ? [typeof end === 'string' ? end : 'Ends on', 'Never held'] : asks === 'on' ? [typeof end === 'string' ? end : 'On'] : [typeof end === 'string' ? end : 'From', 'All along'], always = day === null, word = words[always ? 1 : 0];
+    const words = asks === 'until' ? [typeof end === 'string' ? end : 'Ends on', isDated.value ? 'Never held' : 'A mistake'] : asks === 'on' ? [typeof end === 'string' ? end : 'On'] : [typeof end === 'string' ? end : 'From', isDated.value ? 'All along' : 'Always'], always = day === null, word = words[always ? 1 : 0];
     const shown = Shell.time.value?.asOf ?? Log.today(), later = !!day && day > shown && !typing;
     const back = () => { if (always) { keys.current = true; setText(null); set(shown); } };
     const pick = e => Shell.menu(e.currentTarget, [
@@ -834,9 +855,26 @@ const App = (() => {
     // Brought back, what said it was discarded goes.
     if (p === lastDiscarded.peek()) unsaid?.();
     lastDiscarded.value = null;
+    const q = { ids: [], chart: chart.peek(), from: Shell.time.peek()?.asOf ?? null, back, day0: p.day, ...p, n: ++staged };
+    // On a chart that keeps no dated record, made as it's said, its toast's Undo the way back (dendra.md, Notes: Dated).
+    if (atOnce(q)) { why.value = ''; const c = change(tx => q.make(tx, q.day, q), { dated: datedOf(q), ids: q.ids, say: q.say, go: q.go }); if (c) { q.done?.(c); after(q); } return c; }
     why.value = p.note ?? '';
-    pending.value = { ids: [], chart: chart.peek(), from: Shell.time.peek()?.asOf ?? null, back, day0: p.day, ...p, n: ++staged };
+    pending.value = q;
     if (was && was.source !== p.source) Shell.toast(discarded(was), { undo: () => stage(was) });
+  }
+  // Whether a chart keeps a dated record (dendra.md, Notes: Dated). A template that doesn't, a family's or an office's, says so at the kind View.
+  const isDated = computed(() => notes.value.value('Dated', { kind: 'View' }) !== false);
+  // What a change on such a chart still stops at the bar for, something to decide: a value asked for (an amount, a role, a who, a name it could be
+  // instead), a day it ends on or is made on, a reason; a form still being typed (`held`); what it's to read back (an undo, an amendment); or a check it would newly fail.
+  const atOnce = q => !isDated.peek() && !viewing.peek() && !pending.peek() && !q.held && !q.Fill && !q.value && !q.reason && !q.reverse && !q.amends && !q.asking && q.asks !== 'until' && q.asks !== 'on' && able(q) && !newlyFails(q);
+  function newlyFails(q) {
+    if (!notes.peek().notes('Check').length) return false;
+    const w = would(tx => q.make(tx, q.day, q), { dated: datedOf(q), ids: q.ids });
+    if (!w) return false;
+    const recs = { ...entered.peek() }, gone = Object.keys(w.records).filter(id => !w.records[id] && recs[id]);
+    for (const [id, r] of Object.entries(w.records)) if (r) recs[id] = r;
+    if (gone.length) for (const id of Tree.dependents(recs, gone)) delete recs[id];
+    return failsOf(Formulas.computeState(recs, definitions.peek(), namesOn(day.peek()))).length > 0;
   }
   // What it asks, given: a day typed, a transfer's whom or how much.
   const amend = (p, o) => { if (pending.peek()?.n === p.n) pending.value = { ...pending.peek(), ...o }; };
@@ -849,6 +887,8 @@ const App = (() => {
       if (a && a !== document.body && a.isConnected) return;
       const row = b?.key && document.querySelector(`[data-key="${CSS.escape(b.key)}"]`);
       if (row && !b.el.isConnected) row.tabIndex = -1;
+      // (And out of a grid's cell, back to the grid, whose keys they were: the next name goes on where it was going.)
+      if (!b?.el?.isConnected && !row && b?.el?.closest?.('.tabulator') !== undefined && views.peek().find(v => v.id === Shell.view.peek())?.layout === 'table' && typeof Table !== 'undefined') return Table.focus();
       (b?.el.isConnected ? b.el : row ?? (b?.region?.isConnected ? b.region : document.getElementById('view')))?.focus({ preventScroll: true });
     });
   }
@@ -910,16 +950,41 @@ const App = (() => {
     const alts = others.length > 1 ? p => others.map(m => ({ label: m.say, checked: p.word === m.edge, run: () => amend(p, { word: m.edge, act: actOf(m.edge)?.[0] ?? p.verb, merge: m.rel ? { rel: m.rel, to: pending.peek()?.merge?.to ?? null } : null, Fill: m.rel ? Merging : null }) })) : null;
     // Merged, its toast asks what those holders received, and the survivor's panel goes on asking.
     let into = null;
-    stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : Time.describe(c), ...o, alts, ready: p => !p.merge || p.day === null || !!p.merge.to,
+    const under = ids.length === 1 ? underIt(ids[0], recs) : null;
+    // (Who it leaves, said: who takes them, or that they've no manager now, each with its + in the panel.)
+    let taker = null;
+    const leaves = c => { const N = notes.peek(), names = under.boxes.map(x => bind(N.shortOf(recs, x))), them = names.length > 2 ? `${names.length} ${Tree.plural(lowered(under.low))}` : names.join(' and '); return `${Time.describe(c)}; ${taker ? `${bind(N.shortOf(recs, taker))} takes ${them}` : `${them} ${names.length > 1 ? 'have' : 'has'} no ${lowered(under.word)}`}`; };
+    stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : under ? leaves(c) : Time.describe(c), ...o, alts, ready: p => !p.merge || p.day === null || !!p.merge.to,
       ...(asks && { asks: 'until', day: ids.every(aSlip) ? null : day.peek(), word: words.length === 1 && ends.every(e => e === words[0] || e === false) ? words[0] : true }),
+      ...(under && { heirs: { ...under, to: null } }),
       go: () => (into && stakesAt(ids[0], recs).some(s => s.held) ? ['What did its holders receive?', () => Shell.parts.peek().inspector?.ask?.(into)] : null),
       make: (tx, d, p) => {
         ids.forEach((id, i) => end(tx, d, id, typeof p?.word === 'string' && others.length > 1 ? p.word : ends[i]));
         p?.too?.forEach(id => end(tx, d, id, endOf(id)));
         into = null;
         if (d && p?.merge?.to) { tx.add('record', { args: [{ edge: p.merge.rel.edges[0], at: ids[0] }, { edge: p.merge.rel.edges[1], at: p.merge.to.at }], tag: true }); into = p.merge.to.at; }
+        // (Who takes what stood under it, from the day it ended.)
+        taker = p?.heirs?.to ?? null;
+        if (taker) for (const x of p.heirs.boxes) tx.add('record', { args: [{ edge: p.heirs.top, at: taker }, { edge: p.heirs.low, at: x }], tag: true, ...(d && { since: d }) });
         o.also?.(tx);
       } });
+  }
+  // What stands under a record by a relation of its page that ranks its boxes and says no figure, a manager's reports, each of it: who's asked for as it ends (dendra.md, Time). → { boxes, top, low, word } or null.
+  function underIt(id, recs = state.peek()) {
+    const N = notes.peek(), view = Shell.view.peek();
+    if (!recs[id]?.kind || isDated.peek()) return null;
+    const lines = (Tree.index(recs).relations.get(id) ?? []).filter(rid => recs[rid].tag === true && recs[rid].args?.length === 2 && !result.peek().computed[rid] && !transferable(rid)?.amount).map(rid => { const t = Tree.treeOf(recs, rid), a = N.value('Above', Tree.bare(t), view), first = N.edges(t)[0], top = a && a !== 'level' && a !== 'none' ? a : first; return { rid, t, a, top, on: recs[rid].args.find(x => Tree.same(x.edge, top))?.at === id }; }).filter(l => l.a !== 'none' && l.a !== 'level' && l.on);
+    if (!lines.length) return null;
+    const [l] = lines, same = lines.filter(x => Tree.same(N.name(x.t), N.name(l.t))), low = N.edges(l.t).find(e => !Tree.same(e, l.top));
+    return { boxes: same.map(x => recs[x.rid].args.find(y => Tree.same(y.edge, low)).at), top: l.top, low, word: Tree.singular(N.listName(l.t, low)), kinds: [recs[id].kind] };
+  }
+  // Who takes them, asked in the bar: named, or left, and then each has its own + in its panel.
+  function Heirs({ p }) {
+    const h = p.heirs, recs = state.value, N = notes.value, names = h.boxes.map(x => bind(N.shortOf(recs, x)));
+    if (p.day === null) return null;
+    const said = names.length > 2 ? `${names.length} ${Tree.plural(lowered(h.low))}` : names.join(' and ');
+    const list = q => { const w = Tree.norm(q ?? ''); return Object.keys(recs).filter(x => recs[x].kind && h.kinds.includes(recs[x].kind) && !p.needs.includes(x) && !h.boxes.includes(x) && Tree.norm(N.nameOf(recs, x)).includes(w)).sort((a, b) => N.nameOf(recs, a).localeCompare(N.nameOf(recs, b))).map(x => ({ label: N.nameOf(recs, x), checked: h.to === x, run: () => amend(p, { heirs: { ...pending.peek().heirs, to: x } }) })); };
+    return html`<span class="heirs"><span>Who takes ${said}?</span> <button type="button" class=${'sel dd' + (h.to ? '' : ' ph')} aria-haspopup="menu" aria-label=${`Who takes ${said}`} onClick=${e => Shell.menu(e.currentTarget, list, { search: true })}><span>${h.to ? bind(N.shortOf(recs, h.to)) : 'No one yet'}</span></button></span>`;
   }
   // Each end entry of what a record is, with what its bar's menu calls it, and the relation it's named for, of two sides, the
   // first the one ended, where it has one: Merger Date, by Merger ("Merged into…").
@@ -997,7 +1062,7 @@ const App = (() => {
     return null;
   }
   // A deletion pending taken as a mistake: never held, as Delete as a mistake… begins it.
-  const neverHeld = () => { const p = pending.peek(); if (p?.asks === 'until') amend(p, { day: null }); };
+  const neverHeld = () => { const p = pending.peek(); if (p?.asks !== 'until') return; amend(p, { day: null }); if (!isDated.peek()) commit(); };
   // Merge into…, as Find asks it: the deletion begun on the end that's a merger.
   function merging(id) {
     const m = endsOf(id).find(e => e.rel);
@@ -1022,7 +1087,7 @@ const App = (() => {
   // or else From, its own period's; or All along. Enter adds it, with what was typed.
   // The day a relation added holds from till someone says otherwise: the day they went to, where they've gone to one. Today,
   // which nobody has said, is no evidence of when it began: it's all along, which says only that no day was given (dendra.md, Time).
-  const begins = () => { const d = day.peek(); return d === Log.today() ? null : d; };
+  const begins = () => { const d = Shell.time.peek()?.asOf; return d && d !== Log.today() ? d : null; };
   function relating(rec, o, recs = state.peek()) {
     const start = startOf(rec, recs), amount = amountOf(rec, recs), make = o.make;
     stage({ verb: 'Add', asks: 'from', day: begins(), auto: true, ...o, ...(start && { word: start }), ...(amount && { value: { ...amount, v: null } }),
@@ -1546,6 +1611,7 @@ const App = (() => {
     return html`${fails.length ? html`<button type="button" class="fails" title=${fails.length > 1 ? fails.map(f => f.text).join('\n') : null} onClick=${() => whyOf(fails[0])}>${Shell.icon('alert')}<span>Fails ${fails[0].text}${fails.length > 1 ? ` and ${fails.length - 1} more` : ''}</span></button>` : null}
       ${endable.length ? html`<button type="button" class="btn too" onClick=${() => endToo(p, endable)}>${endable.length > 1 ? 'End those too' : 'End that too'}</button>` : null}
       ${p.value ? html`<span class="amt" onKeyDown=${enter}><${Amount} key=${p.n} p=${p} auto=${auto} /></span>` : null}
+      ${p.heirs ? html`<${Heirs} p=${p} />` : null}
       ${p.instead ? html`<button type="button" class="btn too" onClick=${p.instead.run}>${p.instead.label}</button>` : null}
       ${p.amends && p.verb === 'Change' && !p.typed ? (t => (t.length ? html`<span class="rests takes">Takes with it: ${t.join('; ')}</span>` : null))(restsOn(p.amends, p)) : null}
       ${p.bad?.(p) ? html`<span class="rests">${p.bad(p)}</span>` : null}
@@ -1575,7 +1641,7 @@ const App = (() => {
       });
       return () => clearTimeout(t);
     }, [p?.n]);
-    if (!p || p.chart !== chart.value) return null;
+    if (!p || p.chart !== chart.value || p.formed) return null;
     return html`<div class="pendbar" role="region" aria-label=${p.verb} data-region="bar" onKeyDown=${escaped}>
       <span class="what">${p.Fill ? html`<${p.Fill} p=${p} auto=${p.auto} />` : (p.parts ?? [html`<span class=${p.verb === 'Delete' ? 'del' : 'add'}>${p.what}</span>`]).map((t, i) => html`${i ? html`<span class="sep">·</span>` : null}${t}`)}</span>
       <${Controls} p=${p} auto=${p.auto && !p.Fill} hint=${!!p.typed} />
@@ -1617,7 +1683,10 @@ const App = (() => {
 
   // ---- The chart menu: the workbook's charts, a new one, and the workbooks this browser keeps ----
   const books = signal([]);
-  const listBooks = () => Store.books().then(bs => { books.value = bs; });
+  // (By name, so the list holds still whichever's open.)
+  const listBooks = () => Store.books().then(bs => { books.value = [...bs].sort((a, b) => a.name.localeCompare(b.name)); });
+  // The workbook a new chart goes in, by the name its list has.
+  const bookName = () => { const here = Store.where(); return books.peek().find(b => b.id === here?.id)?.name ?? here?.name ?? null; };
   // A new chart, added to a workbook: the chart shown without its records. It keeps the schema, and every
   // note that isn't at one of the records: the definitions, names, descriptions and styles. Of the views, it
   // keeps those named for what they show (Entities, Ownership), and one chart, Structure, in the house look (dendra.md,
@@ -1650,7 +1719,7 @@ const App = (() => {
       given = p => !!p && ((p.args?.length === 2 && worked.has(sides(p))) || (p.args ?? []).some(a => given(a.loc)));
       look = style ?? Notes.houseLook(src.rows(from), like);
       for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Changes', 'Plan', 'Scale', 'Page', ...Notes.ROOT].includes(r.label) && r.pattern.id === like) && !(['As Of', 'Changes', 'Plan', 'Scale'].includes(r.label) && pages.has(r.pattern.id)) && r.label !== 'Footer')
-        tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Structure' : r.value, { view: kept.get(r.view), param: r.param });
+        tx.note(r.label, moved(r.pattern), r.value, { view: kept.get(r.view), param: r.param });
       // Its other pages, each what it says of what it shows, so it fills as what it shows is added, and its title, day and Key.
       for (const r of src.rows(from)) if ('shape' in r && pages.has(r.view) && (r.role === 'title' || r.role === 'date' || r.geometry === 'legend')) {
         const { id: _, shape: __, view: v, x: _x, y: _y, w: _w, h: _h, kept: _k, ...furniture } = r;
@@ -1663,8 +1732,10 @@ const App = (() => {
     const first = kept.get(like) ?? tx.add('record', { kind: 'View' });
     if (look) Notes.takeLook(tx, [], first, { ...look, master: style?.master }, { begun: true, has: p => !given(p) && (!style || hasPattern(src.schema(from), src.notes(from), p)) });
     for (const p of recorded.values()) tx.note('Shown', p, true, { view: first });
-    tx.note('Name', viewTree(first), 'Structure');
-    page(tx, first, name, look);
+    tx.note('Name', viewTree(first), vs.find(v => v.id === like)?.name ?? 'Structure');
+    // Its furniture as it has it: no Key or As of line where it has none (a family tree's).
+    const has = test => !from || src.rows(from).some(r => 'shape' in r && r.view === like && test(r));
+    page(tx, first, name, look, { date: has(r => r.role === 'date'), key: has(r => r.geometry === 'legend') });
     return tx.commit();
   }
   // A name no chart of the workbook has: what's asked, or Untitled, a number after it where it's taken.
@@ -1683,6 +1754,7 @@ const App = (() => {
       const v = t.rows.find(r => 'record' in r && !t.rows.some(n => n.label === 'Layout' && n.pattern.id === r.record))?.record, first = v && ids.get(v);
       if (first) Notes.takeLook(tx, tx.added(), first, style, { begun: true, has: p => hasPattern(specs, index, p) });
     }
+    tx.says(`Began ${name} from the ${t.name.replace(/\s*\([^)]*\)\s*$/, '')} template`);
     return tx.commit();
   }
   // Whether a chart has what a pattern reaches, by its specifications: a house style's styles of what it hasn't don't come.
@@ -1690,18 +1762,19 @@ const App = (() => {
   // A chart's page, begun as every page of the sample is: its title, the chart's name, under it the day it's as
   // of, and its Key, which the page sets at the sheet's size and places, as it does every page's; in `look`, where
   // it's begun in one.
-  function page(tx, view, title, look) {
+  function page(tx, view, title, look, { date = true, key = true } = {}) {
     const of = f => look?.furniture?.[f] ?? {};
     tx.add('shape', { view, geometry: 'text', role: 'title', text: title, ...of('title') });
-    tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")', ...of('date') });
-    tx.add('shape', { view, geometry: 'legend', title: 'Key', columns: 2, ...of('key') });
+    if (date) tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")', ...of('date') });
+    if (key) tx.add('shape', { view, geometry: 'legend', title: 'Key', columns: 2, ...of('key') });
   }
   // What's made anywhere but on the chart, related to nothing a page draws, isn't placed on that page (dendra.md, Views): each
   // record `ids` that tx makes, a Shown note at its own tree in each chart view that would draw it with no line of its own to
   // what's drawn. Read on the day what's related to it holds, a stake from a later day being a line. → the views it's kept off.
   function keepOff(tx, ids) {
     const vs = views.peek().filter(v => v.layout === 'chart'), now = day.peek(), wb = shown.peek(), c = chart.peek(), kept = [];
-    if (!vs.length || typeof Scene === 'undefined') return kept;
+    // (On a chart that keeps no dated record, its pages show everything of its kinds: who's typed in a table is on the chart.)
+    if (!vs.length || typeof Scene === 'undefined' || !isDated.peek()) return kept;
     const d = [now, ...tx.added().filter(r => r.args && r.since).map(r => r.since)].sort().at(-1), after = tx.asOf(d), R = Formulas.computeState(after, definitions.peek(), namesOn(d), worked), I = Tree.index(after);
     for (const v of vs) {
       const by = Scene.looks(wb, c, v.id, d, { state: R.records, computed: R }).byId;
@@ -1745,7 +1818,8 @@ const App = (() => {
   function begin({ template = null, style = null, name = '', workbook = false } = {}) {
     if (!workbook && readOnly.peek()) return refuse();
     const t = template && Templates.of(template), make = wb => t ? chartFrom(wb, t, style, name) : startChart(wb, style, name);
-    const opening = c => { if (typeof c === 'string') { Shell.toast(c); return null; } if (!Tree.clean(name)) Shell.nameChart(); return c; };
+    // (Opened, it's named in the title bar if it hasn't been; then, its first box.)
+    const opening = c => { if (typeof c === 'string') { Shell.toast(c); return null; } if (Tree.clean(name)) Shell.firstBox(); else Shell.nameChart({ then: () => Shell.firstBox() }); return c; };
     if (!workbook) { const c = make(book.peek()); if (typeof c !== 'string') open(c.chart); return opening(c); }
     const wb = Log.open([]), c = make(wb);
     if (typeof c === 'string') return Shell.toast(c);
@@ -2057,7 +2131,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs,
-    mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
+    mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, isDated, deleteLabel, mistakeLabel, bookName, lineNamed, nameLine, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken, sandbox, sandboxBegun, unsandbox,
   };
 })();
