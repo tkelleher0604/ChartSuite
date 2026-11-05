@@ -636,7 +636,8 @@ const Table = (() => {
     const close = () => { pop.remove(); removeEventListener('scroll', place, true); };
     const place = () => { if (input.isConnected) paint(); else close(); };
     // Taken, the cell is written as one typed in is (put), or every cell of the range (fillWith); left blank, it's cleared.
-    const take = (value, then) => { if (done) return; done = true; close(); cancel(); if (then === 'fill') fillWith(cell, value, ranged); else { put(cell, value, then === 'day' ? { auto: true } : undefined); if (then && then !== 'day') move(then); else back(); } };
+    // (The range as it stood: going out of the editor lets it go.)
+    const take = (value, then) => { if (done) return; const cs = ranged; done = true; close(); cancel(); if (then === 'fill') fillWith(cell, value, cs); else { put(cell, value, then === 'day' ? { auto: true } : undefined); if (then && then !== 'day') move(then); else back(); } };
     const leave = () => { if (done) return; done = true; close(); cancel(); back(); };
     input.addEventListener('input', () => { typing = true; grow(input, cell); draw(); });
     input.addEventListener('keydown', e => {
@@ -1808,7 +1809,9 @@ const Table = (() => {
     }
     // What it adds is named, a few by their names, or how many: a row a person might have meant is never only a count.
     const made = x.made.filter(o => !o.row).map(o => o.name), noun = m.noun, recs = { ...st, ...x.records }, few = x.rows.length <= 3;
-    const related = x.rels.length > 2 ? [count(x.rels.length, N.nameOf(recs, x.rels[0]).toLowerCase())] : x.rels.map(id => `${N.nameOf(recs, id)}: ${N.placed(recs, id).map(s => s.join + s.text).join('')}`);
+    // (A relation's name that ends on its preposition is counted by its lines: 39 reports to lines.)
+    const lines = (n, name) => (/\s(to|of|by|from|with|for|in|at|on)$/i.test(name) ? `${n} ${name} line${n === 1 ? '' : 's'}` : count(n, name));
+    const related = x.rels.length > 2 ? [lines(x.rels.length, N.nameOf(recs, x.rels[0]).toLowerCase())] : x.rels.map(id => `${N.nameOf(recs, id)}: ${N.placed(recs, id).map(s => s.join + s.text).join('')}`);
     const rowsSaid = !few ? [] : m.isKind ? x.made.filter(o => o.row).map(o => o.name) : x.rows.map(id => N.placed(recs, id).map(s => s.join + s.text).join(''));
     const added = [!few && count(x.rows.length, noun), ...rowsSaid, ...related, ...(made.length > 3 ? [...made.slice(0, 2), `${made.length - 2} more`] : made)].filter(Boolean);
     const say = !x.values && !x.rows.length ? ch => Time.describe(ch)
@@ -2511,12 +2514,14 @@ const Table = (() => {
     const m = shownM.value;
     if (!m || m.isDatatype || m.red || App.readOnly.value) return null;
     const label = `New ${m.noun}`;
-    if (m.isKind) return html`<div class="newrow"><span class="plus">${Shell.icon('plus')}</span>
+    // (Anywhere along it takes the keys to it: nothing else is there to click.)
+    const along = e => { if (e.target === e.currentTarget) { e.preventDefault(); const to = e.currentTarget.querySelector('input, button'); to?.focus(); if (to?.matches('button')) to.click(); } };
+    if (m.isKind) return html`<div class="newrow" onPointerDown=${along}><span class="plus">${Shell.icon('plus')}</span>
       <input class="nr-name" placeholder=${label} aria-label=${label} spellcheck=${false} autocomplete="off" onKeyDown=${newName} onPaste=${pastedNew} /></div>`;
     // While its sides are picked, the row says those picked, and the side asked for next.
     const so = choosing.value;
     // (A name typed on it is the first side's, found as it's typed, so one row goes on to the next by the keys.)
-    return html`<div class="newrow"><span class="plus">${Shell.icon('plus')}</span><button type="button" class=${'nr-go' + (so ? ' on' : '')} aria-haspopup="menu" onKeyDown=${e => { if (offNew(e)) return; if (e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); relate(e.currentTarget, e.key); } }} onClick=${e => relate(e.currentTarget)}>${so
+    return html`<div class="newrow" onPointerDown=${along}><span class="plus">${Shell.icon('plus')}</span><button type="button" class=${'nr-go' + (so ? ' on' : '')} aria-haspopup="menu" onKeyDown=${e => { if (offNew(e)) return; if (e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); relate(e.currentTarget, e.key); } }} onClick=${e => relate(e.currentTarget)}>${so
       ? html`${so.picked.map(n => html`<span class="nr-side">${n}</span><span class="nr-to">→</span>`)}<span class="nr-next">${so.next}</span>` : label}</button></div>`;
   }
   const choosing = Shell.signal(null);

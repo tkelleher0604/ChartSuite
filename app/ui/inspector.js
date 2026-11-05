@@ -717,7 +717,11 @@ function nestedFor(at, q) {
 function addNamed(at, q) {
   const name = T.clean(q), t = tree(at), have = specsAt(t, name).length || entryNamed(at, name), deep = nestedFor(at, q);
   if (!name || have) return deep;
-  return [...deep, '-', { label: `New value: ${name}`, asked: true, run: () => { draft.value = { at, type: 'field', edge: name, datatype: null }; } }, { label: `New choice: ${name}`, asked: true, run: () => { draft.value = { at, type: 'choice', edge: name, options: [] }; } },
+  // (A field another kind has, by what's typed: this one's the same field, one Tier across kinds, not a second of that name.)
+  const words = T.norm(name).split(' ').filter(Boolean), kin = new Map();
+  for (const s of Object.values(App.schema.value)) if (s.args?.length === 1 && s.args[0].loc.kind && !T.narrower(t, s.args[0].loc) && !T.same(s.args[0].edge, 'Name') && words.every(w => T.norm(s.args[0].edge).includes(w)) && !N().resolve('Formula', T.bare(s))) { const k = T.norm(s.args[0].edge); (kin.get(k) ?? kin.set(k, []).get(k)).push(s); }
+  const elsewhere = [...kin.values()].map(ss => { const s = ss[0], edge = s.args[0].edge; return { label: edge, detail: `As on ${s.args[0].loc.kind}`, run: () => { if ('tag' in s.out) return makeTag(at, edge); draft.value = 'choice' in s.out ? { at, type: 'choice', edge, options: optionsOf(ss) } : { at, type: 'field', edge, datatype: s.out.field }; } }; });
+  return [...elsewhere, ...deep, '-', { label: `New value: ${name}`, asked: true, run: () => { draft.value = { at, type: 'field', edge: name, datatype: null }; } }, { label: `New choice: ${name}`, asked: true, run: () => { draft.value = { at, type: 'choice', edge: name, options: [] }; } },
     { label: `New yes-or-no: ${name}`, asked: true, run: () => makeTag(at, name) }, { label: `Check: ${name}`, asked: true, run: () => makeTag(at, name, true) }];
 }
 // The lists of relatives a record's kind can have, by their names (Owners, General Partners, Holdings), as its sections
@@ -822,7 +826,8 @@ function joinTo(id, b, w, lb, fresh = null, once = false) {
   }
   if (!fresh) {
     begin(id, b, [w.sm.edge, w.sl.edge, w.at, lb].join('|').toLowerCase(), { tag: true }, rec(lb));
-    return select([id, b]);
+    // (Waiting, it's asked in the two's panel; made as it's said, the record stays selected, its + there for the next.)
+    return App.pending.peek() ? select([id, b]) : undefined;
   }
   // The new one, related as it's made. What it asks is asked of a stand-in of its kind.
   const both = fresh.also ? `${here} and ${rowName(fresh.also)}` : here, what = `${N().name(w.s)}: ${first ? `${both} → ${fresh.name}` : `${fresh.name} → ${both}`}`, w2 = fresh.alsoAs ?? w;
@@ -2173,7 +2178,7 @@ function RelateView({ a, b }) {
   return html`<div class="insp" data-tour="pair">
     <header class="ih"><h2 class="ih-title">${name(a)} <span class="and">and</span> ${name(b)}</h2></header>
     ${holds.length || after.length ? html`<div class="relate">${holds.map(heldRow)}${after.map(laterRow)}</div>` : null}
-    ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a connection', () => setAdding(true))}</div>` : html`<div class="relate">
+    ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a connection', () => { setAdding(true); if (plain && !could.length) naming.value = { a, b, name: '', ra: '', rb: '' }; })}</div>` : html`<div class="relate">
       ${could.map(openRow)}
       ${form ? html`<${NewLine} a=${a} b=${b} left=${[a]} right=${[b]} top=${(w => (w === 'across' ? 'level' : w === 'down' ? 'a' : w === 'up' ? 'b' : ma && mb && !upright ? 'level' : ya > yb && upright ? 'b' : 'a'))(drawnWay?.key === `${a}|${b}` ? drawnWay.way : null)} />`
         : plain ? ghost('New connection', () => { if (draft) App.discard(); naming.value = { a, b, name: '', ra: '', rb: '' }; }) : null}
