@@ -524,8 +524,8 @@ async function checks() {
   // A value at a relation says whose it is, its sides as the relation says them (Fund III is taxed for 2026), and
   // a fact that only names a side (the tax year is 2026) isn't said beside it: no side twice
   const TAX = 'fx:tax year=·2026&taxpayer=fund_juris';
-  check('a value at a relation says whose, and a date its rule: Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid; never “the tax year is 2026, so the annual tax is due”',
-    await saidOf([`fx:annual tax due=${TAX}`]) === 'Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid.' && FormulaBar.sentence(`fx:annual tax amount=${TAX}`) === 'Fund III’s annual tax amount for 2026 is $400.', said());
+  check('a value at a relation says whose, and a date its rule: Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid; late, a $200 penalty and 1½% a month; never “the tax year is 2026, so the annual tax is due”',
+    await saidOf([`fx:annual tax due=${TAX}`]) === 'Fund III’s annual tax for 2026 is due June 1, 2027: June 1 after the tax year, until paid; late, a $200 penalty and 1½% a month.' && FormulaBar.sentence(`fx:annual tax amount=${TAX}`) === 'Fund III’s annual tax amount for 2026 is $400.', said());
   const taxes = [...Object.entries(R().computed), ...Object.entries(R().covered)].filter(([, c]) => /^def_annual_tax/.test(c.def)).map(([id]) => FormulaBar.sentence(id));
   const whose = s => /^\S.*’s? annual tax (amount )?for \d{4} (is|was) |^\S.* is a corporation, so its annual tax for \d{4} (is|was) due |, so it is taxed for \d{4}\.$/.test(s ?? '') && !/\btax year is\b/.test(s);
   check('… every Delaware tax sentence names whose, and its year once', taxes.length >= 50 && taxes.every(whose), taxes.find(s => !whose(s)));
@@ -546,7 +546,7 @@ async function checks() {
   const dated = [...Object.keys(R().computed), ...Object.keys(R().covered)].filter(id => R().records[id].field === 'date').map(id => [R().records[id].value, FormulaBar.sentence(id)]).filter(([, s]) => s);
   const tensed = ([v, s]) => / (was|were) due [A-Z]\w+ \d+, \d{4}( \([^)]*\))?(: .*)?\.$/.test(s) === (v < App.day.peek());
   check('what fell due before the day shown was due: AIV-1’s annual tax for 2025 was due June 1, 2026; what falls due after it is due',
-    dated.length > 20 && dated.filter(([v]) => v < App.day.peek()).length >= 2 && dated.every(tensed) && sentences.includes('AIV-1’s annual tax for 2025 was due June 1, 2026: June 1 after the tax year, until paid.'), dated.find(d => !tensed(d))?.[1]);
+    dated.length > 20 && dated.filter(([v]) => v < App.day.peek()).length >= 2 && dated.every(tensed) && sentences.includes('AIV-1’s annual tax for 2025 was due June 1, 2026: June 1 after the tax year, until paid; late, a $200 penalty and 1½% a month.'), dated.find(d => !tensed(d))?.[1]);
   check('… and the last of what was done was then: the Manager’s last annual amendment was on March 28, 2026', sentences.some(s => s.startsWith('The Manager’s last annual amendment was on March 28, 2026 and '))
     && sentences.some(s => s.startsWith('The Manager’s last annual update was on April 24, 2026 and ')) && !sentences.some(s => /\blast [a-z ]+ is [A-Z]\w+ \d+, \d{4}/.test(s)), sentences.find(s => /Form ADV/.test(s)));
   check('… a date of what was done, as done then', /^Offshore Feeder last paid on January 12, 2026, so its annual fee is due /.test(await saidOf(['fx:annual fee due=feeder_cima']) ?? ''), said());

@@ -84,8 +84,8 @@ Templates.register({
     t.note('Description', { args: tax.args }, 'The Delaware tax an entity owes for a tax year, a corporation’s franchise tax or a limited partnership’s, LLC’s or general partnership’s annual tax: owed for every year it’s on the register, at any time in the year, and settled by the payment recorded at it.');
     t.entries(tax, { 'Annual Tax Paid': 'date' });
     t.rule('Annual Tax Due', { at: tax, type: 'date', rows: [
-      ['A corporation’s franchise tax, with its annual report: March 1 after the tax year, until paid', '= IF(ISBLANK([Annual Tax Paid]) AND Taxpayer.[Entity Type] = "Corporation", WORKDAY(DATE([Tax Year].Year + 1, 3, 1) + 1, -1))'],
-      ['June 1 after the tax year, until paid', '= IF(ISBLANK([Annual Tax Paid]), WORKDAY(DATE([Tax Year].Year + 1, 6, 1) + 1, -1))'],
+      ['A corporation’s franchise tax, with its annual report: March 1 after the tax year, until paid; late, a $200 penalty and 1½% a month', '= IF(ISBLANK([Annual Tax Paid]) AND Taxpayer.[Entity Type] = "Corporation", WORKDAY(DATE([Tax Year].Year + 1, 3, 1) + 1, -1))'],
+      ['June 1 after the tax year, until paid; late, a $200 penalty and 1½% a month', '= IF(ISBLANK([Annual Tax Paid]), WORKDAY(DATE([Tax Year].Year + 1, 6, 1) + 1, -1))'],
     ], about: 'When the tax year’s Delaware tax is due, until it’s paid: a corporation’s franchise tax and annual report on or before March 1 of the next year, a limited partnership’s, LLC’s or general partnership’s annual tax on or before June 1, or the business day before when that falls on a weekend. Late, it costs a $200 penalty and 1.5% a month.' });
     t.rule('Annual Tax Amount', { at: tax, type: 'money', rows: [
       ['A limited partnership, LLC or general partnership, from tax year 2026', '= IF(Taxpayer.[Entity Type] <> "Corporation" AND [Tax Year].Year >= 2026, $400)'],
@@ -93,7 +93,7 @@ Templates.register({
     ], about: 'The Delaware annual tax of a limited partnership, LLC or general partnership for the tax year: $300 through tax year 2025, $400 from tax year 2026 (HB 400). A corporation’s franchise tax is its own.' });
     t.rule('Paid Late', { at: tax, rows: [['After the day it was due', '← [Annual Tax Paid] > WORKDAY(DATE([Tax Year].Year + 1, IF(Taxpayer.[Entity Type] = "Corporation", 3, 6), 1) + 1, -1)']],
       about: 'Whether the tax year’s Delaware tax was paid after the day it was due. See Late Charges for what that costs.' });
-    t.rule('Late Charges', { at: tax, type: 'text', rows: [['Paid late, or past due and unpaid', '= IF([Paid Late] OR (ISBLANK([Annual Tax Paid]) AND [Annual Tax Due] < TODAY()), "$200 penalty, and interest of 1½% for each month or part of one until paid, on top of the tax")']],
+    t.rule('Late Charges', { at: tax, type: 'text', rows: [['Paid late', '= IF([Paid Late], "$200 penalty, and interest of 1½% for each month or part of one until paid, on top of the tax")']],
       about: 'What a late Delaware tax costs besides the tax itself, which Annual Tax Amount doesn’t include and nothing here works out: a limited partnership’s, LLC’s or general partnership’s $200 penalty, added to the tax, and interest of 1½% for each month or part of one until paid (Delaware Code, title 6, sections 17-1109, 18-1107 and 15-1208); a corporation’s the same on its franchise tax and annual report (title 8, sections 502(c) and 504(c)).' });
 
     // What's beyond the dates kept: said of each entity it's so of, and on the list of what this chart doesn't track.

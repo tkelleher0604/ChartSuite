@@ -75,8 +75,8 @@ function theSample() {
   const counts = {};
   for (const c of Object.values(R.computed)) counts[c.def] = (counts[c.def] ?? 0) + 1;
   const total = Object.keys(R.computed).length;
-  check(`The sample works out 638 computed records, with no errors: the 577 before, the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate}), each private fund’s Benefit Plan Percentage, ERISA Benefit Plan Test and Run and Advised, the BDC’s Dates Not Tracked, the AIV’s Late Charges, and each entity’s Ours to Track and each year’s Year`,
-    total === 638 && !R.errors.length && counts.def_bdc_affiliate === 23 && counts.def_benefit_plan === 5 && counts.def_erisa === 5 && counts.def_run === 5 && counts.def_untracked === 1 && counts.def_late_charges === 1 && total - counts.def_bdc_affiliate - counts.def_benefit_plan - counts.def_erisa - counts.def_run - counts.def_untracked - counts.def_late_charges - counts.def_ours - counts.def_year === 577, `${total} computed, ${R.errors.length} errors`);
+  check(`The sample works out 637 computed records, with no errors: the 577 before, the 40 Act filter’s BDC Affiliate (${counts.def_bdc_affiliate}), each private fund’s Benefit Plan Percentage, ERISA Benefit Plan Test and Run and Advised, the BDC’s Dates Not Tracked, and each entity’s Ours to Track and each year’s Year`,
+    total === 637 && !R.errors.length && counts.def_bdc_affiliate === 23 && counts.def_benefit_plan === 5 && counts.def_erisa === 5 && counts.def_run === 5 && counts.def_untracked === 1 && total - counts.def_bdc_affiliate - counts.def_benefit_plan - counts.def_erisa - counts.def_run - counts.def_untracked - counts.def_ours - counts.def_year === 577, `${total} computed, ${R.errors.length} errors`);
   // Control 66 → 51: the feeder, the Cayman GP and the holding company no longer control the fund and what it
   // controls (15), since a limited partnership interest carries no vote. 3(c)(1) Count 5 → 0: every fund is 3(c)(7).
   // The Delaware tax 7 → 10: the AIV owes tax years 2025 and 2026, and the two blockers their franchise tax for
@@ -88,7 +88,7 @@ function theSample() {
   const want = { def_control: 51, def_affiliated: 289, def_close: 21, def_remote: 22, def_look_through: 51, def_adds_up: 11, def_tax: 6,
     def_private_fund: 5, def_investment_company: 1, def_annual_tax: 10, def_annual_tax_amount: 22, def_annual_tax_owed: 10, def_annual_return: 2,
     def_form_adv: 1, def_form_pf: 1, def_cima_fee: 1, def_cima_accounts: 1, def_crs: 1, def_fatca: 1, def_form_d: 2, def_cftc: 3, def_lei: 4,
-    def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13, def_benefit_plan: 5, def_erisa: 5, def_run: 5, def_untracked: 1, def_late_charges: 1, def_ours: 17, def_year: 4 };
+    def_formation_on_file: 12, def_governing_on_file: 12, def_bdc_affiliate: 23, def_voting: 24, def_capacity_held: 13, def_benefit_plan: 5, def_erisa: 5, def_run: 5, def_untracked: 1, def_ours: 17, def_year: 4 };
   const off = Object.keys({ ...want, ...counts }).filter(d => want[d] !== counts[d]);
   check('…by definition: Control 51, Affiliated Person 289, Close Affiliate 21, Remote Affiliate 22, Look-Through Ownership 51, and the rest', !off.length,
     off.map(d => `${d} ${counts[d]} (want ${want[d]})`).join(', '));
@@ -882,8 +882,9 @@ function nothingSilent() {
   check('… a New Year’s Day on a Saturday is kept the December 31 before, on a Sunday the Monday after', H('2038-12-31') === 'New Year’s Day' && H('2039-01-01') === null && H('2040-01-02') === 'New Year’s Day', String(H('2038-12-31')));
   check('… WORKDAY keeps them only where it’s told: Excel’s two arguments are weekends alone, and any other third is refused', w('= WORKDAY(DATE(2036, 12, 31), 1)')?.iso === '2037-01-01' && w('= WORKDAY(DATE(2036, 12, 31), 1, "US")')?.iso === '2037-01-02' && w('= WORKDAY(DATE(2036, 12, 31), 1, "UK")')?.code === '#VALUE!', JSON.stringify(w('= WORKDAY(DATE(2036, 12, 31), 1, "UK")')));
   // What's owed, and what isn't kept, of whom.
-  const charges = rowsOf(R0, 'def_late_charges');
-  check('A late tax’s penalty is said where it’s owed: the AIV’s 2025, overdue, and no other', charges.length === 1 && /^\$200 penalty/.test(charges[0].value), JSON.stringify(charges.map(r => r.value)));
+  const lateCharge = withRecords({ x_y: { args: [{ edge: 'Taxpayer', at: 'aiv_juris' }, { edge: 'Tax Year', at: '·2025' }], tag: true }, x_p: { at: 'x_y', edge: 'Annual Tax Paid', field: 'date', value: '2036-01-05' } }), charges = rowsOf(lateCharge, 'def_late_charges');
+  check('A tax paid late says what more is owed; and no rule of the sample’s reads the clock, so a day’s working-out is kept and shown at once', charges.length === 1 && /^\$200 penalty/.test(charges[0].value) && !rowsOf(R0, 'def_late_charges').length && !WB.rows(CHART).some(r => r.label === 'Formula' && r.value.some(x => /TODAY\(\)/.test(x.formula))), JSON.stringify(charges.map(r => r.value)));
+  check('… and what a tax past due costs is said by the row that says it’s due', rowsOf(R0, 'def_annual_tax').some(r => r.label?.endsWith('late, a $200 penalty and 1½% a month')));
   check('What’s beyond the dates kept is said of whom: the BDC in Maryland, and nothing in Delaware or Cayman', rowsOf(R0, 'def_untracked').length === 1 && objOf(R0, rowsOf(R0, 'def_untracked')[0].at) === 'bdc' && /^Maryland/.test(rowsOf(R0, 'def_untracked')[0].value));
   check('… and on the chart’s list, findable by what a person asks after', N.value('Not Tracked', { kind: 'View' }).some(x => x.names.includes('Blue sky')) && N.value('Not Tracked', { kind: 'View' }).some(x => x.names.includes('Qualified purchaser')) && N.value('Not Tracked', { kind: 'View' }).some(x => x.names.includes('Beneficial ownership report')));
   check('Form PF isn’t hidden: an adviser’s asked, beside its Form ADV', N.required({ args: [{ edge: 'Form PF Filer', loc: Tree.treeOf(R0.records, 'mgmt_ria') }] }), '');

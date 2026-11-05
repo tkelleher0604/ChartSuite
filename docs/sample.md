@@ -14,13 +14,13 @@ The workbook a first launch opens is Calder Ridge, a fictional private fund mana
 
 Jurisdiction offers every U.S. state and D.C., and the offshore and European jurisdictions a fund practice meets: the Cayman Islands, the British Virgin Islands, Bermuda, Jersey, Guernsey, Luxembourg, Ireland, the Netherlands, England and Wales, Singapore and Hong Kong. A registered agent is recorded one way, as a relation of a service provider and the jurisdiction it serves.
 
-Opened as of November 3, 2026, the chart has 1,030 entered records. The definitions work out 638 more, for 1,668 in all:
+Opened as of November 3, 2026, the chart has 1,030 entered records. The definitions work out 637 more, for 1,667 in all:
 - **Control** (51) and **Affiliated Person** (289) under §2(a)(9) and §2(a)(3), with the statute's words beside each clause.
 - The BDC's **Close Affiliates** (21) and its one **Remote Affiliate**, under §57.
 - **Look-Through Ownership** (51), and whether **Ownership Adds Up**.
 - **Private Fund**, **Investment Company**, **Tax Classification** and the **3(c)(1) Count**.
 - **ERISA Benefit Plan Test**, a check, of each private fund, by the 25% test of its **Benefit Plan Percentage**, its sponsor's own interests read out, unless it has a VCOC opinion; and **Run and Advised**, a check that the chart says who runs and advises it.
-- **Dates Not Tracked** of what's ours outside Delaware and the Cayman Islands (the BDC, in Maryland), and **Late Charges** of a Delaware tax paid late or past due (AIV-1's 2025).
+- **Dates Not Tracked** of what's ours outside Delaware and the Cayman Islands (the BDC, in Maryland), and **Late Charges** of a Delaware tax paid late, none yet; a tax past due says what it costs by the row that says it's due (AIV-1's 2025).
 - **Deadlines:**
   - the Delaware tax of each tax year, a corporation's franchise tax or a partnership's or LLC's annual tax, from the year it was formed, each payment recorded at the year it settles;
   - Form ADV and Form PF, and Form D: the notice 15 days after a first sale, until it's filed, then the anniversary while the offering is open;
