@@ -616,13 +616,13 @@ function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = 
     // Part of a line in another look: a run of its own, a superscript by PowerPoint's own baseline, at its full size, as PowerPoint makes it smaller itself.
     const spanRuns = l => l.spans.map(sp => { const s = sp.look, z = Math.max(100, Math.round((sp.base ? s.Size / 0.66 : s.Size) * k * 100)), f = esc(s.Font);
       return `<a:r><a:rPr lang="en-US" sz="${z}"${s.Bold ? ' b="1"' : ' b="0"'}${s.Italic ? ' i="1"' : ' i="0"'}${s.Underline ? ' u="sng"' : ''}${s.Strike ? ' strike="sngStrike"' : ''}${sp.base ? ` baseline="${sp.base === 'up' ? 30000 : -25000}"` : ''} dirty="0"><a:solidFill>${clr(s.Color)}</a:solidFill><a:latin typeface="${faceRef(s.Font)}"/><a:cs typeface="${faceRef(s.Font, 'cs')}"/></a:rPr><a:t>${esc(sp.text.replace(/ /g, ' '))}</a:t></a:r>`; }).join('');
-    // A blank field keeps its lines' room, each an empty paragraph, but in a box of a design, where its room is under the words, which stand as what's printed.
+    // A blank field has no paragraph: its room is under the words, which stand as what's printed.
     // A paragraph's mark is in its text's look, so PowerPoint's font box shows the font, and what's typed there matches.
-    if (it.blank && it.under) return [];
+    if (it.blank) return [];
     if (it.inline) { before = `<a:r>${rPr}<a:t>${esc(it.text)}</a:t></a:r><a:r><a:rPr lang="en-US" sz="${sz}" dirty="0"/><a:t> </a:t></a:r>`; return []; }
     const runsBefore = before;
     before = '';
-    return (it.blank ? it.lines.map(() => []) : typed(it)).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${para(ls)}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc>${mark(ls)}${stops}</a:pPr>${runsBefore}`
+    return typed(it).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${para(ls)}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc>${mark(ls)}${stops}</a:pPr>${runsBefore}`
       + ((wrap !== null || flows) && !ls.some(l => l.spans) ? `<a:r>${rPr}<a:t>${esc(ls.map((l, j) => `${l.cut ? l.text.slice(0, -1) : l.text}${l.cut || j === ls.length - 1 ? '' : ' '}`.replace(/\u00a0/g, ' ')).join(''))}</a:t></a:r>` : ls.map(l => l.spans ? spanRuns(l) : `<a:r>${rPr}<a:t>${esc(l.text.replace(/\u00a0/g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`)) + `<a:endParaRPr ${attrs}>${face}</a:endParaRPr></a:p>`);
   });
   // (A table's cell holds its words in the drawing's own namespace, and nothing of a shape's frame; an empty one keeps its size for what's typed there.)

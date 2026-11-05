@@ -166,7 +166,7 @@ const DESIGNS = [
     { id: 'tear', geometry: 'line', x: 0.1, y: 0.56, w: 0.8, h: 0, points: [[0.1, 0.56], [0.9, 0.56]], format: { Outline: '{Outline}', Weight: 0.75, Dash: 'dash' } }, others(0.58, 0.42)] },
   { id: 'pill', name: 'Pill', w: 176, h: 44, base: { Shape: 'rounded', Corner: 50 }, parts: [] },
   { id: 'org', name: 'Org-chart card', w: 156, h: 68, base: { Shape: 'rect', Fill: ACCENT }, parts: [{ id: 'panel', geometry: 'rect', x: 0, y: 0.1, w: 1, h: 0.9, format: PANEL }, words('name', 0.12, 0.46, { Valign: 'bottom' }), others(0.58, 0.42)] },
-  { id: 'triangle', name: 'Fund triangle', base: { Shape: 'triangle' }, parts: [] },
+  { id: 'triangle', name: 'Triangle', base: { Shape: 'triangle' }, parts: [] },
 ];
 
 // ---- Freeforms (dendra.md, Points): a shape by its own points. Its Points are { paths: [{ closed, nodes }], round? }, each node [x, y] in shares of its frame, or [x, y, inX, inY, outX, outY] where a curve comes in and goes out by those handles ----

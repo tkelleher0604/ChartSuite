@@ -184,7 +184,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* Where the bar is narrower than its full width, Align, Order, Group and Tidy are one Arrange menu. */
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
-@container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb .font { width: 120px; } }
+@container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb > .sep { margin: 0 6px; } .fb .font { width: 104px; } }
 /* (Where the scope has no room to say what's alike but a letter or two, it says All, and what on hover.) */
 @container (max-width: 1310px) { .fb > .sep { margin: 0 5px; } .fb .font { width: 92px; } .fb .scope > [data-fb="own"] + [data-fb="like"] > span { display: none; } .fb .scope > [data-fb="own"] + [data-fb="like"]::before { content: "All"; } }
 @container (max-width: 1230px) { .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb .arrange > span { display: none; } }

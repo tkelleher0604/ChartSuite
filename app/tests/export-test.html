@@ -473,7 +473,7 @@ async function run() {
   }
 
   // ---- A box's fields (dendra.md, Fields): a free text drawn in the deck and the PDF as the scene reads it, {Entry}
-  // and all; a blank field's name never, its room kept, in the deck an empty paragraph ----
+  // and all; a blank field's name never, nor in the deck any paragraph for it ----
   {
     const wb5 = Log.open(SAMPLE), main = 'view_main', tx = wb5.edit({ chart: C, who: WHO });
     tx.note('Text', { out: { choice: 'Limited Partnership' }, args: [{ edge: 'Entity Type', loc: {} }] }, { text: 'Formed {Formation Date}' }, { view: main });
@@ -486,8 +486,8 @@ async function run() {
     const d = xml(await (await JSZip.loadAsync(await Export.write('pptx', [s], 'Fields', { R: R5, N }))).file('ppt/slides/slide1.xml').async('string'));
     const said = tags(d, 'a:t').map(t => t.textContent.replace(/ /g, ' ')), np = tags(d, 'p:sp').find(sp => tags(sp, 'a:t').some(t => /^Northpine/.test(t.textContent)));
     const empty = np ? tags(np, 'a:p').filter(p => !tags(p, 'a:r').length).length : -1;
-    check('the deck draws a free text as the scene reads it, and a blank field’s name nowhere, its room an empty paragraph in its box',
-      !!free && !!blank && free.lines.every(l => said.includes(l.text.replace(/ /g, ' '))) && !said.includes('EIN') && empty === blank.lines.length, `${free?.lines.map(l => l.text)} | ${empty} empty`);
+    check('the deck draws a free text as the scene reads it, and a blank field not at all, so the name stands as it’s printed',
+      !!free && !!blank && free.lines.every(l => said.includes(l.text.replace(/ /g, ' '))) && !said.includes('EIN') && empty === 0, `${free?.lines.map(l => l.text)} | ${empty} empty`);
     const bytes = new Uint8Array(await (await Export.write('pdf', [s], 'Fields', WHO)).arrayBuffer()), raw = new TextDecoder('latin1').decode(bytes), shown = [];
     for (const m of raw.matchAll(/\/Length (\d+)\s*\/Filter \/FlateDecode\s*>>\s*stream\r?\n/g)) {
       const start = m.index + m[0].length, text = new TextDecoder('latin1').decode(await inflate(bytes.subarray(start, start + +m[1])));

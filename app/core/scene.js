@@ -1805,13 +1805,13 @@ function move(m, dx, dy) {
 // lines are set: the width they were broken to (a triangle's, its pyramid's), set in as PowerPoint sets in its
 // text rect (see Shapes).
 function setText(b) {
-  const inOrder = b.design ? wordsFirst(b.texts) : b.texts, tb = blockHeight(b.design ? inOrder.filter(it => !it.blank) : inOrder), r = textRect(b.shape, b.w, b.h, b.settings?.Corner?.value), width = Math.max(32, b.w * (textArea(b.shape)) - 2 * INSET) - 2 * r.x;
+  const inOrder = wordsFirst(b.texts), tb = blockHeight(inOrder.filter(it => !it.blank)), r = textRect(b.shape, b.w, b.h, b.settings?.Corner?.value), width = Math.max(32, b.w * (textArea(b.shape)) - 2 * INSET) - 2 * r.x;
   if (b.shape !== 'triangle') b.column = { x: (b.w - width) / 2 + (r.shift ?? 0), width };
   let y = b.shape === 'triangle' ? b.h - BASE - tb : valigned(b.settings?.Valign?.value, r.top, b.h - r.bottom, tb, INSET);
   for (const it of inOrder) y = stack(it, b.column.x, b.column.width, y);
 }
-// In a box of a design a blank's room is under the words, which stand as what's printed stands, in a part or in the box: so no name sits high for a field not yet typed, and what's typed takes its place in its order.
-const wordsFirst = items => [...items.filter(it => !it.blank), ...items.filter(it => it.blank).map(it => Object.assign(it, { under: true }))];
+// A blank's room is under the words, which stand as what's printed stands, in a part or in the box: so no name sits high for a field not yet typed, and what's typed takes its place in its order.
+const wordsFirst = items => [...items.filter(it => !it.blank), ...items.filter(it => it.blank)];
 // A line's label: its texts stacked from its top left, as wide as the widest line. It's `shared` where it's
 // the line's own name alone, which a trunk's lines can say once; `pin`ned where it was dragged to a place of its own
 // (see Layout.pin).
