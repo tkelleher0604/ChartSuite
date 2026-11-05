@@ -9,7 +9,7 @@ const { narrower, shapeOf, weight, key, bare, paramKey, treeOf, isObject, isChoi
 // The format properties, how a view draws what a note reaches: every label but the model's others (dendra.md,
 // Notes), so a new property is only a word in the scene's defaults and its drawing. A Text note, a box's free text,
 // is a note of its own, not a look.
-const OTHERS = new Set(['Name', 'Description', 'Order', 'Required', 'Fixed', 'Check', 'Start', 'End', 'Formula', 'Caption', 'Position', 'Bend', 'Layout', 'As Of', 'Changes', 'Plan', 'Page', 'Scale', 'Footer', 'Text', 'Footnote', 'Master', 'Theme Fonts', 'Pinned', 'Designs']);
+const OTHERS = new Set(['Name', 'Description', 'Order', 'Required', 'Fixed', 'Grows', 'Check', 'Start', 'End', 'Formula', 'Caption', 'Position', 'Bend', 'Layout', 'As Of', 'Changes', 'Plan', 'Page', 'Scale', 'Footer', 'Text', 'Footnote', 'Master', 'Theme Fonts', 'Pinned', 'Designs', 'Years']);
 const FORMATS = { has: label => typeof label === 'string' && !OTHERS.has(label) };
 const typeOfSpec = t => !t ? 'tag' : 'field' in t.out ? 'field' : 'choice' in t.out ? 'choice' : 'tag';
 // Words begun mid-sentence, in lower case but for initials (GP, BDC); and the preposition a list's name ends
@@ -218,7 +218,7 @@ function index(rows) {
       for (const s of specs) if ('choice' in s.out) rank.set(s.out.choice, Math.min(rank.get(s.out.choice) ?? Infinity, optionOrder(s) ?? Infinity));
       return [...rank.keys()].map((o, i) => [o, i]).sort(([a, i], [b, j]) => rank.get(a) === rank.get(b) ? i - j : rank.get(a) - rank.get(b)).map(([o]) => o);
     },
-    required: t => value('Required', t) === true,
+    required: t => { const v = value('Required', t); return v === true || !!v?.when; },
     // That what's entered there doesn't change over time, as a number given once doesn't: typed over, it's corrected.
     fixed: t => value('Fixed', t) === true,
     // A date says its own day, one fact unless a note says it recurs (a questionnaire's): Fixed, false there, its Changes over time ticked.

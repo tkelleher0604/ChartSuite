@@ -86,7 +86,7 @@ function runAll() {
 
   // A chart begun from the sample: its words and views, none of its records.
   const n = DendraTool.run('new', { workbook: null, template: BOOK, name: 'Harbor Point Fund I structure', who: 'Claude, for Sam Rivera' }), nb = n.workbook && Log.open(n.workbook);
-  const nc = nb?.charts()[0]?.chart, nrecs = nc ? nb.rows(nc).filter(r => 'record' in r) : [];
+  const nc = nb?.charts()[0]?.chart, nrecs = nc ? nb.rows(nc).filter(r => 'record' in r && !r.calendar) : [];
   check('new begins a chart from the sample’s schema, definitions and views, with no records but its views', n.ok && nb.charts().length === 1 && nrecs.every(r => r.kind === 'View') && nrecs.length === 5
     && nb.notes(nc).notes('Formula').length === Log.open(BOOK).notes('calder-ridge').notes('Formula').length, n.text);
   const filled = DendraTool.run('apply', { workbook: n.workbook, plan: JSON.stringify({ who: 'x', records: FUND }) });

@@ -22,13 +22,13 @@ Every legal entity is an **Entity**. People are **Individuals**. A body of inves
 | Certificate of Incorporation | the same, for a corporation (often a blocker), and authorized shares | Entity Type Corporation, with Authorized Shares at it |
 | Cayman certificate of registration (ELP) | name, registration date, number, registered office | Jurisdiction Cayman Islands with Registration Number and Registered Office; Entity Type Exempted Limited Partnership |
 | Cayman certificate of incorporation (exempted company) | the same | Entity Type Exempted Company |
-| LPA, LLC agreement, offering memorandum | the vehicle's role, fiscal year, target size | Vehicle Type (Main Fund, Feeder Fund, Parallel Fund, AIV, Co-Investment Vehicle, Blocker, General Partner, Management Company, Holding Company, Portfolio Company, or Third Party for an investor or buyer that isn't the sponsor's, whose filings aren't tracked); Fiscal Year End; Target Commitments; Investment Company Status (3(c)(1) or 3(c)(7) Fund) |
+| LPA, LLC agreement, offering memorandum | the vehicle's role, fiscal year, target size | Vehicle Type (Main Fund, Feeder Fund, Parallel Fund, AIV, Co-Investment Vehicle, Blocker, Acquisition Vehicle, General Partner, Management Company, Holding Company, Portfolio Company, or Third Party for an investor or buyer that isn't the sponsor's, whose filings aren't tracked); Fiscal Year End; Target Commitments; Investment Company Status (3(c)(1) or 3(c)(7) Fund) |
 | Good standing certificate | standing on a date | Good Standing true, with no day if it's been so all along. If it was lost or restored on a date, give that day |
 | Certificate of cancellation or dissolution | the end | Dissolution Date |
 
 - **Formation Date starts the entity.** The chart as of an earlier day doesn't show it. Use the date the formation document was filed, not the date it was signed.
 - **Short Name** is what the chart's boxes may show where room is short ("Fund IV", "GP IV"). Give one where the firm has a usual short form; don't invent one.
-- **Worked out, never entered:** Private Fund, Investment Company, Tax Classification (the default; an election is an override), BDC Affiliate, 3(c)(1) Count.
+- **Worked out, never entered:** Ours to Track, Private Fund, Investment Company, Tax Classification (the default; an election is an override), BDC Affiliate, 3(c)(1) Count, Looked Through and Within 3(c)(1) Limit.
 
 ## Who owns what
 
@@ -65,7 +65,7 @@ Record the registration, and the date each filing or payment was made. Dendra wo
 | Registration (a checkbox at the Entity) | Its entries | What Dendra works out |
 | --- | --- | --- |
 | Registered Investment Adviser | Registered On, SEC File Number (801-…), CRD Number, Last Annual Amendment; Form PF Filer, with Last Annual Update | Form ADV Due (90 days after the fiscal year end); Form PF Due (120 days) |
-| Regulation D Offering | File Number (021-…), First Sale, Last Filed, Offering Open | Form D Due (the anniversary while open) |
+| Regulation D Offering | File Number (021-…), First Sale, Last Filed, Offering Open | Form D Due (15 days after the first sale, until filed; then the anniversary while open) |
 | LEI Registered | LEI, Registered On, Last Renewed | Next Renewal |
 | 4.13(a)(3) Exemption | Claimed On, Last Affirmed | Affirmation Due (60 days after the year end) |
 | CIMA Registered | CIMA Number, Registered On, Last Paid, Audited Accounts Filed | Annual Fee Due (January 15); Audited Accounts Due (6 months after the fiscal year end) |
@@ -77,7 +77,7 @@ At a Jurisdiction:
 **Delaware's tax for each year** (an LP or LLC its annual tax, a corporation its franchise tax, each year from the one it was formed):
 - The Annual Tax relation of the taxpayer and a Tax Year is worked out.
 - Record each payment at the earliest year still due, from the day it was paid, as Paid… does: `{ "relation": "Annual Tax", "sides": { "Taxpayer": "Fund III", "Tax Year": "2025" }, "entries": { "Annual Tax Paid": "2026-05-28" }, "day": "2026-05-28" }`. The chart as of an earlier day then still shows the tax owed.
-- Tax Years are objects (Name "2025", Year 2025). Add the ones the entities need, if the chart hasn't them.
+- Tax Years are the calendar's: every year from the one before the chart was begun, none to add. An older year can be added by its Name ("2019"), and its Year follows.
 
 **A filing made again** (a renewal, an annual amendment) changes the "last" date. Set it with the filing's date as the day, so the earlier filing stays on record before it.
 

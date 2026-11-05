@@ -230,13 +230,34 @@ An investor group records how many beneficial owners it stands for, in a number 
 
 | Label | Row |
 | --- | --- |
-| Each owner; an investor group, its beneficial owners; a 10% fund, its holders | `= IF([Investment Company Status] = "3(c)(1) Fund", SUM(EACH(Owners, IF(KIND(@) = "Investor Group", @.[Beneficial Owners], IF(@.Percentage >= 10% AND @.[Private Fund], SUM(EACH(@.Owners, IF(KIND(@) = "Investor Group", @.[Beneficial Owners], 1))), 1)))))` |
+| Each owner; an investor group, its beneficial owners; a company looked through, its holders | `= IF([Investment Company Status] = "3(c)(1) Fund", SUM(EACH(Owners, IF(KIND(@) = "Investor Group", @.[Beneficial Owners], IF(@.[Looked Through], MAX(SUM(EACH(@.Owners, IF(KIND(@) = "Investor Group", @.[Beneficial Owners], 1))), 1), 1)))))` |
 
 - It's worked out only for 3(c)(1) funds; a 3(c)(7) fund has no such limit, so the IF gives nothing there. Every fund in the sample is a 3(c)(7) fund, so nothing is recorded.
-- An owner counts as one, and an investor group as its beneficial owners, except where §3(c)(1)(A) applies: an entity holding 10% or more that is, or but for §3(c)(1) or §3(c)(7) would be, an investment company (here, a Private Fund tag). Such an owner counts as its own holders.
+- An owner counts as one, and an investor group as its beneficial owners, except where §3(c)(1)(A) applies: an entity holding 10% or more that is, or but for §3(c)(1) or §3(c)(7) would be, an investment company. Such an owner counts as its own holders, and as one if the chart records none. A knowledgeable employee's holding isn't counted (Rule 3c-5(b)), which a group's Beneficial Owners leaves out.
 - Inside the inner EACH, `@` is each of the holder's own owners.
 - The 10% test reads the holding's Percentage rather than its votes: SEC staff have treated a limited partnership interest as the equivalent of a voting security for it.
 - The statute doesn't say whether the 10% test applies again at each tier. This looks through one tier, to the holder's own holders, so it doesn't read itself and settles around a loop of holdings. Were the fund a 3(c)(1) fund, its count would be 127: the U.S. investors' 86 and, through the feeder's 28.4%, the feeder's 41.
+
+Whether a holder is looked through is asked, not assumed: a tag **Looked Through**, at an ownership by an entity:
+
+| Label | Row |
+| --- | --- |
+| Under 10%: a company is one person | `= IF(Owned.[Investment Company Status] = "3(c)(1) Fund" AND Percentage < 10%, FALSE)` |
+| 10% or more, and an investment company, or one but for 3(c)(1) or 3(c)(7): its holders | `= IF(Owned.[Investment Company Status] = "3(c)(1) Fund" AND (Owner.[Private Fund] OR Owner.[Investment Company]), TRUE)` |
+| Not an investment company: one person | `= IF(Owned.[Investment Company Status] = "3(c)(1) Fund" AND Owner.[Investment Company Status] = "Not an Investment Company", FALSE)` |
+| Its status isn't said | `= IF(Owned.[Investment Company Status] = "3(c)(1) Fund", Owner.[Investment Company Status] <> "Not an Investment Company")` |
+
+Its last row comes to a test of what's blank: a holder of 10% or more with no Investment Company Status can't say, so the count waits, "Needs Investment Company Status", and that's the one thing to fill in. Typed over, it's a decision, with its why, for counsel to make where a holder's interest doesn't vote.
+
+And a check on the limit, **Within 3(c)(1) Limit**, at the status 3(c)(1) Fund, not more than one hundred persons, or 250 for a qualifying venture capital fund (a tag of that name, typed):
+
+| Label | Row |
+| --- | --- |
+| Over, whatever's looked through | `= IF(SUM(EACH(Owners, IF(KIND(@) = "Investor Group", @.[Beneficial Owners], 1))) > IF([Qualifying Venture Capital Fund], 250, 100), FALSE)` |
+| Over | `= IF([3(c)(1) Count] > IF([Qualifying Venture Capital Fund], 250, 100), FALSE)` |
+| Within | `= [3(c)(1) Count] <= IF([Qualifying Venture Capital Fund], 250, 100)` |
+
+So a fund with 120 in a group and a feeder not yet said is over already, each holder being at least one person; 59 and the feeder's 41 is 100, within it; 60 and 41, 101, over.
 
 ### Is a signatory's capacity borne out?
 
@@ -273,17 +294,28 @@ The exception comes first, so where it holds it's the reason; it's read only whe
 
 Due dates are worked out from what's entered, each from when its obligation was last met, or failing that from what started it.
 
-**Ours to track.** Each deadline, tax and document check is the sponsor's to track only for its own entities: each rule begins `NOT ISBLANK([Vehicle Type]) AND NOT([Vehicle Type] IN {"Portfolio Company", "Third Party"})`, a condition that only excludes, so the formula bar doesn't say it. An entity not yet typed, a buyer such as Northwind, or an outside investor such as the pension plan, typed Third Party, owes nothing tracked and fails no check, and Vehicle Type, required, is counted blank until it's given.
+**Ours to track.** Each deadline, tax and document check is the sponsor's to track only for its own entities, which one definition says, **Ours to Track**, at an Entity:
+
+| Label | Row |
+| --- | --- |
+| A third party isn't ours to track | `= IF([Vehicle Type] = "Third Party", FALSE)` |
+| A portfolio company held whole by those on this chart is | `= IF([Vehicle Type] = "Portfolio Company" AND SUM(Owners.Percentage) = 100%, TRUE)` |
+| A portfolio company with other holders isn't | `= IF([Vehicle Type] = "Portfolio Company", FALSE)` |
+| Any other vehicle is | `= [Vehicle Type] <> "Third Party"` |
+
+Each rule begins `IF([Ours to Track] <> FALSE, …)`, a condition that only excludes, so the formula bar doesn't say it. A buyer such as Northwind, or an outside investor such as the pension plan, typed Third Party, owes nothing tracked and fails no check. An entity not yet typed can't say: its last row comes to a test of what's blank, so what reads it waits, "Needs Vehicle Type", and Vehicle Type, required, is counted blank, once, until it's given.
 
 **One weekend rule each.** A deadline "on or before" a day that falls on a weekend is met by the business day before, `WORKDAY(d + 1, -1)`; one "within" a period that ends on a weekend moves to the next business day, `WORKDAY(d - 1, 1)`. Each deadline's Description says which. So Fund III's LEI, due a year after November 14, 2025, a Saturday, is due November 13, 2026; the Cayman annual returns are due January 29, 2027, the feeder's FATCA return July 30, 2027, and the co-invest vehicle's Form D amendment June 25, 2027, the day before the anniversary of its filing.
 
 **An LEI renewed early.** An LOU renewing an LEI before it lapses extends it a year from the date it was due, not from the renewal; one renewed after it lapsed runs a year from the renewal. The date it was due is the anniversary of its registration that the renewal renewed, the one within six months of it. So **Next Renewal**, "A year on from the anniversary renewed, or from a late renewal", is `= LET(renewed, MAX([Last Renewed], [Registered On]), from, EDATE(renewed, -6), anniversary, DATE(YEAR(from), MONTH([Registered On]), DAY([Registered On])), due, IF(anniversary < from, EDATE(anniversary, 12), anniversary), WORKDAY(EDATE(MAX(due, renewed), 12) + 1, -1))`. Fund III's, renewed October 28, 2026 with November 14 to come, runs to November 14, 2027, a Sunday, so it's due November 12; renewed December 20, after the anniversary, it would run to December 20, 2027. Fund III-A's, registered October 2, 2024 and renewed September 24, 2025, ran to October 2, 2026, overdue. A lapse moves the anniversary, which the last renewal alone can't tell: where an LEI has lapsed and been renewed since, its Next Renewal is entered from GLEIF, and entered wins.
 
-**Each tax year's Delaware tax.** A formula can't tell which tax years have begun, so the tax years are objects of a kind **Tax Year**, each in the chart from its first day, with its Year. A tag relation **Annual Tax** has edges Taxpayer, at Entity › Jurisdiction: Delaware, and Tax Year:
+**The first Form D, and the rest.** Rule 503 (17 C.F.R. § 230.503) gives each weekend rule once. **Form D Due** at a Regulation D Offering: "The notice: 15 calendar days after the first sale, or the next business day", `= IF([Ours to Track] <> FALSE AND ISBLANK([Last Filed]), WORKDAY([First Sale] + 14, 1))`, and "On or before the anniversary, while the offering is open", `= IF([Ours to Track] <> FALSE AND [Offering Open], WORKDAY(EDATE([Last Filed], 12) + 1, -1))`. So a first sale of October 20, 2036 has its notice due November 4, 2036; one of October 17 or 18, whose fifteenth day is a weekend, November 3; and its First Sale, required of an offering that's ours, is counted blank till it's given. A holiday isn't rolled: no calendar of them is kept.
+
+**Each tax year's Delaware tax.** A formula can't tell which tax years have begun, so the tax years are objects of a kind **Tax Year**, the calendar's (dendra.md, Time), each in the chart from its first day, its Year `= VALUE(Name)`. A tag relation **Annual Tax** has edges Taxpayer, at Entity › Jurisdiction: Delaware, and Tax Year:
 
 | Label | Row |
 | --- | --- |
-| Each year on the register | `← Taxpayer.[Entity Type] IN {"Limited Partnership", "Limited Liability Company", "Corporation"} AND NOT ISBLANK(Taxpayer.[Vehicle Type]) AND NOT(Taxpayer.[Vehicle Type] IN {"Portfolio Company", "Third Party"}) AND [Tax Year].Year >= YEAR(Taxpayer.[Formation Date])` |
+| Each year on the register | `← Taxpayer.[Entity Type] IN {"Limited Partnership", "Limited Liability Company", "Corporation"} AND Taxpayer.[Ours to Track] <> FALSE AND [Tax Year].Year >= YEAR(Taxpayer.[Formation Date])` |
 
 The tax is owed for every year the entity is on the register, from the year it was formed: with no Formation Date, the comparison is nothing, so it owes no year, and its required Formation Date is counted blank instead. A corporation's is its franchise tax, which it pays with its annual report; a limited partnership's or LLC's its annual tax. A payment settles the year it's for, so it's recorded at that year: **Annual Tax Paid**, an entry at the year's Annual Tax, which is entered to bear it, as the rule gives it, since an entry is only ever at a record the timeline holds. At each, **Annual Tax Due** has two rows: "A corporation's franchise tax, with its annual report: March 1 after the tax year, until paid", `= IF(ISBLANK([Annual Tax Paid]) AND Taxpayer.[Entity Type] = "Corporation", WORKDAY(DATE([Tax Year].Year + 1, 3, 1) + 1, -1))`, and "June 1 after the tax year, until paid", `= IF(ISBLANK([Annual Tax Paid]), WORKDAY(DATE([Tax Year].Year + 1, 6, 1) + 1, -1))`. **Annual Tax Amount**, a limited partnership's or LLC's, has two rows, "From tax year 2026", `= IF(Taxpayer.[Entity Type] <> "Corporation" AND [Tax Year].Year >= 2026, $400)`, and "Through tax year 2025", `= IF(Taxpayer.[Entity Type] <> "Corporation", $300)`; a corporation's turns on its shares, and is entered. From the entity's side its list is **Taxed For**. A payment's place is its year's: "Fund III, tax year 2025 › Annual Tax Paid".
 

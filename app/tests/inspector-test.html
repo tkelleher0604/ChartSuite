@@ -842,7 +842,7 @@ async function run() {
   Shell.select(['fund']); await tick();
   rowOf('Jurisdiction').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
   check('Alt+click on a label shows the entry in general', Shell.selection.value[0]?.startsWith('~') && $('.ih .cell')?.value === 'Jurisdiction' && $$('.sect > .fold').some(s => s.textContent === 'Options'));
-  const req = rowOf('A blank needs filling in')?.querySelector('input');
+  const req = rowOf('Required')?.querySelector('input');
   check('…with whether a blank needs filling in', req?.checked === true);
   Shell.select(['fund']); await tick();
   rowOf('EIN').querySelector('.lbl').dispatchEvent(new MouseEvent('click', { bubbles: true, altKey: true })); await tick();
@@ -1085,6 +1085,8 @@ async function run() {
   const paidSaid = 'Paid AIV-1’s annual tax for 2025 on Oct 26, 2026';
   check('… and History and its toast say it as a payment', Time.describe(last()) === paidSaid
     && document.querySelector('.toast')?.textContent.startsWith(paidSaid), `${Time.describe(last())} / ${document.querySelector('.toast')?.textContent}`);
+  check('… paid after the day it fell due, it says so: in its toast, in its own note for History, and the year holds Paid Late', document.querySelector('.toast')?.textContent.includes('late: it was due Jun 1, 2026') && last().note === 'Late: it was due Jun 1, 2026'
+    && Object.values(st()).some(r => r.at === year?.record && r.edge === 'Paid Late' && r.tag === true), `${document.querySelector('.toast')?.textContent} / ${last().note}`);
   check('… the selection staying on the year, now entered, at the payment’s row', Shell.selection.peek()[0] === year?.record && document.activeElement?.closest('[data-key]')?.dataset.key === payment?.record,
     `${Shell.selection.peek()} ${document.activeElement?.outerHTML.slice(0, 120)}`);
   // As the sample's are, a payment is recorded from the day it was made, the year with it: as of a day
