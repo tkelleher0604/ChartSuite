@@ -1557,7 +1557,7 @@ function groupDesigns() {
   const s2 = scene(w2);
   check('the narrowest decides: one box’s own over its group’s', s2.byId.get(llcs[1].id).design.value.id === 'side' && s2.byId.get(llcs[2].id).design.value.id === 'header');
   const shown = s2.byId.get(llcs[0].id);
-  check('what’s said over it at a box is that box’s, only what’s different, its base flowing through', shown.design.value.id === 'header' && shown.parts[1].look.Fill === '#ffeeaa' && s2.byId.get(llcs[2].id).parts[1].look.Fill === '#ffffff' && shown.parts[0].texts.length === 1);
+  check('what’s said over it at a box is that box’s, only what’s different, its base flowing through', shown.design.value.id === 'header' && shown.parts[1].look.Fill === '#ffeeaa' && s2.byId.get(llcs[2].id).parts[1].look.Fill !== '#ffeeaa' && shown.parts[0].texts.length === 1);
   const w3 = Log.open(SAMPLE);
   edit(w3, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); tx.note('Design', own, { over: { parts: { rest: { format: { Fill: '#ffeeaa' } } } } }, { view: MAIN }); });
   edit(w3, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, { ...preset('header'), parts: preset('header').parts.map(p => p.id === 'name' ? { ...p, format: { ...p.format, Italic: true } } : p) }, { view: MAIN }); });
@@ -1587,6 +1587,11 @@ function groupDesigns() {
   const hold = (Tree.index(S6).relations.get('fund') ?? []).map(id => S6[id]).find(r => r.args?.length === 2), side = hold?.args.find(a => a.at !== 'fund'), other = side && N6.shortOf(S6, Tree.objectOf(S6, side.at) ?? side.at), listName = hold && N6.listName(Tree.treeOf(S6, (Tree.index(S6).relations.get('fund') ?? [])[0]), side.edge);
   check('{Holdings} reads a relation’s list, by name', !other || read('fund', listName).text.includes(other), `${listName}: ${read('fund', listName ?? '').text}`);
   check('{Owner.Name} reads the record at a side', !!side && read('fund', `${side.edge}.Name`).text !== '', side && read('fund', `${side.edge}.Name`).text);
+  // What's over a record, offered by name: what's offered is what's typed and what's read.
+  const over6 = Scene.readable(S6, N6, w6.schema(C), 'northpine'), owners6 = S6.northpine && Scene.listsAt(S6, N6, 'northpine').find(l => l.name === 'Owners');
+  check('what a record can read is offered by name: its entries, then a relative’s', over6.some(x => x.label === 'Jurisdiction' && !x.of) && over6.some(x => x.label === "Owner's name" && x.of === 'Owners' && x.first) && over6.some(x => x.label === "Owner's Jurisdiction"), over6.filter(x => x.of).slice(0, 6).map(x => x.label).join());
+  check('… and reads as it’s offered, of everyone in the list', owners6?.items.length > 1 && owners6.items.every(it => read('northpine', "Owner's name").text.includes(N6.nameOf(S6, it.obj))), read('northpine', "Owner's name").text);
+  check('… a list named for what it is to them is said by who’s at its side', !over6.some(x => /\s(to|of|for)'s /i.test(x.label)));
   const f6 = read.formula('=COUNT(Holdings) & " holdings"', 'fund');
   check('a part’s text may be a formula', /^\d+ holdings$/.test(f6), f6);
   check('|initials reads a name’s first letters', read(llcs[0].record, 'Name|initials').text.length >= 2 && read(llcs[0].record, 'Name|initials').text === read(llcs[0].record, 'Name|initials').text.toUpperCase(), read(llcs[0].record, 'Name|initials').text);
@@ -1601,6 +1606,24 @@ function groupDesigns() {
   edit(w7, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, { ...preset('header'), w: 100, h: 40 }, { view: MAIN }); });
   const big = scene(w7).byId.get(llcs[0].id);
   check('a text by its frame: words that don’t fit grow the box, the band with them, the rest below it', big.h > 40 && Math.abs(big.parts[1].y - (big.parts[0].y + big.parts[0].h)) < 0.5 && big.parts[0].h > 0.42 * 40 && Math.abs(big.parts[1].y + big.parts[1].h - (big.y + big.h)) < 0.5, JSON.stringify([big.y, big.h, big.parts.map(p => [p.y, p.h])]));
+  // A fill reaches what the eye sees; what's drawn on a surface goes where it shows; a shape lost on the dark it stands on turns white.
+  const wFill = Log.open(SAMPLE), own8 = Tree.treeOf(R0, llcs[0].record), own9 = Tree.treeOf(R0, llcs[1].record);
+  edit(wFill, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', own8, preset('side'), { view: MAIN }); tx.note('Fill', own8, '#c55a11', { view: MAIN }); tx.note('Inner Shadow', own8, { blur: 9, distance: 0, angle: 0, color: '#000000', transparency: 50 }, { view: MAIN }); tx.note('Design', own9, preset('person'), { view: MAIN }); tx.note('Fill', own9, Shapes.ACCENT, { view: MAIN }); });
+  const sFill = scene(wFill), side8 = sFill.byId.get(llcs[0].id), person8 = sFill.byId.get(llcs[1].id), panel8 = side8.parts.find(p => p.part === 'panel');
+  check('a fill given the box is the band’s whole, and a tint on the panel the eye sees', side8.settings.Fill.value === '#c55a11' && panel8.look.Fill !== '#ffffff' && panel8.look.Fill !== '#c55a11' && /^#f/i.test(panel8.look.Fill), panel8.look.Fill);
+  check('an inner shadow goes on the panel over the box, where it shows', !!panel8.look['Inner Shadow']?.blur, JSON.stringify(panel8.look['Inner Shadow']));
+  check('a face the colour of the dark box it stands on turns white', person8.parts.find(p => p.part === 'face').look.Fill === '#ffffff', person8.parts.find(p => p.part === 'face').look.Fill);
+  check('a part is called what it is', panel8.name === 'Panel' && side8.parts.find(p => p.part === 'name').name === 'Name' && person8.parts.find(p => p.part === 'face').name === 'Name, as initials', side8.parts.map(p => p.name).join());
+  // A field hidden takes its own look along: the box's other words keep theirs.
+  const wHid = Log.open(SAMPLE), juris9 = Tree.entryAt(R0, llcs[2].record, 'Jurisdiction');
+  edit(wHid, tx => tx.note('Shown', Tree.treeOf(R0, juris9), false, { view: MAIN }));
+  const hid9 = scene(wHid).byId.get(llcs[2].id), was9 = plain.byId.get(llcs[2].id);
+  check('a field hidden doesn’t recolour what’s left in the box', !hid9.texts.some(it => it.id === juris9) && hid9.texts.find(it => it.name).look.Color === was9.texts.find(it => it.name).look.Color && hid9.settings.Color.value === was9.settings.Color.value, hid9.texts.find(it => it.name).look.Color);
+  // A field named in a text box on the page: nothing to read, so it prints nothing, and it's said.
+  const wAsks = Log.open(SAMPLE);
+  edit(wAsks, tx => tx.add('shape', { view: MAIN, geometry: 'text', x: 40, y: 40, text: 'Held by {Name}' }));
+  const sAsks = scene(wAsks), asked = sAsks.marks.find(m => m.type === 'shape' && m.texts?.[0]?.blank?.reads);
+  check('{Name} in a text box on the page never prints as typed: faint by its name, and said at Export', asked?.texts[0].text === 'Held by Name' && Scene.says(sAsks).some(t => /asks for Held by Name/.test(t)), asked?.texts[0].text);
   // A thumbnail.
   const thumb = Scene.instance(plain, llcs[0].id, preset('person'), wb.notes(C), computed(wb));
   check('a gallery’s thumbnail is the box by the renderer’s own hand, in its own words', thumb.parts.length === 3 && thumb.parts[1].texts[0].text === name0 && thumb.x === 0 && thumb.y === 0);

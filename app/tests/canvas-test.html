@@ -3031,11 +3031,13 @@ async function designing(st) {
   App.change(tx => Designs.say(tx, box('northpine'), 'rest', { format: { Fill: '#ffeeaa' } }, { own: true }), { dated: false }); await tick(300);
   check('what’s said over a part goes to that part', box('northpine').parts[1].look.Fill === '#ffeeaa' && box('northpine').design.value.id === 'header' && box('northpine').design.overs.length === 1);
   Designs.reset(box('northpine'), { own: true }); await tick(300);
-  check('Reset to design takes it away', box('northpine').parts[1].look.Fill === '#ffffff' && !box('northpine').design.overs.length);
+  check('Reset to design takes it away', box('northpine').parts[1].look.Fill !== '#ffeeaa' && !box('northpine').design.overs.length);
   // Edit design: stands on the page, in no log, till Done.
   Shell.select(['northpine']); await tick(120);
   const base = changes(), rows = () => App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r && r.view === st.id).length, r0 = rows();
-  Designs.edit(box('northpine')); await tick(500);
+  Designs.edit(box('northpine')); await Promise.resolve();
+  const flew = document.getAnimations().some(a => cv().root.contains(a.effect?.target)); await tick(500);
+  check('Edit design moves in, from the box, no jump cut', flew);
   check('Edit design stands its parts on the page as free shapes, with a bar', rows() === r0 + 2 && /^Editing the design of/.test($('.dc-designbar span')?.textContent ?? '') && [...$$('.dc-designbar button')].map(b => b.textContent).join() === 'Discard,Done', $('.dc-designbar span')?.textContent);
   check('… the box selected, so its rows are beside it to drag onto the parts', Shell.selection.peek().includes('northpine'), Shell.selection.peek().join());
   check('… the rest of the chart dulled and out of reach', cv().root.querySelector('[data-cell-id="fund"]')?.classList.contains('dc-locked') && !cv().root.querySelector('[data-cell-id="northpine"]')?.classList.contains('dc-locked'));
@@ -3062,9 +3064,79 @@ async function designing(st) {
   $('dialog.dlg input').dispatchEvent(new Event('input', { bubbles: true }));
   [...$$('dialog.dlg button')].find(b => b.textContent === 'Make').click(); await tick(500);
   const mine = sc().marks.filter(m => m.design?.value.name === 'Mine'), first = mine.find(m => m.id === 'northpine');
-  check('Make a design: the shapes become its parts, one change, at the box’s group', changes() === m0 + 1 && mine.length > 1 && !App.shown.peek().item(App.chart.peek(), shape).length && first?.parts.length === 1, mine.length);
+  check('Make a design: the shapes become its parts, one change, at the box’s group', changes() === m0 + 1 && mine.length > 1 && !App.shown.peek().item(App.chart.peek(), shape).length && first?.design.value.parts.some(p => p.rest) && first?.design.value.parts.length === 2, mine.length);
   check('… the words kept as tokens where they read as a field', first?.design.value.parts[0].text === '{Name}', first?.design.value.parts[0].text);
   check('… and it’s in the gallery for the chart', App.notes.peek().value('Designs', { kind: 'View' })?.list.some(d => d.name === 'Mine'));
+  undo(); await tick(300);
+  // From a selection with no box in it: fitted to the box it's for, by shares of what it draws.
+  let bigRect = null, word = null, gr = null;
+  App.change(tx => { bigRect = tx.add('shape', { view: st.id, geometry: 'rect', x: 30, y: 30, w: 300, h: 120, format: { Fill: '#ddeeff' } }); word = tx.add('shape', { view: st.id, geometry: 'text', x: 60, y: 40, text: 'Name' }); }, { dated: false }); await tick(250);
+  Shell.select([bigRect, word]); await tick(150);
+  const m1 = changes(), tiles1 = (() => { $('[data-fb="design"]').click(); return null; })(); await tick(250);
+  check('shapes alone: the Design control offers to make one of them', [...$$('.float .picker.designs .btn')].some(b => b.textContent.startsWith('Make a design') && !b.disabled), [...$$('.float .picker.designs .btn')].map(b => b.textContent).join());
+  [...$$('.float .picker.designs .btn')].find(b => b.textContent.startsWith('Make a design')).click(); await tick(200);
+  $('dialog.dlg input').value = 'Fitted'; $('dialog.dlg input').dispatchEvent(new Event('input', { bubbles: true }));
+  [...$$('dialog.dlg button')].find(b => b.textContent === 'Make').click(); await tick(500);
+  const fitted = sc().marks.find(m => m.design?.value.name === 'Fitted');
+  check('… made, one change, it lands by shares of what it drew, at the box’s size, its name a field across it', changes() === m1 + 1 && !!fitted && fitted.design.value.parts[0].w === 1 && fitted.design.value.parts[0].h === 1 && fitted.design.value.parts[1].text === '{Name}' && fitted.design.value.parts[1].w === 1 && fitted.w < 300 && fitted.parts.every(p => p.x >= fitted.x - 0.5 && p.x + p.w <= fitted.x + fitted.w + 0.5), fitted && JSON.stringify(fitted.design.value.parts.map(p => [p.x, p.y, p.w, p.h])));
+  undo(); await tick(300);
+  // What's over a box, offered and shown by name.
+  Shell.select(['northpine']); await tick(150);
+  const c9 = cv().fields;
+  check('a relative’s field is offered by name, on the box’s Show on chart', c9.readable('northpine').some(x => x.label === "Owner's name"));
+  const v9 = changes();
+  c9.showWord('northpine', "Owner's name", true); await tick(300);
+  check('… shown, one change, it reads who they are, at the pen', changes() === v9 + 1 && c9.wordShown('northpine', "Owner's name") && box('northpine').texts.some(it => it.free && /Capital Partners III/.test(it.text)), box('northpine').texts.map(it => it.text).join('|'));
+  undo(); await tick(300);
+  // Edit design: the panel's parts, its words, what it prints.
+  App.change(tx => tx.note('Design', t(), Shapes.DESIGNS.find(d => d.id === 'person'), { view: st.id }), { dated: false }); await tick(300);
+  Designs.edit(box('northpine')); await tick(500);
+  const partRows = $$('.parts-of .part-rows .row');
+  check('Edit design: the panel lists the parts, called what they are, the box last', partRows.map(r => txt(r.querySelector('.nm'))).join() === 'Other fields,Name,Name, as initials,The box', partRows.map(r => txt(r.querySelector('.nm'))).join());
+  partRows[2].click(); await tick(200);
+  check('… a click selects one, its words a chip that says what it is, never its token', txt($('.words-in .word-chip')) === 'Name, as initials' && !/\{/.test(txt($('.words-in'))), txt($('.words-in')));
+  partRows[0].click(); await tick(200);
+  check('… the part the rest go in says which they are', [...$$('.held-fields .word-chip')].some(b => txt(b) === 'Jurisdiction'), [...$$('.held-fields .word-chip')].map(txt).join());
+  const restMark = sc().marks.find(m => App.shown.peek().item(App.chart.peek(), m.id)?.[0]?.rest);
+  check('… and it shows them in their own sizes, as they’ll print', restMark.texts[0].runs?.length >= 1 && restMark.texts[0].lines.every(l => l.spans?.length), JSON.stringify(restMark.texts[0].runs));
+  Designs.dropped(box('northpine'), 'Formation Date', null); await tick(250);
+  const dropped9 = sc().marks.find(m => App.shown.peek().item(App.chart.peek(), m.id)?.at?.(-1)?.text === '{Formation Date}'), held9 = box('northpine'), rest9 = sc().marks.find(m => m.id === restMark.id);
+  check('… a row dropped on the box is a part in the column its fields stand in, under them, inside the box', !!dropped9 && dropped9.x >= rest9.x - 0.5 && dropped9.x + dropped9.w <= held9.x + held9.w + 0.5 && dropped9.y >= rest9.y + rest9.h - 0.5 && dropped9.y + dropped9.h <= held9.y + held9.h + 1, dropped9 && JSON.stringify([dropped9.y, dropped9.h, rest9.y, rest9.h, held9.y, held9.h]));
+  $$('.dc-designbar button')[0].click(); await tick(400);
+  undo(); await tick(250);
+  // A design given to a group stands at each of its patterns, and it's the group's that's edited, whichever box it's begun on.
+  {
+    const on = sc().marks.filter(m => m.type === 'box').map(m => [m.id, Canvas.groupsAt(sc(), m).find(g => g.outputs.length > 1 && g.marks.size > 1)]).find(([, g]) => g), group9 = on?.[1], tiers = Shapes.DESIGNS.find(d => d.id === 'rule');
+    App.change(tx => { for (const p of group9.outputs) tx.note('Design', p, tiers, { view: st.id }); }, { dated: false }); await tick(300);
+    const c10 = changes();
+    Designs.edit(sc().byId.get(on[0])); await tick(500);
+    const says9 = txt($('.dc-designbar span'));
+    $('.dc-designbar input').value = 'All of them';
+    $$('.dc-designbar button')[1].click(); await tick(500);
+    const named9 = [...group9.marks].map(id => sc().byId.get(id)).filter(m => m?.type === 'box');
+    check('a design given to a group of several patterns is edited as the group’s, every box of it moving, in one change', says9.includes(`${group9.marks.size}`) && changes() === c10 + 1 && named9.length === group9.marks.size && named9.every(m => m.design?.value.name === 'All of them'), `${says9} / ${named9.map(m => m.design?.value.name).join()}`);
+    undo(); await tick(200); undo(); await tick(250);
+  }
+  // The first drag from a field's words on a box selected takes the field; a press on its name moves the box, as ever.
+  Shell.select(['northpine']); await tick(150);
+  const np = box('northpine'), it9 = np.texts.find(x => !x.name && x.lines?.length), r9 = cv().root.getBoundingClientRect(), gAt = (m, it) => { const t = it.look, l = it.lines[0], c = cv().graph.localToGraph(m.x + l.x + (t.Align === 'center' ? 0 : l.w / 2), m.y + l.y - t.Size * Scene.PT * 0.4); return [r9.left + c.x, r9.top + c.y]; };
+  const [fx9, fy9] = gAt(np, it9), press9 = (k, x, y, C = MouseEvent) => (k === 'mousedown' ? document.elementFromPoint(x, y) : window).dispatchEvent(new C(k, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: k.endsWith('up') ? 0 : 1, view: window }));
+  const v8 = changes();
+  press9('mousedown', fx9, fy9); press9('pointermove', fx9 + 400, fy9 + 300, PointerEvent); await tick(60);
+  check('the first drag from a field’s words on a box selected takes the field, and says so', /^Hide /.test(txt($('.drag-field'))), txt($('.drag-field')));
+  press9('pointerup', fx9 + 400, fy9 + 300, PointerEvent); await tick(300);
+  check('… off its box, it’s hidden, one change', changes() === v8 + 1 && !box('northpine').texts.some(x => x.id === it9.id), box('northpine').texts.map(x => x.text).join('|'));
+  undo(); await tick(250);
+  // A text box dropped on a box joins it; or, a mistake, stands where it was dropped.
+  let tb9 = null;
+  App.change(tx => { tb9 = tx.add('shape', { view: st.id, geometry: 'text', x: 30, y: 30, text: 'Held by {Owner’s name}'.replace('’', "'") }); }, { dated: false }); await tick(200);
+  check('a text box that asks for a field and stands on no box is faint, by its name, and said', sc().byId.get(tb9).texts[0].blank?.reads && !/\{/.test(sc().byId.get(tb9).texts[0].text) && Scene.says(sc()).some(s => /asks for/.test(s)), sc().byId.get(tb9).texts[0].text);
+  Shell.select([tb9]); await tick(120);
+  const bx9 = box('northpine'), c9g = cv().graph.localToGraph(bx9.x + bx9.w / 2, bx9.y + bx9.h / 2), v7 = changes();
+  cv().graph.trigger('node:moved', { node: cv().graph.getCellById(tb9), e: { clientX: r9.left + c9g.x, clientY: r9.top + c9g.y } }); await tick(300);
+  check('dropped on a box it joins it, as its free text, reading that box', changes() === v7 + 1 && !App.shown.peek().item(App.chart.peek(), tb9).length && box('northpine').texts.some(it => it.free && /^Held by .*Capital Partners III/.test(it.text)), box('northpine').texts.map(x => x.text).join('|'));
+  check('… its toast can leave it loose', $$('.toast').some(t => /Leave it loose/.test(txt(t))), txt($$('.toast').at(-1)));
+  undo(); await tick(250); undo(); await tick(250);
   Shell.select([]); await tick(150);
 }
 
@@ -3165,7 +3237,7 @@ async function designing(st) {
   cv().fields.addText('feeder', 'In {Jurisdiction}'); await tick(300);
   const inJ = id => sc().byId.get(id).texts.find(it => it.free)?.text;
   check('a free text from the panel goes to what the pen reaches, each box reading its own', inJ('feeder') === 'In Cayman Islands' && [...FormatBar.scope().marks].some(id => /^In Delaware/.test(inJ(id) ?? '')) && $$('.toast').some(t => /Added text to all 5 funds/.test(txt(t))), `${inJ('feeder')} ${txt($$('.toast').at(-1))}`);
-  check('… and its page says it, as it was typed, a click from typing over', $$('.insp .foot-row').some(r => /In \{Jurisdiction\}/.test(txt(r))), $$('.insp .foot-row').map(txt).join());
+  check('… and its page says it, in words, a click from typing over', $$('.insp .foot-row').some(r => /In Jurisdiction/.test(txt(r))), $$('.insp .foot-row').map(txt).join());
   cv().fields.dropText('feeder'); await tick(300);
   check('… and deleted there, it goes from all the pen reaches', !inJ('feeder') && ![...FormatBar.scope().marks].some(id => inJ(id)));
   Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200);

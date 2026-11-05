@@ -127,7 +127,8 @@ function slots(at, all) {
   const known = [...errors, ...blanks, ...unsure, ...untested], R = App.computed.value, read = own ? App.definitions.value.filter(d => d.type === 'tag' && !d.edges && (R.rows[d.id] ?? []).some(x => x.at === at) && N().check({ args: [{ edge: d.name, loc: tree(at) }] }))
     .flatMap(d => Formulas.readsAt(R, d.id)).filter((e, i, l) => l.findIndex(x => T.same(x, e)) === i && !entryNamed(at, e) && !known.some(x => T.same(x.edge, e)) && specsAt(tree(at), e).length && !App.definitions.value.some(d => T.same(d.name, e))).map(e => slot(e, { at, open: true })) : [];
   // And what its box on the page shown shows blank, to type into there (dendra.md, Fields), is an empty row here.
-  const shownBlank = own && !all ? (App.scene.value?.byId.get(at)?.texts ?? []).filter(it => it.blank).map(it => it.blank.edge).filter(e => !known.some(x => T.same(x.edge, e)) && !read.some(x => T.same(x.edge, e))).map(e => slot(e, { at, open: true })) : [];
+  // (Its fields, those too that a design being edited has set aside.)
+  const inBox = App.scene.value?.byId.get(at), shownBlank = own && !all ? [...new Set([...inBox?.texts ?? [], ...inBox?.fields ?? []].filter(it => it.blank).map(it => it.blank.edge))].filter(e => !known.some(x => T.same(x.edge, e)) && !read.some(x => T.same(x.edge, e))).map(e => slot(e, { at, open: true })) : [];
   const given = [...known, ...read, ...shownBlank], asked = offered.value.filter(o => o.at === at && !entryNamed(at, o.edge) && !given.some(x => T.same(x.edge, o.edge))).map(o => slot(o.edge, { at, open: true, made: true }));
   const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...given, ...asked].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
   // What's blank that others of its kind have stands empty too, so what's missing can be seen and typed; or says it isn't ours.
@@ -832,6 +833,16 @@ function OnChart({ it, at }) {
     onPointerEnter=${e => { const now = state(); setPointed(now); e.currentTarget.dataset.tip = say(now); if (now.s.marks) c.cue?.([...now.s.marks]); }} onPointerLeave=${() => { setPointed(null); c.cue?.(null); }}
     onClick=${e => { e.stopPropagation(); const now = state(); c.fields.show(host, it.edge, !now.on, at); setPointed(null); }}>${Shell.icon('eye')}</button>`;
 }
+// A list's eye, at its heading: one of them by name on the box ("Owner's name"), at the pen; its right-click, what else is said of them; its heading dragged, the name as a row is.
+function ListOnChart({ id, name }) {
+  const c = charted() ? Canvas.active.value : null;
+  if (!c || App.readOnly.value || !App.scene.value?.byId.has(id)) return null;
+  const all = c.fields.readable(id).filter(x => T.same(x.of ?? '', name)), first = all.find(x => x.first);
+  if (!first) return null;
+  const on = c.fields.wordShown(id, first.label);
+  const many = e => { e.preventDefault(); e.stopPropagation(); menu({ x: e.clientX, y: e.clientY }, all.map(x => { const at = c.fields.wordShown(id, x.label); return { label: x.label, checked: at, run: () => c.fields.showWord(id, x.label, !at) }; })); };
+  return html`<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? `${first.label} shown on chart` : `Show ${first.label} on chart`} data-tip=${`${on ? 'Hide' : 'Show'} ${first.label}`} onContextMenu=${many} onClick=${e => { e.stopPropagation(); c.fields.showWord(id, first.label, !on); }}>${Shell.icon('eye')}</button>`;
+}
 // The record of mark `id` at the place `at` is at in `host`'s: an entry's place in each box alike, by its labels (a
 // File Number at its Jurisdiction); null where that box has none there.
 function alikeIn(host, at, id) {
@@ -995,16 +1006,16 @@ function Feet({ id }) {
   const free = m?.texts?.find(it => it.free);
   if ((!m?.feet?.length && !free) || !c) return null;
   // (And the words it says besides its fields, a click typing over them at the pen.)
-  return html`${free ? html`<div class="row foot-row" key="·text"><div class="k">Text</div><div class="v"><button type="button" class="lk" disabled=${App.readOnly.value} onClick=${() => c.fields.editText(id)}>${free.free.text}</button>${App.readOnly.value ? null : html`<button type="button" class="btn icon foot-x" aria-label="Delete the text" data-tip="Delete" onClick=${() => c.fields.dropText(id)}>${icon('x')}</button>`}</div></div>` : null}${(m.feet ?? []).map(f => html`<div class="row foot-row" key=${f.key}><div class="k">Footnote ${f.n}</div><div class="v"><button type="button" class="lk" disabled=${App.readOnly.value} onClick=${() => c.fields.footEdit(id, f.key)}>${f.text}</button>${App.readOnly.value ? null : html`<button type="button" class="btn icon foot-x" aria-label=${`Delete footnote ${f.n}`} data-tip="Delete" onClick=${() => c.fields.footDelete(id, f.key)}>${icon('x')}</button>`}</div></div>`)}`;
+  return html`${free ? html`<div class="row foot-row" key="·text"><div class="k">Text</div><div class="v"><button type="button" class="lk" disabled=${App.readOnly.value} onClick=${() => c.fields.editText(id)}>${free.free.text.replace(/\{([^{}\n]+)\}/g, (s) => Scene.partName({ text: s })).replace(/\n/g, ', ')}</button>${App.readOnly.value ? null : html`<button type="button" class="btn icon foot-x" aria-label="Delete the text" data-tip="Delete" onClick=${() => c.fields.dropText(id)}>${icon('x')}</button>`}</div></div>` : null}${(m.feet ?? []).map(f => html`<div class="row foot-row" key=${f.key}><div class="k">Footnote ${f.n}</div><div class="v"><button type="button" class="lk" disabled=${App.readOnly.value} onClick=${() => c.fields.footEdit(id, f.key)}>${f.text}</button>${App.readOnly.value ? null : html`<button type="button" class="btn icon foot-x" aria-label=${`Delete footnote ${f.n}`} data-tip="Delete" onClick=${() => c.fields.footDelete(id, f.key)}>${icon('x')}</button>`}</div></div>`)}`;
 }
 
 // ---- Relatives, documents and look: sections, each folding under its heading ----
-function Section({ title, n, shut = false, act, id, cls = '', list, pen, children }) {
+function Section({ title, n, shut = false, act, id, cls = '', list, pen, press, children }) {
   const [open, setOpen] = useState(!shut);
   // Aimed at, as Find aims at a list, it opens.
   if (!open && aim.value === id) setOpen(true);
-  // (`list`, its rows: one stop for Tab, the arrows going through them, as every list a click opens.)
-  return html`<section class=${(open ? 'open' : '') + cls} data-key=${id} data-title=${title} data-list=${list ?? null}><h3 class="sect">${pen}<button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
+  // (`list`, its rows: one stop for Tab, the arrows going through them, as every list a click opens. `press`, its heading dragged.)
+  return html`<section class=${(open ? 'open' : '') + cls} data-key=${id} data-title=${title} data-list=${list ?? null}><h3 class="sect" onPointerDown=${press}>${pen}<button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
     ${n ? html`<span class="n">${n}</span>` : null}${act}</h3>${open ? children : null}</section>`;
 }
 // A long panel's strip, sticky at its top: the record, then each section by its name, a click from each, folded or not;
@@ -1255,7 +1266,7 @@ function Relatives({ id }) {
   const holdingFirst = items => { const bad = it => entriesAt(it.rid).some(e => recs()[e].tag === false && failed(e)); return [...items.filter(it => !bad(it)), ...items.filter(bad)]; };
   // A list a formula gives is folded where it's long; a short answer (a fund's Controllers) shows.
   return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${items.length ? counted(items) : null} list=":scope > .row.rel"
-      cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} act=${html`${endRows(items)}${adds(name, items)}`} pen=${items.length && !worked(items) ? html`<${Pen} w=${listPen(items[0], name, true)} row=${`list:${name}|`} host=${id} />` : null}>${(c => (c ? c.rows.map(it => item(it, c.depth.get(it.rid))) : holdingFirst(items).map(it => item(it))))(chained(items))}${laterIn(name).map(laterRow)}
+      cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} press=${e => { if (!e.target.closest('input, .pen, .onchart')) { const one = fields()?.readable(id).find(x => x.first && T.same(x.of ?? '', name)); if (one) carry(e, { edge: one.label }); } }} act=${html`${endRows(items)}${adds(name, items)}${worked(items) ? null : html`<${ListOnChart} id=${id} name=${name} />`}`} pen=${items.length && !worked(items) ? html`<${Pen} w=${listPen(items[0], name, true)} row=${`list:${name}|`} host=${id} />` : null}>${(c => (c ? c.rows.map(it => item(it, c.depth.get(it.rid))) : holdingFirst(items).map(it => item(it))))(chained(items))}${laterIn(name).map(laterRow)}
       ${worked(items) && asTable() ? html`<button class="lk as-table" onClick=${() => Table.openList(name, items[0].rid, id)}>Open ${name} as a table</button>` : null}
       ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t… on this list?</button></div>` : null}</${Section}>`)}
     ${(FormulaBar.emptyLists?.(id, lists.map(([n]) => n)) ?? []).map(e => html`<section class="none-list" key=${'none' + e.name} data-title=${e.name}><span class="nm">${e.name}</span><span class="val">${App.broken.value.reach.has(e.def) ? html`<span class="no">can’t be relied on</span>` : 'none'}</span><button class="lk why-isnt" onClick=${ev => FormulaBar.isntOn(ev.currentTarget, id, e.def, e.side)}>Why isn’t…</button></section>`)}
@@ -1275,7 +1286,9 @@ function Relatives({ id }) {
 // shown; what's recorded at it (a line's percentage) is a text of its own, so a line can hide its name and
 // still draw its 64%.
 const TEXTS = { value: 'Value', label: 'Name and value', paren: 'Value in parentheses', none: 'None' };
-const labelOf = (label, named) => label === 'Corner' ? 'Rounding' : label === 'Dash' ? 'Dashes' : label !== 'Format' ? label : named ? 'Name' : 'Text';
+const labelOf = (label, named) => label === 'Corner' ? 'Rounding' : label === 'Dash' ? 'Dashes' : label === 'Valign' ? 'Vertical align' : label === 'Inset' ? 'Margins' : label === 'Points' ? 'Outline drawn' : label !== 'Format' ? label : named ? 'Name' : 'Text';
+// An inner margin in words: none, one all round, or each side.
+const insetSaid = v => { const s = [v.l ?? 7.2, v.t ?? 3.6, v.r ?? 7.2, v.b ?? 3.6]; return s.every(x => x === 0) ? 'None' : s.every(x => x === s[0]) ? `${s[0]} pt all round` : `Left ${s[0]}, top ${s[1]}, right ${s[2]}, bottom ${s[3]} pt`; };
 const DASHES = { dotted: 'Round dot', 'square-dot': 'Square dot', dashed: 'Dash', 'dash-dot': 'Dash dot', 'long-dash': 'Long dash', 'long-dash-dot': 'Long dash dot', 'long-dash-dot-dot': 'Long dash dot dot' };
 const shadowSaid = v => { const o = Scene.shadowOf(v); return !o ? 'None' : `${o.blur} pt blur, ${o.distance} pt at ${o.angle}°`; };
 const headSaid = v => Object.entries(v ?? {}).map(([end, h]) => `${upper(end)}: ${h.type}, ${h.size}`).join('; ') || 'Triangle, small';
@@ -1288,9 +1301,9 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
   : label === 'Shadow' ? shadowSaid(v) : label === 'Arrowhead' ? headSaid(v) : label === 'Dash' ? DASHES[v] ?? upper(String(v))
   : label === 'Gradient' ? (v?.stops?.length ? html`<i class="chip" style=${`background:linear-gradient(${(v.angle ?? 0) + 90}deg,${v.stops.map(([at, c]) => `${c} ${at}%`).join(',')})`} />Gradient, ${v.angle ?? 0}°` : 'None')
   : label === 'Pattern' ? (Shapes.PATTERNS.find(p => p[0] === v?.prst)?.[1] ?? 'None')
-  : label === 'Points' ? 'Its own' : label === 'Picture' ? (v?.tile ? 'Texture' : 'Picture') : label === 'Glow' ? `${v.size ?? 8} pt` : label === 'Soft Edge' ? `${v} pt` : label === 'Reflection' ? `${v.size ?? 50}%` : label === 'Inner Shadow' ? shadowSaid(v) : label === 'Bevel' ? upper(String(v.type ?? 'circle')) : label === 'Turn 3D' ? `${v.x ?? 0}°, ${v.y ?? 0}°, ${v.z ?? 0}°`
+  : label === 'Points' ? 'By hand' : label === 'Picture' ? (v?.tile ? 'Texture' : 'Picture') : label === 'Glow' ? `${v.size ?? 8} pt` : label === 'Soft Edge' ? `${v} pt` : label === 'Reflection' ? `${v.size ?? 50}%` : label === 'Inner Shadow' ? shadowSaid(v) : label === 'Bevel' ? upper(String(v.type ?? 'circle')) : label === 'Turn 3D' ? `${v.x ?? 0}°, ${v.y ?? 0}°, ${v.z ?? 0}°`
   : label === 'Columns' ? `${v.n}` : label === 'Tabs' ? `${v.join(', ')} pt` : label === 'First Line' ? `${v} pt` : label === 'Line Gradient' || label === 'Text Gradient' ? `Gradient, ${v?.angle ?? 0}°` : label === 'Text Outline' ? `${v.weight ?? 0.75} pt` : label === 'Line Transparency' ? `${Math.round(v)}%`
-  : label === 'Inset' ? `${v.l ?? 7.2}, ${v.t ?? 3.6}, ${v.r ?? 7.2}, ${v.b ?? 3.6} pt` : label === 'Indent' ? `${v} pt` : label === 'Layer' ? (v > 0 ? 'Brought forward' : v < 0 ? 'Sent back' : 'As it was made') : label === 'Tail' ? 'Moved' : label === 'Connector' ? upper(String(v))
+  : label === 'Inset' ? insetSaid(v) : label === 'Indent' ? `${v} pt` : label === 'Layer' ? (v > 0 ? 'Brought forward' : v < 0 ? 'Sent back' : 'As it was made') : label === 'Tail' ? 'Moved' : label === 'Connector' ? upper(String(v))
   : label === 'Design' ? v?.name ?? 'What’s said over its design'
   : label === 'Shape' ? (typeof FormatBar !== 'undefined' && FormatBar.shapeName?.(v)) || SHAPES[v] || upper(String(v)) : upper(String(v));
 // Which of the bar's menus sets each thing Look says: its row opens that menu, hung from what the row says, so it's changed where it's read.
@@ -1788,7 +1801,9 @@ function ShapeView({ id, part }) {
   const set =(changes, say) => App.change(tx => tx.update(id, changes), { dated: false, say });
   // A line is a connector where it's glued, and only there. What it's glued to says so, with a way to let go.
   const glued = g => g === 'line' && row.ends?.some(Boolean), gone = id => App.scene.value?.byId.get(id);
-  const g = row.geometry ?? 'rect', name = row.name ?? (row.role === 'footnotes' ? 'Footnotes' : glued(g) ? 'Connector' : SHAPES[g] ?? Shapes.name(g) ?? upper(g)), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend', 'table'].includes(g);
+  // (While a design is edited, what's drawn is a part: called what it is, its words saying which fields, a row saying what the part the rest go in holds.)
+  const ofDesign = typeof Designs !== 'undefined' && !!Designs.editing.value && !row.role;
+  const g = row.geometry ?? 'rect', name = ofDesign ? Designs.nameOf(row) : row.name ?? (row.role === 'footnotes' ? 'Footnotes' : glued(g) ? 'Connector' : SHAPES[g] ?? Shapes.name(g) ?? upper(g)), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend', 'table'].includes(g);
   // (A free shape's weight is as printed, in its row; and a line's Connector is its route, whatever it's glued to.)
   const look = Object.entries(row.format ?? {}).filter(([, value]) => value !== null && value !== undefined).map(([label, value]) => ({ label: label === 'Connector' ? 'Route' : label, value: label === 'Weight' ? Scene.fromSlide(page, value) : value, from: null }));
   const lineAt = g === 'line' && m ? { ...m, r: cv?.angleOf?.(m) } : null;
@@ -1805,7 +1820,7 @@ function ShapeView({ id, part }) {
       put=${out => set({ title: out?.value ?? '' })} />` : null}</${Head}>
     <div class="rows">
       ${row.role === 'footnotes' ? html`<div class="row"><div class="k">Columns</div><div class="v ctl"><${Choice} fixed label="Columns" r=${{ choice: String(row.format?.Columns?.n ?? 1) }} options=${['1', '2', '3']} put=${out => set({ format: { ...row.format, Columns: +out.choice > 1 ? { n: +out.choice, gap: row.format?.Columns?.gap ?? 7.2 } : null } }, `Set the footnotes in ${out.choice === '1' ? 'one column' : `${out.choice} columns`}`)} /></div></div>
-        ${(m?.feet ?? []).map(f => html`<div class="row foot-row" key=${f.n}><div class="k">Footnote ${f.n}</div><div class="v"><button type="button" class="lk" disabled=${still} onClick=${() => cv?.fields.footEdit(id, f.from[0].key)}>${f.text}</button>${still ? null : html`<button type="button" class="btn icon foot-x" aria-label=${`Delete footnote ${f.n}`} data-tip="Delete" onClick=${() => cv?.fields.footDelete(id, f.from[0].key)}>${icon('x')}</button>`}</div></div>`)}` : worded ? html`<div class="row"><div class="k">Text</div><div class="v ctl"><${Prose} text=${row.text ?? ''} label="Text" put=${text => set({ text })} /></div></div>` : null}
+        ${(m?.feet ?? []).map(f => html`<div class="row foot-row" key=${f.n}><div class="k">Footnote ${f.n}</div><div class="v"><button type="button" class="lk" disabled=${still} onClick=${() => cv?.fields.footEdit(id, f.from[0].key)}>${f.text}</button>${still ? null : html`<button type="button" class="btn icon foot-x" aria-label=${`Delete footnote ${f.n}`} data-tip="Delete" onClick=${() => cv?.fields.footDelete(id, f.from[0].key)}>${icon('x')}</button>`}</div></div>`)}` : ofDesign && row.rest ? html`<${Designs.Holds} /><div class="row"><div class="k">Text</div><div class="v ctl"><${Designs.Words} key=${id} text=${row.text ?? ''} put=${text => App.change(tx => { tx.update(id, { text }); Designs.holdWords(tx, id, text); }, { dated: false })} /></div></div>` : ofDesign && worded ? html`<div class="row"><div class="k">Text</div><div class="v ctl"><${Designs.Words} key=${id} text=${row.text ?? ''} put=${text => App.change(tx => { tx.update(id, { text }); Designs.holdWords(tx, id, text); }, { dated: false })} /></div></div>` : worded ? html`<div class="row"><div class="k">Text</div><div class="v ctl"><${Prose} text=${row.text ?? ''} label="Text" put=${text => set({ text })} /></div></div>` : null}
       ${key ? html`<div class="row"><div class="k">Columns</div><div class="v ctl"><${Choice} fixed label="Columns" r=${{ choice: String(row.columns ?? 1) }} options=${['1', '2', '3']}
         put=${out => set({ columns: +out.choice })} /></div></div>
       <div class="row"><div class="k">Corner</div><div class="v ctl"><${Choice} fixed label="Corner" r=${{ choice: row.x != null ? 'Where it was put' : row.corner ? upper(`${row.corner.v} ${row.corner.h}`) : 'Where the page places it' }} options=${[...(row.x != null ? ['Where it was put'] : []), 'Where the page places it', 'Top left', 'Top right', 'Bottom left', 'Bottom right']}
@@ -2349,6 +2364,11 @@ function Inspector() {
 // What a selection key names: a free shape (or a row of a Key) has its own panel; a relation's text in one box
 // is the relation.
 function chosen(sel) {
+  // (While a design is edited, its parts are at the panel's top, a click from each, the box's rows and a part's own under them.)
+  const panel = chosenPanel(sel);
+  return typeof Designs !== 'undefined' && Designs.editing.value ? html`<${Designs.Parts} />${panel}` : panel;
+}
+function chosenPanel(sel) {
   const p = sel.length === 1 && Shell.pattern(sel[0]);
   if (!App.chart.value) return null;   // opening
   if (p) return html`<${GeneralView} key=${sel[0]} p=${p} />`;
