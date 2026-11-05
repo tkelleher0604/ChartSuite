@@ -3702,6 +3702,7 @@ async function craft() {
   const undoSays = $$('.float .menu.undolist .menu-item').map(txt);
   check('the arrow beside Undo always opens, History a row away', undoSays.includes('History'), undoSays.join());
   await closeMenus();
+  check('a template’s own type is a face the deck can carry, and the legal ones say nothing', ['blank', 'org-chart', 'family-tree'].every(id => { const t = Templates.of(id).rows.find(r => r.label === 'Theme Fonts')?.value; return t && Scene.FONTS.some(f => f.name === t.heading) && Scene.FONTS.some(f => f.name === t.body); }) && ['company', 'fund-structure'].every(id => !Templates.of(id).rows.some(r => r.label === 'Theme Fonts')));
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);

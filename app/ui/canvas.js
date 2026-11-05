@@ -2422,14 +2422,15 @@ function mount(el) {
     // the keys, in their words.
     const others = scene.marks.some(m => m.type === 'box' && m.id !== from.id);
     const next = click ? over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-tip dc-next', textContent: Shell.keyed() ? (others ? (only ? 'Now Tab to the other box and press Enter' : 'Now Tab to the other box and press Enter, or type a new name') : 'Now type its name') : others ? 'Now click the other box' : 'Now click where the other box goes' })) : null;
-    const beside = m => { const g = graph.localToGraph(m.x + m.w, m.y + m.h / 2); Object.assign(next.style, { left: `${g.x + 8}px`, top: `${g.y - 12}px` }); };
+    // (Its words whole: where they'd run under the panel, on the box's other side, or held inside the chart's edge as it follows the pointer.)
+    const beside = m => { const g = graph.localToGraph(m.x + m.w, m.y + m.h / 2), l = graph.localToGraph(m.x, m.y), w = next.offsetWidth; Object.assign(next.style, { left: `${g.x + 8 + w > root.clientWidth - 8 ? Math.max(8, l.x - 8 - w) : g.x + 8}px`, top: `${g.y - 12}px` }); };
     if (next) beside(from);
     const lit = () => paintStates(new Map([[from.id, ['accent', 1]], ...(target ? [[target.id, ['accent', 1]]] : [])]));
     const move = ev => {
       const p = at(ev);
       target = boxAt(p);
       line.setAttribute('d', `M${start[0]},${start[1]} L${p.x},${p.y}`);
-      if (next) { const r = root.getBoundingClientRect(); Object.assign(next.style, { left: `${ev.clientX - r.left + 14}px`, top: `${ev.clientY - r.top + 14}px` }); }
+      if (next) { const r = root.getBoundingClientRect(); Object.assign(next.style, { left: `${Math.min(ev.clientX - r.left + 14, root.clientWidth - next.offsetWidth - 8)}px`, top: `${ev.clientY - r.top + 14}px` }); }
       lit();
     };
     const end = () => {
@@ -3917,7 +3918,7 @@ Shell.register('action', { id: 'chart.relate', name: 'Relate…', names: ['Conne
 const lineNow = () => { const s = here() ? active.peek().selected() : []; return s.length === 1 && s[0].type === 'line' ? s[0] : null; };
 const bendNote = () => { const m = lineNow(), t = m && Tree.treeOf(App.state.peek(), m.record); return t ? App.notes.peek().resolve('Bend', t, active.peek().scene().view)?.note : null; };
 Shell.register('action', { id: 'chart.route', name: 'Route…', names: ['Bend', 'Bend a line', 'Move a line', 'Jog', 'Reroute', 'Elbow', 'Straight', 'Connector'], enabled: () => !App.readOnly.peek() && !!lineNow(), run: () => FormatBar.open('outline'),
-  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line first, then drag a yellow grip on it' });
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line first, then drag a grip on it' });
 Shell.register('action', { id: 'chart.unbend', name: 'Reset the route', names: ['Bend', 'Route', 'Unbend', 'Take away the bend', 'Straighten'], enabled: () => !App.readOnly.peek() && !!bendNote(),
   run: () => { const m = lineNow(), n = bendNote(); if (n) App.change(tx => tx.remove(n.note), { dated: false, say: `Reset the route of ${App.notes.peek().nameOf(App.state.peek(), m.record)}: ${App.notes.peek().segmentOf(App.state.peek(), m.record)}` }); },
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line a hand has bent first' });

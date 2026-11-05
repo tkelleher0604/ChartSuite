@@ -212,7 +212,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* Where the bar is narrower than its full width, Align, Order, Group and Tidy are one Arrange menu. */
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
-@container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb > .sep { margin: 0 4px; } .fb .font { width: 120px; } }
+@container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb > .sep { margin: 0 4px; } }
 /* Each width a step, whatever's selected: the font list gives way first, then the scope a little, then what has a key or a place in Find. */
 @container (max-width: 1400px) { .fb .font { width: 104px; } .fb .arrange > span { display: none; } .fb .arrange > svg { display: block; } }
 @container (max-width: 1310px) { .fb > .sep { margin: 0 3px; } .fb .font { width: 84px; } .fb .scope { width: 208px; } .fb [data-fb="grow"], .fb [data-fb="shrink"] { display: none; } }
