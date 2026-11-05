@@ -1401,8 +1401,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     if (held && !held.fit) {
       const beyond = (b, w, h) => { const x = (b.pos.x + (held.x ?? 0)) * ceil, y = (b.pos.y + (held.y ?? 0)) * ceil; return x < ML - 0.5 || y < MT - 0.5 || x + w * ceil > sheet.w - MR + 0.5 || y + h * ceil > sheet.h - MB + 0.5; };
       const within = b => b.entered && !b.exact && !beyond(b, 0, 0);
-      // (And a box its design or its words have grown past them, from a place within them, was put where it stands, at another size: all of the chart that isn't where a hand put it exactly holds the page, as far as that takes, as it would have on a page that kept no scale.)
-      const grown = boxes.some(b => within(b) && beyond(b, b.w, b.h));
+      // (And a box its design or its words have grown past them, from a place within them, was put where it stands, at another size: all of the chart that isn't where a hand put it exactly holds the page, as far as that takes, as it would have on a page that kept no scale. But not for a size typed, which prints the same however far the chart falls: the scale stays as it was.)
+      const grown = !typedTexts.length && boxes.some(b => within(b) && beyond(b, b.w, b.h));
       for (const b of boxes) if (grown && within(b)) b.hand = false; else if (b.entered && !b.hand) b.hand = beyond(b, b.pos.w ?? b.w, b.pos.h ?? b.h);
     }
     // (Sizes typed, and the boxes alone too big for the scale they're laid out for: no need to route them to know.)
