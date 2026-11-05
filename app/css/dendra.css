@@ -45,14 +45,17 @@
   --scrim: rgb(27 30 29 / .30); --backdrop: rgb(27 30 29 / .18);
   --toast: #1b1e1d; --toast-ink: #f7f6f3; --toast-act: #b9cdea;
   --shadow-pop: 0 1px 2px rgb(27 30 29 / .06), 0 8px 24px -4px rgb(27 30 29 / .16);
+  --shade: rgb(27 30 29 / .14);   /* where a list runs past its edge */
+  --ring: var(--rule-2);          /* the hairline round a swatch or a grid's cell, drawn on the menu, not its own colour */
+  --plate: transparent;           /* what a swatch in the panel stands on: nothing, on a light panel; in dark, the one quiet plate */
   /* Range Finder: the hues a formula's names take, none of them green, red, amber or purple. */
   --rf-1: #1f6fa8; --rf-2: #187a74; --rf-3: #a3570f; --rf-4: #a63a68; --rf-5: #5c6a17; --rf-6: #6e5a43;
   --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23616662' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --paper: #131514; --surface: #171a19; --side: #1d211f;
-  --well: #d5d4cf;
+  --paper: #131514; --surface: #171a19; --side: #282c2a;
+  --well: #dcdcda; --plate: var(--well); --ring: #6b716d; --shade: rgb(0 0 0 / .55);
   --ink: #e6e4df; --ink-2: #a3a6a1; --ink-3: #8f948f;
   --off: #737874;
   --rule: #272b29; --rule-2: #373c39; --edge: #6b716d;
@@ -121,6 +124,7 @@ kbd { font: var(--t12); color: var(--ink-3); }
 .btn.ghost { border-color: transparent; background: transparent; }
 .btn.icon { width: var(--row); padding: 0; border-color: transparent; background: transparent; color: var(--ink-2); }
 .btn.icon:hover:not(:disabled, [aria-disabled="true"]) { color: var(--ink); }
+.btn.icon:disabled, .btn.icon[aria-disabled="true"] { color: var(--off); }
 .btn.dd { gap: 4px; }
 .btn.dd::after, .dd::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; flex: none; }
 /* One state language (dendra.md, Part 3, States): on is the selection's tint and the accent's ink, everywhere; open, the press's wash. */
@@ -160,7 +164,10 @@ input.bare { border-color: transparent; background: transparent; }
 .float { position: fixed; inset: auto; margin: 0; padding: 0; border: 0; background: none; color: var(--ink); overflow: visible; }
 .float.in { animation: rise var(--quick) var(--ease); }
 @keyframes rise { from { opacity: 0; transform: translateY(-2px); } }
-.menu, .pop { background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r-pop); box-shadow: var(--shadow-pop); }
+/* (Taller than the room, it says there's more: a shade at whichever edge there's more beyond, and none where it doesn't scroll.) */
+.menu, .pop { border: 1px solid var(--rule-2); border-radius: var(--r-pop); box-shadow: var(--shadow-pop);
+  background: linear-gradient(var(--surface) 40%, transparent) center top / 100% 28px no-repeat local, linear-gradient(transparent, var(--surface) 60%) center bottom / 100% 28px no-repeat local,
+    linear-gradient(var(--shade), transparent) center top / 100% 10px no-repeat scroll, linear-gradient(transparent, var(--shade)) center bottom / 100% 10px no-repeat scroll, var(--surface); }
 /* However tall, it hangs from what opened it and scrolls inside (--room, the shell's place). */
 .menu { min-width: 200px; max-width: 360px; padding: 4px; max-height: var(--room, calc(100vh - 24px)); overflow: auto; outline: none; }
 .pop { max-height: var(--room, calc(100vh - 16px)); overflow: auto; }
@@ -231,6 +238,8 @@ dialog.dlg::backdrop { background: var(--backdrop); }
 /* ---- Toasts: a verb, an object and Undo ---- */
 .toasts { position: fixed; left: 50%; bottom: calc(var(--foot) + 6px); transform: translateX(-50%); display: grid; gap: 8px; justify-items: center; z-index: 50; pointer-events: none; width: max-content; max-width: 90vw; }
 .toast { min-height: 36px; padding: 4px 4px 4px 16px; display: flex; align-items: center; gap: 12px; border-radius: var(--r-pop); background: var(--toast); color: var(--toast-ink); box-shadow: var(--shadow-pop); pointer-events: auto; animation: rise var(--calm) var(--ease); }
+/* (Words alone stand as far from its end as from its start; a button's own padding does that where there is one.) */
+.toast:not(:has(> button)) { padding-right: 16px; }
 .toast > button { flex: none; height: var(--row); padding: 0 8px; border: 0; border-radius: var(--r); background: transparent; color: var(--toast-act); font-weight: 500; white-space: nowrap; }
 .toast > button:hover { background: rgb(255 255 255 / .08); }
 .toast > button.x { display: grid; place-items: center; width: var(--row); padding: 0; color: var(--toast-ink); opacity: .7; }
@@ -473,7 +482,7 @@ button.ol-head { cursor: pointer; }
 .gal-card:hover { background: var(--hover); border-color: var(--edge); }
 .gal-card.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .gal-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.gal-draw { display: block; height: 104px; padding: 6px; border-radius: var(--r); background: #ffffff; }
+.gal-draw { display: block; height: 104px; padding: 6px; border-radius: var(--r); background: var(--well); }
 .gal-draw > svg { display: block; width: 100%; height: 100%; }
 .gal-name { display: block; font: var(--t12); line-height: 17px; }
 .gal-more { max-width: 440px; padding: 2px 3px 4px; }

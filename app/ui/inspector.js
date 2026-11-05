@@ -361,7 +361,7 @@ function Pen({ w, row, host }) {
     else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { const all = [...(e.currentTarget.closest('.insp')?.querySelectorAll('.pen') ?? [])], to = all[all.indexOf(e.currentTarget) + (e.key === 'ArrowDown' ? 1 : -1)]; if (to) { e.preventDefault(); e.stopPropagation(); to.focus(); } }
   };
   return html`<button type="button" class=${'pen' + (here ? ' here' : '')} tabindex=${here ? 0 : -1} aria-pressed=${here} aria-label="Put the pen here" data-tip=""
-    onPointerEnter=${e => { say(e); p.point(w, true); }} onPointerLeave=${() => p.point(w, false)} onFocus=${e => { say(e); if (e.currentTarget.matches(':focus-visible')) p.point(w, true); }} onBlur=${() => p.point(w, false)}
+    onPointerEnter=${e => { say(e); p.point(w, true, e.currentTarget); }} onPointerLeave=${() => p.point(w, false)} onFocus=${e => { say(e); if (e.currentTarget.matches(':focus-visible')) p.point(w, true, e.currentTarget); }} onBlur=${() => p.point(w, false)}
     onPointerDown=${e => e.stopPropagation()} onClick=${e => { e.stopPropagation(); p.point(w, false); go(e.currentTarget); say(e); }} onKeyDown=${walk}>${Shell.icon('Pen')}</button>`;
 }
 
@@ -441,7 +441,7 @@ function Field({ r, datatype, put, rule, preview, fx, over, id, auto, ph, cls = 
   // Typed over, what it said is struck before what's typed, whole, as comparison software prints the two.
   return html`<label class=${'cellbox' + (title ? ' title' : '') + cls}>${dirty && raw ? html`<s class=${'del' + ((r?.field ?? datatype) === 'date' ? ' date' : '')}>${shown}</s>` : null}<span class=${'hug' + (over ? ' over' : '') + (due && now === null ? ' ' + due : '')}>
     <${Box} ref=${ref} rows=${wrap ? 1 : null} class=${'cell' + ((r?.field ?? datatype) === 'date' ? ' date' : '') + (fx && now === null ? ' fx' : '') + (dirty && T.clean(now) ? ' add' : '') + (bad ? ' bad' : '')}
-      value=${now ?? (title ? Scene.bind(shown) : shown)} placeholder=${ph} disabled=${looks ? !App.canAsk() : App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null} data-why=${bad ? T.notA(datatype ?? T.classify(T.clean(now ?? ''))) : null}
+      value=${now ?? (title ? Scene.bind(shown) : shown)} placeholder=${ph ?? ' '} disabled=${looks ? !App.canAsk() : App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null} data-why=${bad ? T.notA(datatype ?? T.classify(T.clean(now ?? ''))) : null}
       aria-label=${label ? label + (due ? `, ${DUE[due]}` : '') : ph} data-tour=${fx ? 'computed' : null} data-fx=${fx ? '' : null}
       onPointerDown=${e => { clicked.current = document.activeElement !== e.currentTarget; }} onMouseUp=${e => { if (clicked.current) e.preventDefault(); clicked.current = false; }}
       onFocus=${e => { const el = e.currentTarget; if (doc) { type(raw); setTimeout(() => el.select()); } else el.select(); if (fx) emit('why-open', id); }}
@@ -858,7 +858,7 @@ function OnChart({ it, at }) {
   // (Shown, beside the eye, whether it says its name: "Born: May 3, 1923".)
   const named = on && !!r0(it) && c.fields.captioned(it.edge);
   return html`${on && r0(it) ? html`<button class=${'btn icon onchart named' + (named ? ' on' : '')} tabindex="-1" aria-pressed=${named} aria-label=${named ? 'Without its name' : 'With its name'} data-tip=${named ? 'Without its name' : 'With its name'} onClick=${e => { e.stopPropagation(); c.fields.setCaptioned(it.edge, !named); }}>${Shell.icon('Tag')}</button>` : null}<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say({ s, on })} onContextMenu=${where}
-    onPointerEnter=${e => { const now = state(); setPointed(now); e.currentTarget.dataset.tip = say(now); if (now.s.marks) c.cue?.([...now.s.marks]); }} onPointerLeave=${() => { setPointed(null); c.cue?.(null); }}
+    onPointerEnter=${e => { const now = state(); setPointed(now); e.currentTarget.dataset.tip = say(now); if (now.s.marks) c.cue?.([...now.s.marks], e.currentTarget); }} onPointerLeave=${() => { setPointed(null); c.cue?.(null); }}
     onClick=${e => { e.stopPropagation(); const now = state(); c.fields.show(host, it.edge, !now.on, at); setPointed(null); }}>${Shell.icon('eye')}</button>`;
 }
 // A list's eye, at its heading: one of them by name on the box ("Owner's name"), at the pen; its right-click, what else is said of them; its heading dragged, the name as a row is.
@@ -1045,12 +1045,12 @@ function Feet({ id }) {
 }
 
 // ---- Relatives, documents and look: sections, each folding under its heading ----
-function Section({ title, n, shut = false, act, id, cls = '', list, pen, press, children }) {
-  const [open, setOpen] = useState(!shut);
+function Section({ title, n, shut = false, act, id, cls = '', list, pen, press, held, children }) {
+  const [open, setOpen] = useState(held ? held.peek() : !shut);
   // Aimed at, as Find aims at a list, it opens.
   if (!open && aim.value === id) setOpen(true);
-  // (`list`, its rows: one stop for Tab, the arrows going through them, as every list a click opens. `press`, its heading dragged.)
-  return html`<section class=${(open ? 'open' : '') + cls} data-key=${id} data-title=${title} data-list=${list ?? null}><h3 class="sect" onPointerDown=${press}>${pen}<button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
+  // (`list`, its rows: one stop for Tab, the arrows going through them, as every list a click opens. `press`, its heading dragged. `held`, where it's kept whether it's open, from one record to the next.)
+  return html`<section class=${(open ? 'open' : '') + cls} data-key=${id} data-title=${title} data-list=${list ?? null}><h3 class="sect" onPointerDown=${press}>${pen}<button class="fold" aria-expanded=${open} onClick=${() => { setOpen(!open); if (held) held.value = !open; }}>${title}</button>
     ${n ? html`<span class="n">${n}</span>` : null}${act}</h3>${open ? children : null}</section>`;
 }
 // A long panel's strip, sticky at its top: the record, then each section by its name, a click from each, folded or not;
@@ -1368,8 +1368,10 @@ function pointsOf(t) {
   if (k) return Math.round(parseFloat(m[1].replace(/,/g, '')) * k * 100) / 100;
   Shell.toast(`“${T.clean(t)}” isn’t a measure: type points, or px, in or cm after the number`, { ms: 4000 });
 }
-const Place = ({ at, put, reset, keys = 'xywh', lock, turn }) => { const page = App.scene.value?.page;
-  return html`<${Section} title="Position" id="place" act=${reset}>
+// A box's folded till it's asked for, as what it is comes first, and stays as it's left from one box to the next; a free shape has little else, so it's open.
+const placeOpen = signal(false);
+const Place = ({ at, put, reset, keys = 'xywh', lock, turn, shut = false }) => { const page = App.scene.value?.page;
+  return html`<${Section} title="Position" id="place" act=${reset} held=${shut ? placeOpen : null}>
   ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k} onClick=${e => { if (!e.target.closest('input')) e.currentTarget.querySelector('input')?.focus(); }}><div class="k">${label}</div><div class="v ctl" data-place=${k}>
     <${Field} r=${{ field: 'number', value: Math.round(Scene.toSlide(page, at[k] / Scene.PT) * 10) / 10 }} datatype="number" reads=${pointsOf} label=${label}
       put=${out => out && put(k, Math.round(Scene.fromSlide(page, out.value) * Scene.PT * 100) / 100)}><span class="unit">pt</span></${Field}></div></div>`)}
@@ -1401,7 +1403,7 @@ function Look({ id }) {
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
   const resetPlace = !App.readOnly.value && !App.scene.peek()?.page.composed && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ only: id, say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
   // (Its position before its look, so a row or a section the look gains moves no field under the pointer.)
-  return html`${drawn ? html`<${Place} at=${drawn} put=${(k, x) => k === 'w' || k === 'h' ? cv?.sizeAtPen(id, { [k]: x }) : cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}
+  return html`${drawn ? html`<${Place} shut=${true} at=${drawn} put=${(k, x) => k === 'w' || k === 'h' ? cv?.sizeAtPen(id, { [k]: x }) : cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}
     <${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />`;
 }
 
@@ -1736,7 +1738,7 @@ function Styles({ v, only }) {
     const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]), on = reached.get(g) ?? { own: 0, masked: [] };
     // What doesn't read as this row: those of its marks with a look of their own, and what another style decides of them all.
     const notes = [...on.own ? [`${on.own} ${on.own === 1 ? 'keeps its' : 'keep their'} own`] : [], ...on.masked.map(([l, by]) => `${l} decided by ${by}`)], whose = on.ownNames?.length ? on.ownNames.join(', ') : null;
-    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onPointerDown=${alone ? press(alone) : null} onClick=${e => { if (!e.target.closest('.pen, .cellbox, input, .lk')) aimAt(g, e); }}><${Pen} w=${{ style: g }} row=${`row:${g.style}|${T.key(g.outputs[0])}`} /><div class="k" onDblClick=${() => Designs.editRow(g)} onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
+    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onPointerEnter=${e => fb?.pen?.hint({ style: g }, true, e.currentTarget)} onPointerLeave=${() => fb?.pen?.hint({ style: g }, false)} onPointerDown=${alone ? press(alone) : null} onClick=${e => { if (!e.target.closest('.pen, .cellbox, input, .lk')) aimAt(g, e); }}><${Pen} w=${{ style: g }} row=${`row:${g.style}|${T.key(g.outputs[0])}`} /><div class="k" onDblClick=${() => Designs.editRow(g)} onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
       <div class="v" title=${said && names.length === 1 ? names[0] : null}><span class="capline"><${Caption} g=${keyWord(g) ? { ...g, caption: keyWord(g) } : g} label=${names.join(', ')} put=${out => cap(g, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
         ${notes.length ? html`<span class="onote" title=${whose ?? notes.join(', ')}>${on.own && fb ? html`<button type="button" class="lk" data-tip=${whose} onClick=${() => fb.selectDiffers()}>${notes[0]}</button>` : notes[0]}${notes.length > 1 ? `, ${notes.slice(1).join(', ')}` : ''}</span>` : null}</span>
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
@@ -1753,7 +1755,7 @@ function Styles({ v, only }) {
 function EverythingElse({ v, sc, n }) {
   const self = { id: v, kind: 'View' }, g = { style: '·rest', key: '·rest', outputs: [self], caption: 'Everything else', name: null, rest: true, swatch: { kind: 'box', ...Scene.DEFAULTS.box, ...Object.fromEntries(['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'].map(l => [l, n.resolve(l, self, v)?.note.view === v ? n.resolve(l, self, v).value : undefined]).filter(([, x]) => x !== undefined)) } };
   const on = typeof FormatBar !== 'undefined' && FormatBar.aimedAt?.(g);
-  return html`<div class="ent style lone" key="·rest"><div class=${'row out lone' + (on ? ' on' : '')} onClick=${e => { if (!e.target.closest('.pen')) aimAt(g); }}><${Pen} w=${{ rest: g }} row=${`row:·rest|${T.key(self)}`} /><div class="k"><${Swatch} sw=${g.swatch} /></div><div class="v"><span class="capline"><button type="button" class=${'cap' + (on ? ' on' : '')}>Everything else</button></span></div></div></div>`;
+  return html`<div class="ent style lone" key="·rest"><div class=${'row out lone' + (on ? ' on' : '')} onPointerEnter=${e => FormatBar.pen?.hint({ rest: g }, true, e.currentTarget)} onPointerLeave=${() => FormatBar.pen?.hint({ rest: g }, false)} onClick=${e => { if (!e.target.closest('.pen')) aimAt(g); }}><${Pen} w=${{ rest: g }} row=${`row:·rest|${T.key(self)}`} /><div class="k"><${Swatch} sw=${g.swatch} /></div><div class="v"><span class="capline"><button type="button" class=${'cap' + (on ? ' on' : '')}>Everything else</button></span></div></div></div>`;
 }
 // All text: every text on the page that nothing narrower sets, the widest place a page has, and where the pen is with nothing selected and nothing else aimed at.
 function AllText({ v }) {

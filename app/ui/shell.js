@@ -447,7 +447,9 @@ const Shell = (() => {
   function place(anchor, el, placement, gap = 4) {
     const ref = anchor instanceof Element ? anchor : virtual(anchor), hangs = anchor instanceof Element && /^(top|bottom)/.test(placement);
     const room = hangs ? [size({ padding: 8, apply: ({ availableHeight }) => el.style.setProperty('--room', `${Math.max(120, Math.floor(availableHeight))}px`) })] : [];
-    const update = () => computePosition(ref, el, { strategy: 'fixed', placement, middleware: [offset(gap), flip({ padding: 8 }), ...room, shift({ padding: 8, crossAxis: !hangs })] })
+    // (Clear of the window by 8 px, or as near as the bars' own first control stands, which a menu lines up with.)
+    const clear = { top: 8, right: 8, bottom: 8, left: 4 };
+    const update = () => computePosition(ref, el, { strategy: 'fixed', placement, middleware: [offset(gap), flip({ padding: clear }), ...room, shift({ padding: clear, crossAxis: !hangs })] })
       .then(({ x, y }) => { el.style.left = x + 'px'; el.style.top = y + 'px'; });
     if (!(anchor instanceof Element)) { update(); return () => {}; }
     return autoUpdate(ref, el, update);
@@ -908,8 +910,10 @@ const Shell = (() => {
   // Undo's list: the steps it can take back, the latest first, by their words; picking one undoes back to there, and pointing
   // at one lights it and the later ones it takes too, as Office's does.
   const undoList = e => {
-    const u = part('undo'), lit = signal(0), words = u.steps(), points = words.map((_, i) => on => { lit.value = on ? i + 1 : 0; });
-    menu(e.currentTarget, () => words.map((label, i) => ({ label, lit: i < lit.value, run: () => u.undoTo(i + 1), point: points[i] })), { cls: 'undolist', placement: 'bottom-end' });
+    const u = part('undo'), lit = signal(0), words = u?.steps() ?? [], points = words.map((_, i) => on => { lit.value = on ? i + 1 : 0; });
+    // (It always opens: with nothing to take back it says so, and History, which goes back further, is a row away.)
+    const history = () => [...words.length ? ['-'] : [{ label: 'Nothing to undo', disabled: true }], ...many('action').filter(a => a.id === 'history').map(a => ({ label: a.name, run: a.run }))];
+    menu(e.currentTarget, () => [...words.map((label, i) => ({ label, lit: i < lit.value, run: () => u.undoTo(i + 1), point: points[i] })), ...history()], { cls: 'undolist', placement: 'bottom-end' });
   };
   function TitleBar() {
     const u = part('undo'), t = time.value;
@@ -924,7 +928,7 @@ const Shell = (() => {
         <button class="btn icon" aria-label=${away.value ? 'Show panel' : 'Hide panel'} data-tip=${away.value ? 'Show panel' : 'Hide panel'} data-keys=${keyLabel('$mod+Backslash')}
           aria-pressed=${!away.value} onClick=${() => wide.peek() ? narrow() : setShut(!away.peek())}>${icon('panel')}</button>
         <button class="btn icon" aria-label="Undo" data-tip="Undo" data-keys=${keyLabel('$mod+KeyZ')} disabled=${!u?.canUndo()} onClick=${() => u.undo()}>${icon('undo')}</button>
-        <button class="btn icon undo-list" aria-label="Undo list" data-tip="Undo list" aria-haspopup="menu" disabled=${!u?.canUndo()} onClick=${undoList}>${icon('chevron')}</button>
+        <button class="btn icon undo-list" aria-label="Undo list" data-tip="Undo list" aria-haspopup="menu" onClick=${undoList}>${icon('chevron')}</button>
         <button class="btn icon" aria-label="Redo" data-tip="Redo" data-keys=${keyLabel('$mod+KeyY')} disabled=${!u?.canRedo()} onClick=${() => u.redo()}>${icon('redo')}</button>
         <span class="sep" />
         ${part('workbook') ? html`<span class=${'mode' + (App.viewing.value ? ' viewing' : '')}><button class="btn ghost dd" aria-haspopup="menu" onClick=${modeMenu}>${App.viewing.value ? 'Viewing' : 'Editing'}</button></span>` : null}

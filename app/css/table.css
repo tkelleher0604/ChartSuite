@@ -303,6 +303,11 @@ button.colrow.new:hover { background: var(--hover); color: var(--ink); }
 .cal-grid .d[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 500; }
 .cal-grid .d[aria-pressed="true"].mark::after { background: var(--on-accent); }
 .date-days { position: relative; max-height: 262px; overflow: auto; padding-bottom: 4px; }
+/* (A chart with no days of its own yet: the calendar alone, no empty pane beside it.) */
+.date-pop:has(.date-days:empty), .date-pop:not(:has(.dayrow)) { width: 266px; }
+.date-pop:not(:has(.dayrow)) .date-days { display: none; }
+.date-pop:not(:has(.dayrow)) .date-body { grid-template-columns: auto; }
+.date-pop:not(:has(.dayrow)) .cal { border-right: 0; }
 .date-days .yr { position: sticky; top: 0; z-index: 1; padding: 8px 12px 4px; background: var(--surface); font: 500 var(--t12); color: var(--ink-3); }
 .dayrow { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 8px; width: 100%; padding: 4px 12px; border: 0; background: none; color: var(--ink); text-align: left; cursor: default; }
 .dayrow:hover { background: var(--hover); }
