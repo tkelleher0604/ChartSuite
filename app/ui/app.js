@@ -782,7 +782,7 @@ const App = (() => {
       if (keys.current) { if (input.current) { input.current.focus(); if (caret.current) { caret.current = false; const n = input.current.value.length; setTimeout(() => input.current?.setSelectionRange(n, n)); } else input.current.select(); } else button.current?.focus(); }
       keys.current = false;
     }, [day === null]);
-    const words = asks === 'until' ? [typeof end === 'string' ? end : 'Ends on', isDated.value ? 'Never held' : 'A mistake'] : asks === 'on' ? [typeof end === 'string' ? end : 'On'] : [typeof end === 'string' ? end : 'From', 'All along'], always = day === null, word = words[always ? 1 : 0];
+    const words = asks === 'until' ? [typeof end === 'string' ? end : 'Ends on', isDated.value ? 'Never held' : 'A mistake'] : asks === 'on' ? [typeof end === 'string' ? end : 'On'] : [typeof end === 'string' ? end : 'From', isDated.value ? 'All along' : 'Always'], always = day === null, word = words[always ? 1 : 0];
     const shown = Shell.time.value?.asOf ?? Log.today(), later = !!day && day > shown && !typing;
     const back = () => { if (always) { keys.current = true; setText(null); set(shown); } };
     const pick = e => Shell.menu(e.currentTarget, [
@@ -887,6 +887,8 @@ const App = (() => {
       if (a && a !== document.body && a.isConnected) return;
       const row = b?.key && document.querySelector(`[data-key="${CSS.escape(b.key)}"]`);
       if (row && !b.el.isConnected) row.tabIndex = -1;
+      // (And out of a grid's cell, back to the grid, whose keys they were: the next name goes on where it was going.)
+      if (!b?.el?.isConnected && !row && b?.el?.closest?.('.tabulator') !== undefined && views.peek().find(v => v.id === Shell.view.peek())?.layout === 'table' && typeof Table !== 'undefined') return Table.focus();
       (b?.el.isConnected ? b.el : row ?? (b?.region?.isConnected ? b.region : document.getElementById('view')))?.focus({ preventScroll: true });
     });
   }
@@ -949,7 +951,10 @@ const App = (() => {
     // Merged, its toast asks what those holders received, and the survivor's panel goes on asking.
     let into = null;
     const under = ids.length === 1 ? underIt(ids[0], recs) : null;
-    stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : Time.describe(c), ...o, alts, ready: p => !p.merge || p.day === null || !!p.merge.to,
+    // (Who it leaves, said: who takes them, or that they've no manager now, each with its + in the panel.)
+    let taker = null;
+    const leaves = c => { const N = notes.peek(), names = under.boxes.map(x => bind(N.shortOf(recs, x))), them = names.length > 2 ? `${names.length} ${Tree.plural(lowered(under.low))}` : names.join(' and '); return `${Time.describe(c)}; ${taker ? `${bind(N.shortOf(recs, taker))} takes ${them}` : `${them} ${names.length > 1 ? 'have' : 'has'} no ${lowered(under.word)}`}`; };
+    stage({ verb: 'Delete', act: deleteVerb(ids, recs), what, source: 'delete', needs: ids, say: c => typeof Time === 'undefined' ? 'Deleted' : under ? leaves(c) : Time.describe(c), ...o, alts, ready: p => !p.merge || p.day === null || !!p.merge.to,
       ...(asks && { asks: 'until', day: ids.every(aSlip) ? null : day.peek(), word: words.length === 1 && ends.every(e => e === words[0] || e === false) ? words[0] : true }),
       ...(under && { heirs: { ...under, to: null } }),
       go: () => (into && stakesAt(ids[0], recs).some(s => s.held) ? ['What did its holders receive?', () => Shell.parts.peek().inspector?.ask?.(into)] : null),
@@ -959,7 +964,8 @@ const App = (() => {
         into = null;
         if (d && p?.merge?.to) { tx.add('record', { args: [{ edge: p.merge.rel.edges[0], at: ids[0] }, { edge: p.merge.rel.edges[1], at: p.merge.to.at }], tag: true }); into = p.merge.to.at; }
         // (Who takes what stood under it, from the day it ended.)
-        if (p?.heirs?.to) for (const x of p.heirs.boxes) tx.add('record', { args: [{ edge: p.heirs.top, at: p.heirs.to }, { edge: p.heirs.low, at: x }], tag: true, ...(d && { since: d }) });
+        taker = p?.heirs?.to ?? null;
+        if (taker) for (const x of p.heirs.boxes) tx.add('record', { args: [{ edge: p.heirs.top, at: taker }, { edge: p.heirs.low, at: x }], tag: true, ...(d && { since: d }) });
         o.also?.(tx);
       } });
   }
@@ -1705,15 +1711,16 @@ const App = (() => {
         const p = { ...(tree.out && 'tag' in tree.out && { out: { tag: true } }), ...shape(tree) };
         recorded.set(Tree.key(p), p);
       }
-      for (const v of vs) if (v.id === like || (v.layout === 'table' && own(v))) kept.set(v.id, tx.add('record', { kind: 'View' }));
+      // (Every page of it, but those of a plan or keeping a day, which are about what's on them; and its tables.)
+      for (const v of vs) if (v.id === like || (v.layout === 'table' && own(v)) || (v.layout === 'chart' && !v.plan && !v.keeps)) kept.set(v.id, tx.add('record', { kind: 'View' }));
       const moved = t => t.args ? { ...t, args: t.args.map(a => ({ ...a, loc: moved(a.loc) })) } : t.id === undefined ? t : { ...t, id: kept.get(t.id) };
       // The house look (dendra.md, Workbook), less a style of a relation a formula gives (§57's affiliates), with the paper
       // and the footer, which come in the look begun in. Not the day or the scale it keeps. The rest of the first chart's
       // notes in it are its records', and stay behind.
       given = p => !!p && ((p.args?.length === 2 && worked.has(sides(p))) || (p.args ?? []).some(a => given(a.loc)));
       look = style ?? Notes.houseLook(src.rows(from), like);
-      for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Changes', 'Plan', 'Scale', 'Page', ...Notes.ROOT].includes(r.label) && r.pattern.id === like) && r.label !== 'Footer')
-        tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Structure' : r.value, { view: kept.get(r.view), param: r.param });
+      for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Changes', 'Plan', 'Scale', 'Page', ...Notes.ROOT].includes(r.label) && r.pattern.id === like) && !(['As Of', 'Changes', 'Plan', 'Scale'].includes(r.label) && kept.has(r.pattern.id)) && r.label !== 'Footer')
+        tx.note(r.label, moved(r.pattern), r.value, { view: kept.get(r.view), param: r.param });
       // And its master, as it stands (dendra.md, The page): furniture every page of it has, which names no record.
       const master = typeof Scene === 'undefined' ? [] : src.rows(from).filter(r => 'shape' in r && r.view === Scene.MASTER), fresh = new Map(master.map(r => [r.shape, Log.newId()])), to = x => fresh.get(x) ?? x;
       for (const { id: _, shape: s, ...x } of master) tx.add('shape', { ...x, ...(x.ends && { ends: x.ends.map(to) }), ...(x.members && { members: x.members.map(to) }) }, fresh.get(s));
@@ -1721,8 +1728,12 @@ const App = (() => {
     const first = kept.get(like) ?? tx.add('record', { kind: 'View' });
     if (look) Notes.takeLook(tx, [], first, look, { begun: true, has: p => !given(p) && (!style || hasPattern(src.schema(from), src.notes(from), p)) });
     for (const p of recorded.values()) tx.note('Shown', p, true, { view: first });
-    tx.note('Name', viewTree(first), 'Structure');
-    page(tx, first, name, look);
+    tx.note('Name', viewTree(first), vs.find(v => v.id === like)?.name ?? 'Structure');
+    // Its pages' furniture, as each has it: no Key or As of line where it has none (a family tree's).
+    const has = (view, role) => !from || src.rows(from).some(r => 'shape' in r && r.view === view && (role === 'key' ? r.geometry === 'legend' : r.role === role));
+    const furnish = (v, to, l) => page(tx, to, name, l, { date: has(v, 'date'), key: has(v, 'key') });
+    furnish(like, first, look);
+    for (const v of vs) if (v.id !== like && v.layout === 'chart' && kept.has(v.id)) furnish(v.id, kept.get(v.id), Notes.houseLook(src.rows(from), v.id));
     return tx.commit();
   }
   // A name no chart of the workbook has: what's asked, or Untitled, a number after it where it's taken.
@@ -1749,11 +1760,11 @@ const App = (() => {
   // A chart's page, begun as every page of the sample is: its title, the chart's name, under it the day it's as
   // of, and its Key, which the page sets at the sheet's size and places, as it does every page's; in `look`, where
   // it's begun in one.
-  function page(tx, view, title, look) {
+  function page(tx, view, title, look, { date = true, key = true } = {}) {
     const of = f => look?.furniture?.[f] ?? {};
     tx.add('shape', { view, geometry: 'text', role: 'title', text: title, ...of('title') });
-    tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")', ...of('date') });
-    tx.add('shape', { view, geometry: 'legend', title: 'Key', columns: 2, ...of('key') });
+    if (date) tx.add('shape', { view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")', ...of('date') });
+    if (key) tx.add('shape', { view, geometry: 'legend', title: 'Key', columns: 2, ...of('key') });
   }
   // What's made anywhere but on the chart, related to nothing a page draws, isn't placed on that page (dendra.md, Views): each
   // record `ids` that tx makes, a Shown note at its own tree in each chart view that would draw it with no line of its own to

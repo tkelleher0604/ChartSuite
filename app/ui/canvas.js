@@ -2065,7 +2065,7 @@ function mount(el) {
   // loosely: once a line relates it, it goes beside its relatives (Scene). What's made on a chart, the chart shows: where
   // the view would hide it, the same change shows it there (App.showMade).
   // `guide`, the line a handle was dragged out on, stays drawn to it while it's named, so it's plain the two will be related.
-  function create(kind, at, { relate, guide, typed = '' } = {}) {
+  function create(kind, at, { relate, guide, typed = '', way = null } = {}) {
     if (still() || !scene || !kind) return guide?.remove();
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
     // (Its placeholder is the size it will be: a box of its kind's on this chart, the middle one, or else what a short name makes.)
@@ -2089,7 +2089,7 @@ function mount(el) {
         App.showMade(tx, [id], view);
       })) return;
       Shell.store.set('kind', now);
-      if (relate) Shell.emit('relate-open', Object.assign([relate, id], { made: true })); else Shell.select([id]);
+      if (relate) Shell.emit('relate-open', Object.assign([relate, id], { made: true, way })); else Shell.select([id]);
     }, { box: { kinds: choice, kind, pick: k => { now = k; } }, escaped: () => guide?.remove() });
   }
   const addAt = e => { if (!still()) create(lastKind(), graph.clientToLocal(e.clientX, e.clientY)); };
@@ -2292,15 +2292,17 @@ function mount(el) {
       const p = at(ev);
       target = boxAt(p);
       // Dropped on a line of the chart, or drawn from one, it's what that line joins that's asked about (dendra.md, From nothing).
+      // (Which way it was drawn says how the two will stand, where a new relation asks: across, side by side.)
+      const way = !down ? null : Math.abs(ev.clientX - down.clientX) > Math.abs(ev.clientY - down.clientY) ? 'across' : ev.clientY > down.clientY ? 'down' : 'up';
       if (target?.type === 'box' && from.type === 'line') Shell.emit('relate-open', [from.id, target.id]);
       else if (target?.type === 'line' && from.type === 'box') { if (!only) Shell.emit('relate-open', [from.id, target.id]); }
       // A line with no relation in mind: to or from a free shape, there's none it could be, so it's glued; into empty room from one, it ends there. (Asking what's between two boxes makes nothing, so it glues nothing.)
       else if (target && (target.type !== 'box' || from.type !== 'box')) { if (!only && from.type !== 'line') connect(from, target); }
-      else if (target) Shell.emit('relate-open', [from.id, target.id]);
+      else if (target) Shell.emit('relate-open', Object.assign([from.id, target.id], { way }));
       else if (only || !ev.target.closest?.('.dc') || ev.target.closest?.('.dc-edit') || ev.button !== 0) return;
       else if (Math.hypot(p.x - start[0], p.y - start[1]) > 12 / graph.zoom()) {
         if (from.type !== 'box' && from.type !== 'line') return connect(from, null, [p.x, p.y]);
-        const guide = marks.appendChild(line.cloneNode()); create(lastKind(), p, { relate: from.id, guide });
+        const guide = marks.appendChild(line.cloneNode()); create(lastKind(), p, { relate: from.id, guide, way });
       }
     };
     const esc = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); end(); } };

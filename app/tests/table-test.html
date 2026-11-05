@@ -2329,7 +2329,7 @@ async function tablesG3() {
     press('Escape', input); await tick(200);
     check('… and Esc leaves the grid where it was, on that row, selected', Shell.selection.peek().join() === id && Table.grid.modules.selectRange.getActiveCell()?.row.getData().id === id && Math.abs(h.scrollTop - top) < 40 && input.value === '', `${Shell.selection.peek().join()} ${top} → ${h.scrollTop}`);
     Shell.select([fund3]); await tick(200);
-    check('… and left, it takes its place', order().indexOf(id) === 0 && Table.grid.getRows('active').length === order().length, order().indexOf(id));
+    check('… and left, it stays where it was typed: rows hold still', order().indexOf(id) === order().length - 1 && Table.grid.getRows('active').length === order().length, order().indexOf(id));
     undo(); await tick(200);
     h.scrollTop = 0; await tick(60);
     Shell.select([]); await tick(60);

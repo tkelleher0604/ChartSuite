@@ -289,6 +289,8 @@ const IRREGULAR = [['child', 'children'], ['person', 'people'], ['wife', 'wives'
 const swapEnd = (w, from, to) => { const i = w.length - from.length, end = w.slice(i); return w.slice(0, i) + (end[0] === end[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to); };
 const ends = (w, s) => w.length >= s.length && w.slice(-s.length).toLowerCase() === s;
 const plural = w => { const hit = IRREGULAR.find(([one, many]) => ends(w, one) && !ends(w, many)); if (hit) return swapEnd(w, hit[0], hit[1]); if (IRREGULAR.some(([, many]) => ends(w, many))) return w; return /(^|\s)man$/i.test(w) ? w.replace(/an$/i, 'en') : /[^aeiou]y$/i.test(w) ? w.slice(0, -1) + 'ies' : /sis$/i.test(w) ? w.slice(0, -2) + 'es' : /[^su]s$/i.test(w) ? w : /(s|x|z|ch|sh)$/i.test(w) ? w + 'es' : w + 's'; };
+// What a field says of many, for a row of its texts: a noun's plural (Names); an act or a state as it is, not being counted (Born, Died, Married).
+const texts = w => /(^|\s)(\w+ed|born)$/i.test(w) ? w : plural(w);
 const singular = w => { const hit = IRREGULAR.find(([, many]) => ends(w, many)); if (hit) return swapEnd(w, hit[1], hit[0]); if (/(^|\s)men$/i.test(w)) return w.replace(/en$/i, 'an'); return [w.replace(/ies$/i, 'y'), w.replace(/es$/i, 'is'), w.replace(/es$/i, ''), w.replace(/s$/i, '')].find(x => x !== w && same(plural(x), w)) ?? w; };
 
 // ---- Links: what a document's address points at, from the address alone ----
@@ -399,6 +401,6 @@ return {
   // A record's parameterization key, as formulas.js keys what a definition covers.
   parameterization: (recs, id) => { const t = treeOf(recs, id); return t && paramKey(t); },
   schema, schemaError,
-  DATATYPES, PHRASES, MONTHS, parseDate, parseKnown, firstDay, notA, parseYearly, formatDate, isoOf, isNumber, isAddress, classify, parse, format, outputText, comingText, plural, singular, linkOf,
+  DATATYPES, PHRASES, MONTHS, parseDate, parseKnown, firstDay, notA, parseYearly, formatDate, isoOf, isNumber, isAddress, classify, parse, format, outputText, comingText, plural, singular, texts, linkOf,
 };
 })();

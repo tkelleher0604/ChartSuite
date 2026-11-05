@@ -424,8 +424,8 @@ async function run() {
   check('… and from the last, to its row, so a key typed next is the window’s', document.activeElement?.matches('.rr-at .row') && document.activeElement.textContent.includes('Voting Percentage'), document.activeElement?.outerHTML.slice(0, 120));
   ghost('New connection').click(); await tick();
   const [nm, ra, rb] = $$('.rr.new input'), nNew = App.wb.changes().length;
-  check('New connection is set out as the relation’s rows: its name, then each side with what it is after it, each a box that shows', document.activeElement === nm && nm.placeholder === 'What’s it called?'
-    && [ra, rb].every(x => x.placeholder === 'Is the…') && ra.previousElementSibling?.matches('.side') && rb.previousElementSibling?.matches('.side') && ra.getAttribute('aria-label') !== rb.getAttribute('aria-label') && !$('.rr.new .when'),
+  check('New connection is set out as the relation’s rows: its name, then each side with what it is after it, each a box that shows', document.activeElement === nm && nm.placeholder === 'New connection'
+    && /is the$/.test(ra.previousElementSibling?.textContent ?? '') && ra.previousElementSibling?.matches('.side') && rb.previousElementSibling?.matches('.side') && ra.getAttribute('aria-label') !== rb.getAttribute('aria-label') && !$('.rr.new .when'),
     $('.rr.new')?.innerHTML.slice(0, 300));
   for (const [el, v] of [[nm, 'Co-Investment Right'], [ra, 'Holder'], [rb, 'Issuer']]) { el.focus(); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); await tick(10); }
   check('… once named, it’s a change pending, as one ticked is: redlined, the bar asking its day, nothing made yet', !!$('.rr.new.adding') && /^Co-Investment Right: Fund III Blocker → The BDC/.test(spoken(pb('.what') ?? document.body))

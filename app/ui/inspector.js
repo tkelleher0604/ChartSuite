@@ -644,7 +644,7 @@ function entryMenu(anchor, id) {
   const r = recs()[id], f = fx(id);
   menu(anchor, [
     ...(f ? [{ label: 'Why', keys: 'F1', run: () => { emit('why-open', id); FormulaBar.open.value = true; FormulaBar.into(); } }] : []),
-    { label: 'Rule', run: () => select([general(patternOf(id))]) },
+    { label: App.isDated.value ? 'Rule' : `About ${r.edge}`, run: () => select([general(patternOf(id))]) },
     // What a formula gives is overridden only by saying so (App.overriding), as its reason in the formula bar offers it; and what's typed over one goes back the same way.
     ...(f && 'tag' in r && !App.readOnly.peek() ? [{ label: 'Override…', run: () => App.overriding(id) }] : []),
     ...(!f && over(id) && !App.readOnly.peek() ? [{ label: 'Back to the rule…', run: () => App.backToRule(id) }] : []),
@@ -837,6 +837,8 @@ const fields = () => charted() ? Canvas.active.peek()?.fields : null;
 // At a group scope it's on only where every mark the group reaches shows the field, so with one of five showing it it says
 // "Show in all 5 limited partnerships", and its click shows it in the other four; the scope is asked again as it's
 // pointed at and clicked, as it may have been chosen since.
+// (A value's, a date's or a figure's, which says nothing by itself: a tag's name is what it says already.)
+const r0 = it => { const r = it.id && recs()[it.id]; return r ? 'field' in r && r.field !== 'text' : kindAt(tree(it.at), it.edge).type === 'field' && kindAt(tree(it.at), it.edge).datatype !== 'text'; };
 function OnChart({ it, at }) {
   const c = charted() ? Canvas.active.value : null, host = c && hostIn(at), [pointed, setPointed] = useState(null);
   if (!host || !c || App.readOnly.value || it.error || it.na) return null;
@@ -847,7 +849,9 @@ function OnChart({ it, at }) {
   // Its right-click: here, or in every box that has it, kept true as more get it; and with its name, so "High" says what it is.
   const where = e => { e.preventDefault(); e.stopPropagation(); const here = c.fields.shown(host, it.edge, at), all = c.fields.everywhere(it.edge), named = c.fields.captioned(it.edge);
     menu({ x: e.clientX, y: e.clientY }, [{ label: recs()[host]?.args ? 'In this line' : 'In this box', checked: here, run: () => c.fields.showHere(host, it.edge, !here, at) }, { label: 'In every box that has it', checked: all, run: () => c.fields.setEverywhere(it.edge, !all) }, '-', { label: 'With its name', checked: named, run: () => c.fields.setCaptioned(it.edge, !named) }]); };
-  return html`<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say({ s, on })} onContextMenu=${where}
+  // (Shown, beside the eye, whether it says its name: "Born: May 3, 1923".)
+  const named = on && !!r0(it) && c.fields.captioned(it.edge);
+  return html`${on && r0(it) ? html`<button class=${'btn icon onchart named' + (named ? ' on' : '')} tabindex="-1" aria-pressed=${named} aria-label=${named ? 'Without its name' : 'With its name'} data-tip=${named ? 'Without its name' : 'With its name'} onClick=${e => { e.stopPropagation(); c.fields.setCaptioned(it.edge, !named); }}>${Shell.icon('Tag')}</button>` : null}<button class=${'btn icon onchart' + (on ? ' on' : '')} tabindex="-1" aria-pressed=${on} aria-label=${on ? 'Shown on chart' : 'Show on chart'} data-tip=${say({ s, on })} onContextMenu=${where}
     onPointerEnter=${e => { const now = state(); setPointed(now); e.currentTarget.dataset.tip = say(now); if (now.s.marks) c.cue?.([...now.s.marks]); }} onPointerLeave=${() => { setPointed(null); c.cue?.(null); }}
     onClick=${e => { e.stopPropagation(); const now = state(); c.fields.show(host, it.edge, !now.on, at); setPointed(null); }}>${Shell.icon('eye')}</button>`;
 }
@@ -1210,7 +1214,8 @@ function Relatives({ id }) {
   const pick = rid => { const s = new Set(ticked.peek()); s.has(rid) ? s.delete(rid) : s.add(rid); ticked.value = s; };
   // A relative's name goes to the record, its figure or role to the relation; each says so on hover, as a link does. An
   // entered one has a box to tick, for ending several at once (see Section's End these…).
-  const item = (it, nest = 0) => { const f = fx(it.rid), d = detail(it), out = left.get(it.rid), going = goes(it.rid) || App.pending.value?.too?.includes(it.rid);
+  // (Who's asked to be taken isn't going: their line is.)
+  const item = (it, nest = 0) => { const f = fx(it.rid), d = detail(it), out = left.get(it.rid), going = (goes(it.rid) && !App.pending.value?.heirs) || App.pending.value?.too?.includes(it.rid);
     // Its right-click has what its line's menu has: its panel's ⋯, End… among it, the panel staying on this record.
     const whyOf = () => { emit('why-open', it.rid); FormulaBar.open.value = true; FormulaBar.into(); };
     const rowMenu = e => { if (e.target.closest('input, textarea') || (f && !e.keyed)) return; e.preventDefault(); menu({ x: e.clientX, y: e.clientY }, f ? [{ label: 'Open', keys: 'Enter', run: () => goTo(it.rid) }, { label: 'Why', keys: 'F1', run: whyOf }] : moreOf(it.rid, { stay: true })); };
@@ -1430,7 +1435,7 @@ function moreOf(id, o = {}) {
       ...(App.endOf(id) !== false ? [{ label: App.mistakeLabel(), danger: true, disabled: still, run: () => { remove(id, asked); App.neverHeld(); } }] : [])],
   ];
   // (A relation's own page, where it's named and its sides are, a click from any record of it: what renaming it starts from.)
-  if (r.args) sections[0].push({ label: 'The relation', run: () => select([general(N().relationPattern(tree(id)))]) }, ...(stillHere ? [] : [{ label: `Rename ${N().name(tree(id))}…`, run: () => renameAt(N().relationPattern(tree(id))) }]));
+  if (r.args) sections[0].push({ label: 'The connection', run: () => select([general(N().relationPattern(tree(id)))]) }, ...(stillHere ? [] : [{ label: `Rename ${N().name(tree(id))}…`, run: () => renameAt(N().relationPattern(tree(id))) }]));
   return sections.filter(s => s.length).flatMap((s, i) => i ? ['-', ...s] : s);
 }
 // The breadcrumb's kind opens its table, at the record's row, where the chart has one, or else says the kind in general;
@@ -1522,7 +1527,7 @@ function RecordView({ id }) {
     ? html`<${Head} pen=${penTitle} penKind=${penKind} more=${() => moreOf(id)} span=${span} path=${[{ label: r.kind, menu: () => kindMenu(id), named: q => kindNamed(id, q) }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
         <${Field} r=${recs()[nameId]} id=${nameId} datatype="text" ph="Name" title held=${held ? held.value : null} put=${(out, o) => (out || out === false) && put(nameId, { at: id, edge: 'Name' }, out, o)}
           preview=${out => out && putChange(nameId, { at: id, edge: 'Name' }, out)} /></${Head}>`
-    : html`<${Head} title=${name} span=${span} pen=${penTitle} penKind=${penKind} more=${r.args ? () => moreOf(id) : null} path=${r.args ? (App.scene.value?.byId.has(id) ? [{ label: 'Relation', go: () => select([general(N().relationPattern(tree(id)))]), tip: `Open ${name}` }] : []) : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
+    : html`<${Head} title=${name} span=${span} pen=${penTitle} penKind=${penKind} more=${r.args ? () => moreOf(id) : null} path=${r.args ? (App.scene.value?.byId.has(id) ? [{ label: 'Connection', go: () => select([general(N().relationPattern(tree(id)))]), tip: `Open ${name}` }] : []) : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
         ${boxed(id) ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm lbl asks" onClick=${e => (fx(id) ? emit('why-open', id) : typedBy(e.currentTarget, id))}>${name}</span></h2>` : null}</${Head}>`;
   const sides = r.args ? N().sides(recs(), id) : [];
   // A deletion or a transfer of it pending is asked in the bar, its one home: here it's struck, its end entry in blue. A relation
@@ -1902,8 +1907,10 @@ function Prose({ text, put, label, cls = 'desc', auto, done }) {
 // fund is a GP's Partnership through its Entity Type). Every side is said by the place rule (Notes.placed),
 // so none twice.
 let guessing = null;   // the two a box made by a drag has just joined, till their panel takes it up
+let drawnWay = null;   // which way a dot was dragged between two: { key, way }, what a new relation between them first says of how they stand
 function RelateView({ a, b }) {
-  const r = recs(), n = N(), [picks, setPicks] = useState({}), none = useRef(null), still = App.readOnly.value;
+  // (`justNow`, the row just ticked or unticked, made at once where a chart does, is drawn again still under the pointer, previewing nothing till it's left.)
+  const r = recs(), n = N(), [picks, setPicks] = useState({}), none = useRef(null), justNow = useRef(null), still = App.readOnly.value;
   // A relation added is a change pending (begin), ticked and redlined here until Enter, its amount and its day asked
   // under its row and in the bar under the view; a click away leaves it pending. Which (its key), as what (its
   // tick, role or value). A list's Add, or the New relation form, may have begun one. One held that's being deleted
@@ -1962,7 +1969,7 @@ function RelateView({ a, b }) {
     return html`<div class=${'rr' + (rel.tag === false ? ' ruled' : '') + (gone ? ' going' : '')} key=${x.id} data-key=${x.id}>
         <span class="ctl">${gone ? html`<button class="tag" role="checkbox" aria-checked="false" aria-label=${x.name} onClick=${() => App.discard()} />`
           : 'tag' in rel && !fact ? html`<${Output} id=${x.id} slot=${rel} label=${x.name} />`
-          : html`<${TagBox} r=${{ tag: true }} fx=${f} fixed=${f} to=${null} label=${x.name} still=${x.id === settled || x.key === settled} flip=${() => remove(x.id, { source: `relate ${a} ${b}`, auto: true })} change=${() => ({ records: { [x.id]: null } })} />`}</span>
+          : html`<${TagBox} r=${{ tag: true }} fx=${f} fixed=${f} to=${null} label=${x.name} still=${x.id === settled || x.key === settled || x.key === justNow.current} flip=${() => { justNow.current = x.key; remove(x.id, { source: `relate ${a} ${b}`, auto: true }); }} change=${() => ({ records: { [x.id]: null } })} />`}</span>
         <span class="nm">${sentence(tree(x.id), n.placed(r, x.id).map(s => s.edge), (e, first) => side(at(e), first), { choice: rel.choice, not: rel.tag === false, role: chosen,
           wrap: words => html`<${Go} to=${x.id} cls=${f ? 'fx' : ''}>${words}</${Go}>` })}</span>
         <span class="val">${'field' in rel ? html`<${Output} id=${x.id} slot=${rel} label=${x.name} />` : null}</span>
@@ -1995,7 +2002,7 @@ function RelateView({ a, b }) {
     // A role still to choose says which relation it's of, where two read alike ("is a … of"): Membership, Position.
     return html`<div class=${'rr' + (d ? ' adding' : '')} key=${x.key} data-key=${x.key}>
       <span class="ctl">${d ? html`<span class="cellbox"><span class="hug"><button class="tag yes" role="checkbox" aria-checked="true" aria-label=${x.name} onClick=${() => App.discard()} /></span></span>`
-        : !tag ? null : slot ? html`<${TagBox} label=${x.name} still=${x.key === settled} flip=${() => relate(x, slot, { tag: true })} />` : html`<span class="tag" aria-disabled="true" />`}</span>
+        : !tag ? null : slot ? html`<${TagBox} label=${x.name} still=${x.key === settled || x.key === justNow.current} flip=${() => { justNow.current = x.key; relate(x, slot, { tag: true }); }} />` : html`<span class="tag" aria-disabled="true" />`}</span>
       <span class="nm">${sentence(x.s, slot ? n.placed(r, null, slot.args).map(s => s.edge) : n.edges(x.s), say, said)}</span>
       <span class="val">${d && 'field' in d.out ? T.format(d.out.field, d.out.value) : tag || !slot || chosen ? null : html`<${Field} datatype=${x.s.out.field} label=${x.name} ph=${x.name} put=${out => out && relate(x, slot, out)} />`}</span>
       ${chosen && !d ? html`<span class="why">${x.name}</span>` : null}
@@ -2049,7 +2056,7 @@ function RelateView({ a, b }) {
     ${holds.length || after.length ? html`<div class="relate">${holds.map(heldRow)}${after.map(laterRow)}</div>` : null}
     ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a connection', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
-      ${form ? html`<${NewLine} a=${a} b=${b} left=${[a]} right=${[b]} top=${ma && mb && !upright ? 'level' : ya > yb && upright ? 'b' : 'a'} />`
+      ${form ? html`<${NewLine} a=${a} b=${b} left=${[a]} right=${[b]} top=${(w => (w === 'across' ? 'level' : w === 'down' ? 'a' : w === 'up' ? 'b' : ma && mb && !upright ? 'level' : ya > yb && upright ? 'b' : 'a'))(drawnWay?.key === `${a}|${b}` ? drawnWay.way : null)} />`
         : plain ? ghost('New connection', () => { if (draft) App.discard(); naming.value = { a, b, name: '', ra: '', rb: '' }; }) : null}
     </div>`}
     ${still || !plain || !ma || !mb ? null : html`<div class="relate">${ghost('Just a line', () => { naming.value = null; Shell.parts.peek().canvas?.active?.()?.connect(a, b); })}</div>`}
@@ -2089,14 +2096,14 @@ function NewLine({ a, b, left, right, top, then }) {
     if (e.key === 'Enter') { e.preventDefault(); const all = [...e.currentTarget.querySelectorAll('input.cell')], to = all.slice(all.indexOf(e.target) + 1).find(x => !x.value); if (to) to.focus(); else if (ours) App.commit(); }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); naming.value = null; if (ours) App.discard(undated ? { quiet: true } : undefined); }
   };
-  const inp = (k, label, first) => html`<input class=${'cell' + (first ? '' : ' role')} placeholder=${first ? 'What’s it called?' : 'Is the…'} aria-label=${label} value=${f[k]} spellcheck=${false} autocomplete="off"
+  const inp = (k, label, first) => html`<input class=${'cell' + (first ? '' : ' role')} placeholder=${first ? 'New connection' : null} aria-label=${label} value=${f[k]} spellcheck=${false} autocomplete="off"
     onInput=${e => type(k, e.target.value)} ref=${first ? el => el && !el.dataset.on && (el.dataset.on = 1, el.focus()) : null} />`;
   // How they'll stand, as far as what they are says it.
   const [ra, rb] = [f.ra, f.rb].map(T.clean), now = f.stands ?? top, said = s => s === 'level' ? 'Side by side' : s === 'none' ? 'Neither above' : `${(s === 'a' ? ra : rb) || (s === 'a' ? (left.length > 1 ? 'The two' : called(left)) : called(right))} above`;
   // A role another relation has is said as it's written: a formula reading it would read both.
   const sharedRole = k => { const v = T.clean(f[k] ?? ''), of = v && App.relations.value.filter(x => !T.same(x.name, f.name) && x.edges?.some(e => T.same(e, v))).map(x => x.name); return of?.length ? html`<span class="role-shared">${v} is a side of ${of.join(' and ')} too.</span>` : null; };
   return html`<div class=${'rr new' + (ours ? ' adding' : '')} onKeyDown=${keys}><span class="form">
-    ${inp('name', 'Name', true)}<span class="side">${called(left)}</span>${inp('ra', `What ${called(left)} is`)}${sharedRole('ra')}<span class="side">${called(right)}</span>${inp('rb', `What ${called(right)} is`)}${sharedRole('rb')}
+    ${inp('name', 'Name', true)}<span class="side">${called(left)} ${left.length > 1 ? 'are each the' : 'is the'}</span>${inp('ra', `What ${called(left)} is`)}${sharedRole('ra')}<span class="side">${called(right)} is the</span>${inp('rb', `What ${called(right)} is`)}${sharedRole('rb')}
     <span class="side">Stands</span><button type="button" class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, ['a', 'b', 'level', 'none'].map(s => ({ label: said(s), checked: s === now, run: () => type('stands', s) })))}><span>${said(now)}</span></button>
     ${undated ? html`<span class="form-acts"><button type="button" class="btn" onClick=${() => { naming.value = null; if (ours) App.discard({ quiet: true }); }}>Cancel</button><button type="button" class="btn primary" disabled=${!ours} onClick=${() => App.commit()}>Add</button></span>` : null}</span>
   </div>`;
@@ -2326,7 +2333,7 @@ function GeneralView({ p, style }) {
   // As of a day past, today's rule is what's read: where it's changed since, it says so.
   const since = def && typeof Time !== 'undefined' ? Time.ruleSince(def.pattern) : null;
   return html`<div class="insp">
-    <${Head} title=${name} pen=${html`<${Pen} w=${{ general: anyAt(p), name }} row=${`general:${T.key(anyAt(p))}`} />`} path=${style ? [{ label: 'Style' }] : kind ? [] : rel ? [{ label: 'Relation' }] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Yes or no') }]}>
+    <${Head} title=${name} pen=${html`<${Pen} w=${{ general: anyAt(p), name }} row=${`general:${T.key(anyAt(p))}`} />`} path=${style ? [{ label: 'Style' }] : kind ? [] : rel ? [{ label: 'Connection' }] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Yes or no') }]}>
       <${Field} r=${{ field: 'text', value: name }} datatype="text" label="Name" title put=${out => out && setName(out.value)} /></${Head}>
     ${since ? html`<div class="later"><span>Today’s rule: changed ${since.day} by ${since.who}</span>${since.stand ? html`<button class="btn" onClick=${since.stand}>As it stood</button>` : null}</div>` : null}
     <div class="rows">
@@ -2335,10 +2342,10 @@ function GeneralView({ p, style }) {
       ${described ? html`<div class="row"><div class="k">Description</div><div class="v ctl"><${Prose} text=${n.description(p) ?? ''} label="Description" auto=${describing}
         put=${text => { setDescribing(false); App.change(tx => tx.note('Description', p, text || undefined)); }} done=${() => setDescribing(false)} /></div></div>` : null}
       ${ats.map(([k, x]) => html`<div class="row" key=${k}><div class="k">${k}</div><div class="v lines">${cond.length && !still ? html`<button class="sel dd" aria-haspopup="menu" data-tip="Limit it to" onClick=${e => menu(e.currentTarget, cond, { search: cond.length > 7 })}><span>${x}</span></button>` : x}</div></div>`)}
-      ${rel ? n.edges(p).map(e => html`<div class="row" key=${'r' + e}><div class="k">Role</div><div class="v ctl"><${Field} r=${{ field: 'text', value: e }} datatype="text" label=${`Role ${e}`} put=${out => out && renameRole(e, out.value)} /></div></div>
-        <div class="row" key=${'l' + e}><div class="k">${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
+      ${rel ? n.edges(p).map((e, i) => html`<div class="row" key=${'r' + e}><div class="k">${i ? 'The other is' : 'One is'}</div><div class="v ctl"><${Field} r=${{ field: 'text', value: e }} datatype="text" label=${`Role ${e}`} put=${out => out && renameRole(e, out.value)} /></div></div>
+        <div class="row" key=${'l' + e}><div class="k">More than one</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
-      ${rel && !def && specs.every(s => s.args.length === 2) ? (() => { const es = n.edges(p), now = n.value('Above', p, v) ?? es[0], said = s => s === 'level' ? 'Side by side' : s === 'none' ? 'Neither on top' : `${s} on top`, setIt = s => App.change(tx => tx.note('Above', p, s, { view: v ?? undefined }), { dated: false, say: `Said how ${name} stands: ${said(s).toLowerCase()}` });
+      ${rel && !def && specs.every(s => s.args.length === 2) ? (() => { const es = n.edges(p), now = n.value('Above', p, v) ?? es[0], said = s => s === 'level' ? 'Side by side' : s === 'none' ? 'Neither above' : `${s} above`, setIt = s => App.change(tx => tx.note('Above', p, s, { view: v ?? undefined }), { dated: false, say: `Said how ${name} stands: ${said(s).toLowerCase()}` });
         return html`<div class="row" key="stands"><div class="k">Stands</div><div class="v ctl">${still ? said(now) : html`<button class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, [...es, 'level', 'none'].map(s => ({ label: said(s), checked: T.same(s, now), run: () => !T.same(s, now) && setIt(s) })))}><span>${said(now)}</span></button>`}</div></div>`; })() : null}
       ${kind && below.some(s => s.out?.field === 'date' || s.out?.field === 'number') ? (() => { const by = n.across(p.kind), said = by ?? 'As they were made', take = e => App.change(tx => tx.note('Order', p, e ? { by: e } : undefined), { dated: false, say: e ? `Stood each ${lower(p.kind)} in the order of ${e}` : `Stood each ${lower(p.kind)} as they were made` });
         return html`<div class="row" key="across"><div class="k">Across, in order of</div><div class="v ctl">${still ? said : html`<button class="sel dd" aria-haspopup="menu" aria-label="Across, in order of" onClick=${e => menu(e.currentTarget, [{ label: 'As they were made', checked: !by, run: () => by && take(null) }, ...below.filter(s => s.out?.field === 'date' || s.out?.field === 'number').map(s => ({ label: s.args[0].edge, checked: T.same(by ?? '', s.args[0].edge), run: () => !T.same(by ?? '', s.args[0].edge) && take(s.args[0].edge) }))])}><span>${said}</span></button>`}</div></div>`; })() : null}
@@ -2720,6 +2727,7 @@ preactSignals.effect(() => {
 on('relate-open', d0 => {
   // (A line is what it joins: a couple, or the box on top of it.)
   const l = d0.findIndex(k => recs()[k]?.args), j = l >= 0 && joinedBy(d0[l]), d = !j ? d0 : Object.assign(j.couple ? [d0[1 - l], j.couple] : [d0[1 - l], j.box], { made: d0.made });
+  drawnWay = d0.way ? { key: d.join('|'), way: d0.way } : null;
   guessing = d.made ? d.join('|') : null; Shell.showPanel?.(); select(d); if (Shell.usingKeys.peek() && !document.querySelector('.tour-card')) setTimeout(() => { if (!App.pending.peek()) document.querySelector('.insp[data-tour="pair"] .relate .rr :is(button.tag, button.sel, input)')?.focus(); }); });
 // A relation just added offers its entries while its two boxes stay selected.
 on('select', keys => { fresh.value = null; heldRows.clear(); if (ticked.peek().size) ticked.value = new Set(); if (offered.peek().length) offered.value = [];

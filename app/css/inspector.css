@@ -138,6 +138,9 @@ button.lk.hint { margin-left: 8px; color: var(--accent-ink); white-space: nowrap
 .onchart.on { opacity: .55; }
 .row:hover > .onchart.on { opacity: 1; color: var(--accent); }
 .onchart:hover { color: var(--ink); }
+.btn.onchart.named { right: 20px; }
+.btn.onchart.named:not(.on) { opacity: 0; }
+.row:hover > .btn.onchart.named { opacity: 1; }
 .row:has(> .onchart) .btn.ver:not(.due) { right: 13px; }
 .drag-field { position: fixed; z-index: 100; padding: 3px 8px; border-radius: var(--r); background: var(--accent); color: var(--on-accent); font: var(--t12); pointer-events: none; box-shadow: var(--shadow-pop); }
 .ent { position: relative; }
