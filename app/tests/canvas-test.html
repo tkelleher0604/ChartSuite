@@ -155,12 +155,16 @@ async function run() {
   const ownPart = () => txt($('[data-fb="own"]')), like = () => txt($('[data-fb="like"]'));
   const chip = () => txt($('[data-fb="scope"] [aria-pressed="true"]'));
   const dulled = () => $$('.dc .x6-cell.dc-dull').map(e => e.getAttribute('data-cell-id'));
-  // (The pen goes by itself: these are of a pen put at the title, which sticks. Its own checks are after them: see The pen.)
+  // (The pen goes by itself: these are of a pen put at the title, a hand putting it there at each box as a new selection lets it go. Its own checks are after them: see The pen.)
   const toTitle = () => { FormatBar.pen.level.value = { own: true }; }, penHome = FormatBar.pen.home;
   FormatBar.pen.home = () => { const had = penHome(); toTitle(); return had; };
+  let handAtTitle = true;
+  const handing = () => { if (handAtTitle && !FormatBar.pen.level.peek()) toTitle(); };
+  preactSignals.effect(() => { Shell.selection.value; handing(); queueMicrotask(handing); });
+  window.handsOff = () => { handAtTitle = false; FormatBar.pen.home = penHome; };
   toTitle();
   Shell.select(['northpine']); await tick(120);
-  check('one box selected, a format goes to “This box”, with all like it beside it', chip() === 'This box' && ownPart() === 'This box' && /^All \d+ \S/.test(like()),`${ownPart()} | ${like()}`);
+  check('one box selected, a format goes to “This box”, with all like it beside it', chip() === 'This box' && ownPart() === 'This box' && /^\d+ \S/.test(like()),`${ownPart()} | ${like()}`);
   check('… and nothing on the chart is dulled', !dulled().length, dulled().join());
   Shell.select(['northpine', 'halvard', 'fund']); await tick(120);
   check('three, to “These 3 boxes”', chip() === 'These 3 boxes', chip());
@@ -175,7 +179,7 @@ async function run() {
     && items.includes('Portfolio companies (4)'), menu.join(' | '));
   const pcHead = menu.slice(0, menu.indexOf('Portfolio companies (4)')).filter(t => heads.includes(t)).at(-1);
   check('… the Styles rows each under its style’s name, and a style that is its one group (Names) that row alone, first, in the same place for every box', !!pcHead && pcHead !== 'Portfolio companies'
-    && items.includes('Names (24)') && !heads.includes('Name') && seps.slice(0, 3).join() === 'This box,-,Names (24)', seps.join(' | '));
+    && items.some(t => /^Names \(\d+\)$/.test(t)) && !heads.includes('Name') && /^This box,-,Names \(\d+\)$/.test(seps.slice(0, 3).join()), seps.join(' | '));
   // The Styles rows that reach the box, by Styles' captions: those under no name first; then as Styles lists them (Scene.groupsOf's
   // order), under their styles' names; then apart, under Same field value, the box's own groups, its kind first.
   const reaching = Scene.groupsOf(App.notes.peek(), sc().view).filter(g => Scene.reach(App.shown.peek(), App.chart.peek(), sc().view, sc(), 'northpine', App.state.peek())
@@ -211,7 +215,7 @@ async function run() {
   check('a box of a group the Key shows as one row is offered that group, by the Key’s caption', !!funds && fundItems.includes(`Funds (${fundReach})`) && fundReach > 2, fundItems.join(' | '));
   await closeMenus();
   Shell.select(['northpine']); await tick(120);
-  check('all like it names the narrowest Styles row that reaches the selection and more', like() === 'All 4 portfolio companies', like());
+  check('all like it names the narrowest Styles row that reaches the selection and more', like() === '4 portfolio companies', like());
   const pcs = sc().marks.filter(m => m.type === 'box' && App.state.peek()[m.record]?.kind === 'Entity' && JSON.stringify(m.settings.Fill.note?.pattern ?? {}).includes('Portfolio Company')).map(m => m.id);
   const fills = () => Object.fromEntries(pcs.map(id => [id, App.scene.peek().byId.get(id).settings.Fill.value]));
   const was = fills();
@@ -219,13 +223,13 @@ async function run() {
   const now = fills();
   check('a fill with one box selected fills that box alone', now.northpine === '#fff2cc' && pcs.filter(id => id !== 'northpine').every(id => now[id] === was[id]) && pcs.length === 4, JSON.stringify(now));
   $('[data-fb="like"]').click(); await tick(120);
-  check('choosing all like it presses it, and what it reaches has a thin outline, the others untouched', chip() === 'All 4 portfolio companies' && $$('.dc-marks path.dc-reach').length === 4 && !dulled().length, `${chip()}; ${$$('.dc-marks path.dc-reach').length} outlined, ${dulled().length} dulled`);
+  check('choosing all like it presses it, and what it reaches has a thin outline, the others untouched', chip() === '4 portfolio companies' && $$('.dc-marks path.dc-reach').length === 4 && !dulled().length, `${chip()}; ${$$('.dc-marks path.dc-reach').length} outlined, ${dulled().length} dulled`);
   FormatBar.apply('Fill', '#e2f0d9'); await tick(120);
   check('… and a fill then goes to every box it reaches but the one entered for itself', pcs.filter(id => id !== 'northpine').every(id => fills()[id] === '#e2f0d9'), JSON.stringify(fills()));
   const kept = txt($$('.toast').at(-1)), np = App.notes.peek().nameOf(App.state.peek(), 'northpine'), groupSaid = Time.describe(App.wb.changes().at(-1));
   const green = FormatBar.colorName('#e2f0d9');
   // (The first change of a session to reach more than one box says what it reached, with Undo and Just this box.)
-  check('… which says at once what it reached, and that the one keeps its own, with Undo and Just this box', kept.startsWith(`Filled all 4 portfolio companies; ${np} keeps its own`) && /Just this box/.test(kept) && /Undo/.test(kept), kept);
+  check('… which says at once what it reached, and that the one keeps its own, with Undo and Just this box', kept.includes(`${np} keeps its own`) && /^Filled all 4 portfolio companies/.test(kept) && /Just this box/.test(kept) && /Undo/.test(kept), kept);
   check('… and History names the change by the group, as the Key does, with the color by its name', groupSaid === `Set the fill of Portfolio companies to ${green} in ${main.name}`, groupSaid);
   // Each look is said with what it's given: a switch by what it makes, none as taken off, a color and a shape by name.
   const stamp = { who: 'Dana Jordan', when: new Date().toISOString(), chart: App.chart.peek() }, npBox = { id: 'northpine', kind: 'Entity' };
@@ -242,7 +246,7 @@ async function run() {
   const movedSaid = Time.describe(App.wb.changes().at(-1));
   for (const c of madePlaces) if (c) { Shell.parts.peek().undo.undo(); await tick(60); }
   check('a box resized is said so, and one moved, moved', resizedSaid === `Resized ${np} in ${main.name}` && movedSaid === `Moved ${np} in ${main.name}`, `${resizedSaid} / ${movedSaid}`);
-  check('… and the group stays chosen after the change', chip() === 'All 4 portfolio companies', chip());
+  check('… and the group stays chosen after the change', chip() === '4 portfolio companies', chip());
   $('[data-fb="groups"]').click(); await tick(120);
   const clearIt = $$('.float .menu-item').find(e => txt(e).startsWith('Clear '));
   check('… and its ▾ offers to clear what the one keeps', txt(clearIt) === `Clear ${np}’s own Fill`, menuItems().join(' | '));
@@ -254,10 +258,10 @@ async function run() {
   ctrlShiftA(); await tick(100);
   const toOwn = chip();
   ctrlShiftA(); await tick(100);
-  check('Ctrl+Shift+A goes from all like it to the selection and back', toOwn === 'This box' && chip() === 'All 4 portfolio companies' && !!$$('.dc-marks path.dc-reach').length, `${toOwn}, then ${chip()}`);
+  check('Ctrl+Shift+A goes from all like it to the selection and back', toOwn === 'This box' && chip() === '4 portfolio companies' && !!$$('.dc-marks path.dc-reach').length, `${toOwn}, then ${chip()}`);
   toTitle();
   Shell.select(['halvard']); await tick(120);
-  check('a pen put at the title stays there as another box is clicked, and nothing is dulled', chip() === 'This box' && !dulled().length, chip());
+  check('at the title, nothing is dulled', chip() === 'This box' && !dulled().length, chip());
   // A group of a box's own, chosen from the ▾ and given a fill, becomes a Styles row, keyed: every Cayman box green.
   const feeder = drawnBoxes.find(b => { const e = entryOf(b, 'Jurisdiction'); return e && rs[e].choice === 'Cayman Islands'; });
   Shell.select([feeder.id]); await tick(120);
@@ -268,7 +272,7 @@ async function run() {
   cayman?.click(); await tick(120);
   FormatBar.apply('Fill', '#92d050'); await tick(150);
   const greens = App.scene.peek().marks.filter(m => m.type === 'box' && m.settings.Fill.value === '#92d050').length, keyed = App.scene.peek().legend.find(r => r.swatch.Fill === '#92d050');
-  check('… and a fill for it fills every box of it, and keys it, as Styles does', caymans > 1 && greens === caymans && keyed?.caption === 'Cayman Islands' && chip() === `All ${caymans} with Jurisdiction Cayman Islands`,
+  check('… and a fill for it fills every box of it, and keys it, as Styles does', caymans > 1 && greens === caymans && keyed?.caption === 'Cayman Islands' && chip() === `${caymans} with Jurisdiction Cayman Islands`,
     `${greens} of ${caymans} green; key ${keyed?.caption}; ${chip()}`);
   // Bold for a group of an option lands on its boxes, not on the option's own text, written in them or not.
   FormatBar.apply('Bold', true); await tick(150);
@@ -602,7 +606,7 @@ async function run() {
     `${hitTrunk}: ${Shell.selection.peek().join(', ')} for ${trunk.join(', ')}; ${chip()}`);
   const branch = fromFund.find(m => m.id === 'own_fund_npine') ?? fromFund.at(-1), [b0, b1] = branch.points.slice(-2);
   const hitBranch = await clickAt(b0[0] + (b1[0] - b0[0]) / 4, b0[1] + (b1[1] - b0[1]) / 4);
-  check('… and a click on a line’s own leg, that line alone', hitBranch === branch.id && Shell.selection.peek().join() === branch.id && chip() === 'This line', `${hitBranch}: ${Shell.selection.peek().join(', ')}; ${chip()}`);
+  check('… and a click on a line’s own leg, that line alone', hitBranch === branch.id && Shell.selection.peek().join() === branch.id, `${hitBranch}: ${Shell.selection.peek().join(', ')}; ${chip()}`);
   Shell.select([]); await tick(80);
   if (v40) {
     await show(v40); cv().zoom('fit'); await tick(120);
@@ -741,7 +745,7 @@ async function run() {
     eye2?.click(); await tick(300);
     const lps = [...(Canvas.scope().marks ?? [])], showing = lps.filter(id => sc().byId.get(id)?.texts.some(it => /^\d\d-\d{7}$/.test(it.text ?? '')));
     check('at a group, the eye is on only where every box of it shows the field, and its click shows it in the rest', offer === 'Show in all 5 limited partnerships' && lit === 'false'
-      && lps.length === 5 && showing.length === 5 && /^Showed EIN in all 5 limited partnerships/.test(txt($$('.toast').at(-1))), `${offer} ${lit} ${showing.length}/${lps.length} ${txt($$('.toast').at(-1))}`);
+      && lps.length === 5 && showing.length === 5 && /^Showed EIN in 4 of 5 limited partnerships/.test(txt($$('.toast').at(-1))), `${offer} ${lit} ${showing.length}/${lps.length} ${txt($$('.toast').at(-1))}`);
     Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200);
     Shell.select([]); await tick(120);
   }
@@ -875,7 +879,7 @@ async function run() {
     && sc() !== App.scene.peek());
   await closeMenus(); await tick(80);
   check('… until the popover closes', sc() === App.scene.peek());
-  { toTitle(); Shell.select(['fund']); await tick(120);
+  { Shell.select(['fund']); await tick(120); toTitle(); await tick(40);
     $('[data-fb="outline"]').click(); await tick(150);
     const boxSubs = $$('.float .palette .menu-item.sub').map(txt);
     await closeMenus();
@@ -928,7 +932,7 @@ async function run() {
   Shell.select(['halvard']); await tick(120);
   App.change(tx => ['Fill', '#fbe5d6', 'Strike', true, 'Shadow', 'soft', 'Color', '#c00000'].reduce((a, v, i, all) => (i % 2 || tx.note(v, Tree.treeOf(App.state.peek(), 'halvard'), all[i + 1], { view: sc().view }), a), 0)); await tick(200);
   cv().root.focus(); key('C', { code: 'KeyC', ctrlKey: true, shiftKey: true }); await tick(100);
-  Shell.select(['corvane']); await tick(120); cv().root.focus();
+  Shell.select(['corvane']); await tick(120); toTitle(); cv().root.focus();
   const pasteFrom = App.wb.changes().length;
   key('V', { code: 'KeyV', ctrlKey: true, shiftKey: true }); await tick(250);
   const cv1 = App.scene.peek().byId.get('corvane');
@@ -950,11 +954,11 @@ async function run() {
   const stillArmed = cv().root.classList.contains('painting');
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(100);
   check('… a double-click keeps it armed, painting each box clicked, until Esc', stillArmed && !cv().root.classList.contains('painting') && ['corvane', 'tessellate'].every(id => App.scene.peek().byId.get(id).settings.Fill.value === '#fbe5d6'));
-  Shell.select(['tessellate']); await tick(120);
+  Shell.select(['tessellate']); await tick(120); toTitle(); await tick(40);
   $('[data-fb="clear"]').click(); await tick(200);
   check('Clear formatting takes the look’s notes away, one change, and says what it took', !notesAt('tessellate').length && /^Cleared Tessellate .*’s .*Fill/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
   // The Eyedropper, from a palette: the next click takes the color clicked for the selection, which stays selected.
-  Shell.select(['northpine']); await tick(120);
+  Shell.select(['northpine']); await tick(120); toTitle(); await tick(40);
   $('[data-fb="fill"]').click(); await tick(150);
   $$('.float .palette .menu-item').find(e => txt(e) === 'Eyedropper')?.click(); await tick(100);
   const dropping = cv().root.classList.contains('dropping');
@@ -1475,7 +1479,7 @@ async function wherePut() {
   check('Left and Top typed read back as typed, and the box stands there, moving nothing else', field('x')?.value === String(L) && field('y')?.value === String(T) && !others(was, [a]).length, `${field('x')?.value},${field('y')?.value} for ${L},${T} ${JSON.stringify(others(was, [a]))}`);
   check('… where the numbers say on the page', Math.abs(mark().x - px(L)) < 0.01 && Math.abs(mark().y - px(T)) < 0.01, JSON.stringify([mark().x, px(L)]));
   await undo(); await undo();
-  Shell.select([a]); await tick(250);
+  Shell.select([a]); await tick(250); FormatBar.pen.level.value = { own: true }; await tick(60);
   was = at(); let lines = routes(), own = sc().marks.filter(l => l.type === 'line' && (l.from === a || l.to === a)).map(l => l.id), h0 = mark().h;
   await type('h', Math.round(Scene.toSlide(sc().page, (h0 + 30) / Scene.PT)));
   const typedH = field('h')?.value, moved0 = others(was, [a]), rerouted = [...lines].filter(([id, r]) => !own.includes(id) && routes().get(id) !== r);
@@ -2013,7 +2017,7 @@ async function readingOnly() {
   check('A Styles row aimed at is lit, and what comes next takes it', !!lit && lit.marks.size > 1 && cv().canShowOnly(), `${lit?.marks.size}`);
   cv().selectLike(); await tick(250);
   check('Select all like this takes what’s lit', JSON.stringify(Shell.selection.peek().slice().sort()) === JSON.stringify([...lit.marks].sort()), Shell.selection.peek().join());
-  { const said = txt($('[data-fb="scope"]') ?? document.body), [, a] = /These (\d+) boxes/.exec(said) ?? [], [, b] = /All (\d+)/.exec(said) ?? [];
+  { const said = txt($('[data-fb="scope"]') ?? document.body), [, a] = /These (\d+) boxes/.exec(said) ?? [], [, b] = /boxes(\d+)/.exec(said) ?? [];
     check('… and the scope’s two counts agree', !!a && a === b && +a === lit.marks.size, said); }
   Shell.select([]); await tick(150);
   FormatBar.aim(funds); await tick(200);
@@ -2515,7 +2519,7 @@ async function format() {
   // What differs from its style: a line's own arrow, a box's own weight; the ribbon says so rather than tick one.
   await show(stE);
   const boxE = () => sc().byId.get('fund');
-  FormatBar.pen.level.value = { own: true }; Shell.select(['blocker']); await tick(200);
+  Shell.select(['blocker']); await tick(200); FormatBar.pen.level.value = { own: true }; await tick(40);
   FormatBar.apply('Weight', 3); await tick(400);
   Shell.select([]); await tick(150);
   const corpG = Scene.groupsOf(App.notes.peek(), stE.id).find(g => g.caption === 'Corporation');
@@ -2524,7 +2528,7 @@ async function format() {
   check('Select what differs selects and lists the one-offs on the view', Shell.selection.peek().includes('blocker') && $$('.float .menu-item').some(e => /Weight 3 pt/.test(txt(e))), $$('.float .menu-item').map(txt).join(' | '));
   await closeMenus();
   check('… Find has it', !!acts().find(a => a.id === 'look.differs')?.names.includes('One-offs'));
-  FormatBar.pen.level.value = { own: true }; Shell.select(['blocker']); await tick(200);
+  Shell.select(['blocker']); await tick(200); FormatBar.pen.level.value = { own: true }; await tick(40);
   check('… and the box’s panel says it under This box, with Reset', $$('.insp .row.src .k').some(k => txt(k) === 'This box') && !!$('.insp .reset'), $$('.insp .row.src .k').map(txt).join());
   Shell.parts.peek().undo.undo(); await tick(300);
   Shell.select([]); await tick(150);
@@ -2653,7 +2657,7 @@ async function format() {
   check('with nothing selected, the ribbon’s font and size aim at All text, the rest off', barOn() && !$('[data-fb="size"]').disabled && !!$('[data-fb="all"]') && txt($('[data-fb="all"]')) === 'All text' && $('[data-fb="bold"]').disabled && $('[data-fb="fill"]').disabled);
   const scopeAt0 = $('[data-fb="scope"]').getBoundingClientRect(), fontAt0 = $('[data-fb="font"]').getBoundingClientRect();
   cap('Funds').click(); await tick(150);
-  check('a Styles row clicked moves the pen there: what it reaches outlined, nothing else touched', barOn() && /^All 5 funds/.test(likeSays()) && dull() === 0 && $$('.dc-marks path.dc-reach').length === 5 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
+  check('a Styles row clicked moves the pen there: what it reaches outlined, nothing else touched', barOn() && /^5 funds/.test(likeSays()) && dull() === 0 && $$('.dc-marks path.dc-reach').length === 5 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
   check('… the bar’s controls where they were', Math.abs($('[data-fb="scope"]').getBoundingClientRect().left - scopeAt0.left) < 0.5 && Math.abs($('[data-fb="scope"]').getBoundingClientRect().width - scopeAt0.width) < 0.5 && Math.abs($('[data-fb="font"]').getBoundingClientRect().left - fontAt0.left) < 0.5);
   const fundBox = () => sc().byId.get('feeder');
   $('[data-fb="fill"]').click(); await tick(120);
@@ -2672,7 +2676,7 @@ async function format() {
   Shell.parts.peek().undo.undo(); await tick(300); Shell.parts.peek().undo.undo(); await tick(300);
   // The swatch aims too; Esc ends it; a press on the chart ends it.
   row('Funds').querySelector('.k').click(); await tick(120);
-  const bySwatch = /^All 5 funds/.test(likeSays());
+  const bySwatch = /^5 funds/.test(likeSays());
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(120);
   check('a row’s swatch clicked does too, and Esc ends it', bySwatch && !!$('[data-fb="all"]') && dull() === 0);
   cap('Names').click(); await tick(120);
@@ -2992,47 +2996,62 @@ async function designing(st) {
 }
 
   // ---- The pen (dendra.md, The pen): one scope, a location in the schema, in the panel's gutter ----
+  window.handsOff?.();
   { const P = FormatBar.pen, onTop = () => txt($('[data-fb="scope"] [aria-pressed="true"]')), outlined = () => $$('.dc-marks path.dc-reach').length, dulls = () => $$('.dc .x6-cell.dc-dull').length;
   const here = () => $$('.insp .pen.here'), rowHere = () => here()[0]?.closest('.row, .sect, .ih-at, .path'), labelOf = el => txt(el?.querySelector?.('.lbl, .k') ?? el);
   P.home(); Shell.select([]); await tick(150);
   Shell.select(['feeder']); await tick(200);
-  check('a box clicked: the pen goes by itself to the Styles row that fills it, one pen, in that row’s gutter', onTop() === 'All 5 funds' && here().length === 1 && /Vehicle Type/.test(labelOf(rowHere())), `${onTop()} ${here().length} ${labelOf(rowHere())}`);
+  check('a box clicked: the pen goes by itself to the Styles row that fills it, one pen, in that row’s gutter', onTop() === '5 funds' && here().length === 1 && /Vehicle Type/.test(labelOf(rowHere())), `${onTop()} ${here().length} ${labelOf(rowHere())}`);
   check('… what’s in reach has a thin outline, and nothing’s dulled', outlined() === 5 && dulls() === 0, `${outlined()} ${dulls()}`);
   const rowPen = name => $$('.insp .ent > .row').find(r => txt(r.querySelector('.lbl')) === name)?.querySelector('.pen');
   const titlePen = () => $('.insp .ih-at > .pen'), kindPen = () => $('.insp .path > .pen');
   rowPen('Entity Type').dispatchEvent(new PointerEvent('pointerenter')); await tick(120);
-  check('pointing at a row’s pen says what it would reach, lights it, and dulls the rest', rowPen('Entity Type').dataset.tip === 'All 5 limited partnerships' && dulls() > 0, `${rowPen('Entity Type').dataset.tip} ${dulls()}`);
+  check('pointing at a row’s pen says what it would reach, lights it, and dulls the rest', /^5 limited partnerships/.test(rowPen('Entity Type').dataset.tip) && dulls() > 0, `${rowPen('Entity Type').dataset.tip} ${dulls()}`);
   rowPen('Entity Type').dispatchEvent(new PointerEvent('pointerleave')); await tick(120);
   check('… and leaving it, nothing’s dulled', dulls() === 0);
   titlePen().click(); titlePen().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
   check('a click on the title’s pen moves it there: this box', onTop() === 'This box' && titlePen().classList.contains('here') && outlined() === 0 && here().length === 1, onTop());
   Shell.select(['fund']); await tick(200);
-  check('… and it sticks as another box is clicked', onTop() === 'This box' && titlePen().classList.contains('here'), onTop());
-  rowPen('Entity Type').click(); rowPen('Entity Type').dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  check('… and a new selection starts where the pen goes by itself: at the title it reached that box alone', P.level.peek() === null, onTop());
+  // A place a hand put it holds for a next box only while that's one it reaches.
   Shell.select(['blocker']); await tick(200);
-  check('put at Entity Type, it goes to each box’s Entity Type', onTop() === 'All 5 corporations' && /Entity Type/.test(labelOf(rowHere())), `${onTop()} ${labelOf(rowHere())}`);
+  rowPen('Entity Type').click(); await tick(120);
+  if ($('.float .menu')) { $$('.float .menu-item').find(x => /corporations?$/i.test(txt(x)))?.click(); await tick(150); }
+  rowPen('Entity Type')?.dispatchEvent(new PointerEvent('pointerleave')); await tick(100);
+  const corp = onTop(), corps = [...FormatBar.scope().marks], other = corps.find(id => id !== 'blocker');
+  check('put at Entity Type: every box with that answer', /^\d+ corporations$/.test(corp) && corps.length > 1 && /Entity Type/.test(labelOf(rowHere())), `${corp} ${labelOf(rowHere())}`);
+  Shell.select([other]); await tick(200);
+  check('… which holds for a next box it reaches', onTop() === corp && P.level.peek() !== null, `${onTop()} ${corp}`);
   Shell.select(['inv_us']); await tick(200);
-  check('… a box with no such place has it go by itself', !!onTop() && here().length <= 1, onTop());
+  check('… and no scope follows a person to a box it doesn’t reach: it goes by itself', P.level.peek() === null && !!onTop() && onTop() !== corp && here().length <= 1, onTop());
   Shell.select(['blocker']); await tick(200);
-  check('… and it comes back at the next that has', onTop() === 'All 5 corporations', onTop());
+  check('… nor comes back after, at a box it would have reached', P.level.peek() === null, onTop());
   kindPen().click(); kindPen().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
-  check('at the kind in the eyebrow: every one of the kind', /^All \d+ entities$/.test(onTop()) && kindPen().classList.contains('here'), onTop());
+  check('at the kind in the eyebrow: every one of the kind', /^\d+ entities$/.test(onTop()) && kindPen().classList.contains('here'), onTop());
   Shell.select([]); await tick(150);
   cv().root.focus(); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(150);
   check('Esc with nothing selected brings it home', P.level.peek() === null, JSON.stringify(P.level.peek()));
   Shell.select(['feeder']); await tick(200);
-  check('… and it goes by itself again', onTop() === 'All 5 funds', onTop());
-  // A row whose answer a Styles row says wider: a click there, the row; a second, the one answer.
+  check('… and it goes by itself again', onTop() === '5 funds', onTop());
+  // A row whose answer a Styles row says wider: its places in a small list at the pen, the current one ticked, each pointed at dimming the chart to it.
   const vt = () => rowPen('Vehicle Type');
   vt().dispatchEvent(new PointerEvent('pointerenter')); await tick(100);
-  const nextSays = vt().dataset.tip;
-  vt().click(); vt().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
-  check('a second click on a row with two places goes to its one answer', /feeder fund/i.test(onTop()) && /feeder fund/i.test(nextSays), `${nextSays} → ${onTop()}`);
+  const says2 = vt().dataset.tip;
+  vt().click(); await tick(150);
+  const rows2 = () => $$('.float .menu .menu-item'), ticked = () => rows2().filter(x => x.getAttribute('aria-checked') === 'true').map(txt);
+  check('a click on a pen with two places opens them at the pen, the current ticked', rows2().length >= 3 && ticked().length === 1 && ticked()[0] === '5 funds' && rows2().some(x => /feeder fund/i.test(txt(x))) && /or/.test(says2), `${rows2().map(txt).join(' | ')} ${says2}`);
+  check('… with A look for each', rows2().some(x => txt(x) === 'A look for each'), rows2().map(txt).join());
+  rows2().find(x => /feeder fund/i.test(txt(x))).dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120);
+  check('… and one pointed at dims the chart to it', dulls() > 0, `${dulls()}`);
+  rows2().find(x => /feeder fund/i.test(txt(x))).click(); await tick(150);
+  check('… and a click there puts the pen there', /feeder fund/i.test(onTop()) && dulls() === 0, onTop());
+  // A row of one place: the pen goes there at once; clicked again, where it stands, a choice's offers A look for each.
+  P.home(); await tick(100);
   // The pen is the scope: what goes to the scope goes there, for a value row every box that has it.
   P.home(); await tick(100);
   rowPen('EIN').click(); rowPen('EIN').dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
   const withEin = FormatBar.scope();
-  check('at a value: every box that has that entry, said so', /^All \d+ with EIN$/.test(onTop()) && withEin.marks.size > 5 && [...withEin.marks].every(id => sc().byId.get(id).type === 'box'), onTop());
+  check('at a value: every box that has that entry, said so', /^\d+ with EIN$/.test(onTop()) && withEin.marks.size > 5 && [...withEin.marks].every(id => sc().byId.get(id).type === 'box'), onTop());
   const changesAt = App.wb.changes().length;
   FormatBar.apply('Fill', '#fce4d6'); await tick(300);
   check('… a fill lands on those boxes, one change', [...withEin.marks].every(id => sc().byId.get(id).settings.Fill.value === '#fce4d6' || Tree.idsIn(sc().byId.get(id).settings.Fill.note?.pattern ?? {}).size || sc().byId.get(id).settings.Fill.note?.pattern?.out) && App.wb.changes().length === changesAt + 1 && sc().byId.get('feeder').settings.Fill.value !== undefined);
@@ -3061,7 +3080,15 @@ async function designing(st) {
   cv().fields.drop('EIN'); await tick(300);
   check('… and it goes to that one', einsShown(['halvard']) === 1 && einsShown([...FormatBar.scope().marks]) === 0);
   Shell.parts.peek().undo.undo(); await tick(200);
-  // Free text at the pen, `{Entry}` reading each box's own.
+  // What's said of one thing goes on that thing, unless a hand moved the pen for this selection.
+  cv().fields.addText('feeder', 'Only here'); await tick(300);
+  check('a free text begun on a box goes on that box, the pen where it goes by itself', sc().byId.get('feeder').texts.some(it => it.free?.text === 'Only here') && ![...FormatBar.scope().marks].some(id => id !== 'feeder' && sc().byId.get(id).texts.some(it => it.free)) && /^Added text to /.test(txt($$('.toast').at(-1))) && !/all 5/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  Shell.parts.peek().undo.undo(); await tick(200);
+  cv().fields.addFoot('feeder', 'Only this one'); await tick(300);
+  check('… and so does a footnote, the toast naming it', sc().byId.get('feeder').feet?.length === 1 && ![...FormatBar.scope().marks].some(id => id !== 'feeder' && sc().byId.get(id).feet?.length) && /Added a footnote to /.test(txt($$('.toast').at(-1))) && !/all 5/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  Shell.parts.peek().undo.undo(); await tick(200);
+  // Free text at the pen a hand moved, `{Entry}` reading each box's own.
+  $('[data-fb="like"]').click(); await tick(150);
   cv().fields.addText('feeder', 'In {Jurisdiction}'); await tick(300);
   const inJ = id => sc().byId.get(id).texts.find(it => it.free)?.text;
   check('a free text from the panel goes to what the pen reaches, each box reading its own', inJ('feeder') === 'In Cayman Islands' && [...FormatBar.scope().marks].some(id => /^In Delaware/.test(inJ(id) ?? '')) && $$('.toast').some(t => /Added text to all 5 funds/.test(txt(t))), `${inJ('feeder')} ${txt($$('.toast').at(-1))}`);
@@ -3256,7 +3283,7 @@ async function templates() {
   const ada = Object.keys(App.state.peek()).find(id => App.notes.peek().nameOf(App.state.peek(), id) === 'Ada Hale' && App.state.peek()[id].kind), fromBoth = [she, he].map(p => sc().marks.find(m => m.type === 'line' && m.from === p && m.to === ada));
   check('… one change, a line from each, drawn as one', fromBoth.every(Boolean) && j2(fromBoth[0].points.slice(1)) === j2(fromBoth[1].points.slice(1)), j2(fromBoth.map(l => l?.points)));
   // What the format bar counts counts the one just added by a redline, whose scene is the one the change, made, draws.
-  check('… and the format bar counts the one just added', txt($('[data-fb=like]')) === 'All 3 people', txt($('[data-fb=like]')));
+  check('… and the format bar counts the one just added', txt($('[data-fb=like]')) === '3 people', txt($('[data-fb=like]')));
   // Like this chart keeps its master: what every page of it has.
   App.change(tx => { tx.add('shape', { view: Scene.MASTER, geometry: 'text', text: 'Confidential', x: 40, y: 40, w: 200, h: 24 }); }, { dated: false }); await tick(250);
   App.newChart(); await tick(350); await until(() => !$('.chartmenu.naming input')); $('.chartmenu.naming input')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(80);

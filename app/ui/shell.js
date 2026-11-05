@@ -593,8 +593,10 @@ const Shell = (() => {
       e.preventDefault();
     };
     useLayoutEffect(() => { el(active)?.scrollIntoView({ block: 'nearest' }); }, [active]);
-    // An item pointed at, or reached by the keys, shows what it would do (its `point`) until it's left.
-    const pointed = items[active]?.point;
+    // An item pointed at, or reached by the keys, shows what it would do (its `point`) until it's left. (What's lit as a menu opens hasn't been reached by anyone: opening previews nothing.)
+    const opened = useRef(act);
+    if (active !== opened.current) opened.current = null;
+    const pointed = active === opened.current ? null : items[active]?.point;
     useEffect(() => { if (!pointed) return; pointed(true); return () => pointed(false); }, [pointed]);
     // The menu, or its field, keeps focus; the item the keys are on is its active descendant.
     const at = active >= 0 && items[active] ? mi(active) : null;
@@ -730,7 +732,9 @@ const Shell = (() => {
   const toasts = signal([]);
   let tid = 0;
   function toast(text, o = {}) {
-    const t = { id: ++tid, text, acts: [...(o.go ? [o.go] : []), ...(o.undo ? [['Undo', o.undo]] : o.redo ? [['Redo', o.redo]] : [])], stay: !!o.go, timer: 0 };
+    // (`go`, what it offers beside Undo: one [label, run], or several.)
+    const gos = !o.go?.length ? [] : Array.isArray(o.go[0]) ? o.go : [o.go];
+    const t = { id: ++tid, text, acts: [...gos, ...(o.undo ? [['Undo', o.undo]] : o.redo ? [['Redo', o.redo]] : [])], stay: !!gos.length, timer: 0 };
     const dismiss = () => { clearTimeout(t.timer); toasts.value = toasts.peek().filter(x => x !== t); };
     t.arm = () => { clearTimeout(t.timer); if (!t.stay) t.timer = setTimeout(dismiss, o.ms || 6000); };
     t.dismiss = dismiss;

@@ -115,7 +115,7 @@ const Table = (() => {
   function typed(c, specs, N = App.notes.value) {
     const types = specs.map(t => 'field' in t.out ? t.out.field : 'choice' in t.out ? 'choice' : 'tag');
     const type = types.sort((a, b) => types.filter(x => x === b).length - types.filter(x => x === a).length)[0];
-    return { ...c, type, options: N.optionsOf(specs) };
+    return { ...c, type, options: N.optionsOf(specs), grows: specs.some(t => N.value('Grows', Tree.bare(t)) === true) };
   }
   // A record's lists of relatives as columns (dendra.md, Views: Columns): each list a relation of two sides makes, of the
   // schema's, one side at the row's record (or at an entry down from it: a Principal at its Jurisdiction), named as its
@@ -585,7 +585,7 @@ const Table = (() => {
   // A choice's editor, as Excel's list is validated: what's typed finds its options, those it begins first, the first lit,
   // and Enter or Tab takes the one lit and moves on, as from text; Ctrl+Enter takes it into every cell of the range. Text
   // that finds none is never kept: it stays, outlined, "Not an option", till an option is picked or "New option: …", its
-  // own item, never lit of itself, is chosen. A relation's side is one of the objects it can be, and nothing new. Esc puts
+  // own item, never lit of itself, is chosen; but a choice whose options grow by typing (its Grows note) takes it, lit, as Enter or Tab's. A relation's side is one of the objects it can be, and nothing new. Esc puts
   // it back; leaving keeps only an option named whole, or nothing, which clears it.
   const chooser = c => (cell, onRendered, success, cancel) => {
     const input = document.createElement('input'), now = cell.getValue(), was = now === null || now === undefined ? '' : String(now);
@@ -605,9 +605,9 @@ const Table = (() => {
       const q = clean(input.value), k = norm(q), opts = options();
       const found = !typing || !q ? opts : [...opts.filter(o => norm(o).startsWith(k)), ...opts.filter(o => !norm(o).startsWith(k) && norm(o).includes(k))];
       items = found.map(o => ({ label: o, value: o }));
-      const none = !!q && typing && !found.length, fresh = c.type === 'choice' && !!q && typing && !opts.some(o => same(o, q));
+      const none = !!q && typing && !found.length && !c.grows, fresh = c.type === 'choice' && !!q && typing && !opts.some(o => same(o, q));
       if (fresh) items.push({ label: `New option: ${q}`, value: q, fresh: true });
-      lit = !typing ? found.findIndex(o => same(o, was)) : found.length ? 0 : -1;
+      lit = !typing ? found.findIndex(o => same(o, was)) : found.length ? 0 : fresh && c.grows ? items.length - 1 : -1;
       wrong = none && c.type === 'edge' ? otherKind(current, c.edge, q) : null;
       input.classList.toggle('bad', none);
       input.dataset.why = '';   // (Its list says why.)

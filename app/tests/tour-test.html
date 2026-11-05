@@ -122,7 +122,7 @@ async function run() {
   // 3. All like it: the bar's other part, which lights the boxes like the one selected.
   await until(() => !!visible('[data-tour="like"]') && around(visible('[data-tour="like"]')));
   const like = visible('[data-tour="like"]');
-  check('Step 3 points at all like it, above the chart', !!like && around(like) && /^All \d+ /.test(txt(like)), like && txt(like));
+  check('Step 3 points at all like it, above the chart', !!like && around(like) && /^\d+ /.test(txt(like)), like && txt(like));
   like.click(); await tick(200);
   check('Clicking it does step 3, and the name typed in is left as it was', step() === '4 / 7' && !$('.dc-edit') && N() === n0, `${step()} ${!!$('.dc-edit')} ${N() - n0}`);
 
