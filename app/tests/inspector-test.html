@@ -893,11 +893,11 @@ async function run() {
   check('… one captioned otherwise named on hover, not beneath', $$('.row.out').find(r => capOf(r) === 'Investors')?.querySelector('.v').title === 'Investor Group');
   check('a text style uncaptioned is keyed by the texts it sets, as a box style by its boxes: Names, Jurisdictions', outs.includes('Names/') && outs.includes('Jurisdictions/')
     && $$('.row.out').filter(r => r.querySelector('svg.sw text')).every(r => /s$/.test(capOf(r))), outs.join(' | '));
-  // A swatch is the page's own: drawn on the page's white, in dark as in light, dimmed whole in dark so its plate isn't the brightest thing in the panel
+  // A swatch is the page's own: its colours true, on a neutral chip, in dark as in light
   const swatch = $('svg.sw'), theme = document.documentElement.dataset.theme;
   document.documentElement.dataset.theme = 'dark';
-  const dark = getComputedStyle(swatch), page = getComputedStyle(document.body).getPropertyValue('--page').trim();
-  check('in dark, a swatch is drawn on the page’s white, dimmed whole, not turned to the panel’s colours', /^brightness\(0\.\d+\)$/.test(dark.filter) && dark.backgroundColor === 'rgb(255, 255, 255)' && page === '#ffffff', `${dark.filter} ${dark.backgroundColor} ${page}`);
+  const dark = getComputedStyle(swatch), page = getComputedStyle(document.body).getPropertyValue('--well').trim();
+  check('in dark, a swatch’s colours are true, nothing dims them, on a neutral chip', dark.filter === 'none' && dark.opacity === '1' && dark.backgroundColor === 'rgb(213, 212, 207)' && page === '#d5d4cf', `${dark.filter} ${dark.opacity} ${dark.backgroundColor} ${page}`);
   document.documentElement.dataset.theme = theme;
   // Each 2 px inside its chip, a heavy outline too, so none runs along the chip's edge, where in dark a dashed one
   // (Not in good standing) would merge with the chip's white.
@@ -905,8 +905,11 @@ async function run() {
   const reach = c => { const b = c.getBBox(), h = +(c.getAttribute('stroke-width') || 0) / 2, hx = b.height ? h : 0, [, tx = 0, ty = 0] = /translate\(([\d.]+) ([\d.]+)\)/.exec(c.getAttribute('transform') ?? '') ?? [];
     return [b.x + +tx - hx, b.y + +ty - h, b.x + +tx + b.width + hx, b.y + +ty + b.height + h]; };
   const outside = $$('svg.sw > *').filter(c => { const [x0, y0, x1, y1] = reach(c); return x0 < 1.99 || y0 < 1.99 || x1 > 26.01 || y1 > 14.01; });
-  check('… each 2 px inside its chip, a heavy outline too, so none runs along its edge', $$('svg.sw > *').length > 5 && !outside.length && $$('svg.sw path[stroke-width="2.5"]').length > 0,
+  check('… each 2 px inside its chip, a heavy outline too, so none runs along its edge', $$('svg.sw > *').length > 5 && !outside.length,
     outside.map(c => reach(c).map(v => v.toFixed(2)).join(',')).join(' | '));
+  // A dashed one thin enough that its dash comes round the chip more than once, so it reads as dashes.
+  const dashed = $$('svg.sw path[stroke-dasharray]').filter(p => !p.getAttribute('d').startsWith('M2 8'));
+  check('… a dashed outline is seen whole: its dash comes round its chip more than once', dashed.length > 0 && dashed.every(p => p.getAttribute('stroke-dasharray').split(' ').reduce((a, b) => a + +b, 0) < 24 && +p.getAttribute('stroke-width') <= 1.25), dashed.map(p => `${p.getAttribute('stroke-dasharray')} @${p.getAttribute('stroke-width')}`).join(' | '));
   // One rule groups a style's outputs, the Key's: a Key row is one row here, its outputs all in it.
   const said = $$('.row.out').map(r => (r.querySelector('.oname')?.textContent ?? (r.querySelector('.v').title || capOf(r))).split(', '));
   check('… grouped as the Key groups them: outputs that look alike are one row', App.scene.peek().legend.every(g => said.some(ns => g.outputs.every(p => ns.some(x => Tree.same(x, Scene.outputName(N(), p))))))
