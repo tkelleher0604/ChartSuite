@@ -1327,7 +1327,7 @@ function mount(el) {
     const at = Layout.pin(m.points, { x: p.x, y: p.y, w: m.label.w, h: m.label.h });
     App.change(tx => tx.note('Position', treeOf(m.record), at, { view: viewOf() }), { dated: false, say: `Moved the label of ${called(m)}` });
   }
-  graph.on('node:moved', ({ node, e }) => { dragging = null; root.classList.remove('dragging'); if (frameLit) { lightFrame(frameLit, false); frameLit = null; } if (node.getData()?.kind === 'label') return movedLabel(node); if (joining(node, e)) return; if (['box', 'shape'].includes(node.getData()?.kind)) hand.equalGaps(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
+  graph.on('node:moved', ({ node, e }) => { dragging = null; root.classList.remove('dragging'); if (frameLit) { lightFrame(frameLit, false); frameLit = null; frameGone?.(); } if (node.getData()?.kind === 'label') return movedLabel(node); if (joining(node, e)) return; if (['box', 'shape'].includes(node.getData()?.kind)) hand.equalGaps(node); moved([...new Set([node.id, ...sel.getSelectedCells().map(c => c.id)])]); });
   graph.on('node:resized', ({ node }) => { dragging = null; root.classList.remove('dragging'); moved([node.id]); spilt([node.id]); });
   graph.on('node:rotating', ({ node }) => { dragging = node.id; showHandles(null); astray(node.id); });
   graph.on('node:rotated', ({ node }) => { dragging = null; turn(node.id, node.getAngle()); });
@@ -1411,15 +1411,18 @@ function mount(el) {
     return made;
   }
   // A box carried over a frame it isn't in: the frame's outline lit, so it's plain it would join it. (Its own again with the next draw, or as it's left.)
-  let frameLit = null;
+  let frameLit = null, frameGone = null;
   const lightFrame = (id, on) => { const c = id && graph.getCellById(id), m = id && scene.byId.get(id); if (c && m) { c.attr('body/stroke', on ? BLUE : paint(m.look.Outline)); c.attr('body/stroke-width', on ? 2 : px(m.look.Weight)); astray(id, true); } };
   function frameCue(node) {
     const m = scene.byId.get(node.id), p = node.getPosition(), s = node.getSize();
     const f = m && holdable(m) && !isFrame(m) ? scene.marks.filter(q => isFrame(q) && middleIn({ x: p.x, y: p.y, w: s.width, h: s.height }, q)).sort((a, b) => a.w * a.h - b.w * b.h)[0] ?? null : null, to = f && !heldOf(f).includes(m) ? f.id : null;
     if (to === frameLit) return;
     lightFrame(frameLit, false);
+    frameGone?.();
     frameLit = to;
     lightFrame(to, true);
+    const el = to && graph.findViewByCell(node)?.container;
+    frameGone = el ? Shell.whileThere(el, () => { lightFrame(frameLit, false); frameLit = null; }) : null;
   }
   graph.on('node:moving', ({ node, e }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); if (node.getData()?.kind === 'label') astray(node.id); else { snapMoving(node); follow(node); joinCue(node, e); if (!dropOn) frameCue(node); } });
   graph.on('node:resizing', ({ node }) => { dragging = node.id; root.classList.add('dragging'); showHandles(null); follow(node); });
@@ -3116,16 +3119,18 @@ function mount(el) {
     // What's set as the default of its family, and what its shape asks for itself.
     const given = hand.newLook(geometry, row.format);
     if (Object.keys(given).length && !['legend', 'frame', 'picture', 'table'].includes(geometry)) row.format = given;
-    if (geometry === 'frame' && sel0.length && opts.x === undefined) {
-      const b = { x: Math.min(...sel0.map(m => m.x)), y: Math.min(...sel0.map(m => m.y)), r: Math.max(...sel0.map(m => m.x + m.w)), d: Math.max(...sel0.map(m => m.y + m.h)) };
-      row = { ...row, x: round(b.x - 14), y: round(b.y - 28), w: round(b.r - b.x + 28), h: round(b.d - b.y + 42), text: opts.text ?? 'Frame', holds: sel0.map(m => m.id), pad: { l: 14, t: 28, r: 14, b: 14 },
+    // (A frame holds boxes and free shapes: the Key, and what's the page's own, it has no part in.)
+    const heldNew = geometry === 'frame' ? sel0.filter(holdable) : [];
+    if (heldNew.length && opts.x === undefined) {
+      const b = { x: Math.min(...heldNew.map(m => m.x)), y: Math.min(...heldNew.map(m => m.y)), r: Math.max(...heldNew.map(m => m.x + m.w)), d: Math.max(...heldNew.map(m => m.y + m.h)) };
+      row = { ...row, x: round(b.x - 14), y: round(b.y - 28), w: round(b.r - b.x + 28), h: round(b.d - b.y + 42), text: opts.text ?? 'Frame', holds: heldNew.map(m => m.id), pad: { l: 14, t: 28, r: 14, b: 14 },
         format: { Layer: -1 + Math.min(0, ...s.marks.map(m => m.settings?.Layer?.value ?? m.look?.Layer ?? 0)) } };
       // (It holds what it's given. What only stood among them steps out, to the nearest clear place beyond it: nothing else moves.)
-      const R = { x: row.x, y: row.y, w: row.w, h: row.h }, hits = m => m.x < R.x + R.w && R.x < m.x + m.w && m.y < R.y + R.h && R.y < m.y + m.h, others = s.marks.filter(m => m.type === 'box' && !m.revealed && !sel0.includes(m) && hits(m));
+      const R = { x: row.x, y: row.y, w: row.w, h: row.h }, hits = m => m.x < R.x + R.w && R.x < m.x + m.w && m.y < R.y + R.h && R.y < m.y + m.h, others = s.marks.filter(m => m.type === 'box' && !m.revealed && !heldNew.includes(m) && hits(m));
       if (others.length) {
         const steps = new Map(), room = { ...s, marks: [...s.marks.filter(m => !others.includes(m) && m.type !== 'line'), { ...R, type: 'shape', geometry: 'frame' }] };
         for (const m of others) { const q = freeSpot(room, m.w, m.h, { x: m.x + m.w / 2, y: m.y + m.h / 2 }, { gap: 12, lane: 0 }) ?? freeSpot(room, m.w, m.h, { x: m.x + m.w / 2, y: m.y + m.h / 2 }, { gap: 12, lane: 0, last: true }); steps.set(m.id, { x: q.x, y: q.y }); room.marks.push({ ...m, ...q }); }
-        const names = others.map(m => called(m)), said = `Framed ${sel0.length === 1 ? called(sel0[0]) : `${sel0.length} boxes`}: ${names.length === 1 ? `${names[0]} stepped` : names.length === 2 ? `${names.join(' and ')} stepped` : `${names.length} others stepped`} out of it`;
+        const names = others.map(m => called(m)), said = `Framed ${heldNew.length === 1 ? called(heldNew[0]) : `${heldNew.length} boxes`}: ${names.length === 1 ? `${names[0]} stepped` : names.length === 2 ? `${names.join(' and ')} stepped` : `${names.length} others stepped`} out of it`;
         let id = null;
         if (!App.change(tx => { id = tx.add('shape', row); place(tx, steps); }, { dated: false, say: said })) return null;
         Shell.select([id]);
@@ -3552,7 +3557,8 @@ function mount(el) {
     }
     // And the Key the page placed, where it's drawn on the sheet, so it keeps its corner as the chart is edited.
     const key = base.marks.find(m => m.geometry === 'legend' && m.byPage), s = base.page.scale;
-    if (key) out.set(key.id, { x: round(key.x * s), y: round(key.y * s) });
+    // (As wide as it's drawn, so one the page wrapped to fit stays so, and a second Tidy finds nothing to do.)
+    if (key) out.set(key.id, { x: round(key.x * s), y: round(key.y * s), w: round(key.w * s) });
     // And the scale it's drawn at, and how far the page has moved it (a kept note; see Scene's furnish).
     out.page = { scale: s, x: o.x, y: o.y };
     return out;

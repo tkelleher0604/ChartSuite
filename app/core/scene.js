@@ -3009,7 +3009,8 @@ function furnish({ sheet, boxes, lines, frames, shapes: rows, said, legend: lege
       // Where a change kept it, on the sheet (`keptAt`), while that's clear of what the layout places and what's over it
       // there, and nothing a hand put stands on it: what a hand puts near it moves it no more than it moves anything.
       if (keptAt && !footed && !corner) {
-        const under = keptAt.y < y, k = under ? side : key, kw = k.w * s, q = { x: Math.min(keptAt.x, W - MR - kw), y: Math.min(keptAt.y, H - MB - k.h * s), w: kw, h: k.h * s };
+        // (Wrapped narrower than it need be when the page placed it, it stays as narrow.)
+        const under = keptAt.y < y, narrow = key.auto && keptAt.w != null && keptAt.w < key.w * s - 1 ? keyed(rows.find(r => r.id === key.row), keptAt.w * u) : null, k = narrow ?? (under ? side : key), kw = k.w * s, q = { x: Math.min(keptAt.x, W - MR - kw), y: Math.min(keptAt.y, H - MB - k.h * s), w: kw, h: k.h * s };
         if (fits(q) && !free.some(f => meets(f, q)) && !set(top).some(c => meets(c, q, c.hand ? 0 : 21)) && (!under || q.x >= W - MR - room - 0.5)) { places.set(key.row, q); shapes[shapes.indexOf(key)] = key = k; alongside = q; }
       }
       if (!places.has(key.row) && !footed && r.w <= room + 0.5 && fits(r) && clearOfFree(r)) {
