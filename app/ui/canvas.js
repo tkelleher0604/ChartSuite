@@ -1889,7 +1889,14 @@ function mount(el) {
     const hasIt = m => { const x = placeIn(m); return !!x && (!!Tree.entryAt(s0, x, edge) || !!specOfField(x, edge)); }, shownIn = m => { const x = placeIn(m); return !!x && shows(m, edge, x); };
     const before = new Map(ids.map(id => [id, scene.byId.get(id)]).filter(([, m]) => m?.type === type).map(([id, m]) => [id, hasIt(m) && shownIn(m)]));
     // The note that decides whether it's shown in a mark: the one that shows it, or one beside what the mark is, or at the entry.
-    const deciding = m => { const N = App.notes.peek(), x = placeIn(m), e = x && Tree.entryAt(st(), x, edge), by = Object.entries(N.fields(treeOf(m.record), view, 'Shown')).find(([k]) => Tree.same(k, edge))?.[1]?.note; return m.texts?.find(it => Tree.same(fieldName(it), edge))?.shownBy ?? by ?? (e ? N.resolve('Shown', treeOf(e), view)?.note : null) ?? null; };
+    const deciding = m => {
+      const N = App.notes.peek(), s = st(), es = Tree.index(s).entries, shower = m.texts?.find(it => Tree.same(fieldName(it), edge))?.shownBy;
+      if (shower) return shower;
+      // (Hidden: a note beside something in the box, or at the entry, that says so.)
+      for (let todo = [m.record], i = 0; i < todo.length; i++) { const r = Object.entries(N.fields(treeOf(todo[i]), view, 'Shown')).find(([k]) => Tree.same(k, edge))?.[1]; if (r?.value === false) return r.note; todo.push(...es.get(todo[i]) ?? []); }
+      const x = placeIn(m), e = x && Tree.entryAt(s, x, edge), r = e && N.resolve('Shown', treeOf(e), view);
+      return r?.value === false ? r.note : null;
+    };
     return App.change(tx => {
       for (const m of ms) {
         const rec = treeOf(m.record), e = at && at !== m.record ? Tree.entryAt(s0, at, edge) : entryIn(m.record, edge);

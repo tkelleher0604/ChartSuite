@@ -1825,7 +1825,7 @@ async function pickings() {
   await rightClickAt(sc().byId.get(a.id), sc().byId.get(a.id).texts[0]);
   await underMore();
   items = menuItems();
-  check('one on a name in a box selected alone gives the box’s menu, with the name’s own in one row at its end, the field not selected by that', items.some(s => s.startsWith('Hide in this view')) && items.at(-1)?.startsWith('Name') && !items.some(s => s.startsWith('Clear contents')) && !cv().field(), items.join(' | '));
+  check('one on a name in a box selected alone gives the box’s menu, with the name’s own in one row at its end, the field not selected by that', items.some(s => s.startsWith('Hide in this view')) && items[items.findIndex(s => /^(Dissolve|End|Delete)/.test(s)) + 1]?.startsWith('Name') && !items.some(s => s.startsWith('Clear contents')) && !cv().field(), items.join(' | '));
   await closeMenus(); Shell.select([]); await tick(150);
   // The Key's Delete.
   const key = sc().marks.find(m => m.geometry === 'legend');
@@ -3191,7 +3191,7 @@ async function designing(st) {
     jEye().click(); await tick(250);
     check('where a narrower note keeps it, the toast says which, by what, with a way to have it all', /^Nothing changed; .* still hides it in 5/.test(toast()) && $$('.toast button').some(b => txt(b) === 'Show it in those too'), toast());
     $$('.toast button').find(b => txt(b) === 'Show it in those too').click(); await tick(250);
-    check('… which does', [...FormatBar.scope().marks].every(id => sc().byId.get(id).texts.some(it => /Delaware|Cayman|Maryland|Minnesota/.test(it.text ?? '') || it.blank?.edge === 'Jurisdiction')), toast());
+    check('… which does', [...FormatBar.scope().marks].every(id => !App.state.peek()[Tree.entryAt(App.state.peek(), sc().byId.get(id).record, 'Jurisdiction')] || sc().byId.get(id).texts.some(it => App.state.peek()[it.id]?.edge === 'Jurisdiction' || it.blank?.edge === 'Jurisdiction')), toast());
     await undo(); await undo(); await undo(); P.home(); Shell.select(['fund']); await tick(150);
     rowPen('Entity Type').click(); await tick(100); $$('.float .menu-item').find(x => /^5 limited partnerships$/.test(txt(x))).click(); await tick(100); }
   // A size typed goes where the pen is, as one change.
