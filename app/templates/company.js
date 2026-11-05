@@ -19,7 +19,7 @@ Templates.register({
     t.note('Required', t.entry('Entity Type', entity), true);
     t.note('Required', t.entry('Jurisdiction', entity), true);
     const owns = t.relation('Ownership', ['Owner', 'Owned'], { kinds: [['Entity', 'Entity'], ['Individual', 'Entity']], lists: { Owner: 'Owners', Owned: 'Holdings' }, at: { Percentage: 'percent' } });
-    const role = t.relation('Position', ['Holder', 'Company'], { kinds: [['Individual', 'Entity']], lists: { Holder: 'Directors and Officers', Company: 'Positions' }, roles: ['Director', 'Officer'], at: { Title: 'text', 'Start Date': 'date', 'End Date': 'date' } });
+    const role = t.relation('Position', ['Holder', 'Company'], { kinds: [['Individual', 'Entity']], lists: { Holder: 'People', Company: 'Positions' }, roles: ['Director', 'Officer'], at: { Title: 'text', 'Start Date': 'date', 'End Date': 'date' } });
     t.starts('Start Date', role);
     t.ends('End Date', role);
 

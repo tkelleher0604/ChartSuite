@@ -747,6 +747,19 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
       }
     }
     const kids = linked(b.id, 'down').filter(id => geo.has(id)), parents = linked(b.id, 'up').filter(id => geo.has(id));
+    // One more of a box whose own hang in a column (see hanging) goes at the column's foot, where nothing's in the way.
+    if (parents.length === 1 && !kids.length) {
+      const col = linked(parents[0], 'down').map(id => geo.get(id)).filter(Boolean).sort((p, q) => p.y - q.y), foot = col.at(-1);
+      if (col.length > 1 && col.every(g => Math.abs(g.x - col[0].x) < 1)) {
+        const q = { x: foot.x, y: foot.y + foot.h + STACK, w: b.w, h: b.h };
+        if (within(q) && !nearBoxes.any(wide(q, 4, 4), i => !apart(q, placedBoxes[i], 4, 4))) {
+          geo.set(b.id, { id: b.id, ...q, shape: b.shape });
+          nearBoxes.add(geo.get(b.id), placedBoxes.push(geo.get(b.id)) - 1);
+          out.set(b.id, { x: q.x, y: q.y });
+          continue;
+        }
+      }
+    }
     const near = [...kids, ...parents];
     const [dx, dy] = near.length ? shift(near.filter(id => out.has(id) && at.has(id))) : all, hint = hints?.get(b.id);
     // (Related to nothing placed, made nowhere in particular, it goes in a row under what stands, from its left, so it widens nothing: see tiers.)
