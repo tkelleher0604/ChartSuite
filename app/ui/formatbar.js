@@ -1156,12 +1156,13 @@ function TablePick({ c, close }) {
   return html`<div class="tablepick" role="menu">
     <div class="menu-head">${at[0] ? `${at[0]} × ${at[1]} table` : 'Table'}</div>
     <div class="grid" data-grid="button" onPointerLeave=${() => setAt([0, 0])}>${Array.from({ length: 6 * 8 }, (_, i) => { const r = Math.floor(i / 8) + 1, k = i % 8 + 1; return html`<button type="button" aria-label=${`${r} rows, ${k} columns`} class=${r <= at[0] && k <= at[1] ? 'on' : ''} onPointerEnter=${() => setAt([r, k])} onFocus=${() => setAt([r, k])} onClick=${() => { close(); c.table(r, k); }} />`; })}</div>
-    ${lists.length ? html`<div class="menu-sep" />${lists.map(l => html`<button type="button" class="menu-item" role="menuitem" onClick=${() => { close(); c.table(0, 0, { of: one.record, list: l.name }); }}><span class="label">${l.name} of ${N.shortOf(st, one.record) ?? N.nameOf(st, one.record)}</span></button>`)}` : null}
+    ${lists.length ? html`<div class="menu-sep" />${lists.map(l => html`<button type="button" class="menu-item" role="menuitem" onClick=${() => { close(); c.table(0, 0, { of: one.record, list: l.name }); }}><span class="label">${l.name}${/ (of|in|to|by|for|from|at|on|with)$/i.test(l.name) ? '' : ' of'} ${N.shortOf(st, one.record) ?? N.nameOf(st, one.record)}</span></button>`)}` : null}
   </div>`;
 }
 const tablePick = (at, c) => Shell.popover(at, close => html`<${TablePick} c=${c} close=${close} />`, { placement: 'bottom-start' });
-// Lucide's icons, found by typing: each comes in as a shape of its own, its strokes a freeform's, so it takes an outline and a weight, its points can be edited, and in a deck it's PowerPoint's own.
-const iconNames = () => iconNames.all ??= typeof lucide === 'undefined' ? [] : Object.keys(lucide).filter(k => Array.isArray(lucide[k]) && lucide[k][0] === 'svg' && /^[A-Z]/.test(k)).sort();
+// Lucide's icons, found by typing, what a chart asks for most first: each comes in as a shape of its own, its strokes a freeform's, so it takes an outline and a weight, its points can be edited, and in a deck it's PowerPoint's own.
+const ICONS_FIRST = ['User', 'Users', 'UserCheck', 'Baby', 'Heart', 'Crown', 'Building', 'Building2', 'Landmark', 'Factory', 'Store', 'House', 'Briefcase', 'Network', 'Scale', 'Gavel', 'Shield', 'Lock', 'FileText', 'FileCheck', 'Banknote', 'DollarSign', 'PiggyBank', 'Handshake', 'Globe', 'MapPin', 'Flag', 'Star', 'Calendar', 'Clock', 'Mail', 'Phone', 'Info', 'CircleCheck', 'CircleX', 'TriangleAlert'];
+const iconNames = () => iconNames.all ??= typeof lucide === 'undefined' ? [] : (all => [...ICONS_FIRST.filter(k => all.includes(k)), ...all.filter(k => !ICONS_FIRST.includes(k))])(Object.keys(lucide).filter(k => Array.isArray(lucide[k]) && lucide[k][0] === 'svg' && /^[A-Z]/.test(k)).sort());
 const spaced = k => k.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
 function IconPick({ c, close }) {
   const [q, setQ] = useState(''), words = q.trim().toLowerCase().split(/\s+/).filter(Boolean), found = iconNames().filter(k => { const s = spaced(k).toLowerCase(); return words.every(w => s.includes(w)); }).slice(0, 120);

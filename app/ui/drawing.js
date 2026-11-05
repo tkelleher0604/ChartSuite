@@ -481,7 +481,7 @@ function attach(x) {
   function setCell(id, src, c, text) {
     const t = tableOfRow(id);
     if ((t.rows[src]?.cells?.[c]?.text ?? '') === text) return true;
-    return putTable(id, { ...t, rows: t.rows.map((r, i) => i !== src ? r : { ...r, cells: r.cells.map((k, j) => j === c ? { ...k, text } : k) }) }, 'Typed in the table');
+    return putTable(id, { ...t, rows: t.rows.map((r, i) => i !== src ? r : { ...r, cells: r.cells.map((k, j) => j === c ? { ...k, text } : k) }) });
   }
   function editCell(m, target, typed) {
     if (x.still()) return;
@@ -543,7 +543,7 @@ function attach(x) {
   function newTable(rows, cols, o = {}) {
     const s = x.scale(), row = o.list ? capTable(o.of, o.list) : { cols: Array(cols).fill(1), rows: Array.from({ length: rows }, () => ({ cells: blank(cols) })), header: true, banded: true };
     if (!row) return null;
-    const n = row.rows.length + (o.list ? Math.max(0, (Scene.listsAt(App.state.peek(), App.notes.peek(), o.of).find(l => l.name === o.list)?.items.length ?? 1) - 1) : 0), w = round(Math.max(120 + (row.cols.length - 1) * 90, 240) / s), h = round(n * 26 / s);
+    const n = row.rows.length + (o.list ? Math.max(0, (Scene.listsAt(App.state.peek(), App.notes.peek(), o.of).find(l => l.name === o.list)?.items.length ?? 1) - 1) : 0), w = round((o.list ? row.cols.reduce((a, b) => a + b, 0) : Math.max(120 + (row.cols.length - 1) * 90, 240)) / s), h = round(n * 26 / s);
     const id = x.insert('table', { w, h, table: row });
     if (id && !o.list) setTimeout(() => { const m = scene().byId.get(id); if (m) editCell(m, null); });
     return id;
@@ -555,7 +555,9 @@ function attach(x) {
     const figures = entries.filter(e => l.items.some(it => /^\s*-?[\d,.]+\s*%?\s*$/.test(String((Tree.index(st).entries.get(it.rid) ?? []).map(q => st[q]).find(q => q.edge === e)?.value ?? '')) || /percent/i.test(e)));
     const heads = [l.edge, ...entries], tokens = heads.map(e => `{${e}}`);
     const rows = [{ cells: heads.map(text => ({ text })) }, { each: { of, list }, cells: tokens.map(text => ({ text })) }, ...(figures.length ? [{ cells: heads.map((e, i) => ({ text: !i ? 'Total' : figures.includes(e) ? '=SUM(ABOVE)' : '' })) }] : [])];
-    return { of, cols: heads.map((_, i) => i ? 1 : 2), rows, header: true, banded: true };
+    // (Each column as wide as its heading's longest word, so none breaks in two; the first, of names, twice the rest.)
+    const fit = h => Math.ceil(Math.max(...h.split(/\s+/).map(w => Scene.measure(w, { Bold: true, Size: 10 }))) + 21);
+    return { of, cols: heads.map((h, i) => Math.max(i ? 75 : 150, fit(h))), rows, header: true, banded: true };
   }
   // A rule between two columns, dragged: what one gains the other gives, one change.
   x.gEl.addEventListener('mousedown', e => {
@@ -936,7 +938,7 @@ function attach(x) {
   const paneEl = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-panehost' }));
   const pane = on => { paneOpen.value = on ?? !paneOpen.peek(); if (paneOpen.peek()) paintPane(); else render(null, paneEl); };
   function paintPane() { if (paneOpen.peek()) render(html`<${Pane} key=${x.viewOf()} />`, paneEl); }
-  const SHAPE_WORD = { text: 'Text box', legend: 'Key', picture: 'Picture', line: 'Line', group: 'Group', frame: 'Frame' };
+  const SHAPE_WORD = { text: 'Text box', legend: 'Key', picture: 'Picture', line: 'Line', group: 'Group', frame: 'Frame', table: 'Table', freeform: 'Freeform' };
   const titleOf = m => m.type === 'box' || m.type === 'line' ? x.called(m) : m.type === 'frame' ? x.called(m) : m.name ?? (m.geometry === 'line' && m.ends?.some(Boolean) ? 'Connector' : m.geometry === 'text' && m.role ? m.texts[0]?.text : m.texts?.[0]?.text?.split('\n')[0] || SHAPE_WORD[m.geometry] || Shapes.name(m.geometry) || 'Shape');
   function reorder(m, to, after) {
     // (To stand just over or under `to`, in the one order: a layer between what's under it and what's over it; where those are of one layer, a layer of its own, and the fewer of them a layer further, so a shape moved among shapes leaves the boxes as they were.)
