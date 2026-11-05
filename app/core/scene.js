@@ -1057,7 +1057,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const r of footRows) said.set(r.id, r.text);
   // A free shape's text takes the page's Font and Size too, where its own row doesn't say.
   const pageLook = Object.fromEntries(Object.entries(ofPage).map(([l, r]) => [l, r.value]));
-  const onPage = [...shapeRows.filter(r => !r.hidden && (r.geometry !== 'legend' || legendRows.length) && (r.role !== 'footnotes' || footsOf.size)), ...footRows].map(r => !r.master && (ofPage.Font || ofPage.Size) ? { ...r, format: { ...pageLook, ...r.format } } : r);
+  const onPage = [...shapeRows.filter(r => !r.hidden && (r.geometry !== 'legend' || legendRows.length) && (r.role !== 'footnotes' || footsOf.size)), ...footRows].map(r => !r.master && (ofPage.Font || ofPage.Size) ? { ...r, format: { ...pageLook, ...(pageLook.Size !== undefined && (r.role || r.geometry === 'legend') && { Size: undefined }), ...r.format } } : r);
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
   // order gives, where no note says. Its label is its own text, then the texts drawn on it; a line revealed

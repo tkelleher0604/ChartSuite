@@ -74,7 +74,7 @@ A **note** is an entry located at a pattern, and optionally also at a view, labe
 | Master | on a View object: false, that it leaves the chart's master off |
 | Theme Fonts | on the kind View, at no view: what Heading and Body are |
 | Layout, As Of, Changes, Plan, Page, Scale, Guides | on a View object: its layout, the day it keeps, what it compares with (see Changes), the plan it's a page of (see The layout), its page (a paper turned or not, or a size of its own, and its margins, each side's), the scale it keeps, its guides, across and down, in points on its sheet (with its Name and Order, the view's own notes) |
-| Font, Size | on a View object, too: **All text**, every text on that page no narrower note reaches, as the widest note a page has: a text box new on it, its footer and number, its title, date and Key, what only that view draws |
+| Font, Size | on a View object, too: **All text**, every text on that page no narrower note reaches, as the widest note a page has: a text box new on it, its footer and number, its title, date and Key, what only that view draws; though of those the sheet's own, its title, date, Key, footer and number, keep their sizes, a size saying what names print at |
 | Fill, Gradient, Pattern, Transparency, Outline, Weight, Dash, Shadow | on a View object in that view: **Everything else**, what every box takes that no style or note of its own reaches: the page's catch-all, the last row of its Styles, no row of the Key |
 | Footnote | a footnote of what it reaches (see Footnotes), its param its name |
 | Footer | on the kind View, at no view: the chart's footer, its words, whether pages are numbered, whether it gives the page's day, where it stands on the sheet, and their look, on every chart view of it |
