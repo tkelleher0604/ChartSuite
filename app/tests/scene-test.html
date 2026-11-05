@@ -1567,6 +1567,12 @@ function groupDesigns() {
   const f6 = read.formula('=COUNT(Holdings) & " holdings"', 'fund');
   check('a part’s text may be a formula', /^\d+ holdings$/.test(f6), f6);
   check('|initials reads a name’s first letters', read(llcs[0].record, 'Name|initials').text.length >= 2 && read(llcs[0].record, 'Name|initials').text === read(llcs[0].record, 'Name|initials').text.toUpperCase(), read(llcs[0].record, 'Name|initials').text);
+  // A line's label: its own small design; and the record at its side, read on it.
+  const line0 = plain.marks.find(m => m.type === 'line' && m.texts.length && R0[m.record].args?.some(a => a.edge === 'Owner')), lt = Tree.treeOf(R0, line0.record), wl = Log.open(SAMPLE);
+  edit(wl, tx => { tx.note('Design', lt, { id: 'pill', name: 'Pill', label: { Shape: 'rounded', Corner: 50, Fill: '#ffffff', Outline: '{Outline}' } }, { view: MAIN }); tx.note('Text', lt, { text: 'by {Owner.Name}' }, { view: MAIN }); });
+  const pilled = scene(wl).byId.get(line0.id), owner = wl.notes(C).nameOf(R0, Tree.objectOf(R0, R0[line0.record].args.find(a => a.edge === 'Owner').at));
+  check('a line’s label can be a small design, a shape behind its words, in the line’s own ink', pilled.chip?.Shape === 'rounded' && pilled.chip.Outline === line0.settings.Outline.value && pilled.chip.Fill === '#ffffff');
+  check('… and its words can read the record at its end', pilled.texts.some(it => it.text === `by ${owner}`), pilled.texts.map(it => it.text).join(' | '));
   // Boxes grow by their parts' words.
   const w7 = Log.open(SAMPLE);
   edit(w7, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, { ...preset('header'), w: 100, h: 40 }, { view: MAIN }); });

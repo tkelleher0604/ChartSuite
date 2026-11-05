@@ -103,6 +103,11 @@ function say(tx, m, part, what, s = Canvas.scope()) {
     tx.note('Design', p, { ...at, over: { ...at.over, parts: { ...parts, [part]: now } } }, { view: v });
   }
 }
+// A row dropped on a part: its token takes the place of the one entry a tag reads, or goes under the words a part has (a name stays). → the part's words now.
+function tokenIn(m, part, edge) {
+  const raw = String(m.design.value.parts.find(p => p.id === part)?.text ?? '').trim(), one = /^\{([^{}\n]+)\}$/.exec(raw);
+  return !raw || (one && !Tree.same(one[1].split('|')[0].trim(), 'Name')) ? `{${edge}}` : `${raw}\n{${edge}}`;
+}
 // A shape, or how round its corners are, given at a design's own pattern is said over that design, so it's seen and Reset to design takes it back; given elsewhere it's a note, as ever. → whether it's done.
 function atPen(tx, sc, scope, marks, label, value) {
   const N = App.notes.peek(), there = p => N.notes('Design').find(n => n.view === sc.view && Tree.key(n.pattern) === Tree.key(p) && Scene.wholeDesign(n.value));
@@ -197,6 +202,7 @@ function takes(record) {
     return added.every(fine) && removed.every(fine);
   };
 }
+const ownLooks = (rows, v, record) => rows.filter(r => 'note' in r && r.view === v && r.pattern?.id === record && !['Position', 'Design', 'Text', 'Shown'].includes(r.label));
 function edit(m, given) {
   const c = canvas();
   if (!c || !m || editing.peek()) return;
@@ -209,7 +215,7 @@ function edit(m, given) {
   const n = m.design && !given ? sc.marks.filter(b => b.type === 'box' && b.design?.note.note === m.design.note.note).length : pen?.marks?.size;
   const said = m.design && !given && !Tree.idsIn(patterns[0]).size ? { outputs: patterns, caption: Scene.captionOf(N, patterns[0], v) } : pen?.outputs?.length ? pen : null;
   const names = (d.parts ?? []).flatMap(p => Scene.tokensIn(p.text));
-  const where = c.whereNow(), rows0 = new Set(App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r && r.view === v).map(r => r.shape));
+  const where = c.whereNow(), rows0 = new Set(App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r && r.view === v).map(r => r.shape)), own = new Map(ownLooks(App.shown.peek().rows(App.chart.peek()), v, m.record).map(r => [r.label, JSON.stringify(r.value)]));
   // (As large as it stands, or one from the gallery as large as it would, with these words; each part where it falls in that, and the box held so, whatever its rank's height.)
   const like = given ? Scene.instance(sc, m.id, d, N, App.computed.peek()) : m, W = round(like.w), H = round(like.h), o = sc.page.placed ? sc.page.offset : { x: 0, y: 0 }, dx = m.x - like.x, dy = m.y - like.y, stands = new Map();
   App.sandbox(takes(m.record));
@@ -238,7 +244,7 @@ function edit(m, given) {
   words.textContent = `Editing the design of ${who}`;
   discard.onclick = () => leave(false);
   done.onclick = () => leave(true);
-  editing.value = { box, record: m.record, d, wasId: given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id, patterns, view: v, rows0, where, bar, whom: who, stands, W, H };
+  editing.value = { box, record: m.record, d, wasId: given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id, patterns, view: v, rows0, where, bar, whom: who, stands, W, H, own };
 }
 function leave(keep) {
   const e = editing.peek();
@@ -252,8 +258,8 @@ function leave(keep) {
     const resized = Math.abs(b.w - e.W) > 0.5 || Math.abs(b.h - e.H) > 0.5;
     // (In the order they're drawn in; a group's own row isn't a part, its shapes are. One no hand has moved keeps the share it had, and the box no hand has sized the size the design said.)
     for (const q of sc.marks) { const r = mine.get(q.id); if (r && q.geometry !== 'group') { const was = !resized && r.part && same(e.stands.get(r.part), r) && e.d.parts?.find(p => p.id === r.part), part = partFrom(r, q, b); parts.push(was ? { ...part, x: was.x, y: was.y, w: was.w, h: was.h, ...(was.points && { points: was.points }) } : part); } }
-    const own = rows.filter(r => 'note' in r && r.view === e.view && r.pattern?.id === e.record && !['Position', 'Design', 'Text', 'Shown'].includes(r.label));
-    looks = Object.fromEntries(own.map(r => [r.label, r.value]));
+    // (What's given the box itself since it began: what it had of its own before stays its own.)
+    looks = Object.fromEntries(ownLooks(rows, e.view, e.record).filter(r => e.own.get(r.label) !== JSON.stringify(r.value)).map(r => [r.label, r.value]));
     const { Shape, Corner, ...others } = looks;
     looks = others;
     d = { ...e.d, ...(resized || e.d.w == null ? { w: round(b.w), h: round(b.h) } : {}), base: { ...e.d.base, ...(Shape && { Shape }), ...(Corner !== undefined && { Corner }) }, parts };
@@ -269,6 +275,8 @@ function leave(keep) {
   Shell.select([]);
   App.unsandbox();
   c.goBack(e.where);
+  // (Back on the box it was over, where the keys and the eye left off.)
+  Shell.select([e.box]);
   if (keep === null) return Shell.toast('The design is as it was', { ms: 2500 });
   if (!keep) return Shell.toast('Discarded the changes to the design', { ms: 2500 });
   const said = `Changed the design of ${e.whom}`;
@@ -294,9 +302,11 @@ function saveToHouse(d) {
   if (!d) return;
   const { over, ...plain } = d, houses = FormatBar.houseStyles?.() ?? [], NEW = '·new';
   let to = houses[0]?.id ?? NEW, name = '';
+  // (A name's asked for only where it's a new one.)
+  const Which = () => { const [at, setAt] = preactHooks.useState(to); return html`<div class="settings">${houses.length ? html`<label class="field"><span>House style</span><select aria-label="House style" autofocus onChange=${e => { to = e.target.value; setAt(to); }}>${houses.map(s => html`<option value=${s.id}>${s.name}</option>`)}<option value=${NEW}>New house style…</option></select></label>` : null}
+    ${at === NEW ? html`<label class="field"><span>Name</span><input aria-label="Name" placeholder="House designs" spellcheck="false" autocomplete="off" autofocus onInput=${e => { name = e.target.value; }} /></label>` : null}</div>`; };
   Shell.dialog({ title: `Save ${d.name} to a house style`, width: 380, actions: [{ label: 'Cancel', value: false }, { label: 'Save', value: true, primary: true }],
-    body: () => html`<div class="settings">${houses.length ? html`<label class="field"><span>House style</span><select aria-label="House style" onChange=${e => { to = e.target.value; }}>${houses.map(s => html`<option value=${s.id}>${s.name}</option>`)}<option value=${NEW}>New house style…</option></select></label>` : null}
-      <label class="field"><span>New house style</span><input aria-label="New house style" placeholder="House designs" spellcheck="false" autocomplete="off" onInput=${e => { name = e.target.value; }} /></label></div>` }).then(async ok => {
+    body: () => html`<${Which} />` }).then(async ok => {
     if (!ok) return;
     const was = houses.find(s => s.id === to);
     const named = was?.name ?? (Tree.clean(name) || 'House designs'), look = was ? { ...was.look, designs: [...(was.look.designs ?? []).filter(x => x.id !== plain.id), plain] } : { notes: [], order: [], furniture: {}, designs: [plain] };
@@ -331,5 +341,5 @@ for (const [id, name, names, run, enabled, why] of [
   ['design.discard', 'Discard the changes to the design', ['Cancel the design'], () => leave(false), () => !!editing.peek(), () => 'No design is being edited'],
 ]) Shell.register('action', { id, name, names, run, enabled, why });
 
-return { open, say, atPen, reset, edit, make, items, dropped, editRow, editing, leave, forRecord };
+return { open, say, atPen, tokenIn, reset, edit, make, items, dropped, editRow, editing, leave, forRecord };
 })();

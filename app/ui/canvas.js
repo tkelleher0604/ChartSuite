@@ -2207,7 +2207,7 @@ function mount(el) {
     const view = viewOf(), name = fieldName(f.it);
     // A part's look goes to the part, at the pen: said over its design, only what's different.
     // (But a field in the part its other fields go in is still that field, in words.)
-    if (f.it.of || (f.it.part && !(f.it.rested && label in Scene.DEFAULTS.text))) return Designs.say(tx, f.m, partOf(f.m, f.it).part, { format: { [label]: v } }, s);
+    if (f.it.of || (f.it.part && !(f.it.rested && label in Scene.DEFAULTS.text))) return Designs.say(tx, f.m, partOf(f.m, f.it).part, label === 'Shape' ? { geometry: v } : { format: { [label]: v } }, s);
     if (f.it.free) { const N = App.notes.peek(), n = N.notes('Text').find(x => x.note === f.it.free.note); if (n) tx.note('Text', n.pattern, { ...n.value, [label]: v }, { view }); return; }
     // A group that names the boxes by an entry of theirs (Jurisdiction: Cayman Islands) gives the look beside it, the field
     // in each of its boxes, as Shown beside an output shows it.
@@ -3228,8 +3228,8 @@ function mount(el) {
       paintFields();
       if (m && designing) return Designs.dropped(m, edge, at);
       // (Onto a part of a design: its token there, at the pen, the design standing. Onto the rest of the box, shown as ever.)
-      const part = m && at && [...m.parts ?? []].reverse().find(q => !q.texts.some(it => it.lines?.length > 1) && q.geometry !== 'line' && at.x >= q.x && at.x <= q.x + q.w && at.y >= q.y && at.y <= q.y + q.h);
-      if (part && !m.design.value.parts.find(p => p.id === part.part)?.rest) return App.change(tx => Designs.say(tx, m, part.part, { text: `{${edge}}` }, scoped(m)), { dated: false, say: `Put ${edge} in a part of ${whereSaid([m], scoped(m))}` });
+      const part = m && at && [...m.parts ?? []].reverse().find(q => q.geometry !== 'line' && at.x >= q.x && at.x <= q.x + q.w && at.y >= q.y && at.y <= q.y + q.h);
+      if (part && !m.design.value.parts.find(p => p.id === part.part)?.rest) return App.change(tx => Designs.say(tx, m, part.part, { text: Designs.tokenIn(m, part.part, edge) }, scoped(m)), { dated: false, say: `Put ${edge} in a part of ${whereSaid([m], scoped(m))}` });
       return m && setField([m], edge, true, scoped(m));
     },
     clip: (edge, text) => { clip = { items: [], text, field: edge }; },

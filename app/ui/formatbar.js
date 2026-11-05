@@ -464,7 +464,7 @@ function value(label) {
   if (TEXT_LABELS.has(label) && text) return text.look?.[label] ?? text.settings?.[label]?.value;
   // (A part of a design selected: its own, as a free shape's.)
   const part = current.field && Canvas.active.peek()?.partOf(current.field.m, current.field.it);
-  if (part) return part.look?.[label];
+  if (part) return label === 'Shape' ? part.geometry : part.look?.[label];
   return m.settings?.[label]?.value ?? m.look?.[label];
 }
 // The marks the scope reaches, and of them the texts a text property of it would change: with a field selected, that

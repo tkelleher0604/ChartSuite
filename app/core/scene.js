@@ -29,7 +29,9 @@
 // router's rules, `blocked` where it found no way), one whose label found no free place `crowded` (see Layout.route),
 // and one whose label is said once for several, as a trunk's, has their ids, its `kin`. A free shape has its
 // row's formats, with no notes, and a free line the boxes it's glued to; one whose row's `role` is title or
-// date is the page's own, as the Key is (see the page and free shapes).
+// date is the page's own, as the Key is (see the page and free shapes). A box of a design has its `design` and `parts`, free shapes'
+// marks `of` it, not among `marks`, each output drawing them with their box; its `texts` are all its fields, those in a part `part`,
+// which what draws it leaves to the part (see Group designs). A line's label as a small design has its `chip`.
 const Scene = (() => {
 const { treeOf, idsIn, key, bare, isObject, isField, isTag, isChoice, argsOf, same } = Tree;
 
