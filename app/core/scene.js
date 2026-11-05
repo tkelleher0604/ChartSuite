@@ -1112,24 +1112,29 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   if (editing) {
     const kept = N.resolve('Scale', { id: view, kind: 'View' })?.value?.scale ?? 1;
     // (What stands under a part's words is what's on the page, a part being read against those as it will be against its neighbours.)
-    const standing = onPage.filter(r => r.part || wb.made(r.shape) > editing.design.value.begun), names = new Set(standing.flatMap(r => tokensIn(r.text)).map(Tree.norm));
+    const standing = onPage.filter(r => r.part || wb.made(r.shape) > editing.design.value.begun), names = new Set(standing.flatMap(r => tokensIn(r.text)).map(Tree.norm)), { w: W = 1, h: H = 1 } = editing.design.value, sharesOf = r => ({ ...r, w: (r.w ?? 0) / W, h: (r.h ?? 0) / H });
     for (let i = 0; i < onPage.length; i++) {
       const r = onPage[i];
       if (r.role || r.geometry === 'legend') continue;
       // (The fields it holds as they'll print, each in its own size and colour, what's typed in it under them.)
       if (r.rest) {
-        const held = editing.fields.filter(it => !it.part && !it.was && !it.blank && !names.has(Tree.norm(state[it.id]?.edge ?? ''))), words = r.text ? readWords(r.text, editing.record, reads) : '', all = [...held.map(it => it.text), ...(words ? [words] : [])].join('\n');
+        const held = editing.fields.filter(it => !it.part && !it.was && !names.has(Tree.norm(state[it.id]?.edge ?? it.blank?.edge ?? ''))), words = r.text ? readWords(r.text, editing.record, reads) : '', all = [...held.map(it => it.text), ...(words ? [words] : [])].join('\n');
         let from = 0;
-        const runs = held.map(it => { const run = { from, to: from + it.text.length, Size: printed(it, kept), Bold: !!it.look.Bold, Italic: !!it.look.Italic, ...(it.settings.Color?.note && { Color: it.look.Color }) }; from += it.text.length + 1; return run; });
+        // (A field with none yet by its name, faint, as a box selected shows it.)
+        const runs = held.map(it => { const run = { from, to: from + it.text.length, Size: printed(it, kept), Bold: !it.blank && !!it.look.Bold, Italic: !!it.blank || !!it.look.Italic, ...(it.blank ? { Color: '#8a8f8c' } : it.settings.Color?.note && { Color: it.look.Color }) }; from += it.text.length + 1; return run; });
         said.set(r.id, all);
-        const f = partFormat(editing, { p: r, item: null }, kept, standing);
+        const f = partFormat(editing, { p: r, item: null, shares: sharesOf(r) }, kept, standing);
         onPage[i] = { ...r, runs, reads: true, format: { ...f, Bold: false, ...(runs.length && r.format?.Size === undefined && { Size: Math.max(...runs.map(x => x.Size)) }) } };
         continue;
       }
       if (r.geometry === 'table') said.set(r.id, reads.table(r, editing.record));
       else if (r.text) said.set(r.id, /^\s*=/.test(r.text) ? reads.formula(r.text, editing.record) : cleaned(r.text.replace(TOKEN, (_, l) => { const q = reads(editing.record, l), it = !l.includes('|') && editing.fields.find(x => x.id === q.id); return (it ? it.text : q.text) || l.split('|')[0].trim(); })));
       // (Drawn since it began too: as it will be, a part.)
-      if (r.part || wb.made(r.shape) > editing.design.value.begun) { const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))); onPage[i] = { ...r, reads: true, format: partFormat(editing, { p: r, item }, kept, standing) }; }
+      if (r.part || wb.made(r.shape) > editing.design.value.begun) {
+        const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))), one = /^\s*\{([^{}\n]+)\}\s*$/.exec(r.text ?? ''), unfilled = one && !reads(editing.record, one[1]).text, t = said.get(r.id) ?? '';
+        // (One whose field has none yet stands faint, by its name, as a blank does.)
+        onPage[i] = { ...r, reads: true, ...(unfilled && t && { runs: [{ from: 0, to: t.length, Bold: false, Italic: true, Color: '#8a8f8c' }] }), format: partFormat(editing, { p: r, item, shares: sharesOf(r) }, kept, standing) };
+      }
     }
   }
 
@@ -2378,12 +2383,12 @@ const tintOf = (c, k = 0.14) => { const m = /^#([0-9a-f]{6})$/i.exec(String(c));
 // A part's look: what it says of itself; a look named as {Outline}, the box's; and of its words, what the chart says of the field it reads, or the box, as a text's in the box would have
 // it (All text's font; a style's bold; a size a note gives, as printed, else the chart's, at the sheet's half point). A colour that wouldn't read on what's under it gives way, as Ink.
 // A fill given the box beyond the design's own is the band's whole, and a tint of it on a white panel over the box, so a fill is seen where the eye looks. A shape in a colour lost on the dark it stands on (a navy avatar on a navy box) turns white.
-function partFormat(b, { p, item }, s, parts) {
+function partFormat(b, { p, item, shares = p }, s, parts) {
   const f = { ...p.format }, src = item?.settings ?? b.settings, given = l => (src[l]?.note ? src[l].value : undefined);
   for (const [k, v] of Object.entries(f)) { const m = typeof v === 'string' && /^\{(\w+)\}$/.exec(v); if (m) { const o = b.settings[m[1]]?.value; if (o === undefined) delete f[k]; else f[k] = m[1] === 'Weight' ? o * s : o; } }
-  const fill = b.settings.Fill;
-  if (f.Fill === WHITE && panels(p) && fill?.note && fill.note !== b.design?.note?.note && !none(fill.value)) f.Fill = tintOf(fill.value);
-  else if (bodied(p) && !none(f.Fill) && f.Fill !== WHITE && !panels(p)) { const under = groundOf(b, { ...p, format: { ...f, Fill: 'none' } }, parts); if (tooDark({ Fill: under, Transparency: 0 }) && unlike(f.Fill, under)) f.Fill = WHITE; }
+  const fill = b.settings.Fill, panel = panels(shares);
+  if (f.Fill === WHITE && panel && fill?.note && fill.note !== b.design?.note?.note && !none(fill.value)) f.Fill = tintOf(fill.value);
+  else if (bodied(p) && !none(f.Fill) && f.Fill !== WHITE && !panel) { const under = groundOf(b, { ...p, format: { ...f, Fill: 'none' } }, parts); if (tooDark({ Fill: under, Transparency: 0 }) && unlike(f.Fill, under)) f.Fill = WHITE; }
   f.Font ??= item?.look.Font ?? b.settings.Font.value;
   if (f.Size === undefined) f.Size = Number.isFinite(given('Size')) ? given('Size') : half(item?.look.Size ?? BESIDE_NAME, s) * s;
   for (const l of ['Bold', 'Italic', 'Underline', 'Strike', 'Spacing', 'Align']) if (f[l] === undefined && given(l) !== undefined) f[l] = given(l);
@@ -2504,7 +2509,8 @@ function instance(scene, id, value, N, computed) {
 // A Key's row or a Styles' swatch of a design, in miniature: its parts' shapes in a swatch's rect, with no words, in the look of what it stands for.
 function swatchParts(sw, box, u = 1) {
   if (!sw.Design?.parts?.length) return [];
-  const on = { settings: Object.fromEntries(Object.keys(DEFAULTS.box).map(k => [k, { value: sw[k], note: null }])) };
+  // (As a box of it has it: a fill the row gives, beyond the design's own, reaches its panel.)
+  const on = { settings: Object.fromEntries(Object.keys(DEFAULTS.box).map(k => [k, { value: sw[k], note: k === 'Fill' && sw.Fill !== (sw.Design.base?.Fill ?? DEFAULTS.box.Fill) ? {} : null }])) };
   return sw.Design.parts.filter(p => !['text', undefined].includes(p.geometry)).map(p => {
     const { id, text, rest, x, y, w, h, points, format, runs, ...row } = p, f = partFormat(on, { p }, 1);
     return freeShape({ ...row, id, shape: id, x: box.x + x * box.w, y: box.y + y * box.h, w: w * box.w, h: h * box.h, ...(points && { points: points.map(([a, c]) => [box.x + a * box.w, box.y + c * box.h]) }), format: { ...f, Weight: Math.min(f.Weight ?? 0.5, 0.5) } }, '', u);

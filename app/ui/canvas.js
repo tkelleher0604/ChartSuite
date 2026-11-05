@@ -1942,6 +1942,8 @@ function mount(el) {
   // A free text written in a mark at a scope, as it's typed in place (new, where `it` is none): its words, {Entry} and
   // all, its look kept. Left empty, it's taken away (see unText).
   function writeText(m, it, typed) {
+    // (While a design is edited, words begun on its box are a part of it.)
+    if (designing && !it) return Designs.addWords();
     const s = it ? scopeNow(canvas) : scopeOfBox(), view = viewOf(), rec = treeOf(m.record), N = App.notes.peek();
     const at = p => N.notes('Text').find(n => n.view === view && Tree.key(n.pattern) === Tree.key(p));
     // A new one goes under the mark's texts: in a box, across it; on a line, under its label, or at its middle.
@@ -3594,7 +3596,7 @@ function mount(el) {
     // Editing a design: what can be touched; and the zoom, brought to the box and put back (see Designs). A part selected, of a box (see Fields).
     designing: d => { designing = d; root.classList.toggle('designing', !!d); if (!d) { field = null; } paintStates(); }, whereNow: () => ({ s: graph.zoom(), t: graph.translate() }),
     // (It moves, from the box and back to it: the page gliding as a zoom asked for does.)
-    bringTo: r => { const was = aboutToGlide(); showRect(r, 90, LEAST, 4); glide(was); }, goBack: w => { const was = aboutToGlide(); quietly(() => { graph.zoomTo(w.s); graph.translate(w.t.tx, w.t.ty); }); zoomRead(); glide(was); }, partOf, reorder: (m, to, after) => hand.reorder(m, to, after),
+    bringTo: r => { const was = aboutToGlide(); showRect(r, 90, LEAST, 4); glide(was); }, goBack: w => { const was = aboutToGlide(); quietly(() => { graph.zoomTo(w.s); graph.translate(w.t.tx, w.t.ty); }); zoomRead(); glide(was); }, partOf, reorder: (m, to, after, said) => hand.reorder(m, to, after, said),
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },

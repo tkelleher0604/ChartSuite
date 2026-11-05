@@ -27,7 +27,7 @@ function forRecord(d0, m) {
   const ink = accentFor(m), d = ink === Shapes.ACCENT ? d0 : JSON.parse(JSON.stringify(d0).replaceAll(Shapes.ACCENT, ink));
   if (!d.parts?.some(p => p.text === '{?}')) return d;
   const st = App.state.peek(), fields = (m?.fields ?? m?.texts ?? []).map(it => st[it.id]).filter(r => r?.edge && !Tree.same(r.edge, 'Name'));
-  const edge = fields.find(r => 'choice' in r)?.edge ?? fields[0]?.edge ?? (m && (Tree.index(st).entries.get(m.record) ?? []).map(e => st[e]).find(r => 'choice' in r)?.edge);
+  const edge = fields.find(r => 'choice' in r)?.edge ?? fields[0]?.edge ?? (m && (Tree.index(st).entries.get(m.record) ?? []).map(e => st[e]).find(r => 'choice' in r)?.edge) ?? (m?.fields ?? m?.texts ?? []).find(it => it.blank)?.blank.edge;
   return { ...d, parts: d.parts.map(p => p.text === '{?}' ? { ...p, text: edge ? `{${edge}}` : '' } : p) };
 }
 // Plain takes a design away: the note's gone; or, where a wider one would still decide, says so narrower.
@@ -214,8 +214,11 @@ function make(ms = canvas().selected()) {
   const under = it.box ?? [...sc.marks].reverse().find(b => b.type === 'box' && mid.x >= b.x && mid.x <= b.x + b.w && mid.y >= b.y && mid.y <= b.y + b.h) ?? null;
   // Who it's for: this box, or a group it's in; on no box, each kind's on the page, or none yet, kept in this chart's gallery.
   const one = (g, i) => ({ key: `g${i}`, label: FormatBar.allOf(g, g.marks.size), s: g });
-  const seen = new Set(), every = sc.marks.filter(b => b.type === 'box').flatMap(b => Canvas.groupsAt(sc, b).filter(g => g.marks.size > 1).filter(g => { const k = g.outputs.map(p => Tree.key(p)).join(); if (seen.has(k)) return false; seen.add(k); return true; }));
-  const fors = under ? [{ key: 'own', label: `Just ${N.nameOf(App.state.peek(), under.record)}`, s: null }, ...Canvas.groupsAt(sc, under).filter(g => g.marks.size > 1).map(one)] : [...every.map(one), { key: 'none', label: 'This chart’s gallery alone', s: null, none: true }];
+  // (Groups of boxes, not of a field in them, as what's every name is no design's.)
+  const boxesOf = b => Canvas.groupsAt(sc, b).filter(g => g.marks.size > 1 && g.outputs.every(p => !p.args || p.out));
+  // (Boxes a part by share means something in first: a triangle's are last.)
+  const seen = new Set(), every = [...sc.marks.filter(b => b.type === 'box' && Shapes.boxy(b.shape)), ...sc.marks.filter(b => b.type === 'box' && !Shapes.boxy(b.shape))].flatMap(b => boxesOf(b).filter(g => { const k = g.outputs.map(p => Tree.key(p)).join(); if (seen.has(k)) return false; seen.add(k); return true; }));
+  const fors = under ? [{ key: 'own', label: `Just ${N.nameOf(App.state.peek(), under.record)}`, s: null }, ...boxesOf(under).map(one)] : [...every.map(one), { key: 'none', label: 'This chart’s gallery alone', s: null, none: true }];
   let name = '', chosen = fors.find(f => f.s)?.key ?? fors[0].key;
   Shell.dialog({ title: 'Make a design', width: 380, actions: [{ label: 'Cancel', value: false }, { label: 'Make', value: true, primary: true }],
     body: () => html`<div class="settings">
@@ -225,9 +228,16 @@ function make(ms = canvas().selected()) {
     if (!ok) return;
     const f = fors.find(x => x.key === chosen), s = f?.s, v = sc.view, target = under ?? (s ? [...s.marks].map(id => sc.byId.get(id)).find(b => b?.type === 'box') : null), inside = under && free.every(q => q.x >= under.x - 1 && q.y >= under.y - 1 && q.x + q.w <= under.x + under.w + 1 && q.y + q.h <= under.y + under.h + 1);
     const within = inside ? under : drawn, W = target?.w ?? drawn.w, H = target?.h ?? drawn.h, k = inside ? 1 : Math.min(1, W / drawn.w, H / drawn.h), record = under?.record ?? target?.record ?? null;
+    // A field's words take the width of the box, as they'll be longer than whatever stood for them, at the size the chart gives that field; words of its own, as they were, scaled with the drawing. What it doesn't name goes under the last that it does.
+    const parts = free.map(q => {
+      const r = rows.item(App.chart.peek(), q.id)[0], size = q.texts?.[0]?.look.Size, typed = r.format?.Size, text = tokened(r.text, record), reads = (r.geometry ?? 'rect') === 'text' && /\{[^{}\n]+\}/.test(text ?? ''), { Size: _, ...look } = r.format ?? {};
+      if (reads) return { ...partFrom({ ...r, part: null, format: { Align: 'center', Valign: 'middle', ...look, ...(inside && typed !== undefined && { Size: typed }) } }, q, within, text), x: 0, w: 1 };
+      return partFrom({ ...r, part: null, format: { ...r.format, ...(size && { Size: +((typed ?? size * sc.page.scale) * k).toFixed(2) }) } }, q, within, text);
+    });
+    const foot = Math.min(1, Math.max(0, ...parts.filter(p => p.geometry === 'text' && p.text).map(p => p.y + p.h)));
+    parts.push({ id: Log.newId(), rest: true, geometry: 'text', x: 0, y: foot, w: 1, h: Math.max(0.05, 1 - foot), format: { Align: 'center', Valign: foot ? 'top' : 'middle' } });
     const patterns = f?.none ? [] : patternsAt(target, s), d = {
-      id: Log.newId(), name: Tree.clean(name) || 'New design', w: round(W), h: round(H), base: { Shape: target?.shape ?? 'rect', ...(target?.shape === 'rounded' && { Corner: target.settings.Corner.value }) },
-      parts: free.map(q => { const r = rows.item(App.chart.peek(), q.id)[0], size = q.texts?.[0]?.look.Size, typed = r.format?.Size; return partFrom({ ...r, part: null, format: { ...r.format, ...(size && { Size: +((typed ?? size * sc.page.scale) * k).toFixed(2) }) } }, q, within, tokened(r.text, record)); }),
+      id: Log.newId(), name: Tree.clean(name) || 'New design', w: round(W), h: round(H), base: { Shape: target?.shape ?? 'rect', ...(target?.shape === 'rounded' && { Corner: target.settings.Corner.value }) }, parts,
     };
     const said = `Made the design ${d.name}${f?.none ? '' : ` for ${whom(target, s, s?.marks?.size)}`}`;
     App.change(tx => { for (const q of free) tx.remove(q.id); for (const g of sc.marks) if (g.geometry === 'group' && g.members.every(id => free.some(q => q.id === id))) tx.remove(g.id); rewrite(tx, d, null, patterns, v); tx.says(said); }, { dated: false, say: said });
@@ -334,19 +344,32 @@ function leave(keep) {
 }
 // The parts stood on the page, as the scene draws them, the topmost first.
 const partsNow = (sc, e) => sc.marks.filter(q => q.type === 'shape' && q.geometry !== 'group' && !e.rows0.has(q.id));
-// A row dropped on what's being edited: on a part, its token; on the box, a new text part, in the free band of the box it was dropped at, or else its largest; as wide as the box, so its words fit the space, at the size the page gives that field.
+// The band of a box new words go in: the free one they were dropped at, or else its largest, as wide as the box, so they fit the space.
+function freeBand(sc, e, b, at) {
+  const taken = partsNow(sc, e).filter(p => p.texts?.some(t => t.lines?.length) && p.w * p.h < b.w * b.h * 0.9).map(p => { const ls = p.texts[0].lines, lh = Scene.lineHeight(p.texts[0].look), ys = ls.map(l => l.y - Scene.baseline(p.texts[0].look)); return [p.y + Math.min(...ys), p.y + Math.max(...ys) + lh]; }).sort((m, n) => m[0] - n[0]), gaps = [];
+  let from = b.y;
+  for (const [top, foot] of taken) { if (top > from) gaps.push([from, top]); from = Math.max(from, foot); }
+  if (b.y + b.h > from) gaps.push([from, b.y + b.h]);
+  const y0 = at?.y, best = (y0 != null && gaps.find(([u, v]) => y0 >= u && y0 <= v && v - u >= 8)) || gaps.sort((m, n) => (n[1] - n[0]) - (m[1] - m[0]))[0] || [b.y + b.h * 0.7, b.y + b.h];
+  return { view: e.view, geometry: 'text', part: Log.newId(), x: round(b.x), y: round(best[0]), w: round(b.w), h: round(Math.max(8, best[1] - best[0])), format: { Align: 'center', Valign: 'middle', Inset: { l: 2, r: 2, t: 0, b: 0 } } };
+}
+// A row dropped on what's being edited: on a part, its token; on the box, a new text part, at the size the page gives that field.
 function dropped(q, edge, at) {
   const e = editing.peek();
   if (!e) return null;
   const token = `{${edge}}`, row = App.shown.peek().item(App.chart.peek(), q.id)[0];
   if (q.type === 'shape' && row && !row.rest) return App.change(tx => tx.update(q.id, { text: row.text ? `${row.text}\n${token}` : token }), { dated: false, say: `Put ${edge} in the part` });
-  const sc = canvas().scene(), b = sc.byId.get(e.box), taken = partsNow(sc, e).filter(p => p.texts?.some(t => t.lines?.length) && p.w * p.h < b.w * b.h * 0.9).map(p => { const ls = p.texts[0].lines, lh = Scene.lineHeight(p.texts[0].look), ys = ls.map(l => l.y - Scene.baseline(p.texts[0].look)); return [p.y + Math.min(...ys), p.y + Math.max(...ys) + lh]; }).sort((m, n) => m[0] - n[0]);
-  const gaps = [];
-  let from = b.y;
-  for (const [top, foot] of taken) { if (top > from) gaps.push([from, top]); from = Math.max(from, foot); }
-  if (b.y + b.h > from) gaps.push([from, b.y + b.h]);
-  const y0 = at?.y ?? b.y, best = gaps.find(([u, v]) => y0 >= u && y0 <= v && v - u >= 8) ?? gaps.sort((m, n) => (n[1] - n[0]) - (m[1] - m[0]))[0] ?? [b.y + b.h * 0.7, b.y + b.h], w = round(b.w), h = round(Math.max(8, best[1] - best[0]));
-  return App.change(tx => tx.add('shape', { view: e.view, geometry: 'text', part: Log.newId(), x: round(b.x), y: round(best[0]), w, h, text: token, format: { Align: 'center', Valign: 'middle', Inset: { l: 2, r: 2, t: 0, b: 0 } } }), { dated: false, say: `Put ${edge} in the design` });
+  const sc = canvas().scene(), b = sc.byId.get(e.box);
+  return App.change(tx => tx.add('shape', { ...freeBand(sc, e, b, at), text: token }), { dated: false, say: `Put ${edge} in the design` });
+}
+// Words begun on the box being edited (Text in this box, its right-click, a double-click in its room): one more part, typed straight in; left empty, it goes.
+function addWords() {
+  const e = editing.peek(), c = canvas(), sc = c?.scene(), b = sc?.byId.get(e?.box);
+  if (!b) return null;
+  let id = null;
+  if (!App.change(tx => { id = tx.add('shape', { ...freeBand(sc, e, b, null), text: '' }); }, { dated: false })) return null;
+  Shell.select([id]);
+  return c.edit(id);
 }
 
 // ---- The panel, while a design is edited: its parts by name, a click from each, dragged to reorder; and a part's words ----
@@ -354,9 +377,11 @@ function dropped(q, edge, at) {
 const nameOf = (row, b) => Scene.partName({ ...row, w: (row.w ?? 0) / (b?.w || 1), h: (row.h ?? 0) / (b?.h || 1) });
 function Parts() {
   App.scene.value;
-  const e = editing.value, c = canvas(), sc = c?.scene();
+  const e = editing.value, c = canvas(), sc = c?.scene(), [naming, setNaming] = useState(null), [drop, setDrop] = useState(null), self = useRef(null);
+  // (The panel opens on them, wherever it was scrolled to, and whatever it was holding still.)
+  useLayoutEffect(() => { const pane = self.current?.closest('.inspector'); if (!pane) return; pane.scrollTop = 0; const t = setTimeout(() => { pane.scrollTop = 0; }, 60); return () => clearTimeout(t); }, [e?.box]);
   if (!e || !sc) return null;
-  const [naming, setNaming] = useState(null), [drop, setDrop] = useState(null), keys = Shell.selection.value, b = sc.byId.get(e.box), shown = App.shown.peek(), chart = App.chart.peek();
+  const keys = Shell.selection.value, b = sc.byId.get(e.box), shown = App.shown.peek(), chart = App.chart.peek();
   const rowOf = id => shown.item(chart, id).at(-1), list = [...partsNow(sc, e)].reverse();
   const pick = q => { Shell.select([q.id]); c.root.focus({ preventScroll: true }); };
   const name = (q, v) => { setNaming(null); const t = Tree.clean(v ?? ''); if (t !== (rowOf(q.id)?.name ?? '')) App.change(tx => tx.update(q.id, { name: t || undefined }), { dated: false, say: t ? `Named the part ${t}` : 'Took the part’s name off' }); };
@@ -365,16 +390,16 @@ function Parts() {
     const y0 = ev.clientY, host = ev.currentTarget.parentElement;
     let on = null, after = false, moved = false;
     const move = m => { if (Math.abs(m.clientY - y0) > 4) moved = true; if (!moved) return; const r = [...host.querySelectorAll('[data-part]')].find(n => { const x = n.getBoundingClientRect(); return m.clientY >= x.top && m.clientY < x.bottom; }); if (!r) return; const x = r.getBoundingClientRect(); on = r.dataset.part; after = m.clientY < x.top + x.height / 2; setDrop({ on, after }); };
-    const up = () => { removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); setDrop(null); const to = on && sc.byId.get(on); if (moved && to && to !== q) c.reorder(q, to, after); };
+    const up = () => { removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true); setDrop(null); const to = on && sc.byId.get(on); if (moved && to && to !== q) c.reorder(q, to, after, nameOf(rowOf(q.id) ?? {}, b)); };
     addEventListener('pointermove', move, true); addEventListener('pointerup', up, true);
   };
   const drawn = q => q.geometry === 'text' ? 'T' : null;
-  return html`<div class="insp parts-of" role="region" aria-label="Parts">
+  return html`<div class="insp parts-of" role="region" aria-label="Parts" ref=${self}>
     <h3 class="sect"><span class="fold-ish">Parts</span><span class="n">${list.length}</span></h3>
     <div class="dc-panerows part-rows" role="list">
       ${list.map(q => { const row = rowOf(q.id) ?? {}, said = nameOf(row, b); return html`<div class=${'row' + (keys.includes(q.id) ? ' on' : '') + (drop?.on === q.id ? (drop.after ? ' dropabove' : ' dropbelow') : '')} data-part=${q.id} role="listitem" key=${q.id} onClick=${() => pick(q)} onPointerDown=${ev => grab(ev, q)} onDblClick=${() => setNaming(q.id)}>
         <span class="glyph" aria-hidden="true">${drawn(q) ?? html`<svg viewBox="0 0 14 14"><path d=${Scene.path(q.geometry === 'line' ? 'rect' : q.geometry, 12, q.geometry === 'line' ? 0.1 : 10)} transform="translate(1 2)" fill="none" stroke="currentColor" /></svg>`}</span>
-        ${naming === q.id ? html`<input class="cell" value=${said} aria-label="Name" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onBlur=${x => name(q, x.target.value)} onKeyDown=${x => { x.stopPropagation(); if (x.key === 'Enter') x.target.blur(); if (x.key === 'Escape') setNaming(null); }} />` : html`<span class="nm" data-tip=${said}>${said}</span>`}
+        ${naming === q.id ? html`<input class="cell" value=${said} aria-label="Name" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onBlur=${x => name(q, x.target.value)} onKeyDown=${x => { x.stopPropagation(); if (x.key === 'Enter') x.target.blur(); if (x.key === 'Escape') setNaming(null); }} />` : html`<span class="nm">${said}</span>`}
       </div>`; })}
       <div class=${'row base' + (keys.includes(e.box) ? ' on' : '')} role="listitem" onClick=${() => { Shell.select([e.box]); c.root.focus({ preventScroll: true }); }}><span class="glyph" aria-hidden="true"><svg viewBox="0 0 14 14"><path d=${Scene.path(b?.shape ?? 'rect', 12, 10)} transform="translate(1 2)" fill="none" stroke="currentColor" /></svg></span><span class="nm">The box</span></div>
     </div>
@@ -419,7 +444,7 @@ function Words({ text, put, label = 'Text' }) {
     else if (ev.key === 'Escape') { ev.stopPropagation(); if (list) setList(null); else { paint(text ?? ''); box.current.blur(); } }
   };
   return html`<span class="part-words">
-    <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" contenteditable=${still ? 'false' : 'plaintext-only'} spellcheck="false" onInput=${look} onKeyDown=${key} onClick=${clicked} onBlur=${() => setTimeout(() => { if (document.activeElement !== box.current && !box.current?.closest('.part-words')?.querySelector('.dc-complete:hover')) { setList(null); if (box.current) commit(); } })} />
+    <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" data-ph="Text" contenteditable=${still ? 'false' : 'plaintext-only'} spellcheck="false" onInput=${look} onKeyDown=${key} onClick=${clicked} onBlur=${() => setTimeout(() => { if (document.activeElement !== box.current && !box.current?.closest('.part-words')?.querySelector('.dc-complete:hover')) { setList(null); if (box.current) commit(); } })} />
     ${list ? html`<div class="dc-complete" role="listbox">${list.items.map((l, i) => html`<div class=${'menu-item' + (i === list.on ? ' on' : '')} role="option" onPointerDown=${ev => { ev.preventDefault(); take(l); }}>${l}</div>`)}</div>` : null}
     ${still || formula ? null : html`<button type="button" class="btn ghost add-field" onMouseDown=${ev => ev.preventDefault()} onClick=${ev => Shell.menu(ev.currentTarget, fields(null, -1), { search: true })}>${Shell.icon('plus')}Field</button>`}
   </span>`;
@@ -430,8 +455,10 @@ function Holds() {
   const e = editing.value, sc = canvas()?.scene(), b = sc?.byId.get(e?.box);
   if (!b) return null;
   const st = App.state.peek(), shown = App.shown.peek(), chart = App.chart.peek(), named = new Set(partsNow(sc, e).flatMap(q => Scene.tokensIn(shown.item(chart, q.id).at(-1)?.text)).map(Tree.norm));
-  const held = (b.fields ?? []).filter(it => st[it.id]?.edge && !it.was && !named.has(Tree.norm(st[it.id].edge)));
-  return held.length ? html`<div class="row"><div class="k">Shows</div><div class="v held-fields">${held.map(it => html`<button type="button" class="word-chip" key=${it.id} data-tip="Give it a part of its own" onClick=${() => dropped(b, st[it.id].edge, null)}>${st[it.id].edge}</button>`)}</div></div>` : null;
+  // (A field by its name, or a free text by the field it reads, or its words.)
+  const nameOfIt = it => st[it.id]?.edge ?? it.blank?.edge ?? (it.free ? Scene.partName({ text: String(it.free.text).split('\n')[0] }) : null);
+  const held = (b.fields ?? []).filter(it => nameOfIt(it) && !it.was && !named.has(Tree.norm(nameOfIt(it))));
+  return held.length ? html`<div class="row"><div class="k">Shows</div><div class="v held-fields">${held.map(it => html`<button type="button" class="word-chip" key=${it.id} data-tip=${it.free ? null : 'Give it a part of its own'} disabled=${!!it.free} onClick=${() => dropped(b, nameOfIt(it), null)}>${nameOfIt(it)}</button>`)}</div></div>` : null;
 }
 // Away from the view it's over, what's on the page is the design: Done. (Nothing else is lost by going.)
 effect(() => { const v = Shell.view.value, e = editing.peek(); if (e && v !== e.view) leave(true); });
@@ -483,5 +510,5 @@ for (const [id, name, names, run, enabled, why] of [
   ['design.discard', 'Discard the changes to the design', ['Cancel the design'], () => leave(false), () => !!editing.peek(), () => 'No design is being edited'],
 ]) Shell.register('action', { id, name, names, run, enabled, why });
 
-return { open, say, atPen, tokenIn, reset, edit, make, items, dropped, editRow, editing, leave, forRecord, Parts, Words, Holds, nameOf: row => { const e = editing.peek(), b = e && canvas()?.scene()?.byId.get(e.box); return nameOf(row, b); } };
+return { open, say, atPen, tokenIn, reset, edit, make, items, dropped, addWords, editRow, editing, leave, forRecord, Parts, Words, Holds, nameOf: row => { const e = editing.peek(), b = e && canvas()?.scene()?.byId.get(e.box); return nameOf(row, b); } };
 })();

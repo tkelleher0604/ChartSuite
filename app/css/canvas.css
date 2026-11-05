@@ -479,7 +479,9 @@ input.cell.tabs { width: 88px; }
 .dc-over > .dc-designbar { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 5px 6px 5px 12px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); color: var(--ink); font: var(--t13, var(--t12)); box-shadow: var(--shadow-1, 0 1px 4px rgba(0, 0, 0, .18)); pointer-events: auto; white-space: nowrap; z-index: 3; }
 .dc-over > .dc-designbar > span { overflow: hidden; text-overflow: ellipsis; margin-right: 6px; }
 .dc-over > .dc-designbar > input.cell { width: 120px; height: 26px; min-width: 0; padding: 0 6px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); }
+/* The design's name on the bar, the font list giving way for it, never the scope. */
 .fb .design-now > .wide { display: inline-block; max-width: 72px; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 1560px) { .fb:has(.design-now > .wide) .font { width: 68px; } .fb .design-now { padding-right: 4px; } }
 @container (max-width: 1320px) { .fb .design-now > .wide { display: none; } }
 /* The panel, while a design is edited: its parts, a click from each; a part's words, its fields as chips. */
 .parts-of { flex: none; }
@@ -494,7 +496,9 @@ input.cell.tabs { width: 88px; }
 .word-chip:hover { box-shadow: inset 0 0 0 1px var(--accent); }
 .part-words { position: relative; display: grid; gap: 4px; width: 100%; min-width: 0; }
 .part-words > .words-in { display: block; height: auto; min-height: 26px; padding: 3px 6px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 20px; cursor: text; outline: none; }
+.part-words > .words-in:hover { border-color: var(--edge); }
 .part-words > .words-in:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.part-words > .words-in:empty::before { content: attr(data-ph); color: var(--ink-3); }
 .part-words > .dc-complete { top: 100%; left: 0; right: 0; margin-top: 2px; }
 .part-words > .add-field { justify-self: start; height: 24px; padding: 0 8px 0 4px; gap: 4px; color: var(--ink-2); }
 .part-words > .add-field > svg { width: 14px; height: 14px; }

@@ -940,7 +940,7 @@ function attach(x) {
   function paintPane() { if (paneOpen.peek()) render(html`<${Pane} key=${x.viewOf()} />`, paneEl); }
   const SHAPE_WORD = { text: 'Text box', legend: 'Key', picture: 'Picture', line: 'Line', group: 'Group', frame: 'Frame', table: 'Table', freeform: 'Freeform' };
   const titleOf = m => m.type === 'box' || m.type === 'line' ? x.called(m) : m.type === 'frame' ? x.called(m) : m.name ?? (m.geometry === 'line' && m.ends?.some(Boolean) ? 'Connector' : m.geometry === 'text' && m.role ? m.texts[0]?.text : m.texts?.[0]?.text?.split('\n')[0] || SHAPE_WORD[m.geometry] || Shapes.name(m.geometry) || 'Shape');
-  function reorder(m, to, after) {
+  function reorder(m, to, after, said = titleOf(m)) {
     // (To stand just over or under `to`, in the one order: a layer between what's under it and what's over it; where those are of one layer, a layer of its own, and the fewer of them a layer further, so a shape moved among shapes leaves the boxes as they were.)
     const others = scene().marks.filter(q => q !== m && q.geometry !== 'group' && q.type !== 'frame'), layer = q => q.settings?.Layer?.value ?? q.look?.Layer ?? 0, at = others.indexOf(to) + (after ? 1 : 0), under = others.slice(0, at), over = others.slice(at);
     const a = under.length ? layer(under.at(-1)) : layer(over[0]) - 2, b = over.length ? layer(over[0]) : a + 2;
@@ -950,7 +950,7 @@ function attach(x) {
       const up = over.length <= under.length;
       put(tx, m, a + (up ? 0.5 : -0.5));
       for (const q of up ? over : under) put(tx, q, layer(q) + (up ? 1 : -1));
-    }, { dated: false, keep: false, say: `Reordered ${titleOf(m)}` });
+    }, { dated: false, keep: false, say: `Reordered ${said}` });
   }
   function Pane() {
     App.scene.value; Shell.selection.value;
