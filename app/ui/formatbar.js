@@ -820,7 +820,7 @@ function EffectsPop({ of }) {
 // Paragraph: the text's alignment across, its place down the box, and its line spacing.
 // On a free shape or text box, as PowerPoint's Paragraph and Text Box panes: bullets and numbers, how far it's indented, its inner margins (points, as printed, each side typed), and Shrink on
 // overflow. While part of a text is selected as it's typed, that part's superscript or subscript.
-const ParagraphPop = () => { readNow(); const ms = current?.marks ?? [], free = !!ms.length && ms.every(m => m.type === 'shape' && !['line', 'picture', 'group', 'legend'].includes(m.geometry) && !m.role), rich = Canvas.rich.value, inset = value('Inset'), side = (k, d) => inset?.[k] ?? d;
+const ParagraphPop = () => { readNow(); const ms = current?.marks ?? [], free = !!ms.length && ms.every(m => m.type === 'shape' && !['line', 'picture', 'group', 'legend', 'table'].includes(m.geometry) && !m.role), rich = Canvas.rich.value, inset = value('Inset'), side = (k, d) => inset?.[k] ?? d;
   const setSide = k => x => apply('Inset', { l: side('l', 7.2), t: side('t', 3.6), r: side('r', 7.2), b: side('b', 3.6), [k]: x });
   return html`<div class="picker">
   <div class="row"><span class="k">Align</span>${seg('Align', ['left', 'center', 'right'].map(a => [a, Shell.icon(ALIGN_ICON[a]), `Align ${a}`]), value('Align'))}</div>
@@ -1140,6 +1140,7 @@ function insertMenu(e, c) {
     ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
     ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].filter(([g]) => !mastering || !['legend', 'frame'].includes(g)).map(([g, name]) =>
       item(name, () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g), close))}
+    ${item('Picture from clipboard', () => pictureOffClipboard(c), close)}
     ${item('Table', () => tablePick(document.querySelector('.fb [data-fb="insert"]'), c), close)}
     ${item('Icon', () => iconPick(document.querySelector('.fb [data-fb="insert"]'), c), close)}
     ${item('Freeform', () => c.draw('freeform'), close)}
@@ -1173,6 +1174,13 @@ function IconPick({ c, close }) {
 // (Ink a chart already uses: its title's, or else a dark blue.)
 const inkOfChart = c => { const t = c.scene().marks.find(m => m.role === 'title')?.texts?.[0]?.look?.Color; return /^#[0-9a-f]{6}$/i.test(t ?? '') ? t : '#1f3864'; };
 const iconPick = (at, c) => Shell.popover(at, close => html`<${IconPick} c=${c} close=${close} />`, { placement: 'bottom-start' });
+// What's on the clipboard, as a picture: asked for by name where Ctrl+V can't be, as it's the browser's to allow; said if it won't, or there's none.
+async function pictureOffClipboard(c) {
+  try {
+    for (const item of await navigator.clipboard.read()) { const type = item.types.find(t => t.startsWith('image/')); if (type) return c.pastePicture(await item.getType(type)); }
+    Shell.toast('No picture on the clipboard', { ms: 2500 });
+  } catch { Shell.toast('This browser won’t say what’s on the clipboard: Ctrl+V pastes a picture', { ms: 3500 }); }
+}
 function picture(c) {
   const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
   input.onchange = () => {
@@ -1545,8 +1553,8 @@ function Bar() {
     <button class="btn dd" aria-label="Text color" data-fb="color" ...${writes('Text color', !texty)} onClick=${e => opener.color(e.currentTarget)}>${glyph.color(texty ? value('Color') : '#000000')}</button>
     <button class="btn dd" aria-label="Paragraph" data-fb="paragraph" ...${writes('Alignment and spacing', !texty)} onClick=${e => opener.paragraph(e.currentTarget)}>${Shell.icon(ALIGN_ICON[align] ?? 'align-center')}</button>
     <span class="sep" />
-    <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape', !boxy)} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
-    <button class="btn dd" aria-label="Effects" data-fb="effects" ...${writes('Shadow, glow, reflection and more', !boxy)} onClick=${e => opener.effects(e.currentTarget)}>${Shell.icon('Sparkles')}</button>
+    <button class="btn dd" aria-label="Shape" data-fb="shape" ...${writes('Shape', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.shape(e.currentTarget)}>${shapeGlyph(boxy ? value('Shape') ?? s.marks[0].geometry ?? 'rect' : 'rect', boxy ? value('Corner') : undefined)}</button>
+    <button class="btn dd" aria-label="Effects" data-fb="effects" ...${writes('Shadow, glow, reflection and more', !boxy || s.marks.every(m => m.geometry === 'table'))} onClick=${e => opener.effects(e.currentTarget)}>${Shell.icon('Sparkles')}</button>
     <button class="btn dd" aria-label="Fill" data-fb="fill" ...${writes('Fill', !boxy)} onClick=${e => opener.fill(e.currentTarget)}>${glyph.fill(boxy ? value('Fill') : 'none')}</button>
     <button class="btn dd" aria-label="Outline" data-fb="outline" ...${writes('Outline', none || textStyle || footOnly)} onClick=${e => opener.outline(e.currentTarget)}>${glyph.outline(any && !textStyle && !footOnly ? value('Outline') : 'none')}</button>
     <span class="sep" />
@@ -1644,6 +1652,7 @@ function mount(el) {
     return [...Canvas.kinds().map(k => ({ label: `New ${word(k)}`, detail: 'Action', names: [`Add ${word(k)}`, `Insert ${word(k)}`, 'Add a box'], run: () => c.create(k) })),
       ...[['text', 'Text box'], ['frame', 'Frame'], ['legend', 'Key', 'Legend'], ['picture', 'Picture', 'Logo'], ['line', 'Line', 'Connector'], ['arrow-line', 'Arrow', 'Connector']].map(([g, name, also]) => ({ label: `Insert ${word(name)}`, detail: 'Action',
         names: [name, `Add ${word(name)}`, `Draw ${word(name)}`, ...(also ? [also] : [])], run: () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g) })),
+      { label: 'Insert picture from clipboard', detail: 'Action', names: ['Paste picture', 'Clipboard picture', 'Screenshot'], run: () => pictureOffClipboard(c) },
       { label: 'Insert table', detail: 'Action', names: ['Table', 'Add table', 'Cap table', 'Grid'], run: () => tablePick(document.querySelector('.fb [data-fb="insert"]'), c) },
       { label: 'Insert icon', detail: 'Action', names: ['Icon', 'Add icon', 'Symbol', 'Pictogram'], run: () => iconPick(document.querySelector('.fb [data-fb="insert"]'), c) },
       { label: 'Insert freeform', detail: 'Action', names: ['Freeform', 'Draw freeform', 'Polygon', 'Scribble'], run: () => c.draw('freeform') },

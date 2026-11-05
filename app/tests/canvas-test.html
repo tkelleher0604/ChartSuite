@@ -2950,6 +2950,13 @@ async function format() {
   dispatchEvent(new KeyboardEvent('keyup', { key: 'Alt', bubbles: true })); await tick(60);
   check('… and lets go with Alt', !$('.dc-measure'));
   Shell.select([]); await tick(120);
+  // A picture on the clipboard comes in as a picture.
+  { const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0)), dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'x.png', { type: 'image/png' }));
+    cv().root.focus(); document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })); await tick(500);
+    const pasted = sc().marks.find(m => m.geometry === 'picture' && /^data:image\/png/.test(m.src ?? ''));
+    check('a picture off the clipboard comes in as a picture', !!pasted);
+    if (pasted) { Shell.select([pasted.id]); await tick(120); cv().remove(); await tick(250); } }
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);

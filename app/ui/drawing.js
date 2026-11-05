@@ -281,7 +281,7 @@ function attach(x) {
   }, true);
 
   // ---- Flip and turn ----
-  const flippable = m => m.type === 'shape' && !['legend', 'group'].includes(m.geometry) && !m.role;
+  const flippable = m => m.type === 'shape' && !['legend', 'group', 'table'].includes(m.geometry) && !m.role;
   const mid = m => [m.x + m.w / 2, m.y + m.h / 2];
   // What can be flipped of a selection; a box can't, as its shape says what it is, and it's said which.
   function flip(how) {

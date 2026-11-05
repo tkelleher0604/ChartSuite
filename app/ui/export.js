@@ -323,7 +323,12 @@ function texts(items, pdf) {
 // A route, in its runs where another line breaks it, with an arrowhead at an end as the canvas draws one (X6's
 // block marker).
 function route(points, s, runs = [points]) {
-  const out = [`<path d="${runs.map(r => `M${r.map(p => `${n(p[0])},${n(p[1])}`).join(' L')}`).join(' ')}" fill="none" ${stroke(s)} stroke-linejoin="miter"/>`];
+  const dOf = `${runs.map(r => `M${r.map(p => `${n(p[0])},${n(p[1])}`).join(' L')}`).join(' ')}`, grad = s['Line Gradient']?.stops?.length ? s['Line Gradient'] : null, w0 = s.Weight * PT;
+  // A line's gradient, as a reader can stroke none: a short run of each color along it, the colors where the gradient has them. A compound's gaps, over it in white: a line has no inside to take them from.
+  const along = () => { const xs = points.map(p => p[0]), ys = points.map(p => p[1]), a = (grad.angle ?? 0) * Math.PI / 180, cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2, r = (Math.abs((Math.max(...xs) - Math.min(...xs)) * Math.cos(a)) + Math.abs((Math.max(...ys) - Math.min(...ys)) * Math.sin(a))) / 2 || 1, st = grad.stops, mix = t => { const pc = Math.max(0, Math.min(1, t)) * 100, i = Math.max(0, st.findIndex(q => q[0] >= pc) - 1), A = st[i], B = st[i + 1] ?? A, k = B[0] > A[0] ? (pc - A[0]) / (B[0] - A[0]) : 0, ch = c => [1, 3, 5].map(j => parseInt(c.slice(j, j + 2), 16)); return `#${ch(A[1]).map((v, j) => Math.round(v + (ch(B[1])[j] - v) * k).toString(16).padStart(2, '0')).join('')}`; };
+    return runs.flatMap(rn => rn.slice(1).flatMap((q, i) => { const p = rn[i], L = Math.hypot(q[0] - p[0], q[1] - p[1]), m = Math.max(1, Math.min(24, Math.ceil(L / 8))); return Array.from({ length: m }, (_, j) => { const u = j / m, v = (j + 1) / m, x1 = p[0] + (q[0] - p[0]) * u, y1 = p[1] + (q[1] - p[1]) * u, x2 = p[0] + (q[0] - p[0]) * v, y2 = p[1] + (q[1] - p[1]) * v, t = (((x1 + x2) / 2 - cx) * Math.cos(a) + ((y1 + y2) / 2 - cy) * Math.sin(a) + r) / (2 * r); return `<path d="M${n(x1)},${n(y1)} L${n(x2)},${n(y2)}" fill="none" stroke="${mix(t)}" stroke-width="${n(w0)}"${s['Line Transparency'] > 0 ? ` stroke-opacity="${n(1 - s['Line Transparency'] / 100)}"` : ''}/>`; }); })); };
+  const gaps = s.Compound && s.Compound !== 'single' && !none(s.Outline) ? [`<path d="${dOf}" fill="none" stroke="#ffffff" stroke-width="${n(w0 * (s.Compound === 'triple' ? 3 / 5 : 1 / 3))}"/>`, ...(s.Compound === 'triple' ? [`<path d="${dOf}" fill="none" stroke="${s.Outline}" stroke-width="${n(w0 / 5)}"/>`] : [])] : [];
+  const out = [...(grad ? along() : [`<path d="${dOf}" fill="none" ${stroke(s)} stroke-linejoin="miter"/>`]), ...gaps];
   const w = s.Weight * PT;
   // Of its style and size: drawn from its tip back along the line (ux, uy) and across it (-uy, ux).
   const head = ([x, y], [px, py], h) => {
@@ -607,7 +612,7 @@ function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = 
     const runsBefore = before;
     before = '';
     return (it.blank ? it.lines.map(() => []) : typed(it)).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${para(ls)}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc>${mark(ls)}${stops}</a:pPr>${runsBefore}`
-      + (wrap !== null || flows ? `<a:r>${rPr}<a:t>${esc(ls.map(l => l.text.replace(/\u00a0/g, ' ')).join(' '))}</a:t></a:r>` : ls.map(l => l.spans ? spanRuns(l) : `<a:r>${rPr}<a:t>${esc(l.text.replace(/\u00a0/g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`)) + `<a:endParaRPr ${attrs}>${face}</a:endParaRPr></a:p>`);
+      + ((wrap !== null || flows) && !ls.some(l => l.spans) ? `<a:r>${rPr}<a:t>${esc(ls.map((l, j) => `${l.cut ? l.text.slice(0, -1) : l.text}${l.cut || j === ls.length - 1 ? '' : ' '}`.replace(/\u00a0/g, ' ')).join(''))}</a:t></a:r>` : ls.map(l => l.spans ? spanRuns(l) : `<a:r>${rPr}<a:t>${esc(l.text.replace(/\u00a0/g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`)) + `<a:endParaRPr ${attrs}>${face}</a:endParaRPr></a:p>`);
   });
   // (A table's cell holds its words in the drawing's own namespace, and nothing of a shape's frame; an empty one keeps its size for what's typed there.)
   if (cell) return `<a:txBody><a:bodyPr/><a:lstStyle/>${ps.join('') || `<a:p><a:endParaRPr lang="en-US" sz="${Math.max(100, Math.round(cell.Size * k * 100))}" dirty="0"/></a:p>`}</a:txBody>`;
