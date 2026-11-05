@@ -1871,7 +1871,7 @@ function mount(el) {
     const s = m?.type === 'shape' ? { own: true } : m ? scoped(m) : scopeNow(canvas);
     // (A footnote is a page's, numbered on it: the master, which every page shares, has none of its own.)
     if (scene.view === Scene.MASTER) return Shell.toast('A footnote is a page’s: add it on a page');
-    if (m ? !ok(m) : s.own) return Shell.toast('Select a box, line or shape first');
+    if (m ? !ok(m) : s.own) return Shell.toast('A footnote goes on a box, a line or a shape with words: select one first');
     const f = m && fieldNow()?.m.id === m.id && !fieldNow().it.free ? fieldName(fieldNow().it) : null, foot = scene.marks.find(x => x.role === 'footnotes'), ms = scene.page.margins, u = 1 / (scene.page.scale ?? 1);
     const look = foot?.texts[0]?.look ?? { ...Scene.DEFAULTS.text, Size: 8 * u, Align: 'left', Bold: false, Color: '#595959' }, lh = Scene.lineHeight(look);
     const rect = foot ? { x: foot.x, y: Math.min(foot.y + foot.h, scene.page.h - lh * 1.5), w: foot.w, h: lh * 1.4 } : { x: ms.left, y: scene.page.h - ms.bottom - lh * 1.4, w: scene.page.w - ms.left - ms.right, h: lh * 1.4 };

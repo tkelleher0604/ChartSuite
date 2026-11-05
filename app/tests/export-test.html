@@ -1037,7 +1037,7 @@ async function drawnByHand() {
 async function footnoted() {
   const wb = Log.open(SAMPLE), view = Object.keys(wb.asOf(C, DAY)).find(id => Tree.isView(wb.asOf(C, DAY)[id]) && !wb.notes(C).value('Layout', { id, kind: 'View' })?.rows);
   const tx = wb.edit({ chart: C, who: WHO });
-  tx.add('shape', { view, geometry: 'text', role: 'footnotes', text: '' });
+  const fid = tx.add('shape', { view, geometry: 'text', role: 'footnotes', name: 'Footnotes', text: '' });
   tx.note('Footnote', { kind: 'Entity' }, { text: 'Every entity, in {Jurisdiction}' }, { view, param: 'fn1' });
   if (typeof tx.commit() === 'string') throw new Error('no change');
   const N = wb.notes(C), S = wb.schema(C), R = Formulas.computeState(wb.asOf(C, DAY), N.definitions(S), { relations: N.relations(S) }), s = { ...Scene.of(wb, C, view, DAY, { state: R.records, computed: R }), name: 'Noted' };
@@ -1049,6 +1049,13 @@ async function footnoted() {
   check('… the deck well-formed with it all', !tags(d, 'parsererror').length);
   const svg = Export.svg(s, { pdf: true });
   check('in the PDF, the footnote’s words as drawn', /in Delaware/.test(svg), svg.length);
+  // In columns, by a shape's Columns: PowerPoint's own, where the page has them where it put them.
+  const tx2 = wb.edit({ chart: C, who: WHO });
+  tx2.update(fid, { x: 40, y: 40, w: 700, format: { Columns: { n: 2, gap: 7.2 } } });
+  if (typeof tx2.commit() === 'string') throw new Error('no change');
+  const s2 = { ...Scene.of(wb, C, view, DAY, { state: R.records, computed: R }), name: 'Noted' }, d2 = xml(await (await JSZip.loadAsync(await Export.write('pptx', [s2], 'Noted', { N: wb.notes(C), R }))).file('ppt/slides/slide1.xml').async('string'));
+  const foot2 = tags(d2, 'p:sp').find(p => p.getElementsByTagName('p:cNvPr')[0]?.getAttribute('name') === 'Footnotes');
+  check('footnotes in two columns are PowerPoint’s two columns', tags(foot2, 'a:bodyPr')[0]?.getAttribute('numCol') === '2', foot2?.outerHTML.slice(0, 400));
 }
 
 // ---- Strictly more than PowerPoint (dendra.md, Free shapes): a table that reads, the master, theme fonts, freeforms, effects, fills, words, links; a deck holding each as PowerPoint's own ----
