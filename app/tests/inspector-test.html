@@ -1175,7 +1175,7 @@ async function run() {
   Shell.select([]); await tick(60);
   App.deleting(['own_us_fund'], 'Ownership: U.S. Investors → Fund III'); await tick(60);
   const pendKept = App.pending.peek(), stored = (() => { try { return JSON.parse(sessionStorage.getItem('dendra.pending')); } catch { return null; } })();
-  Shell.parts.peek().action.find(a => a.id === 'chart.new').run(); await tick(120);
+  App.newChart(); await tick(120);
   const other = App.chart.peek();
   check('another chart opened keeps a change pending, its bar not shown there, nothing said', other !== C && App.pending.peek() === pendKept && !pb() && !/^Discarded/.test(document.querySelector('.toast span')?.textContent ?? ''));
   const nK = App.wb.changes().length;

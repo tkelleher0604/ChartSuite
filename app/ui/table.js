@@ -1737,7 +1737,7 @@ const Table = (() => {
     const beside = ([d]) => rest.some(e => other.get(norm(e))) && rest.every(e => !other.get(norm(e)) || sideOf(d, e) === other.get(norm(e))), alone = ([, o]) => !elsewhere.has(o);
     const like = [mine.filter(x => beside(x) && alone(x)), mine.filter(beside), mine.filter(alone), mine].find(l => l.length) ?? [], n = new Map();
     for (const [, o] of like) n.set(st[o].kind, (n.get(st[o].kind) ?? 0) + 1);
-    return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? sideKindNames(m, edge)[0] ?? 'Entity';
+    return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? sideKindNames(m, edge)[0] ?? 'Box';
   }
 
   // ---- A paste or a deletion: a change pending (App.stage), redlined in the grid, with the window's bar saying what

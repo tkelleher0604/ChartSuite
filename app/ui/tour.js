@@ -24,16 +24,19 @@ const Tour = (() => {
   // All like it chosen, given back: the same selection again is formatted as itself (formatbar.js).
   const unlike = () => { const s = Shell.selection.peek(); preactSignals.batch(() => { Shell.select([], { replace: true }); Shell.select([...s], { replace: true }); }); };
   // Each step's act as it's done by the pointer, and, once the keys are what's being used, by the keys (`keys`): it says what they'd press.
+  // (A step the chart shown can't be done on, one box short or with nothing a formula gives, is passed over: `can`.)
+  const boxes = () => App.scene.peek()?.marks.filter(m => m.type === 'box').length ?? 0, anyBox = () => boxes() > 0, twoBoxes = () => boxes() > 1;
   const STEPS = [
-    { event: 'select', target: 'box', act: 'Click a box.', keys: 'Tab to a box.', say: 'Every box is a record.', when: s => s?.length },
-    { event: 'field-edit', target: 'box', act: 'Double-click a box’s name.', keys: 'Press Enter on a box.', say: 'Type here or in the panel: it’s the same record.', ends: unedit },
-    { click: true, event: 'scope-toggled', target: 'like', act: 'Click “All …” above the chart.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+KeyA')}.`, say: 'A change then goes to every box like this one, lit; This box takes it back to the one.', ends: unlike },
-    { event: 'relate-open', target: 'box', act: 'Drag a dot on a box’s edge to another box.', keys: 'Press Shift+F10 on a box, choose Relate…, Tab to another box and press Enter.', say: 'The panel then says how the two are related.' },
+    { can: anyBox, event: 'select', target: 'box', act: 'Click a box.', keys: 'Tab to a box.', say: 'Every box is a record.', when: s => s?.length },
+    { can: anyBox, event: 'field-edit', target: 'box', act: 'Double-click a box’s name.', keys: 'Press Enter on a box.', say: 'Type here or in the panel: it’s the same record.', ends: unedit },
+    { can: twoBoxes, click: true, event: 'scope-toggled', target: 'like', act: 'Click “All …” above the chart.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+KeyA')}.`, say: 'A change then goes to every box like this one, lit; This box takes it back to the one.', ends: unlike },
+    { can: twoBoxes, event: 'relate-open', target: 'box', act: 'Drag a dot on a box’s edge to another box.', keys: 'Press Shift+F10 on a box, choose Relate…, Tab to another box and press Enter.', say: 'The panel then says how the two are related.' },
     // What the drag made, the two boxes' panel, shown before anything takes its place.
-    { point: true, target: 'pair', act: 'Point at what holds between them.', keys: 'Press F6 until you’re in the panel.', say: 'Tick a relation to add it; one a formula gives is italic.' },
-    { click: true, target: 'computed', act: 'Click an italic value.', keys: 'Tab to an italic value.', say: 'Italic means a formula worked it out, and the formula bar says why.', saysKeys: 'Italic means a formula worked it out, and F1 on it says why.', ends: unask },
-    { event: 'view-switch', target: 'sheet', act: 'Switch view.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+PageDown')}.`, say: 'Views share the records; each has its own styles. Export any of them.' },
+    { can: twoBoxes, point: true, target: 'pair', act: 'Point at what holds between them.', keys: 'Press F6 until you’re in the panel.', say: 'Tick a relation to add it; one a formula gives is italic.' },
+    { can: () => { const R = App.computed.peek()?.computed ?? {}, st = App.state.peek() ?? {}; return Object.keys(R).some(id => st[id] && !('tag' in st[id]) && !st[id].args); }, click: true, target: 'computed', act: 'Click an italic value.', keys: 'Tab to an italic value.', say: 'Italic means a formula worked it out, and the formula bar says why.', saysKeys: 'Italic means a formula worked it out, and F1 on it says why.', ends: unask },
+    { can: () => App.views.peek().length > 1, event: 'view-switch', target: 'sheet', act: 'Switch view.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+PageDown')}.`, say: 'Views share the records; each has its own styles. Export any of them.' },
   ];
+  const doable = i => { while (i < STEPS.length && !STEPS[i].can()) i++; return i; };
   const at = signal(-1); // the step shown; STEPS.length is the last card
   let rest = null, began = [];
 
@@ -43,7 +46,7 @@ const Tour = (() => {
     // Each step is done by doing what it teaches, which Viewing wouldn't let it.
     if (App.viewing?.peek()) App.setViewing(false);
     if (at.peek() < 0) began = Shell.selection.peek();
-    at.value = 0;
+    at.value = doable(0);
   }
   // What a step opened stays while the next step is read, and closes once that one is begun or done. Once the
   // last is done, or skipped, everything the steps opened is closed, and the selection is the one begun on.
@@ -51,7 +54,7 @@ const Tour = (() => {
   const settle = () => { const f = opened; opened = null; f?.(); };
   const leave = () => { rest = null; settle(); opened = STEPS[at.peek()]?.ends ?? null; };
   const done = () => { leave(); settle(); Shell.select(began, { replace: true }); };
-  const next = () => { const i = at.peek(); if (i < 0 || i >= STEPS.length) return; if (i < STEPS.length - 1) leave(); else done(); at.value = i + 1; };
+  const next = () => { const i = at.peek(); if (i < 0 || i >= STEPS.length) return; const to = doable(i + 1); if (to < STEPS.length) leave(); else done(); at.value = to; };
   const skip = () => { done(); at.value = STEPS.length; };
   // Ended, the keys go to the chart, where they can be seen.
   function end() { if (at.peek() < 0) return; if (at.peek() < STEPS.length) done(); at.value = -1; setTimeout(() => { const a = document.activeElement; if (!a || a === document.body || !a.isConnected) Shell.enter('view'); }, 30); }

@@ -423,7 +423,9 @@ const App = (() => {
     cancellation: ['Cancel', 'Cancelled'], redemption: ['Redeem', 'Redeemed'], merger: ['Merge', 'Merged'], incorporation: ['Incorporate', 'Incorporated'],
     organization: ['Organize', 'Organized'], registration: ['Register', 'Registered'], commencement: ['Commence', 'Commenced'], closing: ['Close', 'Closed'],
     start: ['Start', 'Started'], end: ['End', 'Ended'], paid: ['Pay', 'Paid'], filed: ['File', 'Filed'] };
-  const actOf = label => ACTS[Tree.norm(label ?? '').replace(/\s+(date|day)$/, '').split(/\s+/).at(-1)] ?? null;
+  // (A chart's own Start or End note can say its verb: { verb, done }, a template's word for its own act.)
+  const actSaid = label => { const n = [...notes.peek().notes('Start'), ...notes.peek().notes('End')].find(x => x.value?.verb && Tree.same(x.pattern.args?.[0]?.edge ?? '', label ?? '')); return n ? [n.value.verb, n.value.done ?? n.value.verb] : null; };
+  const actOf = label => actSaid(label) ?? ACTS[Tree.norm(label ?? '').replace(/\s+(date|day)$/, '').split(/\s+/).at(-1)] ?? null;
   // What deleting records is called, as its menus, Find and its bar's button name it: for what it records. Where it asks
   // the day they end, End, or the act their end entry records (Dissolve, for an entity's Dissolution Date); where it
   // asks none, Delete.
@@ -1179,6 +1181,12 @@ const App = (() => {
   function interposable(rid, recs = entered.peek()) {
     const tr = recs[rid] && transferable(rid, recs);
     return !!tr?.amount && recs[tr.amount].field === 'percent' && takers(rid, '').kinds.some(k => fitsBetween(rid, recs, tr, { kind: k }));
+  }
+  // The word for it, by the kind that would stand between them: Insert an entity between…
+  function interposeWord(rid, recs = entered.peek()) {
+    const tr = recs[rid] && transferable(rid, recs), k = tr && (takers(rid, '').kinds.filter(x => fitsBetween(rid, recs, tr, { kind: x })).find(x => Tree.same(x, recs[Tree.objectOf(recs, tr.rest[0].at)]?.kind ?? '')) ?? takers(rid, '').kinds.find(x => fitsBetween(rid, recs, tr, { kind: x })));
+    const word = k ? lowered(k) : 'one';
+    return `Insert ${k ? (/^[aeiou]/i.test(word) ? 'an ' : 'a ') : ''}${word} between…`;
   }
   function interpose(tx, rid, to, d, o = {}) {
     const at = o.at ?? book.peek().asOf(chart.peek(), d), r = at[rid], tr = transferable(rid, at), amt = at[tr.amount], entries = Tree.index(at).entries.get(rid) ?? [];
@@ -2006,7 +2014,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs,
-    readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, interposable, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
+    readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken,
   };
 })();

@@ -1328,7 +1328,7 @@ function moreOf(id, o = {}) {
     chart && (r.kind || r.args) ? [drawn ? { label: 'Hide in this view', disabled: stillHere, run: () => showHere([id], v, false) }
       : hiddenHere(id, v.id) ? { label: 'Show in this view', disabled: stillHere, run: () => showHere([id], v) } : null].filter(Boolean) : [],
     [...(App.transferable(id) ? [{ label: 'Transfer…', disabled: still, run: () => App.transferring(id) }] : []),
-      ...(App.interposable(id) ? [{ label: 'Insert an entity between…', disabled: still, run: () => App.interposing(id) }] : []),
+      ...(App.interposable(id) ? [{ label: App.interposeWord(id), disabled: still, run: () => App.interposing(id) }] : []),
       ...(App.endsOf(id).some(e => e.rel) ? [{ label: 'Merge into…', disabled: still, run: () => App.merging(id) }] : []),
       { label: `${verb}…`, danger: true, disabled: still, run: () => remove(id, asked) },
       // What the word for an act hides, offered plainly: a mistake is taken back as never held.
@@ -1352,9 +1352,11 @@ function kindChoices(id) {
   const S = App.schema.value, n = N(), rows = App.shown.value.rows(App.chart.value).filter(r => 'record' in r), raw = {};
   for (const r of rows) if (!raw[r.record] || (r.since ?? '') >= (raw[r.record].since ?? '')) raw[r.record] = r;
   const doc = k => Object.values(S).some(s => s.out?.field === 'document' && s.args?.length === 1 && T.same(s.args[0].loc.kind ?? '', k));
+  // (Nor what every page of the chart keeps off it, which a box made it wouldn't be.)
+  const pages = App.views.value.filter(v => v.layout === 'chart'), off = k => pages.length > 0 && pages.every(v => n.value('Shown', { kind: k }, v.id) === false);
   const worked = new Set(App.definitions.value.filter(d => d.edges).flatMap(d => d.covers));
-  if (doc(raw[id].kind) || T.same(raw[id].kind, 'Tax Year')) return [];
-  const kinds = [...new Set(Object.values(S).filter(s => !s.args && s.kind && !T.isView(s)).map(s => s.kind))].filter(k => !doc(k) && !T.same(k, 'Tax Year'));
+  if (doc(raw[id].kind) || off(raw[id].kind)) return [];
+  const kinds = [...new Set(Object.values(S).filter(s => !s.args && s.kind && !T.isView(s)).map(s => s.kind))].filter(k => !doc(k) && !off(k));
   // The relations it's a side of, itself, entered, each as a specification with its side at the kind.
   const rels = Object.values(raw).filter(r => r.args?.some(a => a.at === id)).map(r => ({ r, t: T.treeOf(raw, r.record) })).filter(x => x.t && !worked.has(T.paramKey(x.t)));
   const fits = (x, k) => { const p = { ...(x.t.out && { out: 'value' in x.t.out ? { field: x.t.out.field } : x.t.out }), args: x.t.args.map(a => ({ edge: a.edge, loc: a.loc.id === id ? { kind: k } : T.specOf(a.loc) })) }; return n.fitting(S, p).length > 0; };
@@ -1875,7 +1877,7 @@ function RelateView({ a, b }) {
     if (!name || !ra || !rb || T.same(ra, rb)) { if (App.pending.peek()?.relate === ours && ours) App.discard({ quiet: true }); return; }
     const p = { args: [{ edge: ra, loc: {} }, { edge: rb, loc: {} }] }, rec = { args: [{ edge: ra, at: a }, { edge: rb, at: b }], tag: true };
     // (How they stand: `stands`, which side's on top, or level or neither. As it's asked, the role of the box over the other, where one is, else the first typed.)
-    const above = f.stands ?? (ya > yb && upright ? rb : ra), top = T.same(above, rb) ? rb : ra, under = top === ra ? rb : ra, standing = ['level', 'none'].includes(f.stands) ? f.stands : null;
+    const above = f.stands ?? (ya > yb && upright ? rb : ra), standing = ['level', 'none'].includes(above) ? above : T.same(above, rb) ? rb : null;
     const was = App.pending.peek()?.relate?.key === 'new' && App.pending.peek().relate.a === a && App.pending.peek().relate.b === b ? App.pending.peek() : null;
     App.stage({ verb: 'Add', what: `${name}: ${n.placed(r, null, rec.args).map(s => s.join + s.text).join('')}`, source: `relate ${a} ${b}`, relate: { a, b, key: 'new', out: { tag: true } },
       asks: 'from', day: was ? was.day : App.begins(), needs: [a, b], say: c => Time.describe(c),
@@ -1883,9 +1885,9 @@ function RelateView({ a, b }) {
       // (And drawn on the page it's made on, a line and a row in its Styles, as what it's drawn to say.)
       // (And in the Key, as what a line says; the page's first relation says no more on each of its lines, as what it's a chart of.)
       make: tx => { const view = Shell.view.peek(), lined = App.scene.peek()?.marks.some(m => m.type === 'line'), out = { out: { tag: true }, ...p };
-        tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: top }); tx.note('Order', p, 2, { param: under }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb });
+        tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb });
         if (standing) tx.note('Above', p, standing);
-        if (view && App.scene.peek()) { tx.note('Shown', p, true, { view }); tx.note('Caption', out, name, { view }); if (!lined) tx.note('Format', out, 'none', { view }); } },
+        if (view && App.scene.peek()) { tx.note('Shown', out, true, { view }); tx.note('Caption', out, name, { view }); if (!lined) tx.note('Format', out, 'none', { view }); } },
       done: () => { naming.value = null; fresh.value = { a, b, key: [ra, rb, a, b].join('|').toLowerCase() }; } });
   };
   // Enter goes on to the next it asks, until it's all given, and then makes it.
@@ -2141,6 +2143,8 @@ function GeneralView({ p, style }) {
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
       ${rel && !def && specs.every(s => s.args.length === 2) ? (() => { const es = n.edges(p), now = n.value('Above', p, v) ?? es[0], said = s => s === 'level' ? 'Side by side' : s === 'none' ? 'Neither on top' : `${s} on top`, setIt = s => App.change(tx => tx.note('Above', p, T.same(s, es[0]) ? undefined : s, { view: v ?? undefined }), { dated: false, say: `Said how ${name} stands: ${said(s).toLowerCase()}` });
         return html`<div class="row" key="stands"><div class="k">Stands</div><div class="v ctl">${still ? said(now) : html`<button class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, [...es, 'level', 'none'].map(s => ({ label: said(s), checked: T.same(s, now), run: () => !T.same(s, now) && setIt(s) })))}><span>${said(now)}</span></button>`}</div></div>`; })() : null}
+      ${kind && below.some(s => s.out?.field === 'date' || s.out?.field === 'number') ? (() => { const by = n.across(p.kind), said = by ?? 'As they were made', take = e => App.change(tx => tx.note('Order', p, e ? { by: e } : undefined), { dated: false, say: e ? `Stood each ${lower(p.kind)} in the order of ${e}` : `Stood each ${lower(p.kind)} as they were made` });
+        return html`<div class="row" key="across"><div class="k">Across, in order of</div><div class="v ctl">${still ? said : html`<button class="sel dd" aria-haspopup="menu" aria-label="Across, in order of" onClick=${e => menu(e.currentTarget, [{ label: 'As they were made', checked: !by, run: () => by && take(null) }, ...below.filter(s => s.out?.field === 'date' || s.out?.field === 'number').map(s => ({ label: s.args[0].edge, checked: T.same(by ?? '', s.args[0].edge), run: () => !T.same(by ?? '', s.args[0].edge) && take(s.args[0].edge) }))])}><span>${said}</span></button>`}</div></div>`; })() : null}
       ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('A blank needs filling in', n.required(p), on => flag('Required', p, on))}
       ${type === 'tag' ? checkRow('A no needs attention', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
       ${kind || rel || def || writing || (dated && (n.isStart(dp) || n.isEnd(dp))) ? null : checkRow('Changes over time', dated ? n.changing(p) : !n.fixed(p), on => flag('Fixed', p, dated ? (on ? false : undefined) : (on ? undefined : true)))}
@@ -2296,16 +2300,16 @@ const notAsked = (can, what) => () => !App.canAsk() ? App.whyNot() : !theOne() ?
 const WHAT_IF = ['What if', 'Scenario', 'Preview', 'Hypothetical'];
 Shell.register('action', { id: 'record.transfer', name: 'Transfer…', names: ['Sell', 'Sale', 'Assign', 'Transfer ownership', ...WHAT_IF],
   enabled: () => App.canAsk() && !!theOne() && !!App.transferable(theOne()), run: () => App.transferring(theOne()),
-  why: notAsked('Only a relation of two sides transfers', 'an ownership or another relation') });
-Shell.register('action', { id: 'record.interpose', name: 'Insert an entity between…', names: ['Insert', 'Interpose', 'Holdco', ...WHAT_IF],
+  why: notAsked('Only a relation of two sides transfers', 'a relation') });
+Shell.register('action', { id: 'record.interpose', get name() { return theOne() && App.interposable(theOne()) ? App.interposeWord(theOne()) : 'Insert one between…'; }, names: ['Insert', 'Insert between', 'Interpose', 'Holdco', ...WHAT_IF],
   enabled: () => App.canAsk() && !!theOne() && !!App.interposable(theOne()), run: () => App.interposing(theOne()),
-  why: notAsked('Only an ownership takes one between', 'an ownership') });
+  why: notAsked('Only a relation with a percentage takes one between', 'a line with a percentage') });
 // What a formula gives, overridden by saying so, as the reason in the formula bar offers it.
 const computedTag = () => { const id = theOne(); return id && fx(id) && 'tag' in recs()[id] ? id : null; };
 Shell.register('action', { id: 'record.override', name: 'Override…', names: ['Rule out', 'Attest', 'Override', 'Waive', 'Waiver', 'Exception', 'Type over'],
   enabled: () => !App.readOnly.peek() && !!computedTag(), run: () => App.overriding(computedTag()), why: notNow('Only what a formula gives is overridden', 'what a formula gives') });
 Shell.register('action', { id: 'record.merge', name: 'Merge into…', names: ['Merger', 'Merged into', 'Merge', ...WHAT_IF],
-  enabled: () => App.canAsk() && !!theOne() && App.endsOf(theOne()).some(e => e.rel), run: () => App.merging(theOne()), why: notAsked('Only what can merge merges', 'an entity') });
+  enabled: () => App.canAsk() && !!theOne() && App.endsOf(theOne()).some(e => e.rel), run: () => App.merging(theOne()), why: notAsked('Only what can merge merges', 'a box') });
 Shell.register('action', { id: 'record.delete', get name() { return `${theOne() ? App.deleteVerb([theOne()]) : 'Delete'}…`; }, names: ['Delete', 'Remove', 'Dissolve', 'End', 'Sell', 'Sale', ...WHAT_IF],
   enabled: () => App.canAsk() && !!theOne() && App.scene.peek()?.byId.get(theOne())?.change !== 'Gone', run: () => remove(theOne(), { auto: true }), why: notAsked('', 'what to delete') });
 // The list of the rules, from the chart's menu and Find: what checks something first, then every other, then the relations entered,

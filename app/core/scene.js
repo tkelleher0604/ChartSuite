@@ -1153,7 +1153,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const furnished = onPage.filter(r => (r.role === 'title' || r.role === 'date') && placedBy(r)).map(r => freeShape(r, said.get(r.id)));
   const furniture = furnished.reduce((h, m) => h + m.h, 0);
   const { left: ML, right: MR, top: MT, bottom: MB } = sheet.margins;
-  const room = { w: sheet.w - ML - MR, h: sheet.h - MT - MB - (furniture && furniture - INSET - PAD + 32) };
+  // (`plain`: none of the lines it draws is of a relation that says a figure, as a structure chart's say a percentage: see Layout's hanging.)
+  const figures = Object.values(wb.schema(chart)).filter(s => s.args?.length === 1 && s.out?.field === 'percent' && s.args[0].loc.args).map(s => Tree.bare(s.args[0].loc));
+  const room = { w: sheet.w - ML - MR, h: sheet.h - MT - MB - (furniture && furniture - INSET - PAD + 32), plain: !lines.some(l => figures.some(p => Tree.narrower(tree(l.record), p))) };
   const keyRow = onPage.find(r => r.geometry === 'legend' && placedBy(r));
   if (keyRow) {
     const k = freeShape(keyRow, '');
@@ -1207,9 +1209,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     return bs;
   }
+  // The order boxes are given to the layout in, which it keeps among what's beside each other where it can: the order they were made in, those of a kind whose
+  // Order says one of its entries (Born) taking their turns in the order of that, earliest first.
+  const acrossOf = new Map(boxes.map(b => { const by = N.across(state[b.record]?.kind ?? ''), e = by && Tree.entryAt(state, b.record, by); return [b.id, e ? state[e].value ?? null : null]; }));
+  const inTurn = bs => { const valued = bs.filter(b => acrossOf.get(b.id) != null); if (valued.length < 2) return bs; valued.sort((a, b) => (acrossOf.get(a.id) < acrossOf.get(b.id) ? -1 : acrossOf.get(a.id) > acrossOf.get(b.id) ? 1 : 0)); let i = 0; return bs.map(b => acrossOf.get(b.id) != null ? valued[i++] : b); };
   // What the layout reads: the boxes, the lines that rank them, and the frames.
   const ranked = bs => ({
-    boxes: bs.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null, order: tidiedAs.get(b.id)?.order ?? null, around: !!tidiedAs.get(b.id)?.around })),
+    boxes: inTurn(bs).map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null, order: tidiedAs.get(b.id)?.order ?? null, around: !!tidiedAs.get(b.id)?.around })),
     links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, level: l.level, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
   });
