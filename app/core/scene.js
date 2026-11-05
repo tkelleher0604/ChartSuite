@@ -1043,7 +1043,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     if (!words.length) footsOf.clear();
   }
   // The key is of what the view draws: what's revealed for a while doesn't change it. While nothing is keyed, as on a
-  // new chart's page, a Key isn't drawn, and the page is as it would be without it.
+  // new chart's page, or all that is keyed is what the Key leaves out, a Key isn't drawn, and the page is as it would be without it.
   const legendRows = legend(N, view, [...boxes, ...lines].filter(m => !m.revealed));
   // (Its rows of every day, so a row keeps its column as the day shown changes: see layoutLegend.)
   legendRows.ever = keyedEver(N, view, rows);
@@ -1057,13 +1057,13 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   for (const r of footRows) said.set(r.id, r.text);
   // A free shape's text takes the page's Font and Size too, where its own row doesn't say.
   const pageLook = Object.fromEntries(Object.entries(ofPage).map(([l, r]) => [l, r.value]));
-  const onPage = [...shapeRows.filter(r => !r.hidden && (r.geometry !== 'legend' || legendRows.length) && (r.role !== 'footnotes' || footsOf.size)), ...footRows].map(r => !r.master && (ofPage.Font || ofPage.Size) ? { ...r, format: { ...pageLook, ...(pageLook.Size !== undefined && (r.role || r.geometry === 'legend') && { Size: undefined }), ...r.format } } : r);
+  const onPage = [...shapeRows.filter(r => !r.hidden && (r.geometry !== 'legend' || legendRows.some(g => !r.hide?.includes(g.key))) && (r.role !== 'footnotes' || footsOf.size)), ...footRows].map(r => !r.master && (ofPage.Font || ofPage.Size) ? { ...r, format: { ...pageLook, ...(pageLook.Size !== undefined && (r.role || r.geometry === 'legend') && { Size: undefined }), ...r.format } } : r);
 
   // Lines: each from its Above side, the edge drawn on top (an owner's), to the other; the Above an edge
   // order gives, where no note says. Its label is its own text, then the texts drawn on it; a line revealed
   // has none, as what reveals it names it. A line that says its relation's name says it as the Key does, its
   // row's caption, its own where the Key has one, so one relation is spelled one way on the page.
-  const theKey = onPage.find(r => r.geometry === 'legend');
+  const theKey = shapeRows.find(r => !r.hidden && r.geometry === 'legend');
   const captioned = new Map(legendRows.flatMap(r => r.outputs.map(o => [key(o), theKey?.captions?.[r.key] ?? r.caption])));
   // A box of no form (dendra.md, Styles): one no style gives a look, with nothing at the entry a row of the Key goes by, whose
   // look is that row's exactly, would pass as what the row says it is. So it isn't drawn so.

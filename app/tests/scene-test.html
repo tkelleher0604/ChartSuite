@@ -239,6 +239,10 @@ function run() {
     check('a new chart’s Key isn’t drawn while nothing is keyed, the page as it would be without one, and is drawn once something is',
       !blank.marks.some(m => m.geometry === 'legend') && page(blank) === page(newChart(null, null, false).s) && keyed.marks.some(m => m.geometry === 'legend' && m.rows.length > 0),
       j(blank.marks.map(m => m.geometry ?? m.type)));
+    // (Nor one with nothing but what it leaves out, as a new fund's page with its one main fund has: a title over no rows says nothing.)
+    const left = fresh(), drawnKey = scene(left, 'view_fund3');
+    edit(left, tx => tx.update(drawnKey.marks.find(m => m.geometry === 'legend').id, { hide: drawnKey.legend.map(r => r.key) }));
+    check('a Key isn’t drawn with nothing but what it leaves out', !scene(left, 'view_fund3').marks.some(m => m.geometry === 'legend'));
   }
 
   // ---- One rule for groups and their captions: the Key, Styles and the scope ----
