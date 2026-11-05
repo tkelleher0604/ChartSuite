@@ -523,7 +523,7 @@ const FormulaBar = (() => {
   // "it" doesn't name.
   const lower = s => String(s).replace(/\b[A-Z][a-z]+\b(?!\s+(?:[A-Z]{1,4}|\d+)\b)/g, w => w.toLowerCase());
   const article = w => /^[aeiou]/i.test(w) ? 'an' : 'a';
-  const singular = w => [w.replace(/ies$/, 'y'), w.replace(/es$/, ''), w.replace(/s$/, '')].find(x => x !== w && Tree.same(Tree.plural(x), w)) ?? w;
+  const { singular } = Tree;
   const plural = w => /\b[A-Za-z][a-z]*[^siu\W]s$/.test(String(w).split(/\s+of\s+/i)[0]);
   const an = w => plural(w) ? '' : `${article(w)} `;
   const isPerson = (Rv, id) => /individual|person/i.test(Rv.records[id]?.kind ?? '');
@@ -857,6 +857,8 @@ const FormulaBar = (() => {
     const n = N(), listed = predicate(n.listName(t, b)), own = !listed && predicate(name, true), p = listed ?? own, flip = !p && tag && predicate(n.listName(t, a));
     // (A relation named for what its second side does is said of that side: a Report reports to its Manager.)
     if (own?.form === 'verb' && tag && Tree.same(singular(own.head.split(' ')[0]), b)) return { ...own, flip: own };
+    // (A relation's name says it of its first side: Parent Of, of the Parent. Asked of the other, it's said of that one.)
+    if (own && t.args && Tree.same(n.edges(t)[0], b) && !Tree.same(n.edges(t)[0], a)) return { ...own, flip: own };
     return p ?? (flip ? { ...flip, flip } : { head: lower(singular(n.listName(t, a))), prep: ' of ', form: 'noun', role: true });
   }
   // A relation in words, for a pane that says its sides itself: [the side said first, the words, the other].

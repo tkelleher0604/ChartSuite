@@ -141,6 +141,9 @@ button.lk.hint { margin-left: 8px; color: var(--accent-ink); white-space: nowrap
 .onchart.on { opacity: .55; }
 .row:hover > .onchart.on { opacity: 1; color: var(--accent); }
 .onchart:hover { color: var(--ink); }
+.btn.onchart.named { right: 20px; }
+.btn.onchart.named:not(.on) { opacity: 0; }
+.row:hover > .btn.onchart.named { opacity: 1; }
 .row:has(> .onchart) .btn.ver:not(.due) { right: 13px; }
 .drag-field { position: fixed; z-index: 100; padding: 3px 8px; border-radius: var(--r); background: var(--accent); color: var(--on-accent); font: var(--t12); pointer-events: none; box-shadow: var(--shadow-pop); }
 .ent { position: relative; }
@@ -364,7 +367,9 @@ svg.sw.off { opacity: .35; }
 .rr-at .row { padding-left: 42px; }
 .rr-at .row.chk { padding-left: calc(42px + var(--depth, 0) * 16px); }
 /* A relation of a new name: its name, then each side with its role after it. */
-.rr.new > .form { grid-column: 2 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 16px; align-items: center; }
+.rr.new > .form { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px; row-gap: 2px; align-items: center; }
+.rr.new > .form > .sel { justify-self: start; max-width: 100%; }
+.rr.new > .form > .form-acts { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; }
 .rr.new > .form > .cell { width: calc(100% + 14px); }
 .rr.new > .form > .cell:first-child { grid-column: 1 / -1; }
 .rr.new > .form > .side { padding: 4px 0; overflow-wrap: anywhere; }

@@ -557,9 +557,14 @@ const Table = (() => {
     const input = document.createElement('input');
     input.className = 'typed';
     input.value = typed0 ?? typing(typeOf(c, cell.getRow().getData()), cell.getValue());
-    const first = typed0 !== null || atEnd;
+    const first = typed0 !== null || atEnd, type0 = typeOf(c, cell.getRow().getData());
+    // As Excel's AutoComplete: words typed that begin what the column already has are finished for it, the rest selected, so going on typing replaces it. (A list's cell, of the names its side can be, after its last comma.)
+    const pool = type0 !== 'text' && c.type !== 'list' ? null : () => { const st = App.state.peek(), f = field(c); return c.type === 'list' ? (c.kindNames ?? []).flatMap(k => Tree.index(st).kinds.get(norm(k)) ?? []).map(id => App.notes.peek().nameOf(st, id)) : [...new Set((current?.data ?? []).map(d => d[f]).filter(v => typeof v === 'string' && v))]; };
+    const finish = () => { if (!pool || input.selectionStart !== input.value.length) return; const v = input.value, at = c.type === 'list' ? v.lastIndexOf(',') + 1 : 0, head = v.slice(0, at), typed = v.slice(at).replace(/^\s+/, ''), lead = v.slice(at, v.length - typed.length); if (!typed) return; const hit = pool().find(x => x.length > typed.length && x.toLowerCase().startsWith(typed.toLowerCase())); if (!hit) return; input.value = head + lead + typed + hit.slice(typed.length); input.setSelectionRange(v.length, input.value.length); grow(input, cell); };
     typed0 = null; atEnd = false;
-    input.addEventListener('input', () => grow(input, cell));
+    // (Over what it was begun with, too: the first key's what opened it.)
+    input.addEventListener('input', e => { grow(input, cell); if (e.inputType === 'insertText') finish(); });
+    if (first && input.value && input.value.length === 1) onRendered(() => finish());
     onRendered(() => { grow(input, cell); input.focus(); if (!first) input.select(); else input.setSelectionRange(input.value.length, input.value.length); });
     let done = false;
     const bad = () => { input.classList.add('bad'); input.dataset.why = Tree.notA(typeOf(c, cell.getRow().getData())); input.setAttribute('aria-invalid', 'true'); return false; };
@@ -930,7 +935,9 @@ const Table = (() => {
     // narrow first column had wrapped, so the grid ran on three times its rows' height, blank.
     t.rowManager.normalizeHeight = function () { this.renderer.rerenderRows(); };
     t.on('cellEditCancelled', () => back());
-    t.on('cellClick', (e, cell) => { if (e.target.closest('.tag, .cant') && !cell.getRow().getData()._ended) flip(cell); });
+    t.on('cellClick', (e, cell) => { if (e.target.closest('.tag, .cant') && !cell.getRow().getData()._ended) flip(cell);
+      // (The arrow a dropdown's cell shows opens its list, as an arrow does.)
+      else { const col = columnOf(cell), r = cell.getElement().getBoundingClientRect(); if (col?.type === 'choice' && e.clientX >= r.right - 24 && canEdit(cell) && !App.readOnly.peek() && !table?.modules.edit?.currentCell) setTimeout(() => { if (table !== t || table.modules.edit?.currentCell) return; ranged = cellsOf(); atEnd = true; cell.edit(true); if (!table.modules.edit.currentCell) atEnd = false; }, 40); } });
     t.on('rangeChanged', range => { remember(range); soon(); tally(); });
     t.on('rangeAdded', range => { remember(range); if (quiet.has(range)) quiet.delete(range); else soon(); tally(); });
     t.on('rangeRemoved', tally);
@@ -1045,7 +1052,8 @@ const Table = (() => {
     const come = () => m.data.filter(r => !had.has(r.id)).reduce((p, r) => p.then(() => {
       const before = m.data.slice(0, m.data.indexOf(r)).findLast(x => there.has(x.id));
       there.add(r.id);
-      return before ? t.addRow(r, false, before.id) : t.addRow(r, true);
+      // (The row being typed, under the last, where the new row was.)
+      return r.id === keeping ? t.addRow(r, false) : before ? t.addRow(r, false, before.id) : t.addRow(r, true);
     }), Promise.resolve());
     // However it ends, the next update can go; one that failed has left rows that can't be trusted, so the grid
     // is built again from what's there.
@@ -1062,6 +1070,8 @@ const Table = (() => {
       reds = red;
       t.restoreRedraw();
       ok = true;
+      // (The first rows of an empty table: its columns, fitted to nothing, are fitted to them.)
+      if (!had.size && m.data.length) relayout();
     }).finally(() => {
       if (flight === f) flight = null;
       if (t !== table) return;
@@ -1229,7 +1239,14 @@ const Table = (() => {
   function step(d, col) {
     const sr = table?.modules.selectRange;
     if (!sr?.activeRange) return;
+    const from = sr.getActiveCell();
     sr.navigate(false, false, d);
+    // (Tab goes on past what can't be typed in or ticked: what a rule works out, which the arrows still reach. With nothing past it to stop at, it stays where it was.)
+    if (d === 'left' || d === 'right') {
+      const stops = c => !meta(c)?.fx && (canEdit(c) || columnOf(c)?.type === 'tag');
+      let was = sr.getActiveCell();
+      for (let i = 0; i < 60 && was && !stops(was.getComponent()); i++) { sr.navigate(false, false, d); const now = sr.getActiveCell(); if (now === was) { const c = from.getComponent(); table.addRange(c, c); break; } was = now; }
+    }
     const a = sr.getActiveCell();
     if (col && a && a.column !== col && col.visible) { const cell = a.row.getCell(col)?.getComponent(); if (cell) table.addRange(cell, cell); }
     across();
@@ -1382,6 +1399,13 @@ const Table = (() => {
     rows.at(-1).push(cell);
     return rows.filter(r => r.some(x => clean(x))).map(r => r.map(x => x.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￿]/g, '')));
   }
+  // Rows as typed or pasted into Import: by tabs, or with none, by commas, as a person types them, a legal form staying with its name ("Acme, Inc."), and quotes keeping what's in them whole.
+  function rowsTyped(s) {
+    const g = tsv(s);
+    if (/\t/.test(s) || !/,/.test(s)) return g;
+    const cut = line => { const out = []; let cell = '', q = false; for (const ch of line) { if (ch === '"') q = !q; else if (ch === ',' && !q) { out.push(cell); cell = ''; } else cell += ch; } out.push(cell); return out.map(clean).reduce((a, x) => { if (a.length && /^(llc|l\.?l\.?c\.?|l\.?p\.?|inc\.?|corp\.?|ltd\.?|plc|gmbh)$/i.test(x)) a[a.length - 1] += `, ${x}`; else a.push(x); return a; }, []); };
+    return g.map(r => cut(r[0] ?? ''));
+  }
 
   // A link pasted onto a row links a document to its record, as a link pasted anywhere does (inspector.js):
   // onto a relation's side, to that side. Only a cell of links, itself the target, takes one as its value.
@@ -1493,6 +1517,8 @@ const Table = (() => {
     }
     const keys = keysOf(m, m.cols).filter(k => !taken.has(k.key));
     for (let j = 0; j < width && keys.length; j++) if (!out[j] && of(j).some(v => Tree.classify(v) === 'text')) out[j] = keys.shift().key;
+    // (And where nothing reads as words, a column of bare years, what a row's found by is still the first that's left.)
+    for (let j = 0; j < width && keys.length; j++) if (!out[j] && of(j).length) out[j] = keys.shift().key;
     return out;
   }
   // The rows of a file: Excel's or CSV, read as tab-separated text, a date as its day whatever format the sheet shows it in,
@@ -1515,7 +1541,7 @@ const Table = (() => {
     // The rows as fixed here (null till one is), and the cell being typed in.
     const [fixed, setFixed] = useState(null), [typing, setTyping] = useState(null), [all, setAll] = useState(false);
     const setText = t => { setTextOnly(t); setFixed(null); setTyping(null); };
-    const grid = fixed ?? tsv(noDay(text)), fits = tables.map(v => [v.id, fitOf(v.id, grid[0] ?? [])]), best = fits.reduce((a, b) => b[1] > a[1] ? b : a, [null, 0]);
+    const grid = fixed ?? rowsTyped(noDay(text)), fits = tables.map(v => [v.id, fitOf(v.id, grid[0] ?? [])]), best = fits.reduce((a, b) => b[1] > a[1] ? b : a, [null, 0]);
     const here = tables.find(v => v.id === Shell.view.peek())?.id, view = to ?? (fits.find(([v]) => v === here)?.[1] ? here : best[1] ? best[0] : here ?? tables[0]?.id);
     const m = preactHooks.useMemo(() => view && model(view), [view]);
     if (!m) return null;
@@ -1776,8 +1802,8 @@ const Table = (() => {
     const rowsSaid = !few ? [] : m.isKind ? x.made.filter(o => o.row).map(o => o.name) : x.rows.map(id => N.placed(recs, id).map(s => s.join + s.text).join(''));
     const added = [!few && count(x.rows.length, noun), ...rowsSaid, ...related, ...(made.length > 3 ? [...made.slice(0, 2), `${made.length - 2} more`] : made)].filter(Boolean);
     const say = !x.values && !x.rows.length ? ch => Time.describe(ch)
-      : [x.values && `${file ? 'Imported' : 'Pasted'} ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `left out ${leftWords(x)}`, held.length && `${count(held.length, 'row')} held back (${list(held)})`]
-        .filter(Boolean).join(', ').replace(/^a/, 'A').replace(/^Added/, file ? 'Imported' : 'Added') + (file ? ` from ${file}` : '');
+      : [x.values && `${file || verb === 'Import' ? 'Imported' : 'Pasted'} ${count(x.values, 'value')}`, added.length && `added ${list(added)}`, x.skipped && `left out ${leftWords(x)}`, held.length && `${count(held.length, 'row')} held back (${list(held)})`]
+        .filter(Boolean).join(', ').replace(/^a/, 'A').replace(/^Added/, file || verb === 'Import' ? 'Imported' : 'Added') + (file ? ` from ${file}` : '');
     // By the one rule (App.put): a value over one with history to keep asks from when, as one typed there does.
     const over = Object.keys(x.records).filter(id => App.asksFrom(id, x.records[id]));
     const asks = over.length > 0 || [...x.rows, ...x.rels].some(id => App.asksDay(x.records[id], recs));
@@ -1813,8 +1839,8 @@ const Table = (() => {
     const entered = App.entered.peek();
     // What it's at: the records it writes over, those it adds at, and those it ends.
     const needs = [...new Set([...Object.entries(x.records).flatMap(([id, r]) => [id, ...Tree.argsOf(r).map(a => a.at)]), ...x.ends])].filter(id => id in entered);
-    App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, ...(x.left.length && { note: `Left out: ${x.left.map(leftWord).join('; ')}` }), cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
-      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : over.length ? App.day.peek() : App.begins() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
+    App.stage({ verb: verb ?? (file ? 'Import' : 'Paste'), what: list(added.length ? added : [count(x.values, 'value')]), parts, source, say, needs, asking: asked.length > 0 || !!x.ends.length, ...(x.left.length && { note: `Left out: ${x.left.map(leftWord).join('; ')}` }), cols: new Set([...x.cols].filter(k => !shownCols.has(k))),
+      ...(asks && { asks: 'from', day: as.size && was?.source === source && was.asks ? was.day : over.length && App.isDated.peek() ? App.day.peek() : App.begins() }), make, go: offered, done: () => { if (x.rows.length === 1) Shell.select(x.rows); } });
     back();
   }
   // Rows deleted, as one change pending: the records entered there, and what's at them, each ended as App.deleting says.
@@ -2086,21 +2112,13 @@ const Table = (() => {
     keeping = null;
     const p = filterOf(current), d = current.data.find(r => r.id === id);
     if (p && d && !p(d)) { refilter(); Shell.toast(`Added ${App.notes.peek().nameOf(App.state.peek(), id)}, which a filter hides`); }
-    settleRow(id);
   }
   // Sorted, the rows are sorted again, so a row come or changed takes its place; not while a row is being typed.
   function resort() {
     const s = !keeping && table?.getSorters();
     if (s?.length) table.setSort(s.map(x => ({ column: x.field, dir: x.dir })));
   }
-  // Left, a row typed goes where the sort says, or, with none, where the table's own order of its names does.
-  function settleRow(id) {
-    if (table.getSorters().length) return resort();
-    const f0 = current?.cols[0] && field(current.cols[0]), row = table.rowManager.findRow(id), of = d => text(typeOf(current.cols[0], d), d[f0]);
-    if (!row || !f0 || current.rows === 'date' || current.groups) return;
-    const rows = table.getRows().filter(r => r.getData().id !== id), mine = of(row.getData()), at = rows.findIndex(r => of(r.getData()).localeCompare(mine) > 0);
-    if (at >= 0) table.getRow(id).move(rows[at], true);
-  }
+  // (Left, a row typed stays where it was typed, as in Excel: rows hold still while they're worked in. The sort applies when it's asked again, and the table opened again is in its own order.)
   // A heading's arrow or funnel coming or going, its column is fitted again, so its name stays whole.
   const relayout = () => { if (table && ready) { laid.delete(table); settle(); } };
   // A filtered column's heading shows its funnel, and a sorted one's its arrow, each with room for it.
@@ -2592,7 +2610,8 @@ const Table = (() => {
   function strip() {
     if (!rowEl || !el || !table || !ready || !el.classList.contains('adds')) return;
     const h = table.rowManager.element, tb = table.rowManager.tableElement;
-    const y = Math.min(tb.getBoundingClientRect().bottom, h.getBoundingClientRect().bottom) - el.getBoundingClientRect().top;
+    // (An empty table has its new row all the same, right under its headings.)
+    const y = (table.getRows('active').length ? Math.min(tb.getBoundingClientRect().bottom, h.getBoundingClientRect().bottom) : h.getBoundingClientRect().top) - el.getBoundingClientRect().top;
     rowEl.style.top = `${Math.round(y)}px`;
     el.style.setProperty('--lead', `${table.getColumns().find(c => c.getField())?.getWidth() ?? 240}px`);
   }
@@ -2687,7 +2706,7 @@ const Table = (() => {
       ...(c ? ['-', { label: 'Filter by this value', run: () => filterBy(c, valuesIn(c, row.getData())) }] : []),
       ...(!current.isDatatype && writes ? ['-', { label: `New ${current.noun}`, run: () => rowEl?.querySelector('input, button')?.[current.isKind ? 'focus' : 'click']() }] : []),
       // Named for what it records, as the panel's and the chart's are (App.deleteVerb).
-      ...(d ? [{ label: `${App.deleteVerb(ids)}${ids.length > 1 || many ? ` ${count(ids.length, 'row')}` : ''}…`, keys: '$mod+Minus', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }] : []),
+      ...(d ? [{ label: `${App.deleteVerb(ids)}${ids.length > 1 || many ? ` ${count(ids.length, 'row')}` : ''}${App.deleteLabel(ids).endsWith('…') ? '…' : ''}`, keys: '$mod+Minus', danger: true, point: on => FormulaBar.preview(on ? d.change : null), run: () => { FormulaBar.preview(null); d.stage(); } }] : []),
     ]);
   }
 
@@ -3066,7 +3085,7 @@ const Table = (() => {
     if (!(real?.view === o.view && built?.view === o.view && ready && el?.offsetParent)) { if (tries) setTimeout(() => importInto(o, tries - 1), 25); return; }
     const m = real, rows = o.first === 'head' ? o.grid : [o.keys.map(() => ''), ...o.grid];
     const cols = o.keys.map((k, j) => k === 'new' ? newColumn(clean(rows[0][j] ?? ''), rows.slice(1).map(r => r[j] ?? '')) : k ? m.cols.find(c => c.key === k) ?? null : null);
-    stage(m, as => byName(m, rows, cols, as), { file: o.file, held: o.held ?? [] });
+    stage(m, as => byName(m, rows, cols, as), { file: o.file, verb: 'Import', held: o.held ?? [] });
     // (The keys to the grid, so Enter makes it, not back to what opened the dialog.)
     focus();
   }

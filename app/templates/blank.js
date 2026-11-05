@@ -5,7 +5,8 @@ Templates.register({
   order: 1,
   rows: Templates.rows(t => {
     t.kind('Box', { Name: 'text' });
-    t.page('chart', 'Chart', 1, { title: { format: { Font: 'Georgia', Bold: false, Color: '#1f3a5f' } }, date: { format: { Size: 10, Color: '#5f6b78' } }, key: false });
+    t.undated();
+    t.page('chart', 'Chart', 1, { title: { format: { Font: 'Georgia', Bold: false, Color: '#1f3a5f' } }, date: false, key: false });
     t.shown('chart', { out: { field: 'text' }, ...t.entry('Name', {}) });
   }),
   example: { boxes: { a: ['Box', {}], b: ['Box', {}], c: ['Box', {}] }, lines: [] },
