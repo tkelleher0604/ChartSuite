@@ -942,7 +942,7 @@ const Shell = (() => {
   const away = computed(() => shut.value && !wide.value && !aside.value);
   function Main() {
     const v = current.value, layout = v?.layout || 'chart', kinds = layout === 'chart' && part('canvas')?.kinds;
-    const bare = kinds && v && !App.readOnly.value && App.scene.value && !App.scene.value.marks.some(m => m.type === 'box') && !App.later.value;
+    const bare = kinds && v && !App.readOnly.value && !App.mastering.value && App.scene.value && !App.scene.value.marks.some(m => m.type === 'box') && !App.later.value;
     const resize = e => {
       if (e.button !== 0) return;
       e.preventDefault();

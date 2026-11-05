@@ -305,6 +305,9 @@ function markSvg(m, pdf) {
   if (m.type === 'frame') return g(m.x, m.y, (m.lone ? '' : `<path d="${m.kind === 'bracket' ? bracket(m.w, m.h) : Scene.path('rect', m.w, m.h)}" fill="none" ${stroke({ Outline: FRAME.stroke, Dash: frameDash(m.kind) }, look(m).Weight)}/>`) + texts([m.caption], pdf));
   if (m.geometry === 'group') return '';
   if (m.geometry === 'line') return route(m.points, s);
+  // A table: its cells' fills, its rules and its words.
+  if (m.geometry === 'table') { const t = m.table, rules = [...t.rows.map(r => `M0,${n(r.y)} H${n(m.w)}`), `M0,${n(m.h)} H${n(m.w)}`, ...t.xs.map(x => `M${n(x)},0 V${n(m.h)}`), `M${n(m.w)},0 V${n(m.h)}`].join(' ');
+    return g(m.x, m.y, t.rows.flatMap(r => r.cells.filter(k => !none(k.fill)).map(k => `<rect x="${n(k.x)}" y="${n(r.y)}" width="${n(k.w)}" height="${n(r.h)}" fill="${k.fill}"/>`)).join('') + `<path d="${rules}" fill="none" ${stroke(s)}/>` + texts(m.texts, pdf)); }
   // (A free shape turned, about its middle.)
   const turned = inner => m.rotate ? `<g transform="rotate(${n(m.rotate)} ${n(m.x + m.w / 2)} ${n(m.y + m.h / 2)})">${inner}</g>` : inner;
   if (m.geometry === 'picture') {
@@ -396,20 +399,26 @@ function footMaster(m, r, k, level) {
   const run = m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum"><a:rPr lang="en-US"/><a:t>‹#›</a:t></a:fld>` : `<a:r><a:rPr lang="en-US"/><a:t>${esc(m.texts[0].text)}</a:t></a:r>`;
   if (level === 'layout') return `<p:sp>${nv}<p:spPr/><p:txBody><a:bodyPr/><a:lstStyle/><a:p>${run}</a:p></p:txBody></p:sp>`;
   const font = esc(t.Font), rPr = `sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''}`;
-  return `<p:sp>${nv}<p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr wrap="none" rtlCol="0" anchor="t"/><a:lstStyle><a:lvl1pPr algn="${ALIGN[t.Align] ?? 'l'}"><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc><a:defRPr ${rPr}><a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:defRPr></a:lvl1pPr></a:lstStyle><a:p>${run}</a:p></p:txBody></p:sp>`;
+  return `<p:sp>${nv}<p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h))}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr wrap="none" rtlCol="0" anchor="t"/><a:lstStyle><a:lvl1pPr algn="${ALIGN[t.Align] ?? 'l'}"><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc><a:defRPr ${rPr}><a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${faceRef(t.Font)}"/><a:cs typeface="${faceRef(t.Font, 'cs')}"/></a:defRPr></a:lvl1pPr></a:lstStyle><a:p>${run}</a:p></p:txBody></p:sp>`;
 }
 // On a slide, `master` being what its master says of it: { r, look, k }.
 function footSlide(id, m, r, k, master) {
   // (As it prints, whatever scale its page is drawn at; and where it stands by the edge it's set from, the footer's left, a number's right, however wide it is.)
   const f = FOOT[m.role], it = m.texts[0], t = it.look, printed = (x, kk) => Math.round(x.Size * kk * 100), same = RUN_LOOK.every(l => l === 'Size' ? printed(master.look, master.k) === printed(t, k) : master.look[l] === t[l]);
   const edge = x => m.role === 'number' ? x.x + x.w : x.x, moved = Math.abs(edge(master.r) - edge(r)) > 0.02 || Math.abs(master.r.y - r.y) > 0.02;
-  const font = esc(t.Font), rPr = same ? '<a:rPr lang="en-US" dirty="0"/>' : `<a:rPr lang="en-US" sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ' b="0"'}${t.Italic ? ' i="1"' : ' i="0"'}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"><a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/></a:rPr>`;
+  const font = esc(t.Font), rPr = same ? '<a:rPr lang="en-US" dirty="0"/>' : `<a:rPr lang="en-US" sz="${Math.max(100, Math.round(t.Size * k * 100))}"${t.Bold ? ' b="1"' : ' b="0"'}${t.Italic ? ' i="1"' : ' i="0"'}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"><a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${faceRef(t.Font)}"/><a:cs typeface="${faceRef(t.Font, 'cs')}"/></a:rPr>`;
   const line = l => m.role === 'number' ? `<a:fld id="${NUM_FIELD}" type="slidenum">${rPr}<a:t>${esc(l.text)}</a:t></a:fld>` : `<a:r>${rPr}<a:t>${esc(l.text.replace(/ /g, ' '))}</a:t></a:r>`;
   const ps = typed(it).map(ls => `<a:p>${ls.map(line).join(`<a:br>${rPr}</a:br>`)}</a:p>`).join('');
   return `<p:sp><p:nvSpPr>${cNvPr(id, ROLE[m.role])}<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${f.type}" sz="quarter" idx="${f.layout}"/></p:nvPr></p:nvSpPr><p:spPr>${moved ? xfrm(E(r.x), E(r.y), E(r.w), E(r.h)) : ''}</p:spPr><p:txBody><a:bodyPr/><a:lstStyle/>${ps}</p:txBody></p:sp>`;
 }
-// A shape's name, and with `descr` its alt text.
-const cNvPr = (id, name, descr) => `<p:cNvPr id="${id}" name="${esc(name)}"${descr ? ` descr="${esc(descr)}"` : ''}/>`;
+// A shape's name, and with `descr` its alt text; with `link`, where a click on it goes (dendra.md, Links).
+const cNvPr = (id, name, descr, link = null) => `<p:cNvPr id="${id}" name="${esc(name)}"${descr ? ` descr="${esc(descr)}"` : ''}${link ? `>${hlink(link)}</p:cNvPr>` : '/>'}`;
+// What a slide's XML refers to by its relations: a picture, a link, gathered as the slide's written (see pptx).
+let relsNow = [], linkPages = new Map();
+const relOf = (type, target) => { const i = relsNow.findIndex(r => r.type === type && r.target === target); return `rIdD${(i < 0 ? relsNow.push({ type, target }) : i + 1)}`; };
+const hlink = l => l.view && linkPages.has(l.view) ? `<a:hlinkClick r:id="${relOf('slide', linkPages.get(l.view))}" action="ppaction://hlinksldjump"/>` : l.url ? `<a:hlinkClick r:id="${relOf('link', l.url)}"/>` : '';
+// A font as a deck names it: Heading and Body by reference, the theme's, so PowerPoint's Theme Fonts change them; else by its name.
+const faceRef = (f, script = 'lt') => f === 'Heading' ? `+mj-${script}` : f === 'Body' ? `+mn-${script}` : esc(f);
 const E = v => Math.round(v * 914400);                 // inches as EMU
 
 // A deck: a slide for each scene, each written in its XML where PptxGenJS can't write it as PowerPoint does
@@ -425,20 +434,29 @@ async function pptx(scenes, title, author, say) {
   p.defineLayout({ name: 'Dendra', width: W / 96, height: H / 96 });
   p.layout = 'Dendra';
   // The theme's fonts are the page's own (dendra.md, Notes), so what's typed in the deck later stays in style: the first page's, where they differ.
-  const themeFont = scenes[0]?.page.look?.Font ?? 'Arial', palette = scenes[0]?.palette ?? null;
+  const themeFont = Scene.fontName(scenes[0]?.page.look?.Font ?? 'Arial'), palette = scenes[0]?.palette ?? null, ownFonts = scenes[0]?.themeFonts ?? null;
   inTheme = Shapes.inTheme(palette);
-  p.theme = { headFontFace: themeFont, bodyFontFace: themeFont };
+  p.theme = { headFontFace: ownFonts?.heading ?? themeFont, bodyFontFace: ownFonts?.body ?? themeFont };
   Object.assign(p, { title, subject: '', author, company: '' });
   // The master's footer and number, where a page has them: as the first that does draws them.
   const placed = s => { const k = fit(s.page); return { k, ox: (W - s.page.w * k) / 2, oy: (H - s.page.h * k) / 2 }; };
   const footAt = (m, { k, ox, oy }) => ({ x: (ox + m.x * k) / 96, y: (oy + m.y * k) / 96, w: m.w * k / 96, h: m.h * k / 96 });
   const feet = {};
   for (const s of scenes) for (const m of s.marks) if (FOOT[m.role] && !feet[m.role]) feet[m.role] = { m, ...placed(s), r: footAt(m, placed(s)), look: m.texts[0].look };
-  const finish = scenes.map(s => slide(p, s, placed(s), (...a) => say(s, ...a), feet));
+  // The chart's master is the deck's: on its slide master, as the first page that has it draws it, so a slide takes it from there; one that leaves it off says so, and one on another sheet has it of its own.
+  const masterOf = scenes.find(s => s.marks.some(m => m.master)), sameSheet = s => !!masterOf && s.marks.some(m => m.master) && s.page.sheet.w === masterOf.page.sheet.w && s.page.sheet.h === masterOf.page.sheet.h;
+  const finish = scenes.map(s => slide(p, s, placed(s), (...a) => say(s, ...a), feet, { onMaster: sameSheet(s) }));
   const zip = await JSZip.loadAsync(await p.write({ outputType: 'arraybuffer' }));
   const edit = async (f, change) => zip.file(f, change(await zip.file(f).async('string')));
+  // What a shape or its words refer to that a deck holds apart: a picture among its media, a link among its relations.
+  const media = new Map();
+  const toMedia = src => { if (media.has(src)) return media.get(src); const [, type, b64] = /^data:image\/([a-z+]+);base64,(.*)$/s.exec(src) ?? [], ext = { jpeg: 'jpg', 'svg+xml': 'svg' }[type] ?? type, file = `dendra-${media.size + 1}.${ext}`; if (b64) zip.file(`ppt/media/${file}`, b64, { base64: true }); media.set(src, file); return file; };
+  const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const related = (f, rels) => !rels.length ? null : edit(f, x => x.replace('</Relationships>', `${rels.map((r, i) => r.type === 'image' ? `<Relationship Id="rIdD${i + 1}" Type="${REL}/image" Target="../media/${toMedia(r.target)}"/>` : r.type === 'slide' ? `<Relationship Id="rIdD${i + 1}" Type="${REL}/slide" Target="slide${r.target}.xml"/>` : `<Relationship Id="rIdD${i + 1}" Type="${REL}/hyperlink" Target="${esc(r.target)}" TargetMode="External"/>`).join('')}</Relationships>`));
+  linkPages = new Map(scenes.map((s, i) => [s.view, i + 1]));
   const slides = await Promise.all(finish.map((done, i) => zip.file(`ppt/slides/slide${i + 1}.xml`).async('string').then(done)));
-  slides.forEach((x, i) => zip.file(`ppt/slides/slide${i + 1}.xml`, x));
+  slides.forEach((x, i) => zip.file(`ppt/slides/slide${i + 1}.xml`, masterOf && !sameSheet(scenes[i]) ? x.replace('<p:sld ', '<p:sld showMasterSp="0" ') : x));
+  for (const [i, done] of finish.entries()) await related(`ppt/slides/_rels/slide${i + 1}.xml.rels`, done.rels);
   // Type kerned at every size, as the scene measures it, so each line is as wide as the scene sets it:
   // PowerPoint's own default kerns only from 12 pt.
   for (const f of ['ppt/presentation.xml', 'ppt/slideMasters/slideMaster1.xml']) await edit(f, x => x.replaceAll('kern="1200"', 'kern="100"'));
@@ -448,6 +466,13 @@ async function pptx(scenes, title, author, say) {
     .replace('</p:grpSpPr></p:spTree>', `</p:grpSpPr>${first ? layoutTitle(first) : ''}${footed.map(r => footMaster(feet[r].m, feet[r].r, feet[r].k, 'layout')).join('')}</p:spTree>`));
   if (footed.length) await edit('ppt/slideMasters/slideMaster1.xml', x => x.replace('</p:grpSpPr></p:spTree>', `</p:grpSpPr>${footed.map(r => footMaster(feet[r].m, feet[r].r, feet[r].k, 'master')).join('')}</p:spTree>`)
     .replace(/<p:hf [^>]*\/>/, `<p:hf sldNum="${feet.number ? 1 : 0}" hdr="0" ftr="${feet.footer ? 1 : 0}" dt="0"/>`));
+  if (masterOf) {
+    const made = slide(p, masterOf, placed(masterOf), () => null, feet, { only: true });
+    await edit('ppt/slideMasters/slideMaster1.xml', x => x.replace('</p:grpSpPr>', `</p:grpSpPr>${made.xml}`));
+    await related('ppt/slideMasters/_rels/slideMaster1.xml.rels', made.rels);
+  }
+  // (Each kind of picture a deck holds is named among its content types, as PowerPoint opens none it can't type.)
+  await edit('[Content_Types].xml', x => [...new Set([...media.values()].map(f => f.split('.').pop()))].reduce((out, ext) => new RegExp(`Extension="${ext}"`).test(out) ? out : out.replace('<Default ', `<Default Extension="${ext}" ContentType="image/${{ jpg: 'jpeg', svg: 'svg+xml' }[ext] ?? ext}"/><Default `), x));
   await edit('docProps/app.xml', x => properties(x, slides, titles, W === 1280 && H === 720 ? 'Widescreen' : 'Custom'));
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
 }
@@ -466,7 +491,7 @@ function layoutTitle(sp) {
 function properties(app, slides, titles, format) {
   const said = x => [...(x ?? '').matchAll(/<a:t>([^<]*)<\/a:t>/g)].map(m => m[1]);
   const paragraphs = slides.flatMap(x => x.split('<a:p>').slice(1)).filter(q => /<a:t>[^<]/.test(q.slice(0, q.indexOf('</a:p>'))));
-  const parts = [['Fonts Used', [...new Set(slides.flatMap(x => [...x.matchAll(/<a:latin typeface="([^"]*)"/g)].map(m => m[1])))]], ['Theme', ['Office Theme']],
+  const parts = [['Fonts Used', [...new Set(slides.flatMap(x => [...x.matchAll(/<a:latin typeface="([^"]*)"/g)].map(m => m[1] === '+mj-lt' ? Scene.fontName('Heading') : m[1] === '+mn-lt' ? Scene.fontName('Body') : m[1])))]], ['Theme', ['Office Theme']],
     ['Slide Titles', titles.map(t => said(t).join(' ') || 'PowerPoint Presentation')]];
   const vector = (type, items) => `<vt:vector size="${items.length}" baseType="${type}">${items.join('')}</vt:vector>`;
   return app.replace(/<Words>\d+/, `<Words>${slides.flatMap(said).join(' ').split(/\s+/).filter(Boolean).length}`).replace(/<Paragraphs>\d+/, `<Paragraphs>${paragraphs.length}`)
@@ -508,20 +533,20 @@ function wrapsAt(m) {
 // the least PowerPoint opens), its lines as far apart as the scene sets them, and in as far as it hangs them; a
 // paragraph for each line it was typed on; its spaces plain, as typed, so that PowerPoint's Find finds them. Its margins are `inset` inches
 // all round, or PowerPoint's own where that's null.
-function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = null } = {}) {
+function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = null, cell = null } = {}) {
   // (What a text said before it, struck, is a run of the paragraph it stands on: see Scene's labelOf.)
   let before = '';
   const ps = items.flatMap(it => {
     const t = it.look, sz = Math.max(100, Math.round(t.Size * k * 100)), font = esc(t.Font);
     const attrs = `lang="en-US" sz="${sz}"${t.Bold ? ' b="1"' : ''}${t.Italic ? ' i="1"' : ''}${t.Underline ? ' u="sng"' : ''}${t.Strike ? ' strike="sngStrike"' : ''} dirty="0"`;
-    const face = `<a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${font}"/><a:cs typeface="${font}"/>`, rPr = `<a:rPr ${attrs}>${face}</a:rPr>`;
+    const face = `<a:solidFill>${clr(t.Color)}</a:solidFill><a:latin typeface="${faceRef(t.Font)}"/><a:cs typeface="${faceRef(t.Font, 'cs')}"/>`, rPr = `<a:rPr ${attrs}>${face}</a:rPr>`;
     const hang = it.hang ? ` marL="${E(it.hang * k / 96)}" indent="${-E(it.hang * k / 96)}"` : '';
     // Indented, and each paragraph's first line starting with its mark where it's bulleted or numbered, the mark in PowerPoint's own list, so a paragraph added there gets one.
     const set = E((it.indent ?? 0) * k / 96), para = ls => it.indent ? ` marL="${set}" indent="${ls[0]?.bullet ? -set : 0}"` : hang;
     const mark = ls => !t.Bullet || t.Bullet === 'none' ? '' : !ls[0]?.bullet ? '<a:buNone/>' : t.Bullet === 'number' ? '<a:buFont typeface="+mj-lt"/><a:buAutoNum type="arabicPeriod"/>' : '<a:buFont typeface="Arial"/><a:buChar char="&#8226;"/>';
     // Part of a line in another look: a run of its own, a superscript by PowerPoint's own baseline, at its full size, as PowerPoint makes it smaller itself.
     const spanRuns = l => l.spans.map(sp => { const s = sp.look, z = Math.max(100, Math.round((sp.base ? s.Size / 0.66 : s.Size) * k * 100)), f = esc(s.Font);
-      return `<a:r><a:rPr lang="en-US" sz="${z}"${s.Bold ? ' b="1"' : ' b="0"'}${s.Italic ? ' i="1"' : ' i="0"'}${s.Underline ? ' u="sng"' : ''}${s.Strike ? ' strike="sngStrike"' : ''}${sp.base ? ` baseline="${sp.base === 'up' ? 30000 : -25000}"` : ''} dirty="0"><a:solidFill>${clr(s.Color)}</a:solidFill><a:latin typeface="${f}"/><a:cs typeface="${f}"/></a:rPr><a:t>${esc(sp.text.replace(/ /g, ' '))}</a:t></a:r>`; }).join('');
+      return `<a:r><a:rPr lang="en-US" sz="${z}"${s.Bold ? ' b="1"' : ' b="0"'}${s.Italic ? ' i="1"' : ' i="0"'}${s.Underline ? ' u="sng"' : ''}${s.Strike ? ' strike="sngStrike"' : ''}${sp.base ? ` baseline="${sp.base === 'up' ? 30000 : -25000}"` : ''} dirty="0"><a:solidFill>${clr(s.Color)}</a:solidFill><a:latin typeface="${faceRef(s.Font)}"/><a:cs typeface="${faceRef(s.Font, 'cs')}"/></a:rPr><a:t>${esc(sp.text.replace(/ /g, ' '))}</a:t></a:r>`; }).join('');
     // A blank field keeps its lines' room, each an empty paragraph. A paragraph's mark is in its text's look, so PowerPoint's
     // font box shows the font, and what's typed there matches.
     if (it.inline) { before = `<a:r>${rPr}<a:t>${esc(it.text)}</a:t></a:r><a:r><a:rPr lang="en-US" sz="${sz}" dirty="0"/><a:t> </a:t></a:r>`; return []; }
@@ -530,6 +555,8 @@ function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = 
     return (it.blank ? it.lines.map(() => []) : typed(it)).map(ls => `<a:p><a:pPr algn="${ALIGN[t.Align] ?? 'ctr'}"${para(ls)}><a:lnSpc><a:spcPts val="${Math.round(t.Size * 1.2 * (t.Spacing ?? 1) * k * 100)}"/></a:lnSpc>${mark(ls)}</a:pPr>${runsBefore}`
       + (wrap !== null ? `<a:r>${rPr}<a:t>${esc(ls.map(l => l.text.replace(/\u00a0/g, ' ')).join(' '))}</a:t></a:r>` : ls.map(l => l.spans ? spanRuns(l) : `<a:r>${rPr}<a:t>${esc(l.text.replace(/\u00a0/g, ' '))}</a:t></a:r>`).join(`<a:br>${rPr}</a:br>`)) + `<a:endParaRPr ${attrs}>${face}</a:endParaRPr></a:p>`);
   });
+  // (A table's cell holds its words in the drawing's own namespace, and nothing of a shape's frame; an empty one keeps its size for what's typed there.)
+  if (cell) return `<a:txBody><a:bodyPr/><a:lstStyle/>${ps.join('') || `<a:p><a:endParaRPr lang="en-US" sz="${Math.max(100, Math.round(cell.Size * k * 100))}" dirty="0"/></a:p>`}</a:txBody>`;
   // (Its margins each side's, where its own Inner margins say. Shrunk, PowerPoint's own shrink goes on from there; flipped upside down, its text stays the right way up.)
   const margins = inset === null ? '' : ['l', 't', 'r', 'b'].map(side => ` ${side}Ins="${E(wrap !== null && (side === 'l' || side === 'r') ? wrap : typeof inset === 'object' ? inset[side] : inset)}"`).join('');
   return `<p:txBody><a:bodyPr${upright ? ' rot="10800000"' : ''}${ps.length ? ` wrap="${wrap !== null ? 'square' : 'none'}"` : ''}${margins} rtlCol="0" anchor="${anchor}"${fit ? '><a:normAutofit/></a:bodyPr>' : '/>'}<a:lstStyle/>${ps.join('') || '<a:p><a:endParaRPr lang="en-US" dirty="0"/></a:p>'}</p:txBody>`;
@@ -599,14 +626,14 @@ function together(scene) {
 // names lines' relations, and with the entries their labels say, describes them. → what finishes the slide's
 // XML once the deck is written, when every shape has its number (PptxGenJS numbers a slide's shapes in the
 // order they're added, from 2): each stand-in replaced by what it stands for.
-function slide(p, scene, { k, ox, oy }, say, feet = {}) {
-  const sl = p.addSlide(), parts = [], ids = new Map();
+function slide(p, scene, { k, ox, oy }, say, feet = {}, { onMaster = false, only = false } = {}) {
+  const sl = only ? null : p.addSlide(), parts = [], ids = new Map(), rels = [], inOrder_ = [];
   let count = 0;
   const X = x => (ox + x * k) / 96, Y = y => (oy + y * k) / 96, L = v => v * k / 96, rect = m => ({ x: X(m.x), y: Y(m.y), w: L(m.w), h: L(m.h) });
   const CHART = 0.1 * k, PAGE = null;
-  const add = (kind, ...args) => { sl[kind](...args); return 2 + count++; };
-  // A stand-in for what `write` writes once it has its number. → that number.
-  const put = write => add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: `·${parts.push(write) - 1}·` });
+  const add = (kind, ...args) => { if (!only) sl[kind](...args); return (only ? 100 : 2) + count++; };
+  // A stand-in for what `write` writes once it has its number. → that number. (On the master, written as it's asked for.)
+  const put = write => { const j = parts.push(write) - 1, id = add('addShape', 'rect', { x: 0, y: 0, w: 0, h: 0, objectName: `·${j}·` }); if (only) inOrder_.push([id, j]); return id; };
   const shape = (r, geometry, s, name, { items = [], anchor = 'ctr', inset = PAGE, box, title, rotate, flip, alt, locked, fit, wrap = null } = {}) =>
     put(id => sp(id, name, r, geometry, s, k, txBody(items, k, anchor, inset, { fit, upright: !!flip?.v, wrap: wrap === null ? null : L(wrap) }), { box, title, rotate, flip, alt, locked }));
   // Texts on their own, their lines placed from (x0, y0): a text box at the side they're aligned to, from
@@ -683,7 +710,9 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
     if (m.geometry === 'picture') {
       // Cropped, as PowerPoint holds it: the whole picture's size, and the part of it shown, its frame on the slide. Named, and said to a reader, as the panel has it.
       const c = m.crop && { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = c ? L(m.w) / (1 - (c.left + c.right) / 100) : L(m.w), fh = c ? L(m.h) / (1 - (c.top + c.bottom) / 100) : L(m.h);
-      if (m.src) ids.set(m.id, add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: fw, h: fh, sizing: c ? { type: 'crop', x: fw * c.left / 100, y: fh * c.top / 100, w: L(m.w), h: L(m.h) } : { type: 'contain', w: L(m.w), h: L(m.h) }, ...(m.rotate && { rotate: m.rotate }), objectName: m.name ?? 'Picture', altText: m.alt ?? m.name ?? 'Picture', ...(m.flip?.h && { flipH: true }), ...(m.flip?.v && { flipV: true }) }));
+      // (On the master, written as PowerPoint writes one, its picture among the master's relations.)
+      if (m.src && only) { const r = rect(m); ids.set(m.id, put(id => `<p:pic><p:nvPicPr>${cNvPr(id, m.name ?? 'Picture', m.alt ?? m.name ?? 'Picture')}<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="${relOf('image', m.src)}"/>${c ? `<a:srcRect l="${Math.round(c.left * 1000)}" t="${Math.round(c.top * 1000)}" r="${Math.round(c.right * 1000)}" b="${Math.round(c.bottom * 1000)}"/>` : ''}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>${xfrm(E(r.x), E(r.y), E(r.w), E(r.h), `${m.rotate ? ` rot="${Math.round(m.rotate * 60000)}"` : ''}${m.flip?.h ? ' flipH="1"' : ''}${m.flip?.v ? ' flipV="1"' : ''}`)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`)); }
+      else if (m.src) ids.set(m.id, add('addImage', { [/^data:/.test(m.src) ? 'data' : 'path']: m.src, x: X(m.x), y: Y(m.y), w: fw, h: fh, sizing: c ? { type: 'crop', x: fw * c.left / 100, y: fh * c.top / 100, w: L(m.w), h: L(m.h) } : { type: 'contain', w: L(m.w), h: L(m.h) }, ...(m.rotate && { rotate: m.rotate }), objectName: m.name ?? 'Picture', altText: m.alt ?? m.name ?? 'Picture', ...(m.flip?.h && { flipH: true }), ...(m.flip?.v && { flipV: true }) }));
       if (s.Outline !== '#000000') shape(rect(m), 'rect', { ...s, Fill: 'none' }, 'Picture', { rotate: m.rotate });
       return [rect(m)];
     }
@@ -701,6 +730,8 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
       return [rect(m)];
     });
     if (m.geometry === 'group') return [];
+    // A table is PowerPoint's own, its words in its cells, each a text to edit there.
+    if (m.geometry === 'table') { const r = rect(m); put(id => tableFrame(id, m, r, s, k, L)); return [r]; }
     if (FOOT[m.role] && feet[m.role]) { put(id => footSlide(id, m, rect(m), k, feet[m.role])); return [rect(m)]; }
     const text = m.geometry === 'text' || m.geometry === 'frame', ins = s.Inset ? { l: (s.Inset.l ?? 7.2) / 72, t: (s.Inset.t ?? 3.6) / 72, r: (s.Inset.r ?? 7.2) / 72, b: (s.Inset.b ?? 3.6) / 72 } : PAGE;
     ids.set(m.id, shape(rect(m), text ? 'rect' : m.geometry, s, ROLE[m.role] ?? m.name ?? m.texts[0]?.text ?? Shapes.name(m.geometry) ?? 'Shape',
@@ -730,6 +761,8 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
   const written = new Set();
   let nextLine = 0;
   for (const mark of reading(scene.marks)) {
+    // (What's on the master is there, under what's the slide's; written with the slide only where the slide's sheet is another.)
+    if (only ? !mark.master : mark.master && onMaster) continue;
     const m = flat.includes(mark) ? inOrder[nextLine++] : mark;
     if (written.has(m.id)) continue;
     if (flat.includes(m)) casings(m);
@@ -739,9 +772,20 @@ function slide(p, scene, { k, ox, oy }, say, feet = {}) {
     const names = of.map(x => x.texts?.[0]?.text ?? x.title ?? 'Shape');
     group(names.length < 3 ? names.join(' and ') : `${names[0]} and ${names.length - 1} more`, () => of.flatMap(write));
   }
-  return xml => xml.replace(/<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·(\d+)·">[\s\S]*?<\/p:sp>/g, (_, id, j) => parts[j](+id));
+  if (only) { relsNow = rels; return { xml: inOrder_.map(([id, j]) => parts[j](id)).join(''), rels }; }
+  const finished = xml => { relsNow = rels; return xml.replace(/<p:sp><p:nvSpPr><p:cNvPr id="(\d+)" name="·(\d+)·">[\s\S]*?<\/p:sp>/g, (_, id, j) => parts[j](+id)); };
+  finished.rels = rels;
+  return finished;
 }
 
+// A table as PowerPoint holds one: its columns, its rows each as tall as the scene sets it, each cell its words, which wrap there as a table's do; its fill, its margins, and a rule each side.
+function tableFrame(id, m, r, s, k, L) {
+  const t = m.table, rule = tag => none(s.Outline) ? `<a:${tag} w="0"><a:noFill/></a:${tag}>` : `<a:${tag} w="${Math.round(s.Weight * k * 12700)}" cap="flat" cmpd="sng" algn="ctr">${paint(s.Outline)}<a:prstDash val="${DASH[s.Dash] ?? 'solid'}"/></a:${tag}>`;
+  const cell = c => `<a:tc>${txBody(c.it.lines.length ? [c.it] : [], k, 'ctr', null, { cell: c.it.look, wrap: 0 })}<a:tcPr marL="${E(L(t.inX))}" marR="${E(L(t.inX))}" marT="${E(L(t.inY))}" marB="${E(L(t.inY))}" anchor="${VALIGN[c.it.look.Valign] ?? 'ctr'}">${['lnL', 'lnR', 'lnT', 'lnB'].map(rule).join('')}${none(c.fill) ? '<a:noFill/>' : paint(c.fill)}</a:tcPr></a:tc>`;
+  return `<p:graphicFrame><p:nvGraphicFramePr>${cNvPr(id, m.name ?? 'Table', m.alt)}<p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>`
+    + `<p:xfrm><a:off x="${E(r.x)}" y="${E(r.y)}"/><a:ext cx="${E(r.w)}" cy="${E(r.h)}"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl><a:tblPr${t.header ? ' firstRow="1"' : ''}${t.banded ? ' bandRow="1"' : ''}/>`
+    + `<a:tblGrid>${t.cols.map(w => `<a:gridCol w="${E(L(w))}"/>`).join('')}</a:tblGrid>${t.rows.map(row => `<a:tr h="${E(L(row.h))}">${row.cells.map(cell).join('')}</a:tr>`).join('')}</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`;
+}
 // The start of a PowerPoint group, framed round rects (in inches on the slide).
 function grouped(id, name, rects, alt) {
   const x = E(Math.min(...rects.map(r => r.x))), y = E(Math.min(...rects.map(r => r.y)));

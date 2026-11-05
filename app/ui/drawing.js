@@ -6,12 +6,12 @@
 const Drawing = (() => {
 const { h, render } = preact;
 const html = htm.bind(h);
-const { signal } = preactSignals;
+const { signal, effect } = preactSignals;
 const { useState } = preactHooks;
 const round = v => Math.round(v * 2) / 2;
 const lowered = s => String(s).replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
 // What a line's end can be glued to: a box, or a free shape that has an outline (not a line, a group, the Key or the page's own texts).
-const gluable = m => !!m && !m.revealed && (m.type === 'box' || (m.type === 'shape' && !['line', 'group', 'legend'].includes(m.geometry) && !m.role));
+const gluable = m => !!m && !m.revealed && !m.master && (m.type === 'box' || (m.type === 'shape' && !['line', 'group', 'legend', 'table'].includes(m.geometry) && !m.role));
 // What a shape that's only a line of its own takes as it's drawn: no fill.
 const opening = g => (Shapes.OPEN.has(g) ? { Fill: 'none' } : {});
 // What a free shape's Set as default is of: a line, a text box or a shape.
@@ -459,8 +459,138 @@ function attach(x) {
     };
     input.click();
   }
+  // ---- A table on the page: a cell picked and typed in, as Excel's and PowerPoint's; a row or column added or taken away; a rule dragged ----
+  let cellNow = null;
+  const tableOfRow = id => x.rowOf(id)?.table;
+  const blank = n => Array.from({ length: n }, () => ({ text: '' }));
+  const putTable = (id, table, say, more = {}) => App.change(tx => tx.update(id, { table, ...more }), { dated: false, keep: false, say });
+  const cellAt = t => { const v = t?.closest?.('[data-tcell]')?.getAttribute('data-tcell'); return v ? v.split(',').map(Number) : null; };
+  function paintCell() {
+    marks.querySelectorAll('.dc-tcell').forEach(n => n.remove());
+    if (!cellNow) return;
+    const m = scene().byId.get(cellNow.id), r = m?.table?.rows[cellNow.r], k = r?.cells[cellNow.c];
+    if (!k || !sel.getSelectedCells().some(c => c.id === cellNow.id)) { cellNow = null; Canvas.fieldPicked.value = null; return; }
+    svg('rect', { class: 'dc-tcell', x: m.x + k.x, y: m.y + r.y, width: k.w, height: r.h, 'stroke-width': 2 / zoom() });
+  }
+  function pickCell(id, r, c) { cellNow = { id, r, c }; paintCell(); Canvas.fieldPicked.value = `${id}|${r},${c}`; }
+  // Keeps what's typed, as a table's cell, at what it was written at: a row a list repeats is one row's words, read for each.
+  function setCell(id, src, c, text) {
+    const t = tableOfRow(id);
+    if ((t.rows[src]?.cells?.[c]?.text ?? '') === text) return true;
+    return putTable(id, { ...t, rows: t.rows.map((r, i) => i !== src ? r : { ...r, cells: r.cells.map((k, j) => j === c ? { ...k, text } : k) }) }, 'Typed in the table');
+  }
+  function editCell(m, target, typed) {
+    if (x.still()) return;
+    const at = cellAt(target) ?? (cellNow?.id === m.id ? [cellNow.r, cellNow.c] : [0, 0]), r = m.table.rows[at[0]], k = r?.cells[at[1]];
+    if (!k) return;
+    pickCell(m.id, at[0], at[1]);
+    const raw = tableOfRow(m.id)?.rows[r.src]?.cells?.[at[1]]?.text ?? '';
+    x.openEditor({ look: k.it.look, text: raw, lines: [] }, { x: m.x + k.x, y: m.y + r.y, w: k.w, h: r.h }, typed ?? raw, (text, keys) => {
+      setCell(m.id, r.src, at[1], text);
+      // Enter goes on down its column, as Excel's does.
+      if (keys) setTimeout(() => { const n = scene().byId.get(m.id); if (n?.table?.rows[at[0] + 1]) { pickCell(m.id, at[0] + 1, at[1]); editCell(n); } });
+    }, { selectAll: typed === undefined, kept: true, tab: d => stepCell(m.id, at, d) });
+  }
+  // Tab goes on to the next cell, and past the last adds a row, as PowerPoint's does; Shift+Tab the one before.
+  function stepCell(id, [r, c], d) {
+    let n = scene().byId.get(id);
+    if (!n) return;
+    const cols = n.table.cols.length, at = r * cols + c + d;
+    if (at < 0) return;
+    if (at >= n.table.rows.length * cols) {
+      const t = tableOfRow(id), src = n.table.rows.at(-1).src;
+      if (!putTable(id, { ...t, rows: [...t.rows.slice(0, src + 1), { cells: blank(cols) }, ...t.rows.slice(src + 1)] }, 'Added a row', { h: round(n.h + n.h / n.table.rows.length) })) return;
+      return setTimeout(() => { const q = scene().byId.get(id); if (q) { pickCell(id, r + 1, 0); editCell(q); } });
+    }
+    pickCell(id, Math.floor(at / cols), at % cols);
+    editCell(n);
+  }
+  function rowInto(m, below) {
+    const t = tableOfRow(m.id), i = (m.table.rows[cellNow?.id === m.id ? cellNow.r : 0] ?? m.table.rows[0]).src + (below ? 1 : 0);
+    putTable(m.id, { ...t, rows: [...t.rows.slice(0, i), { cells: blank(m.table.cols.length) }, ...t.rows.slice(i)] }, 'Added a row', { h: round(m.h + m.h / m.table.rows.length) });
+  }
+  function columnInto(m, right) {
+    const t = tableOfRow(m.id), i = (cellNow?.id === m.id ? cellNow.c : 0) + (right ? 1 : 0), cols = t.cols, avg = cols.reduce((a, b) => a + b, 0) / cols.length;
+    putTable(m.id, { ...t, cols: [...cols.slice(0, i), avg, ...cols.slice(i)], rows: t.rows.map(r => ({ ...r, cells: [...r.cells.slice(0, i), { text: '' }, ...r.cells.slice(i)] })) }, 'Added a column');
+  }
+  function rowOut(m) {
+    const t = tableOfRow(m.id), src = m.table.rows[cellNow?.id === m.id ? cellNow.r : 0]?.src ?? 0;
+    if (t.rows.length < 2) return App.change(tx => tx.remove(m.id), { dated: false, say: 'Deleted the table' });
+    cellNow = null;
+    putTable(m.id, { ...t, rows: t.rows.filter((_, i) => i !== src) }, 'Deleted a row', { h: round(m.h * (m.table.rows.length - 1) / m.table.rows.length) });
+  }
+  function columnOut(m) {
+    const t = tableOfRow(m.id), c = cellNow?.id === m.id ? cellNow.c : 0;
+    if (t.cols.length < 2) return App.change(tx => tx.remove(m.id), { dated: false, say: 'Deleted the table' });
+    cellNow = null;
+    putTable(m.id, { ...t, cols: t.cols.filter((_, i) => i !== c), rows: t.rows.map(r => ({ ...r, cells: r.cells.filter((_, i) => i !== c) })) }, 'Deleted a column');
+  }
+  // The right-click's: what it does to the cell the pointer was on, its rows and its columns; a heading row and bands, as PowerPoint's table options.
+  function tableItems(m, ro) {
+    const t = tableOfRow(m.id) ?? {};
+    return [{ label: 'Edit cell', keys: 'Enter', disabled: ro, run: () => editCell(m) },
+      { label: 'Insert', disabled: ro, items: [{ label: 'Row above', run: () => rowInto(m, false) }, { label: 'Row below', run: () => rowInto(m, true) }, { label: 'Column left', run: () => columnInto(m, false) }, { label: 'Column right', run: () => columnInto(m, true) }] },
+      { label: 'Delete', disabled: ro, items: [{ label: 'This row', run: () => rowOut(m) }, { label: 'This column', run: () => columnOut(m) }] },
+      { label: 'Heading row', checked: t.header !== false, disabled: ro, run: () => putTable(m.id, { ...t, header: t.header === false }, t.header === false ? 'Gave the table a heading row' : 'Took the heading row off') },
+      { label: 'Banded rows', checked: t.banded !== false, disabled: ro, run: () => putTable(m.id, { ...t, banded: t.banded === false }, t.banded === false ? 'Banded the table' : 'Took the bands off') },
+      '-'];
+  }
+  // A table drawn in free room, its first cell open to type in; with `of` a record and `list` one of its lists, one that reads that list, live: a heading, a row for each relative, and where it holds figures, a total.
+  function newTable(rows, cols, o = {}) {
+    const s = x.scale(), row = o.list ? capTable(o.of, o.list) : { cols: Array(cols).fill(1), rows: Array.from({ length: rows }, () => ({ cells: blank(cols) })), header: true, banded: true };
+    if (!row) return null;
+    const n = row.rows.length + (o.list ? Math.max(0, (Scene.listsAt(App.state.peek(), App.notes.peek(), o.of).find(l => l.name === o.list)?.items.length ?? 1) - 1) : 0), w = round(Math.max(120 + (row.cols.length - 1) * 90, 240) / s), h = round(n * 26 / s);
+    const id = x.insert('table', { w, h, table: row });
+    if (id && !o.list) setTimeout(() => { const m = scene().byId.get(id); if (m) editCell(m, null); });
+    return id;
+  }
+  function capTable(of, list) {
+    const st = App.state.peek(), N = App.notes.peek(), l = Scene.listsAt(st, N, of).find(q => q.name === list);
+    if (!l) return null;
+    const entries = [...new Set(l.items.flatMap(it => (Tree.index(st).entries.get(it.rid) ?? []).filter(e => 'value' in st[e] || 'choice' in st[e]).map(e => st[e].edge)))];
+    const figures = entries.filter(e => l.items.some(it => /^\s*-?[\d,.]+\s*%?\s*$/.test(String((Tree.index(st).entries.get(it.rid) ?? []).map(q => st[q]).find(q => q.edge === e)?.value ?? '')) || /percent/i.test(e)));
+    const heads = [l.edge, ...entries], tokens = heads.map(e => `{${e}}`);
+    const rows = [{ cells: heads.map(text => ({ text })) }, { each: { of, list }, cells: tokens.map(text => ({ text })) }, ...(figures.length ? [{ cells: heads.map((e, i) => ({ text: !i ? 'Total' : figures.includes(e) ? '=SUM(ABOVE)' : '' })) }] : [])];
+    return { of, cols: heads.map((_, i) => i ? 1 : 2), rows, header: true, banded: true };
+  }
+  // A rule between two columns, dragged: what one gains the other gives, one change.
+  x.gEl.addEventListener('mousedown', e => {
+    const at = e.button === 0 && e.target.closest?.('[data-tcol]');
+    if (!at || x.still()) return;
+    const id = e.target.closest('[data-cell-id]')?.getAttribute('data-cell-id'), m = id && scene().byId.get(id);
+    if (m?.geometry !== 'table') return;
+    e.stopPropagation(); e.preventDefault();
+    const i = +at.getAttribute('data-tcol'), t = m.table, x0 = local(e).x, ghost = svg('path', { class: 'dc-draft', d: `M${m.x + t.xs[i + 1]},${m.y} V${m.y + m.h}` }), lo = t.xs[i] + 12 / x.scale(), hi = t.xs[i + 1] + t.cols[i + 1] - 12 / x.scale();
+    let at0 = t.xs[i + 1];
+    const move = ev => { at0 = Math.max(lo, Math.min(hi, t.xs[i + 1] + local(ev).x - x0)); ghost.setAttribute('d', `M${m.x + at0},${m.y} V${m.y + m.h}`); };
+    const up = () => {
+      removeEventListener('mousemove', move, true); removeEventListener('mouseup', up, true); ghost.remove();
+      const d = at0 - t.xs[i + 1];
+      if (Math.abs(d) < 0.5) return;
+      const cols = t.cols.map((w, k) => (k === i ? w + d : k === i + 1 ? w - d : w) / m.w);
+      putTable(id, { ...tableOfRow(id), cols: cols.map(v => Math.round(v * 1e4) / 1e4) }, 'Sized a column');
+    };
+    addEventListener('mousemove', move, true); addEventListener('mouseup', up, true);
+  }, true);
+  // A click on a table selected picks the cell under it; the pointer's right-click too.
+  graph.on('node:mousedown', ({ e, node }) => { const m = scene().byId.get(node.id), at = m?.geometry === 'table' && sel.isSelected(node) && cellAt(e.target); if (at) pickCell(node.id, at[0], at[1]); });
+  x.gEl.addEventListener('contextmenu', e => { const at = cellAt(e.target), id = at && e.target.closest('[data-cell-id]')?.getAttribute('data-cell-id'); if (id) setTimeout(() => pickCell(id, at[0], at[1])); }, true);
+  // The keys, a cell picked: the arrows go from cell to cell, Enter or a letter types in it, Delete clears it, Esc goes back to the table.
+  root.addEventListener('keydown', e => {
+    if (!cellNow || e.target.closest?.('.dc-edit')) return;
+    const m = scene().byId.get(cellNow.id);
+    if (!m?.table) return;
+    const step = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+    if (step && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); const r = cellNow.r + step[0], c = cellNow.c + step[1]; if (m.table.rows[r]?.cells[c]) pickCell(m.id, r, c); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cellNow = null; Canvas.fieldPicked.value = null; paintCell(); return; }
+    if (x.still()) return;
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); setCell(m.id, m.table.rows[cellNow.r].src, cellNow.c, ''); return; }
+    if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); e.stopPropagation(); editCell(m); return; }
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); editCell(m, null, e.key); }
+  }, true);
+
   // Painted with the selection, a line's ends, a picture's crop handles and a group's turning handle.
-  function paint() { paintEnds(); paintCrop(); paintTurn(); }
+  function paint() { paintEnds(); paintCrop(); paintTurn(); paintCell(); }
   // A group's handle over it, dragged: it turns as a free shape's does, by degrees, Shift by 15; the shapes go round its middle as one.
   function paintTurn() {
     marks.querySelectorAll('.dc-turn').forEach(n => n.remove());
@@ -531,6 +661,19 @@ function attach(x) {
   };
   addEventListener('keydown', fromPanel);
 
+  // ---- The chart's master, being edited: its page is all that's drawn, with a bar that says so and closes it, as Esc does with nothing selected ----
+  const masterEl = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-masterhost' }));
+  let wasMastering = false;
+  const stopMaster = effect(() => {
+    const on = App.mastering.value;
+    root.classList.toggle('mastering', on);
+    // (What was selected on one page is no selection on the other.)
+    if (on !== wasMastering) { wasMastering = on; queueMicrotask(() => Shell.select([])); }
+    render(on ? html`<div class="dc-masterbar" role="status"><span>Master</span><button class="btn primary" onClick=${() => { App.mastering.value = false; }}>Close master</button></div>` : null, masterEl);
+  });
+  const leaveMaster = e => { if (e.key === 'Escape' && App.mastering.peek() && !armed && !x.selectedNow().length && !e.target.closest?.('.dc-edit')) { e.preventDefault(); e.stopPropagation(); App.mastering.value = false; } };
+  root.addEventListener('keydown', leaveMaster);
+
   // ---- The Selection Pane ----
   const paneOpen = signal(false);
   const paneEl = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-panehost' }));
@@ -554,7 +697,7 @@ function attach(x) {
     App.scene.value; Shell.selection.value;
     const sc = scene(), [naming, setNaming] = useState(null), [drop, setDrop] = useState(null), keys = Shell.selection.value.map(k => Canvas.keyParts(k)[0]), N = App.notes.peek(), ro = x.still();
     if (!sc) return null;
-    const rows = [...sc.marks].filter(m => m.geometry !== 'group' && m.type !== 'frame').reverse();
+    const rows = [...sc.marks].filter(m => m.geometry !== 'group' && m.type !== 'frame' && !m.master).reverse();
     const hiddenShapes = App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r && r.view === sc.view && r.hidden);
     const hiddenBoxes = N.notes('Shown').filter(n => n.view === sc.view && n.value === false && n.pattern.id && App.state.peek()[n.pattern.id]?.kind && !sc.byId.has(n.pattern.id));
     const hide = m => { if (m.type === 'shape') App.change(tx => tx.update(m.id, { hidden: true }), { dated: false, keep: false, say: `Hid ${titleOf(m)}` }); else if (m.type === 'box' || m.type === 'line') App.change(tx => tx.note('Shown', x.treeOf(m.record), false, { view: sc.view }), { dated: false, say: `Hid ${titleOf(m)} in this view` }); };
@@ -584,8 +727,8 @@ function attach(x) {
       </div></div>`;
   }
 
-  return { arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook,
-    destroy() { removeEventListener('pointermove', heldKeys, true); removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
+  return { editCell, tableItems, newTable, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook,
+    destroy() { stopMaster(); render(null, masterEl); removeEventListener('pointermove', heldKeys, true); removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
 }
 return { attach };
 })();

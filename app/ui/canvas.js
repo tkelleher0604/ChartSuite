@@ -27,7 +27,7 @@ const fieldPicked = signal(null);
 const rich = signal(null);
 const BLUE = '#1f5fbf', RED = '#c2372b';
 // Cells that draw no mark of their own, so nothing selects or moves them: the page, a line's label, a redline's ink.
-const UNMARKED = new Set(['page', 'label', 'ink', 'guide']);
+const UNMARKED = new Set(['page', 'label', 'ink', 'guide', 'master']);
 // The footer and its number, the chart's own and the sheet's: selected and formatted as any text is, but placed by the page.
 const footOf = m => m?.role === 'footer' || m?.role === 'number';
 const footNote = () => App.notes.peek().resolve('Footer', { kind: 'View' })?.value ?? {};
@@ -56,6 +56,8 @@ const viewName = id => App.views.peek().find(v => v.id === id)?.name ?? 'this vi
 // The kinds a box can be added as here: the chart's, less those the view hides, the most drawn first; in a
 // chart with none yet, an Entity.
 function kinds(scene = App.scene.peek()) {
+  // (The master holds no records, only what every page draws.)
+  if (scene?.view === Scene.MASTER) return [];
   const st = App.state.peek(), N = App.notes.peek(), count = new Map();
   for (const m of scene?.marks ?? []) if (m.type === 'box') { const k = st[m.record]?.kind; if (k) count.set(k, (count.get(k) ?? 0) + 1); }
   const all = new Set([...count.keys(), ...Object.values(App.schema.peek()).filter(s => !s.args && s.kind && !Tree.isView(s)).map(s => s.kind)]);
@@ -291,8 +293,9 @@ function moveCell(cell, c, was) {
 function cellsOf(scene, ink = null) {
   drawnAt = scene.page?.scale ?? 1;
   const cells = [], z = new Map(scene.marks.map((m, i) => [m.id, i * 2]));
+  // (What's on the chart's master is drawn on a page, and nothing on it can be pressed there: it's edited on the master.)
   const node = (m, kind, markup, extra = {}) => cells.push({ id: m.id, shape: 'dendra', x: m.x, y: m.y, width: Math.max(1, m.w), height: Math.max(1, m.h),
-    zIndex: z.get(m.id), markup, data: { kind, mark: m.id }, ...(m.rotate && { angle: m.rotate }), ...extra });
+    zIndex: z.get(m.id), markup: m.master ? [{ tagName: 'g', attrs: { 'pointer-events': 'none' }, children: markup }] : markup, data: { kind: m.master ? 'master' : kind, mark: m.id }, ...(m.rotate && { angle: m.rotate }), ...extra });
   const red = m => ink?.go.has(m.record) ? 'go' : ink?.appear.has(m.record) ? 'appear' : null;
   // A text as the ink has it: a changed one's new lines under its old, struck; one appearing, blue.
   const inkOn = it => {
@@ -328,19 +331,20 @@ function cellsOf(scene, ink = null) {
     } else if (m.type === 'shape') {
       if (m.geometry === 'line') {
         const ps = m.points;
-        cells.push({ id: m.id, shape: 'edge', zIndex: z.get(m.id), data: { kind: 'shape', mark: m.id },
+        cells.push({ id: m.id, shape: 'edge', zIndex: z.get(m.id), data: { kind: m.master ? 'master' : 'shape', mark: m.id },
           source: { x: ps[0][0], y: ps[0][1] }, target: { x: ps[ps.length - 1][0], y: ps[ps.length - 1][1] }, vertices: ps.slice(1, -1).map(([x, y]) => ({ x, y })),
           attrs: { line: { stroke: paint(s.Outline), strokeWidth: px(s.Weight), strokeDasharray: Scene.dash(s.Dash, s.Weight), targetMarker: marker(s.Arrow === 'end' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'end')),
-            sourceMarker: marker(s.Arrow === 'start' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'start')) }, wrap: { strokeWidth: 10 } } });
+            sourceMarker: marker(s.Arrow === 'start' || s.Arrow === 'both', px(s.Weight), null, Scene.headOf(s, 'start')), ...(m.master && { pointerEvents: 'none' }) }, wrap: { strokeWidth: m.master ? 0 : 10, ...(m.master && { pointerEvents: 'none' }) } } });
       } else if (m.geometry === 'legend') node(m, 'shape', legendMarkup(m, s));
       else if (m.geometry === 'picture') node(m, 'shape', [{ tagName: 'g', attrs: { ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) }, children: [m.crop ? croppedImage(m) : { tagName: 'image', attrs: { href: m.src, width: m.w, height: m.h, preserveAspectRatio: 'xMidYMid meet' } }] },
         { tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'transparent', stroke: paint(s.Outline === '#000000' ? 'none' : s.Outline), 'stroke-width': px(s.Weight) } }]);
       else if (m.geometry === 'group') continue;
+      else if (m.geometry === 'table') node(m, 'shape', tableMarkup(m, s));
       else {
         const geometry = m.geometry === 'text' || m.geometry === 'frame' ? 'rect' : m.geometry;
         const body = bodyMarkup(geometry, m.w, m.h, s, null, { ...(m.geometry === 'frame' && { 'pointer-events': 'visibleStroke' }), ...(m.flip && { transform: flipped(m.flip, m.w, m.h) }) });
         // (The footer and its number are the sheet's, set in Page setup.)
-        node(m, m.role === 'footer' || m.role === 'number' ? 'foot' : 'shape', [body,...(m.geometry === 'text' || m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.geometry === 'frame' ? 18 : m.h, fill: 'transparent' } }] : []),
+        node(m, m.role === 'footer' || m.role === 'number' ? 'foot' : 'shape', [body, ...(m.geometry === 'text' || m.geometry === 'frame' ? [{ tagName: 'rect', attrs: { width: m.w, height: m.geometry === 'frame' ? 18 : m.h, fill: 'transparent' } }] : []),
           ...m.texts.map(it => textMarkup(it))]);
       }
     }
@@ -348,6 +352,17 @@ function cellsOf(scene, ink = null) {
   return cells;
 }
 
+// A table: each cell's fill, its rules, its words; each cell knows where it is, for a click, and each rule between columns, for a drag.
+function tableMarkup(m, s) {
+  const t = m.table, W = px(s.Weight), rules = paint(s.Outline) === 'none' ? '' : [...t.rows.map(r => `M0,${r.y} H${m.w}`), `M0,${m.h} H${m.w}`, ...t.xs.map(x => `M${x},0 V${m.h}`), `M${m.w},0 V${m.h}`].join(' ');
+  return [
+    { tagName: 'rect', selector: 'body', attrs: { width: m.w, height: m.h, fill: 'transparent' } },
+    ...t.rows.flatMap(r => r.cells.map(k => ({ tagName: 'rect', attrs: { x: k.x, y: r.y, width: k.w, height: r.h, fill: paint(k.fill) === 'none' ? 'transparent' : k.fill, 'data-tcell': `${r.i},${k.c}` } }))),
+    { tagName: 'path', attrs: { d: rules, fill: 'none', stroke: paint(s.Outline), 'stroke-width': W, class: crisp(W), 'pointer-events': 'none', 'stroke-dasharray': Scene.dash(s.Dash, s.Weight) } },
+    ...t.rows.flatMap(r => r.cells.filter(k => k.it.lines.length).map(k => ({ ...textMarkup(k.it), attrs: { ...textMarkup(k.it).attrs, 'pointer-events': 'none' } }))),
+    ...t.xs.slice(1).map((x, i) => ({ tagName: 'rect', attrs: { class: 'dc-tcol', x: x - 3, y: 0, width: 6, height: m.h, fill: 'transparent', 'data-tcol': i } })),
+  ];
+}
 // A picture cropped: the whole of it placed where what's left falls in its frame, the rest cut by the frame.
 function croppedImage(m) {
   const c = { left: 0, top: 0, right: 0, bottom: 0, ...m.crop }, fw = m.w / (1 - (c.left + c.right) / 100), fh = m.h / (1 - (c.top + c.bottom) / 100);
@@ -475,7 +490,7 @@ function mount(el) {
   const resizable = n => n.isNode() && ['box', 'shape'].includes(n.getData()?.kind) && !still() && !scene?.byId.get(n.id)?.locked;
   const lockedCell = n => { const m = scene?.byId.get(n.id); return !!m && (m.type === 'box' || m.type === 'shape') && lockedOf(m); };
   // (A free shape turns, by the handle over it, in steps of a degree; a box or the Key doesn't.)
-  const turnable = n => { const m = n.isNode() && n.getData()?.kind === 'shape' && !still() ? scene?.byId.get(n.id) : null; return !!m && !['legend', 'group', 'line'].includes(m.geometry) && !m.role && !m.locked; };
+  const turnable = n => { const m = n.isNode() && n.getData()?.kind === 'shape' && !still() ? scene?.byId.get(n.id) : null; return !!m && !['legend', 'group', 'line', 'table'].includes(m.geometry) && !m.role && !m.locked; };
   const transform = new Transform({ resizing: { enabled: resizable, minWidth: 24, minHeight: 12, orthogonal: true, preserveAspectRatio: lockedCell }, rotating: { enabled: turnable, grid: 1 } });
   graph.use(transform);
   transform.stopListening(); // it would put handles on whatever is clicked; grips() decides
@@ -1305,6 +1320,7 @@ function mount(el) {
     const [id, rowKey] = keyParts(key);
     const m = scene.byId.get(id);
     if (!m || still()) return;
+    if (m.geometry === 'table') return hand.editCell(m, target, typed);
     // (What's gone by the day shown has nothing to type over.)
     if (m.change === 'Gone') return Shell.toast(`Not in the chart as of ${Tree.formatDate(scene.day, 'short')}`);
     // What's typed over: a record's value as entered, not as the chart reads it; a shape's text as written.
@@ -2083,7 +2099,7 @@ function mount(el) {
     const free = ms.filter(m => m.type === 'shape' && m.geometry !== 'legend' && !m.role), pictured = one?.geometry === 'picture';
     // In one order: what it says; what it's made of and related to; the clipboard; how it looks and stands on the page; what's shown of it; and what takes it away, last, so nothing goes by a slip.
     return [
-      ...(text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []), ...inCorner,
+      ...(one?.geometry === 'table' ? hand.tableItems(one, ro) : text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []), ...inCorner,
       ...(fielded ? [...(worded ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => f ? editField(f.m, f.it) : edit(one.id) }] : []),
         ...(f ? [{ label: fieldName(f.it), items: fieldRows(f) }] : []),
         { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }] : []), '-'] : []),
@@ -2549,7 +2565,7 @@ function mount(el) {
     if (geometry === 'text') row.text = opts.text ?? '';
     // What's set as the default of its family, and what its shape asks for itself.
     const given = hand.newLook(geometry, row.format);
-    if (Object.keys(given).length && geometry !== 'legend' && geometry !== 'frame' && geometry !== 'picture') row.format = given;
+    if (Object.keys(given).length && !['legend', 'frame', 'picture', 'table'].includes(geometry)) row.format = given;
     if (geometry === 'frame' && sel0.length && opts.x === undefined) {
       const b = { x: Math.min(...sel0.map(m => m.x)), y: Math.min(...sel0.map(m => m.y)), r: Math.max(...sel0.map(m => m.x + m.w)), d: Math.max(...sel0.map(m => m.y + m.h)) };
       row = { ...row, x: round(b.x - 14), y: round(b.y - 28), w: round(b.r - b.x + 28), h: round(b.d - b.y + 42), text: opts.text ?? 'Frame',
@@ -3206,7 +3222,7 @@ function mount(el) {
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
-    flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
+    table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
     // What's being typed part by part takes a look (Bold, a color, a size) in place of the mark it's in. → whether it did.
     richSet: (label, v) => !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },

@@ -79,7 +79,7 @@ const keyOf = ps => JSON.stringify(ps.map(p => Tree.key(p)).sort());
 // (its Show on chart says where), ask it as they're drawn.
 const scopesKept = new WeakMap();
 function scopesOf(c) {
-  const sc = c.scene(), keys = c.keys(), a = keys.length ? null : aimed.peek(), k = JSON.stringify([keys, a?.key ?? null]), st = App.state.peek(), N = App.notes.peek(), was = scopesKept.get(sc);
+  const sc = c.scene(), keys = c.keys(), a = keys.length ? null : aimed.peek(), k = JSON.stringify([keys, a?.key ?? null, c.cell?.() ?? null]), st = App.state.peek(), N = App.notes.peek(), was = scopesKept.get(sc);
   if (was?.k === k && was.st === st && was.N === N) return was.s;
   const s = a ? scopesAimed(sc, a) : scopesNow(c, sc, keys);
   scopesKept.set(sc, { k, st, N, s });
@@ -191,6 +191,7 @@ function kinOf(sc) {
 // included), "These 2 shapes".
 function these(ms) {
   if (ms.every(isFoot)) return ms.length === 1 && ms[0].role === 'number' ? 'The page number' : 'The footer';
+  if (ms.length === 1 && ms[0].geometry === 'table') return Canvas.active.peek()?.cell?.(ms[0].id) ? 'This cell' : 'This table';
   const noun = ms.every(m => m.type === 'box') ? 'box' : ms.every(m => m.type === 'line' || m.geometry === 'line') ? 'line' : 'shape', n = new Set(ms.map(m => m.merged ?? m.id)).size;
   return n === 1 ? `This ${noun}` : `These ${n} ${noun === 'box' ? 'boxes' : `${noun}s`}`;
 }
@@ -272,6 +273,12 @@ function write(tx, c, label, value) {
   const { marks, scopes } = scopesOf(c), scope = scopeOf(scopes);
   if (!scope) return;
   if (scope.root) return tx.note(label, viewSelf(c.scene()), value);
+  // (A cell of a table picked: that cell's, kept with the words it's written at.)
+  const cell = marks.length === 1 && marks[0].geometry === 'table' && c.cell?.(marks[0].id);
+  if (cell) {
+    const row = tx.item?.(marks[0].id)?.at(-1) ?? App.shown.peek().item(App.chart.peek(), marks[0].id)[0], src = marks[0].table.rows[cell.r]?.src;
+    return tx.update(marks[0].id, { table: { ...row.table, rows: row.table.rows.map((r, i) => i !== src ? r : { ...r, cells: r.cells.map((k, j) => j !== cell.c ? k : { ...k, format: { ...k.format, [label]: value } }) }) } });
+  }
   // (Everything else's words are All text's: a box's look is its own.)
   if (scope.rest && TEXT_LABELS.has(label)) return tx.note(label, viewSelf(c.scene()), value);
   const f = TEXT_LABELS.has(label) && label !== 'Format' ? fieldOf(c) : null;
@@ -361,7 +368,7 @@ function applyAll(pairs) {
   App.change(tx => { pairs.forEach(([l, v]) => write(tx, c, l, v)); if (ofFree) tx.says(ofFree); }, { say: ofFree || null });
   fade();
 }
-const freeSaid = (marks, label, value) => !!marks.length && marks.every(m => m.type === 'shape') && Time.looked(label, value, marks.length > 1 ? `these ${marks.length} shapes` : marks[0].geometry === 'line' ? 'the line' : marks[0].geometry === 'text' ? 'the text box' : 'the shape');
+const freeSaid = (marks, label, value) => !!marks.length && marks.every(m => m.type === 'shape') && Time.looked(label, value, marks.length > 1 ? `these ${marks.length} shapes` : marks[0].geometry === 'line' ? 'the line' : marks[0].geometry === 'text' ? 'the text box' : marks[0].geometry === 'table' ? 'the table' : 'the shape');
 // A choice pointed at, drawn on the chart as it would be: the change written, uncommitted, on the chart's
 // rows, and the canvas asked to draw from them; for a size, laid out afresh, as the page may grow for it, and for
 // Tidy, the chart laid out with nothing entered. With nothing, the chart is drawn as it is again. Each note tried
@@ -453,7 +460,8 @@ function value(label) {
     const outs = new Set((current.scope?.outputs ?? []).map(p => Tree.key(p)));
     return current.canvas.scene().marks.find(f => f.type === 'frame' && outs.has(Tree.key(f.output)))?.kind ?? 'none';
   }
-  const text = current.field?.it ?? scopeTexts()[0] ?? m.texts?.[0] ?? m.caption;
+  const text = current.field?.it ?? scopeTexts()[0] ?? m.texts?.[0] ?? m.caption, cell = m.geometry === 'table' ? cellOf(m) : null;
+  if (cell && label === 'Fill') return cell.fill;
   if (TEXT_LABELS.has(label) && text) return text.look?.[label] ?? text.settings?.[label]?.value;
   return m.settings?.[label]?.value ?? m.look?.[label];
 }
@@ -473,8 +481,12 @@ const ARROWS = { none: 'none', end: 'at the end', start: 'at the start', both: '
 const saidOf = (label, v) => label === 'Weight' ? `${+Scene.toSlide(page(), v).toFixed(2)} pt` : label === 'Arrow' ? ARROWS[v] ?? v : label === 'Dash' ? (DASH_NAMES.find(([d]) => d === v)?.[1] ?? v) : typeof v === 'string' ? (colorName(v) ?? v.toUpperCase()) : String(v);
 // Those values in words: "These differ: 3 at the end, 21 none".
 const differs = label => { const d = differing(label); return d && `These differ: ${d.slice(0, 3).map(x => `${x.n} ${saidOf(label, x.v)}`).join(', ')}${d.length > 3 ? ` and ${d.length - 3} more` : ''}`; };
+// The cell of a table picked, as it's drawn.
+const cellOf = m => { const at = current?.canvas?.cell?.(m.id); return at ? m.table.rows[at.r]?.cells[at.c] ?? null : null; };
 function scopeTexts() {
   if (current.texts) return current.texts;
+  const picked = current.marks.length === 1 && current.marks[0].geometry === 'table' ? cellOf(current.marks[0]) : null;
+  if (picked) return current.texts = [picked.it];
   const f = current.field, scope = current.scope, st = App.state.peek(), only = scope?.swatch?.kind === 'text' ? scope.outputs : null;
   return current.texts = scopeMarks().flatMap(m => m.texts ?? (m.caption ? [m.caption] : []))
     .filter(it => !it.blank && (f ? it === f.it || (!f.it.free && edgeOf(it) === edgeOf(f.it)) : !only || only.some(p => Tree.fits(st, it.id, p))));
@@ -810,7 +822,7 @@ function Fonts({ close }) {
   const now = value('Font'), find = q.trim().toLowerCase(), has = f => !find || f.toLowerCase().includes(find);
   const all = Scene.FONTS.map(f => f.name), named = all.find(f => f.toLowerCase() === find);
   const typed = find && !named && !chartFonts().some(f => f.toLowerCase() === find) && onComputer(q.trim()) ? q.trim() : null;
-  const sections = [[null, typed ? [typed] : []], ['This chart', chartFonts().filter(has)], ...KINDS.map(([k, head]) => [head, Scene.FONTS.filter(f => f.kind === k && has(f.name)).map(f => f.name)])];
+  const sections = [[null, typed ? [typed] : []], ['Theme fonts', ['Heading', 'Body'].filter(has)], ['This chart', chartFonts().filter(f => has(f) && f !== 'Heading' && f !== 'Body')], ...KINDS.map(([k, head]) => [head, Scene.FONTS.filter(f => f.kind === k && has(f.name)).map(f => f.name)])];
   const items = sections.flatMap(([, fs]) => fs), active = at < 0 ? (find ? 0 : -1) : Math.min(at, items.length - 1), pointedAt = items[active];
   useLayoutEffect(() => { pointedAt ? preview('Font', pointedAt) : preview(); list.current?.querySelector('.on')?.scrollIntoView({ block: 'nearest' }); }, [pointedAt]);
   const pick = f => { close(); apply('Font', f); };
@@ -824,11 +836,21 @@ function Fonts({ close }) {
       onInput=${e => { setQ(e.currentTarget.value); setAt(-1); }} onKeyDown=${keys} />
     <div class="list" role="listbox" ref=${list}>${sections.filter(([, fs]) => fs.length).map(([head, fs]) => html`
       ${head ? html`<div class="menu-head">${head}</div>` : null}
-      ${fs.map(f => { const k = i++, here = onComputer(f); return html`<div role="option" aria-selected=${f === now} class=${'menu-item' + (k === active ? ' on' : '') + (here ? '' : ' away')}
+      ${fs.map(f => { const k = i++, real = Scene.fontName(f), here = onComputer(real); return html`<div role="option" aria-selected=${f === now} class=${'menu-item' + (k === active ? ' on' : '') + (here ? '' : ' away')}
         data-tip=${here ? null : 'Not on this computer'} onPointerMove=${() => k !== active && setAt(k)} onClick=${() => pick(f)}>
-        <span class="check">${f === now ? Shell.icon('check') : null}</span><span class="label" style=${`font-family:${Scene.fontFamily(f)}`}>${f}</span></div>`; })}`)}
+        <span class="check">${f === now ? Shell.icon('check') : null}</span><span class="label" style=${`font-family:${Scene.fontFamily(f)}`}>${real === f ? f : `${f} · ${real}`}</span></div>`; })}`)}
       ${!items.length ? html`<div class="menu-none">No match</div>` : null}
-    </div></div>`;
+    </div>
+    <button type="button" class="menu-item" onClick=${() => { close(); defineFonts(); }}><span class="label">Theme fonts…</span></button></div>`;
+}
+// The chart's two fonts by reference: what Heading and Body are. One change, and every text that says one follows, the deck's by PowerPoint's own Theme Fonts.
+async function defineFonts() {
+  if (App.readOnly.peek()) return Shell.toast(App.whyNot());
+  const was = App.notes.peek().resolve('Theme Fonts', { kind: 'View' })?.value, now = { heading: Scene.fontName('Heading'), body: Scene.fontName('Body') }, names = Scene.FONTS.map(f => f.name);
+  const row = (key, label) => html`<label class="row"><span class="k">${label}</span><input class="cell" type="text" list="themefonts" value=${now[key]} aria-label=${label} spellcheck="false" onFocus=${e => e.currentTarget.select()} onInput=${e => { now[key] = e.currentTarget.value.trim() || now[key]; }} /></label>`;
+  const go = await Shell.dialog({ title: 'Theme fonts', width: 380, body: () => html`<div class="ex palette-def"><datalist id="themefonts">${names.map(f => html`<option value=${f} />`)}</datalist>${row('heading', 'Heading')}${row('body', 'Body')}</div>`, actions: [{ label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }] });
+  if (!go || (was?.heading === now.heading && was?.body === now.body)) return;
+  App.change(tx => tx.note('Theme Fonts', { kind: 'View' }, now), { dated: false, say: `Made the theme fonts ${now.heading} and ${now.body}` });
 }
 
 // ---- Sizes ----
@@ -1067,18 +1089,29 @@ function clearStyles(view, notes) {
 function insertMenu(e, c) {
   const item = (label, run, close) => html`<button type="button" class="menu-item" role="menuitem" onClick=${() => { close(); run(); }}><span class="label">${label}</span></button>`;
   // (In one order, so what's on top now is on top next time: drawing two of a kind moves nothing under the hand.)
-  const kinds = [...Canvas.kinds()].sort();
+  const kinds = [...Canvas.kinds()].sort(), mastering = c.scene()?.view === Scene.MASTER;
   // A shape, a line or an arrow is drawn on the chart by dragging, a click placing it at its size (or Enter, in free room); a text box is typed straight in, or drawn too.
   // One picker for the arrows, top to bottom, and across among the shapes; each shape says its name as the keys land on it.
   Shell.popover(e.currentTarget, close => html`<div class="insert" role="menu" data-grid="button">
     ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
-    ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].map(([g, name]) =>
+    ${[['text', 'Text box'], ['line', 'Line'], ['arrow-line', 'Arrow'], ['frame', 'Frame'], ['legend', 'Key'], ['picture', 'Picture']].filter(([g]) => !mastering || !['legend', 'frame'].includes(g)).map(([g, name]) =>
       item(name, () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g), close))}
+    ${item('Table', () => tablePick(e.currentTarget ?? document.querySelector('.fb [data-fb="insert"]'), c), close)}
     <div class="menu-sep" />
     <div class="gallery">${Shapes.gallery().map(g => html`<div class="menu-head">${g.head}</div><div class="shapes">${g.shapes.map(([id, name]) => html`<button aria-label=${name} data-tip=${name} onClick=${() => { close(); c.draw(id); }}>${shapeGlyph(id)}</button>`)}</div>`)}</div>
-    ${typeof Table === 'undefined' ? null : html`<div class="menu-sep" />${item('Import…', () => Table.importFile(), close)}`}
+    ${typeof Table === 'undefined' || mastering ? null : html`<div class="menu-sep" />${item('Import…', () => Table.importFile(), close)}`}
   </div>`, { placement: 'bottom-start' });
 }
+// A table by its rows and columns, as PowerPoint's Insert Table: pointed at, how many; with a box selected, a table that reads one of its lists, live.
+function TablePick({ c, close }) {
+  const [at, setAt] = useState([0, 0]), st = App.state.peek(), N = App.notes.peek(), one = c.selected().length === 1 && c.selected()[0].type === 'box' ? c.selected()[0] : null, lists = one ? Scene.listsAt(st, N, one.record) : [];
+  return html`<div class="tablepick" role="menu">
+    <div class="menu-head">${at[0] ? `${at[0]} × ${at[1]} table` : 'Table'}</div>
+    <div class="grid" data-grid="button" onPointerLeave=${() => setAt([0, 0])}>${Array.from({ length: 6 * 8 }, (_, i) => { const r = Math.floor(i / 8) + 1, k = i % 8 + 1; return html`<button type="button" aria-label=${`${r} rows, ${k} columns`} class=${r <= at[0] && k <= at[1] ? 'on' : ''} onPointerEnter=${() => setAt([r, k])} onFocus=${() => setAt([r, k])} onClick=${() => { close(); c.table(r, k); }} />`; })}</div>
+    ${lists.length ? html`<div class="menu-sep" />${lists.map(l => html`<button type="button" class="menu-item" role="menuitem" onClick=${() => { close(); c.table(0, 0, { of: one.record, list: l.name }); }}><span class="label">${l.name} of ${N.shortOf(st, one.record) ?? N.nameOf(st, one.record)}</span></button>`)}` : null}
+  </div>`;
+}
+const tablePick = (at, c) => Shell.popover(at, close => html`<${TablePick} c=${c} close=${close} />`, { placement: 'bottom-start' });
 function picture(c) {
   const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
   input.onchange = () => {
@@ -1454,7 +1487,7 @@ function Bar() {
     <button class="btn dd wide" data-fb="align" ...${writes(null, none)} onClick=${e => offer(e.currentTarget, aligns)}>Align</button>
     <button class="btn dd wide" data-fb="order" ...${writes(null, !layered)} onClick=${e => Shell.menu(e.currentTarget, orders)}>Order</button>
     <button class="btn wide" data-fb="group" ...${writes(null, grouping.disabled)} onClick=${grouping.run}>${grouping.label}</button>
-    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [...aligns.map(a => a === '-' || a.head ? a : { ...a, disabled: a.disabled || none || ro }), '-', { label: 'Flip and turn', disabled: !free || ro, items: flips }, { label: 'Order', disabled: !layered || ro, items: orders }, grouping, { label: 'Selection pane', keys: 'Alt+F10', run: () => c.pane() }, '-', tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, { label: 'Filter…', disabled: !App.canAsk(), run: () => c.filter() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', Canvas.aidsRow()])}>
+    <button class="btn dd narrow arrange" data-fb="arrange" aria-label="Arrange" data-tip="Arrange" onClick=${e => offer(e.currentTarget, [...aligns.map(a => a === '-' || a.head ? a : { ...a, disabled: a.disabled || none || ro }), '-', { label: 'Flip and turn', disabled: !free || ro, items: flips }, { label: 'Order', disabled: !layered || ro, items: orders }, grouping, { label: 'Selection pane', keys: 'Alt+F10', run: () => c.pane() }, '-', { label: 'Edit master', run: () => { App.mastering.value = !App.mastering.peek(); }, checked: App.mastering.peek() }, ...(App.mastering.peek() ? [] : [{ label: 'Leave the master off', checked: !App.hasMaster(view), disabled: ro, run: () => App.pageMaster(view, !App.hasMaster(view)) }]), '-', tidy, { label: 'Tidy for every date', disabled: ro, run: () => { tried = null; c.tidyEvery(); }, tries: ['Tidy for every date'] }, { label: 'Show only these', disabled: !c.canShowOnly(), run: () => c.showOnly() }, { label: 'Filter…', disabled: !App.canAsk(), run: () => c.filter() }, '-', { label: 'Fit to page', disabled: ro, run: () => Export.fit() }, { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', Canvas.aidsRow()])}>
       ${Shell.icon('layers')}<span>Arrange</span></button>
     <button class="btn" data-fb="tidy" ...${writes(tidy.label === 'Tidy' ? null : tidy.label, tidy.disabled)} onClick=${tidy.run} onPointerMove=${e => { if (e.movementX || e.movementY) preview(...tidy.tries); }} onPointerLeave=${() => preview()}>${tidy.label.replace(/ \D+$/, '')}<span class="wide">${tidy.label.match(/ \D+$/)?.[0]}</span></button>
     <button class="btn dd zoom" data-fb="zoom" onClick=${e => Shell.menu(e.currentTarget, [{ label: 'Fit', keys: 'Shift+Digit1', run: () => c.zoom('fit') }, '-',
@@ -1508,6 +1541,9 @@ function mount(el) {
     ['draw.turnR', 'Turn right 90°', null, () => Canvas.active.peek().turnBy(90), edit, ['Rotate right', 'Rotate 90']],
     ['draw.turnL', 'Turn left 90°', null, () => Canvas.active.peek().turnBy(-90), edit, ['Rotate left', 'Rotate 90']],
     ['draw.pane', 'Selection pane', 'Alt+F10', () => Canvas.active.peek().pane(), onScreen, ['Selection', 'Layers', 'Objects', 'Hide', 'Lock', 'Reorder', 'Rename a shape', 'What’s buried']],
+    ['draw.master', 'Edit master', null, () => { App.mastering.value = !App.mastering.peek(); }, onScreen, ['Master', 'Slide master', 'Logo on every page', 'Every page', 'Confidentiality line', 'Letterhead', 'Furniture']],
+    ['draw.masteroff', 'Leave the master off this page', null, () => App.pageMaster(Shell.view.peek(), !App.hasMaster(Shell.view.peek())), () => onScreen() && !App.readOnly.peek() && !App.mastering.peek(), ['No master', 'Hide master', 'Show master']],
+    ['look.fonts', 'Theme fonts…', null, () => defineFonts(), () => onScreen() && !App.readOnly.peek(), ['Theme fonts', 'Heading font', 'Body font', 'Fonts']],
     ['draw.default', 'Set as default', null, () => Canvas.active.peek().setDefault(), edit, ['Default shape', 'Default line', 'Default text box', 'Set as default shape']],
     ['draw.crop', 'Crop', null, () => Canvas.active.peek().crop(), edit, ['Crop picture', 'Trim']],
     ['draw.picture', 'Change picture…', null, () => Canvas.active.peek().changePicture(), edit, ['Replace picture', 'Swap picture']],
@@ -1537,6 +1573,7 @@ function mount(el) {
     return [...Canvas.kinds().map(k => ({ label: `New ${word(k)}`, detail: 'Action', names: [`Add ${word(k)}`, `Insert ${word(k)}`, 'Add a box'], run: () => c.create(k) })),
       ...[['text', 'Text box'], ['frame', 'Frame'], ['legend', 'Key', 'Legend'], ['picture', 'Picture', 'Logo'], ['line', 'Line', 'Connector'], ['arrow-line', 'Arrow', 'Connector']].map(([g, name, also]) => ({ label: `Insert ${word(name)}`, detail: 'Action',
         names: [name, `Add ${word(name)}`, `Draw ${word(name)}`, ...(also ? [also] : [])], run: () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g) })),
+      { label: 'Insert table', detail: 'Action', names: ['Table', 'Add table', 'Cap table', 'Grid'], run: () => tablePick(document.querySelector('.fb [data-fb="insert"]'), c) },
       ...Shapes.list.map(([g, name]) => ({ label: `Insert ${word(name)}`, detail: 'Action', names: [name, `Add ${word(name)}`, 'Shape'], run: () => c.draw(g) }))];
   } }));
   return () => { stopSel(); stopCue(); stopBrush(); stopCorners(); stopFollow(); actions.forEach(off => off()); disarm(); document.removeEventListener('pointerover', pointed); document.removeEventListener('pointerdown', painting, true); document.removeEventListener('pointermove', dropMove, { capture: true });
@@ -1588,7 +1625,7 @@ function open(what, at) {
 }
 
 Shell.register('formatbar', { mount, relist: () => listHouses() });
-return { apply, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
+return { defineFonts, apply, value, colorName, paletteOf, themeOf, resize: by => resize(by > 0 ? grown : shrunk), shapeName: g => SHAPES.find(([k]) => k === g)?.[1] ?? null, allOf, scope: describe, write: scoped, cue: cueing, open,
   copyLook, pasteLook: () => pasteLook(), canPasteLook: () => !!copied, clear: clearLook, lookMenu, houseStyles: () => houses.value, aim, aimedAt, lit, litOn, selectDiffers,
   reachOf: reachOfRow };
 })();
