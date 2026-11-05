@@ -2991,7 +2991,7 @@ async function templates() {
   check('a box’s right-click on a family tree adds what the tree draws', Shell.parts.peek().inspector.adds(she).map(x => x.label).join() === 'Add parent…,Add child…,Add spouse…', Shell.parts.peek().inspector.adds(she).map(x => x.label).join());
   Shell.select([she]); await tick(150);
   Shell.parts.peek().inspector.adds(she).find(x => x.label === 'Add child…').run({ x: 300, y: 300 }); await tick(150);
-  const find = $('.float .menu input'); find.value = 'Ada Hale'; find.dispatchEvent(new Event('input', { bubbles: true })); await tick(80);
+  const find = $('.float .menu-find'); find.textContent = 'Ada Hale'; find.dispatchEvent(new Event('input', { bubbles: true })); await tick(80);
   check('a child of one of a couple is offered as of both first', menuItems()[0] === 'New Person: Ada Hale, with Tom Hale' && menuItems()[1] === 'New Person: Ada Hale', menuItems().join(' | '));
   $$('.float .menu-item')[0].click(); await tick(150); App.commit(); await tick(350);
   const ada = Object.keys(App.state.peek()).find(id => App.notes.peek().nameOf(App.state.peek(), id) === 'Ada Hale' && App.state.peek()[id].kind), fromBoth = [she, he].map(p => sc().marks.find(m => m.type === 'line' && m.from === p && m.to === ada));
