@@ -3090,6 +3090,18 @@ async function designing(st) {
   check('… a row dropped on the box is a part in the column its fields stand in, under them, inside the box', !!dropped9 && dropped9.x >= rest9.x - 0.5 && dropped9.x + dropped9.w <= held9.x + held9.w + 0.5 && dropped9.y >= rest9.y + rest9.h - 0.5 && dropped9.y + dropped9.h <= held9.y + held9.h + 1, dropped9 && JSON.stringify([dropped9.y, dropped9.h, rest9.y, rest9.h, held9.y, held9.h]));
   $$('.dc-designbar button')[0].click(); await tick(400);
   undo(); await tick(250);
+  // A design given to a group stands at each of its patterns, and it's the group's that's edited, whichever box it's begun on.
+  {
+    const on = sc().marks.filter(m => m.type === 'box').map(m => [m.id, Canvas.groupsAt(sc(), m).find(g => g.outputs.length > 1 && g.marks.size > 1)]).find(([, g]) => g), group9 = on?.[1], tiers = Shapes.DESIGNS.find(d => d.id === 'rule');
+    App.change(tx => { for (const p of group9.outputs) tx.note('Design', p, tiers, { view: st.id }); }, { dated: false }); await tick(300);
+    Designs.edit(sc().byId.get(on[0])); await tick(500);
+    const says9 = txt($('.dc-designbar span')), c10 = changes();
+    $('.dc-designbar input').value = 'All of them';
+    $$('.dc-designbar button')[1].click(); await tick(500);
+    const named9 = [...group9.marks].map(id => sc().byId.get(id)).filter(m => m?.type === 'box');
+    check('a design given to a group of several patterns is edited as the group’s, every box of it moving, in one change', says9.includes(`${group9.marks.size}`) && changes() === c10 + 1 && named9.length === group9.marks.size && named9.every(m => m.design?.value.name === 'All of them'), `${says9} / ${named9.map(m => m.design?.value.name).join()}`);
+    undo(); await tick(200); undo(); await tick(250);
+  }
   // The first drag from a field's words on a box selected takes the field; a press on its name moves the box, as ever.
   Shell.select(['northpine']); await tick(150);
   const np = box('northpine'), it9 = np.texts.find(x => !x.name && x.lines?.length), r9 = cv().root.getBoundingClientRect(), gAt = (m, it) => { const t = it.look, l = it.lines[0], c = cv().graph.localToGraph(m.x + l.x + (t.Align === 'center' ? 0 : l.w / 2), m.y + l.y - t.Size * Scene.PT * 0.4); return [r9.left + c.x, r9.top + c.y]; };
