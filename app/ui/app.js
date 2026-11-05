@@ -2062,8 +2062,8 @@ const App = (() => {
     return n;
   }
   // The view itself, on a change: all but where it stands among the others. (A fresh chart's page comes as the page it's like has its own: its paper, its All text, its title's look, and a date and a Key where that has them.)
-  function viewMade(tx, n, rows, from, { also, blank, title, then } = {}) {
-    const vs = views.peek().filter(v => !v.look), like = from ?? (rows === undefined ? (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id : null);
+  function viewMade(tx, n, rows, from, { also, blank, title, then, like: of } = {}) {
+    const vs = views.peek().filter(v => !v.look), like = from ?? of ?? (rows === undefined ? (vs.find(v => v.id === Shell.view.peek() && v.layout === 'chart') ?? vs.find(v => v.layout === 'chart'))?.id : null);
     const id = tx.add('record', { kind: 'View' }), t = viewTree(id), all = book.peek().rows(chart.peek()), copied = new Map();
     tx.note('Name', t, n);
     if (rows !== undefined) tx.note('Layout', t, { rows });
@@ -2092,7 +2092,8 @@ const App = (() => {
   // (Each who's on a relation's side, not those it reaches nobody by; a blank last, by what it lacks.)
   function answersFor(from, field) {
     const st = state.peek(), base = filtersOf(from), ids = filterable(from).filter(id => base.every(f => Tree.passes(st, id, f))), vals = [...new Set(ids.flatMap(id => Tree.valuesAt(st, id, field.key)))];
-    const words = v => (v === null ? `No ${field.label}` : answerWord(field.key, v));
+    // (A yes-or-no's page by what it's the answer to.)
+    const words = v => (v === null ? `No ${field.label}` : v === 'Yes' || v === 'No' ? `${field.label}: ${v}` : answerWord(field.key, v));
     return { base, words, answers: vals.filter(v => !Tree.isSide(field.key) || v !== null).sort((a, b) => (a === null) - (b === null) || words(a).localeCompare(words(b), 'en', { numeric: true })) };
   }
   function pagesFor(from, field) {
@@ -2102,7 +2103,7 @@ const App = (() => {
     const vs = views.peek().filter(v => !v.look), at = vs.findIndex(v => v.id === from) + 1, taken = new Set(views.peek().map(v => Tree.norm(v.name))), made = [];
     const c = change(tx => {
       for (const v of answers) {
-        const word = words(v), id = viewMade(tx, freeViewName(word, taken), undefined, undefined, { title: word, then: (t, x) => t.note('Filter', viewTree(x), { filters: [...base.filter(f => f.key !== field.key), { key: field.key, label: field.label, values: [v] }] }) });
+        const word = words(v), id = viewMade(tx, freeViewName(word, taken), undefined, undefined, { title: word, like: from, then: (t, x) => t.note('Filter', viewTree(x), { filters: [...base.filter(f => f.key !== field.key), { key: field.key, label: field.label, values: [v] }] }) });
         made.push(id);
       }
       [...vs.slice(0, at), ...made.map(id => ({ id })), ...vs.slice(at)].forEach((v, k) => tx.note('Order', viewTree(v.id), k + 1));
@@ -2209,6 +2210,9 @@ const App = (() => {
   Shell.register('action', { id: 'mode.viewing', name: 'Viewing', names: ['Read only', 'Read-only', 'View only', 'Lock'], run: () => setViewing(true) });
   Shell.register('action', { id: 'mode.editing', name: 'Editing', names: ['Edit', 'Unlock'], run: () => setViewing(false) });
   Shell.register('action', { id: 'mode.opens', get name() { return opensViewing.peek() ? 'Open this chart in Editing' : 'Open this chart in Viewing'; }, run: () => setOpensViewing(!opensViewing.peek()) });
+  // A page for each answer, in Find too, by what it's asked by.
+  Shell.register('action', { id: 'view.pages', name: 'One page for each…', names: ['A page for each', 'Page per department', 'One page per', 'Split into pages', 'Split by', 'Pages by', 'Department pages'], enabled: () => views.peek().find(v => v.id === Shell.view.peek())?.layout === 'chart' && !readOnly.peek(), why: () => (readOnly.peek() ? whyNot() : 'Show a chart first'),
+    run: () => { const id = Shell.view.peek(), fs = filterFields(id).filter(f => f.answers && answersFor(id, f).answers.length > 1); Shell.menu({ x: innerWidth / 2 - 120, y: 96 }, fs.length ? fs.map(f => ({ label: f.menu ?? f.label, run: () => pagesFor(id, f) })) : [{ label: 'No answer differs here', disabled: true }]); } });
   Shell.register('action', { id: 'chart.new', name: 'New chart', get names() { return ['Template', 'Templates', 'Gallery', ...(typeof Templates === 'undefined' ? [] : Templates.list().map(t => t.name))]; }, keys: '$mod+Shift+KeyN', enabled: () => !readOnly.peek(), why: () => whyNot(), run: () => Gallery.open() });
   Shell.register('action', { id: 'file.new', name: 'New workbook', run: () => Gallery.open({ workbook: true }) });
 

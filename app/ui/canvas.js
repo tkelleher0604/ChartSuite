@@ -364,6 +364,8 @@ function cellsOf(scene, ink = null) {
       const d = m.lone ? '' : m.kind === 'bracket' ? `M0.5,${m.h} V${m.h - 5} H${m.w - 0.5} V${m.h}` : `M0,0 H${m.w} V${m.h} H0 Z`;
       node(m, 'frame', [{ tagName: 'path', selector: 'body', attrs: { d, fill: 'none', stroke: '#595959', 'stroke-width': px(m.settings.Weight.value), 'pointer-events': 'visibleStroke',
         'stroke-dasharray': m.kind === 'solid' || m.kind === 'bracket' ? null : Scene.dash(m.kind === 'dotted' ? 'dotted' : 'dashed', m.settings.Weight.value) } },
+        // (Taken anywhere on its edge, and by its heading, as a frame drawn is.)
+        ...(m.lone || m.kind === 'bracket' ? [] : [{ tagName: 'rect', attrs: { width: m.w, height: m.h, fill: 'none', stroke: 'transparent', 'stroke-width': 10, 'pointer-events': 'stroke', cursor: 'move' } }]),
         { tagName: 'rect', attrs: { x: 0, y: 0, width: m.w, height: m.kind === 'bracket' ? m.h : m.label + 6, fill: 'transparent' } },
         textMarkup(m.caption)]);
     } else if (m.type === 'shape') {
@@ -1370,8 +1372,8 @@ function mount(el) {
           if (!c || c === node) continue;
           c.setPosition(f.x, f.y); c.setSize(f.w, f.h);
           // (New objects: the cell draws a markup only where it differs from what it holds, so one changed in place never is.)
-          const [body, hit, cap] = c.getMarkup();
-          c.setMarkup([{ ...body, attrs: { ...body.attrs, d: f.kind === 'bracket' ? `M0.5,${f.h} V${f.h - 5} H${f.w - 0.5} V${f.h}` : `M0,0 H${f.w} V${f.h} H0 Z` } }, { ...hit, attrs: { ...hit.attrs, width: f.w } }, cap]);
+          const [body, ...rest] = c.getMarkup(), cap = rest.pop();
+          c.setMarkup([{ ...body, attrs: { ...body.attrs, d: f.kind === 'bracket' ? `M0.5,${f.h} V${f.h - 5} H${f.w - 0.5} V${f.h}` : `M0,0 H${f.w} V${f.h} H0 Z` } }, ...rest.map(hit => ({ ...hit, attrs: { ...hit.attrs, width: f.w, ...(hit.attrs.stroke === 'transparent' && { height: f.h }) } })), cap]);
           astray(f.id, true);
         }
       });
