@@ -126,7 +126,9 @@ function slots(at, all) {
   // What a check that says something here reads of this record, where it has none, is an empty row: what's missing can be seen, and typed.
   const known = [...errors, ...blanks, ...unsure, ...untested], R = App.computed.value, read = own ? App.definitions.value.filter(d => d.type === 'tag' && !d.edges && (R.rows[d.id] ?? []).some(x => x.at === at) && N().check({ args: [{ edge: d.name, loc: tree(at) }] }))
     .flatMap(d => Formulas.readsAt(R, d.id)).filter((e, i, l) => l.findIndex(x => T.same(x, e)) === i && !entryNamed(at, e) && !known.some(x => T.same(x.edge, e)) && specsAt(tree(at), e).length && !App.definitions.value.some(d => T.same(d.name, e))).map(e => slot(e, { at, open: true })) : [];
-  const given = [...known, ...read], asked = offered.value.filter(o => o.at === at && !entryNamed(at, o.edge) && !given.some(x => T.same(x.edge, o.edge))).map(o => slot(o.edge, { at, open: true, made: true }));
+  // And what its box on the page shown shows blank, to type into there (dendra.md, Fields), is an empty row here.
+  const shownBlank = own && !all ? (App.scene.value?.byId.get(at)?.texts ?? []).filter(it => it.blank).map(it => it.blank.edge).filter(e => !known.some(x => T.same(x.edge, e)) && !read.some(x => T.same(x.edge, e))).map(e => slot(e, { at, open: true })) : [];
+  const given = [...known, ...read, ...shownBlank], asked = offered.value.filter(o => o.at === at && !entryNamed(at, o.edge) && !given.some(x => T.same(x.edge, o.edge))).map(o => slot(o.edge, { at, open: true, made: true }));
   const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...given, ...asked].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
   // What's blank that others of its kind have stands empty too, so what's missing can be seen and typed; or says it isn't ours.
   const apart = own && !all ? App.blanksApart.value.filter(b => b.id === at && !b.list && ![...given, ...asked].some(x => T.same(x.edge, b.edge))).map(b => slot(b.edge, { open: true, apart: true })) : [];
@@ -645,8 +647,8 @@ function addItems(at, anchor) {
 function addNamed(at, q) {
   const name = T.clean(q), t = tree(at), have = specsAt(t, name).length || entryNamed(at, name);
   if (!name || have) return [];
-  return ['-', { label: `New yes-or-no: ${name}`, asked: true, run: () => makeTag(at, name) }, { label: `Check: ${name}`, asked: true, run: () => makeTag(at, name, true) },
-    { label: `New value: ${name}`, asked: true, run: () => { draft.value = { at, type: 'field', edge: name, datatype: null }; } }, { label: `New choice: ${name}`, asked: true, run: () => { draft.value = { at, type: 'choice', edge: name, options: [] }; } }];
+  return ['-', { label: `New value: ${name}`, asked: true, run: () => { draft.value = { at, type: 'field', edge: name, datatype: null }; } }, { label: `New choice: ${name}`, asked: true, run: () => { draft.value = { at, type: 'choice', edge: name, options: [] }; } },
+    { label: `New yes-or-no: ${name}`, asked: true, run: () => makeTag(at, name) }, { label: `Check: ${name}`, asked: true, run: () => makeTag(at, name, true) }];
 }
 // The lists of relatives a record's kind can have, by their names (Owners, General Partners, Holdings), as its sections
 // name them once it has some: each the relations of the schema, entered not worked out, of two sides, one of which the
@@ -1283,7 +1285,7 @@ function Look({ id }) {
 function Head({ path = [], title, more, span, children }) {
   const said = path.length && !(path.length === 1 && T.same(path[0].label, title));
   return html`<header class="ih">
-    ${said ? html`<nav class="path">${path.map(p => p.menu ? html`<button class="lk dd kind" aria-haspopup="menu" aria-label=${`Kind: ${p.label}`} onClick=${e => menu(e.currentTarget, p.menu())}>${p.label}</button>` : p.go ? html`<button class="lk" data-tip=${p.tip ?? null} onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
+    ${said ? html`<nav class="path">${path.map(p => p.menu ? html`<button class="lk dd kind" aria-haspopup="menu" aria-label=${`Kind: ${p.label}`} onClick=${e => menu(e.currentTarget, p.menu(), p.named && !App.readOnly.peek() ? { search: true, more: p.named } : {})}>${p.label}</button>` : p.go ? html`<button class="lk" data-tip=${p.tip ?? null} onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
     ${more ? html`<button class="btn icon more" aria-label="More" data-tip="More" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, more(), { placement: 'bottom-end' })}>${icon('more')}</button>` : null}
     ${children ?? html`<h2 class="ih-title">${title}</h2>`}${span}</header>`;
 }
@@ -1364,7 +1366,15 @@ function kindMenu(id) {
   const r = recs()[id], choices = App.readOnly.peek() ? [] : kindChoices(id), choose = k => App.change(tx => tx.rekind(id, k), { dated: false, say: c => `${Time.describe(c)}${lacks() ? `; it has no ${lacks()}` : ''}`,
     go: () => (lacks() ? [`${lacks()}…`, () => { aim.value = `${id}|${lacks()}`; select([id]); }] : null) });
   return [...choices.map(({ kind, why }) => ({ label: kind, checked: T.same(kind, r.kind), disabled: !!why, tip: why, detail: why ? 'Not with its relations' : null, run: () => !T.same(kind, r.kind) && choose(kind) })),
-    ...(choices.length ? ['-'] : []), { label: `What ${article(r.kind)} ${lower(r.kind)} is`, run: () => select([general({ kind: r.kind })]) }, { label: `Open in ${T.plural(r.kind)}`, run: () => kindTable(id) }];
+    ...(choices.length ? ['-'] : []), ...(App.readOnly.peek() ? [] : [{ label: `Rename ${r.kind}…`, run: () => { select([general({ kind: r.kind })]); setTimeout(() => { const el = document.querySelector('.insp .ih input, .insp .ih textarea'); el?.focus(); el?.select?.(); }, 60); } }]),
+    { label: `What ${article(r.kind)} ${lower(r.kind)} is`, run: () => select([general({ kind: r.kind })]) }, { label: `Open in ${T.plural(r.kind)}`, run: () => kindTable(id) }];
+}
+// A name typed in the kind's menu that it hasn't got: this record made a new kind of that name, or the kind renamed, every record of it with it.
+function kindNamed(id, q) {
+  const r = recs()[id], name = T.clean(q), there = Object.values(App.schema.value).some(s => !s.args && s.kind && T.same(s.kind, name));
+  if (!name || there) return [];
+  return ['-', { label: `New kind: ${name}`, asked: true, run: () => App.change(tx => tx.rekind(id, name), { dated: false, say: c => Time.describe(c) }) },
+    { label: `Rename ${r.kind} to ${name}`, asked: true, run: () => App.change(tx => tx.rename({ kind: r.kind }, r.kind, name), { dated: false }) }];
 }
 function alike(id) {
   const r = recs()[id], sc = App.scene.peek(), ids = !sc ? [] : Object.keys(recs()).filter(x => recs()[x].at && T.same(recs()[x].edge, r.edge) && T.same(recs()[x].choice ?? '', r.choice) && sc.byId.get(recs()[x].at)?.type === 'box').map(x => recs()[x].at);
@@ -1399,7 +1409,7 @@ function RecordView({ id }) {
   const nameId = entryNamed(id, 'Name'), held = nameId ? App.held(nameId) : undefined;
   const span = (r.kind || r.args) ? html`<${Span} id=${id} />` : null;
   const head = r.kind
-    ? html`<${Head} more=${() => moreOf(id)} span=${span} path=${[{ label: r.kind, menu: () => kindMenu(id) }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
+    ? html`<${Head} more=${() => moreOf(id)} span=${span} path=${[{ label: r.kind, menu: () => kindMenu(id), named: q => kindNamed(id, q) }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
         <${Field} r=${recs()[nameId]} id=${nameId} datatype="text" ph="Name" title held=${held ? held.value : null} put=${(out, o) => (out || out === false) && put(nameId, { at: id, edge: 'Name' }, out, o)}
           preview=${out => out && putChange(nameId, { at: id, edge: 'Name' }, out)} /></${Head}>`
     : html`<${Head} title=${name} span=${span} more=${r.args ? () => moreOf(id) : null} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
@@ -1864,12 +1874,18 @@ function RelateView({ a, b }) {
     const f = naming.value = { ...form, [k]: v }, [name, ra, rb] = [f.name, f.ra, f.rb].map(T.clean);
     if (!name || !ra || !rb || T.same(ra, rb)) { if (App.pending.peek()?.relate === ours && ours) App.discard({ quiet: true }); return; }
     const p = { args: [{ edge: ra, loc: {} }, { edge: rb, loc: {} }] }, rec = { args: [{ edge: ra, at: a }, { edge: rb, at: b }], tag: true };
+    // (How they stand: `stands`, which side's on top, or level or neither. As it's asked, the role of the box over the other, where one is, else the first typed.)
+    const above = f.stands ?? (ya > yb && upright ? rb : ra), top = T.same(above, rb) ? rb : ra, under = top === ra ? rb : ra, standing = ['level', 'none'].includes(f.stands) ? f.stands : null;
     const was = App.pending.peek()?.relate?.key === 'new' && App.pending.peek().relate.a === a && App.pending.peek().relate.b === b ? App.pending.peek() : null;
     App.stage({ verb: 'Add', what: `${name}: ${n.placed(r, null, rec.args).map(s => s.join + s.text).join('')}`, source: `relate ${a} ${b}`, relate: { a, b, key: 'new', out: { tag: true } },
       asks: 'from', day: was ? was.day : App.begins(), needs: [a, b], say: c => Time.describe(c),
       // (Its lists go by their roles, plural, as any list's name is: Holders, Funds.)
       // (And drawn on the page it's made on, a line and a row in its Styles, as what it's drawn to say.)
-      make: tx => { tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb }); const view = Shell.view.peek(); if (view) tx.note('Shown', p, true, { view }); },
+      // (And in the Key, as what a line says; the page's first relation says no more on each of its lines, as what it's a chart of.)
+      make: tx => { const view = Shell.view.peek(), lined = App.scene.peek()?.marks.some(m => m.type === 'line'), out = { out: { tag: true }, ...p };
+        tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: top }); tx.note('Order', p, 2, { param: under }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb });
+        if (standing) tx.note('Above', p, standing);
+        if (view && App.scene.peek()) { tx.note('Shown', p, true, { view }); tx.note('Caption', out, name, { view }); if (!lined) tx.note('Format', out, 'none', { view }); } },
       done: () => { naming.value = null; fresh.value = { a, b, key: [ra, rb, a, b].join('|').toLowerCase() }; } });
   };
   // Enter goes on to the next it asks, until it's all given, and then makes it.
@@ -1879,6 +1895,10 @@ function RelateView({ a, b }) {
   };
   const inp = (k, label, first) => html`<input class=${'cell' + (first ? '' : ' role')} placeholder=${first ? 'New relation' : 'New role'} aria-label=${label} value=${form[k]} spellcheck=${false} autocomplete="off"
     onInput=${e => type(k, e.target.value)} ref=${first ? el => el && !el.dataset.on && (el.dataset.on = 1, el.focus()) : null} />`;
+  // How the two will stand, once there are two roles to say it of.
+  const standsOf = () => { const [ra, rb] = [form.ra, form.rb].map(T.clean); if (!ra || !rb || T.same(ra, rb)) return null;
+    const now = form.stands ?? (ya > yb && upright ? rb : ra), said = s => s === 'level' ? 'Side by side' : s === 'none' ? 'Neither on top' : `${s} on top`;
+    return html`<span class="side">Stand</span><button type="button" class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, [ra, rb, 'level', 'none'].map(s => ({ label: said(s), checked: T.same(s, now), run: () => type('stands', s) })))}><span>${said(now)}</span></button>`; };
   // A role another relation has is said as it's written: a formula reading it would read both.
   const sharedRole = k => { const v = T.clean(form?.[k] ?? ''), of = v && App.relations.value.filter(x => !T.same(x.name, form.name) && x.edges?.some(e => T.same(e, v))).map(x => x.name); return of?.length ? html`<span class="role-shared">${v} is a side of ${of.join(' and ')} too.</span>` : null; };
   // What someone entered first, then what a formula gives, and last what's ruled out; each by name, then the
@@ -1923,7 +1943,7 @@ function RelateView({ a, b }) {
     ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
       ${form ? html`<div class=${'rr new' + (ours ? ' adding' : '')} onKeyDown=${formKeys}><span class="ctl"><span class=${'tag' + (ours ? ' yes' : '')} /></span><span class="form">
-          ${inp('name', 'Name', true)}<span class="side">${side(a, true)}</span>${inp('ra', `${nameOf(a)}’s role`)}${sharedRole('ra')}<span class="side">${side(b, true)}</span>${inp('rb', `${nameOf(b)}’s role`)}${sharedRole('rb')}</span>
+          ${inp('name', 'Name', true)}<span class="side">${side(a, true)}</span>${inp('ra', `${nameOf(a)}’s role`)}${sharedRole('ra')}<span class="side">${side(b, true)}</span>${inp('rb', `${nameOf(b)}’s role`)}${sharedRole('rb')}${standsOf()}</span>
           </div>`
         : ghost('New relation', () => { if (draft) App.discard(); naming.value = { a, b, name: '', ra: '', rb: '' }; })}
     </div>`}
@@ -2119,6 +2139,8 @@ function GeneralView({ p, style }) {
       ${rel ? n.edges(p).map(e => html`<div class="row" key=${'r' + e}><div class="k">Role</div><div class="v ctl"><${Field} r=${{ field: 'text', value: e }} datatype="text" label=${`Role ${e}`} put=${out => out && renameRole(e, out.value)} /></div></div>
         <div class="row" key=${'l' + e}><div class="k">${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
+      ${rel && !def && specs.every(s => s.args.length === 2) ? (() => { const es = n.edges(p), now = n.value('Above', p, v) ?? es[0], said = s => s === 'level' ? 'Side by side' : s === 'none' ? 'Neither on top' : `${s} on top`, setIt = s => App.change(tx => tx.note('Above', p, T.same(s, es[0]) ? undefined : s, { view: v ?? undefined }), { dated: false, say: `Said how ${name} stands: ${said(s).toLowerCase()}` });
+        return html`<div class="row" key="stands"><div class="k">Stands</div><div class="v ctl">${still ? said(now) : html`<button class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, [...es, 'level', 'none'].map(s => ({ label: said(s), checked: T.same(s, now), run: () => !T.same(s, now) && setIt(s) })))}><span>${said(now)}</span></button>`}</div></div>`; })() : null}
       ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('A blank needs filling in', n.required(p), on => flag('Required', p, on))}
       ${type === 'tag' ? checkRow('A no needs attention', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
       ${kind || rel || def || writing || (dated && (n.isStart(dp) || n.isEnd(dp))) ? null : checkRow('Changes over time', dated ? n.changing(p) : !n.fixed(p), on => flag('Fixed', p, dated ? (on ? false : undefined) : (on ? undefined : true)))}
@@ -2252,11 +2274,14 @@ function addToList(id, list) {
   select([id]);
   if (l) setTimeout(() => { const at = document.querySelector('.insp .addrow .add-entry'); if (at) addTo(at, id, l); }, 120);
 }
-// What a box's right-click adds to it, where it's clicked (`at`): each list of a relation with a percentage at it, the
-// stakes a structure chart is made of, by the word for one of it (Add owner…, Add holding…), its first side's first.
+// What a box's right-click adds to it, where it's clicked (`at`), by the word for one of it, its first side's first: each list of a
+// relation with a percentage at it, the stakes a structure chart is made of (Add owner…, Add holding…); or, in a chart with none, of each
+// relation this page draws that ranks its boxes (Add manager…, Add report…).
 function addsOf(id) {
   const stake = w => Object.values(App.schema.value).some(s => s.args?.length === 1 && s.out?.field === 'percent' && T.narrower(w.s, s.args[0].loc));
-  return listsOf(id).filter(l => l.ways.some(stake)).sort((a, b) => a.ways[0].s.args.indexOf(a.ways[0].sl) - b.ways[0].s.args.indexOf(b.ways[0].sl))
+  const view = Shell.view.peek(), drawn = w => N().value('Shown', w.s, view) === true && N().value('Above', T.bare(w.s), view) !== 'none';
+  const lists = listsOf(id), some = lists.filter(l => l.ways.some(stake));
+  return (some.length ? some : lists.filter(l => l.ways.some(drawn))).sort((a, b) => a.ways[0].s.args.indexOf(a.ways[0].sl) - b.ways[0].s.args.indexOf(b.ways[0].sl))
     .map(l => ({ label: `Add ${one(l.name).toLowerCase()}…`, run: at => addTo(at, id, l) }));
 }
 Shell.register('inspector', { addTo: addToList, adds: addsOf, ending: rid => remove(rid, { auto: true }), ask: into => { Shell.showPanel?.(); aim.value = 'merged'; select([into]); }, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
@@ -2342,7 +2367,7 @@ Shell.register('find', { items: q => {
     ...(App.readOnly.peek() ? [] : inside.flatMap(at => unentered(at).filter(s => !('tag' in s.out)).map(s => ({ ...label(s.args[0].edge), run: () => { if (slots(at).some(x => !x.id && T.same(x.edge, s.args[0].edge))) { aim.value = `${at}|${s.args[0].edge}`; select([o]); return; } select([o]); draft.value = { at, type: 'field' in s.out ? 'field' : 'choice', edge: s.args[0].edge, ...kindAt(tree(at), s.args[0].edge) }; } }))))];
 } });
 // Add to each of the selected record's lists, by the word for one of it ("Add owner"), as its + does: Find opens its search.
-const one = w => w.replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
+const one = w => w.replace(/(child)ren$/i, '$1').replace(/(p)eople$/i, '$1erson').replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
 Shell.register('find', { items: () => {
   const id = theOne();
   if (!id || App.readOnly.peek() || !(recs()[id].kind || recs()[id].args)) return [];

@@ -965,7 +965,8 @@ const Shell = (() => {
         <${Bar} kind="formulabar" />
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
-        ${bare ? html`<div class="empty void"><button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button></div>` : null}
+        ${bare ? html`<div class="empty void">${kinds().length === 1 ? html`<button class="btn" onClick=${() => kinds()[0].run()}>Add a box</button>`
+          : html`<button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button>`}</div>` : null}
         ${part('time') ? h(part('time').Band) : null}
         ${h(App.LookBand)}
         ${part('broken') ? h(part('broken')) : null}

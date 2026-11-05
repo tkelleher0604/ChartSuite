@@ -54,14 +54,14 @@ const lowered = s => String(s).replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase()
 const viewName = id => App.views.peek().find(v => v.id === id)?.name ?? 'this view';
 
 // The kinds a box can be added as here: the chart's, less those the view hides, the most drawn first; in a
-// chart with none yet, an Entity.
+// chart with none yet, a Box.
 function kinds(scene = App.scene.peek()) {
   const st = App.state.peek(), N = App.notes.peek(), count = new Map();
   for (const m of scene?.marks ?? []) if (m.type === 'box') { const k = st[m.record]?.kind; if (k) count.set(k, (count.get(k) ?? 0) + 1); }
   const all = new Set([...count.keys(), ...Object.values(App.schema.peek()).filter(s => !s.args && s.kind && !Tree.isView(s)).map(s => s.kind)]);
   const ks = [...all].filter(k => count.has(k) || !scene || N.value('Shown', { kind: k }, scene.view) !== false)
     .sort((a, b) => (count.get(b) ?? 0) - (count.get(a) ?? 0) || a.localeCompare(b));
-  return ks.length ? ks : ['Entity'];
+  return ks.length ? ks : ['Box'];
 }
 // The kind last added, while it can be; or the most drawn.
 const lastKind = () => { const ks = kinds(), k = Shell.store.get('kind'); return ks.includes(k) ? k : ks[0]; };
@@ -1378,7 +1378,7 @@ function mount(el) {
     if (!selectAll) range.collapse(false);
     s.removeAllRanges(); s.addRange(range);
     let done = false;
-    const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box);
+    const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box, () => finish(true));
     const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys, runs); else escaped?.(); };
     // (Going to the format bar's palette, it stays open, what's selected kept, till a press anywhere else.)
     const outside = e => { if (!e.target.closest?.('.dc-edit, .fb, .float')) finish(true); };
@@ -1393,7 +1393,7 @@ function mount(el) {
       // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
       else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
     });
-    ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); finish(true); });
+    ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); if (kind && e.relatedTarget?.closest?.('.dc-kinds')) return; finish(true); });
     return ed;
   }
   // A new line at the caret, as text, so a run's places stay in its characters. (At the very end, a second, which keeping the words takes off, as a last line break draws nothing to type on.)
@@ -1478,7 +1478,8 @@ function mount(el) {
   // A new box's kind, chosen beside its name as it's typed: "Entity ▾" at the name's right, its placeholder "New entity".
   // A click opens the kinds, the one it is ticked; Tab and Shift+Tab step through them. The keys stay in the name all the
   // while, so Enter makes the box and Esc makes nothing, wherever the pointer went.
-  function kindChooser(ed, { kinds: ks, kind, pick }) {
+  function kindChooser(ed, { kinds: known, kind, pick }, leave) {
+    const ks = [...known];
     let at = Math.max(0, ks.indexOf(kind)), pane = null;
     const chip = document.createElement('button'), label = document.createElement('span');
     chip.type = 'button';
@@ -1489,7 +1490,7 @@ function mount(el) {
     over.appendChild(chip);
     const keep = e => e.preventDefault();
     const set = i => { at = (i + ks.length) % ks.length; label.textContent = ks[at]; ed.dataset.ph = `New ${lowered(ks[at])}`; chip.setAttribute('aria-label', `Kind: ${ks[at]}`); pick(ks[at]); };
-    const shut = () => { pane?.remove(); pane = null; chip.setAttribute('aria-expanded', 'false'); };
+    const shut = () => { const was = pane; pane = null; was?.remove(); chip.setAttribute('aria-expanded', 'false'); };
     const open = () => {
       pane = document.createElement('div');
       pane.className = 'menu dc-kinds';
@@ -1504,6 +1505,22 @@ function mount(el) {
         o.addEventListener('pointerdown', e => { keep(e); set(i); shut(); });
         return o;
       }));
+      // A kind of a new name, typed under them: the keys go to it for as long as that takes, and back to the name.
+      const typed = document.createElement('input');
+      Object.assign(typed, { className: 'dc-newkind', placeholder: 'New kind', spellcheck: false, autocomplete: 'off' });
+      typed.setAttribute('aria-label', 'New kind');
+      typed.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          const name = Tree.clean(typed.value), had = ks.findIndex(k => Tree.same(k, name));
+          if (name) { if (had < 0) ks.push(name); set(had < 0 ? ks.length - 1 : had); }
+          shut(); ed.focus();
+        } else if (e.key === 'Escape') { e.preventDefault(); shut(); ed.focus(); }
+      });
+      typed.addEventListener('blur', e => { if (pane && e.relatedTarget !== ed) leave(); });
+      pane.append(typed);
+      pane.addEventListener('pointerdown', e => { if (e.target !== typed) keep(e); });
       over.appendChild(pane);
       Object.assign(pane.style, { left: `${chip.offsetLeft}px`, top: `${chip.offsetTop + chip.offsetHeight + 4}px` });
       chip.setAttribute('aria-expanded', 'true');

@@ -136,6 +136,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-kind { position: absolute; z-index: 4; height: 26px; padding: 0 8px 0 10px; gap: 6px; font: var(--t12); background-color: var(--surface); }
 .dc-kinds { position: absolute; z-index: 5; min-width: 160px; }
 .dc-kinds > .menu-item:hover { background: var(--hover); }
+.dc-newkind { display: block; box-sizing: border-box; width: calc(100% - 8px); height: var(--row); margin: 4px; padding: 0 8px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); color: var(--ink); font: inherit; }
 
 /* ---- The format bar, gone while the inspector is widened over the chart ---- */
 .slot:has(> .host > .fb[hidden]) { display: none; }

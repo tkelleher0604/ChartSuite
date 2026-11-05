@@ -854,7 +854,9 @@ const FormulaBar = (() => {
   // second; its own name (`name`, a record's where there is one); a tag's second side's list of the first,
   // said of the second (`flip`); or else the role the first side's list names, one of it.
   function predicateOf(t, a, b, { tag = true, name = N().name(t) } = {}) {
-    const n = N(), p = predicate(n.listName(t, b)) ?? predicate(name, true), flip = !p && tag && predicate(n.listName(t, a));
+    const n = N(), listed = predicate(n.listName(t, b)), own = !listed && predicate(name, true), p = listed ?? own, flip = !p && tag && predicate(n.listName(t, a));
+    // (A relation named for what its second side does is said of that side: a Report reports to its Manager.)
+    if (own?.form === 'verb' && tag && Tree.same(singular(own.head.split(' ')[0]), b)) return { ...own, flip: own };
     return p ?? (flip ? { ...flip, flip } : { head: lower(singular(n.listName(t, a))), prep: ' of ', form: 'noun', role: true });
   }
   // A relation in words, for a pane that says its sides itself: [the side said first, the words, the other].

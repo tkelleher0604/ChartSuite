@@ -164,7 +164,7 @@ const Tour = (() => {
       return () => { clearTimeout(still); clearInterval(timer); removeEventListener('resize', tick); };
     }, [i]);
     if (i < 0) return null;
-    const finish = blank => { if (name.trim()) store.set('name', name.trim()); end(); if (blank) App.blank()?.then?.(() => Shell.toast('The sample is kept: chart menu, Workbooks', { ms: 9000 })); };
+    const finish = fresh => { if (name.trim()) store.set('name', name.trim()); end(); if (fresh) Gallery.open({ workbook: true, then: made => { if (made && typeof made !== 'string') Shell.toast('The sample is kept: chart menu, Workbooks', { ms: 9000 }); } }); };
     // A step is said, and leaves focus in the window to do it; the last card is a dialog, which keeps it.
     const keysNow = Shell.usingKeys.value, act = keysNow && step?.keys ? (typeof step.keys === 'function' ? step.keys() : step.keys) : step?.act;
     return html`
@@ -179,7 +179,7 @@ const Tour = (() => {
           <p><b>${Shell.keyLabel('$mod+KeyZ')}</b> undoes anything, and History keeps every change, signed with your name.</p>
           ${keysNow ? html`<p><b>${Shell.keyLabel('$mod+KeyK')}</b> finds anything, <b>F6</b> goes from pane to pane, and <b>F1</b> says why, or lists every key.</p>` : null}
           <label>Your name<input value=${name} onInput=${e => setName(e.target.value)} ref=${el => { if (!el || el.dataset.on) return; el.dataset.on = 1; const take = () => { if (el.isConnected && !el.closest('form').contains(document.activeElement)) el.focus({ preventScroll: true }); }; setTimeout(take); /* (A click that brought it up lands after that: the keys are still its.) */ addEventListener('pointerup', () => setTimeout(take), { once: true }); addEventListener('click', () => setTimeout(take), { once: true }); }} /></label>
-          <div class="acts"><button type="button" class="btn" data-tip="This chart stays, in the chart menu under Workbooks" onClick=${() => finish(true)}>Start blank</button><button class="btn primary">Keep this chart</button></div>
+          <div class="acts"><button type="button" class="btn" data-tip="This chart stays, in the chart menu under Workbooks" onClick=${() => finish(true)}>New chart…</button><button class="btn primary">Keep this chart</button></div>
         </form>`}`;
   }
   const host = document.createElement('div');
