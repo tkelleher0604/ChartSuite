@@ -3129,7 +3129,7 @@ async function templates() {
   check('the form asks how the two stand, once it has two roles', $$('.rr.new .sel').some(x => /Manager on top/.test(txt(x))), $$('.rr.new .sel').map(txt).join());
   App.commit(); await tick(400);
   const rel = Object.keys(App.state.peek()).find(id => App.state.peek()[id].args);
-  check('New relation makes it, Manager on top, in the Key', !!rel && sc().byId.get(rel)?.from === ana && sc().marks.find(m => m.geometry === 'legend')?.rows.some(r => r.caption.text === 'Reports To'), JSON.stringify([sc().byId.get(rel)?.from, ana, sc().marks.find(m => m.geometry === 'legend')?.rows.map(r => r.caption.text)]));
+  check('New relation makes it, Manager on top, and a blank chart’s page has no Key till one’s inserted', !!rel && sc().byId.get(rel)?.from === ana && !sc().marks.some(m => m.geometry === 'legend'), JSON.stringify([sc().byId.get(rel)?.from, ana]));
   check('it reads as its name says: the report reports to the manager', /Sam Okoye reports to Ana Reyes/.test(txt($('.relate'))), txt($('.relate')));
   check('the next pair offers it first', (() => { const r = App.notes.peek().relations(App.schema.peek()); return r.some(x => x.name === 'Reports To'); })());
   check('a right-click adds what the page draws', Shell.parts.peek().inspector.adds(ana).map(x => x.label).join() === 'Add manager…,Add report…', Shell.parts.peek().inspector.adds(ana).map(x => x.label).join());
@@ -3140,8 +3140,10 @@ async function templates() {
   check('… each a real drawing, of boxes and lines', $$('dialog .gal-card').slice(1).every(c => c.querySelectorAll('svg path').length > 1), $$('dialog .gal-card').map(c => c.querySelectorAll('svg path').length).join());
   check('… the name field has the keys', document.activeElement === $('dialog .gal-more input'));
   const nameIn = $('dialog .gal-more input'), n0 = wb().charts().length; typeIn(nameIn, 'The Tree');
-  $$('dialog .gal-card').find(c => cardName(c) === 'Family tree').click(); await tick(400);
-  check('a click on a card begins it, named', wb().charts().length === n0 + 1 && wb().charts().at(-1).name === 'The Tree' && !$('dialog.dlg'), wb().charts().map(c => c.name).join());
+  $$('dialog .gal-card').find(c => cardName(c) === 'Family tree').click(); await tick(60);
+  check('a click on a card chooses it, begins nothing, and the keys go back to its name', cardName($('dialog .gal-card.on')) === 'Family tree' && wb().charts().length === n0 && document.activeElement === nameIn, wb().charts().map(c => c.name).join());
+  $$('dialog .dlg-foot button').find(b => txt(b) === 'Begin').click(); await tick(400);
+  check('Begin begins it, named', wb().charts().length === n0 + 1 && wb().charts().at(-1).name === 'The Tree' && !$('dialog.dlg'), wb().charts().map(c => c.name).join());
   check('… on its first page, with its tables, its page’s title its name', App.views.peek().map(v => v.name).join() === 'Family Tree,People' && sc().marks.find(m => m.role === 'title')?.texts[0].text === 'The Tree', App.views.peek().map(v => v.name).join());
   check('… and the card it was is the one offered next', Shell.store.get('template') === 'family-tree');
   Gallery.open(); await tick(300);

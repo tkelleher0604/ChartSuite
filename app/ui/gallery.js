@@ -1,6 +1,6 @@
 // The New chart gallery (dendra.md, Workbook): one dialog, a row of cards, each a small real drawing of what it makes, drawn by Scene
 // from its template's example records, its name beneath; a name; and, where this browser keeps house styles, the look to begin in.
-// Enter or a click on a card begins it. Like this chart is the last card where a chart's open.
+// A click chooses a card, the keys going to its name; Enter, Begin or a double-click begins it. Like this chart is the last card where a chart's open.
 const Gallery = (() => {
   const { html } = Shell;
   const { useState, useEffect, useRef } = preactHooks;
@@ -43,26 +43,27 @@ const Gallery = (() => {
     return svg ? html`<span class="gal-draw" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: svg }} />` : html`<span class="gal-draw" aria-hidden="true" />`;
   }
   function Body({ cards, choice, begin }) {
-    const [at, setAt] = useState(choice.at), [look, setLook] = useState(''), row = useRef();
+    const [at, setAt] = useState(choice.at), [look, setLook] = useState(''), row = useRef(), naming = useRef();
     const styles = typeof FormatBar === 'undefined' ? [] : FormatBar.houseStyles();
     const take = id => { setAt(id); choice.at = id; };
     // The arrows go from card to card, from the name too while nothing's typed in it, where they've nothing else to do; there, the keys stay.
     const keys = e => {
-      const naming = e.target.matches?.('input');
-      if (naming && e.target.value) return;
+      const inName = e.target.matches?.('input');
+      if (e.key === 'Enter' && e.target.matches?.('.gal-card')) { e.preventDefault(); begin(); return; }
+      if (inName && e.target.value) return;
       const i = cards.findIndex(c => c.id === at), to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? cards.length - 1 : null;
       if (to === null || to < 0 || to >= cards.length) return;
       e.preventDefault();
       take(cards[to].id);
-      if (!naming) row.current?.querySelector(`[data-card="${CSS.escape(cards[to].id)}"]`)?.focus();
+      if (!inName) row.current?.querySelector(`[data-card="${CSS.escape(cards[to].id)}"]`)?.focus();
     };
     return html`<div class="gallery" onKeyDown=${keys}>
       <div class="gal-row" role="radiogroup" aria-label="What to begin from" ref=${row}>
         ${cards.map(c => html`<button type="button" key=${c.id} class=${'gal-card' + (c.id === at ? ' on' : '')} role="radio" aria-checked=${c.id === at} tabindex=${c.id === at ? 0 : -1} data-card=${c.id}
-          onClick=${() => { take(c.id); begin(); }} onFocus=${() => take(c.id)}><${Drawing} make=${c.draw} /><span class="gal-name">${c.name}</span></button>`)}
+          onClick=${() => { take(c.id); naming.current?.focus(); }} onDblClick=${() => { take(c.id); begin(); }} onFocus=${() => take(c.id)}><${Drawing} make=${c.draw} /><span class="gal-name">${c.name}</span></button>`)}
       </div>
       <div class="settings gal-more">
-        <label class="field"><span>Name</span><input aria-label="Name" placeholder="Untitled" spellcheck="false" autocomplete="off" autofocus ref=${el => el && !el.dataset.on && (el.dataset.on = 1, setTimeout(() => el.focus()))} onInput=${e => { choice.name = e.target.value; }} /></label>
+        <label class="field"><span>Name</span><input aria-label="Name" placeholder="Untitled" spellcheck="false" autocomplete="off" autofocus ref=${el => { naming.current = el; if (el && !el.dataset.on) { el.dataset.on = 1; setTimeout(() => el.focus()); } }} onInput=${e => { choice.name = e.target.value; }} /></label>
         ${styles.length ? html`<div class="field"><span>Look</span><${Shell.Pick} label="Look" wide=${true} value=${look} options=${[['', at === LIKE ? 'The house look' : 'Its own'], ...styles.map(s => [s.name, s.name])]} onPick=${v => { setLook(v); choice.style = v || null; }} /></div>` : null}
       </div>
     </div>`;

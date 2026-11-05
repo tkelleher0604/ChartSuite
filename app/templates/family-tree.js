@@ -13,7 +13,7 @@ Templates.register({
     t.starts('Married', married, { verb: 'Marry', done: 'Married' });
     t.ends('Ended', married, { verb: 'End', done: 'Ended' });
 
-    t.page('tree', 'Family Tree', 1, { title: { format: { Font: 'Georgia', Bold: false, Color: '#3d2f1f' } }, date: { format: { Size: 10, Color: '#6b6256' } }, key: { format: { Outline: 'none' } } });
+    t.page('tree', 'Family Tree', 1, { title: { format: { Font: 'Georgia', Bold: false, Color: '#3d2f1f' } }, date: { format: { Size: 10, Color: '#6b6256' } }, key: false });
     t.shown('tree', field('Name'), { Bold: true, Color: '#2b241b' });
     t.shown('tree', t.entry('Born', person), { Color: '#6b6256', Format: 'label' });
     t.shown('tree', field('Died', 'date'), { Color: '#6b6256', Format: 'label' });

@@ -1426,7 +1426,7 @@ const FormulaBar = (() => {
   // by how many ("5 controls"); a yes-or-no named as a condition, where it holds ("Has Side Letter at 1 entity").
   const noun = d => d?.edges?.length > 1 || d?.type !== 'tag' || /^an?\s/i.test(String((d.id && noteOf(d.id) && N().description(noteOf(d.id).pattern)) ?? ''));
   const countedOf = (n, d, of = []) => {
-    if (noun(d)) return `${n} ${n === 1 ? lower(d.name) : Tree.plural(lower(d.name))}`;
+    if (noun(d)) return `${n} ${n === 1 ? singular(lower(d.name)) : Tree.plural(lower(d.name))}`;
     const kinds = new Set(of.map(x => x.kind)), k = kinds.size === 1 ? [...kinds][0] : null;
     return `${d.name} at ${n} ${k ? (n === 1 ? lower(k) : Tree.plural(lower(k))) : n === 1 ? 'record' : 'records'}`;
   };

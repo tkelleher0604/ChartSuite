@@ -89,14 +89,14 @@ const Templates = (() => {
         if (about) note('Description', entry(edge, at), about);
         if (check) note('Check', entry(edge, at), true);
       },
-      // A chart view and its page: its title, its day, and its Key.
+      // A chart view and its page: its title, its day, and its Key, but where it says `key: false`, a chart of one kind having nothing for a Key to tell apart.
       page(view, name, order, furniture = {}) {
         out.push({ record: view, kind: 'View' });
         note('Name', { id: view, kind: 'View' }, name);
         note('Order', { id: view, kind: 'View' }, order);
         out.push({ shape: `${view}-title`, view, geometry: 'text', role: 'title', text: '', ...furniture.title });
         out.push({ shape: `${view}-date`, view, geometry: 'text', role: 'date', text: '="As of " & TEXT(@AsOf, "mmmm d, yyyy")', ...furniture.date });
-        out.push({ shape: `${view}-key`, view, geometry: 'legend', title: 'Key', columns: 2, ...furniture.key });
+        if (furniture.key !== false) out.push({ shape: `${view}-key`, view, geometry: 'legend', title: 'Key', columns: 2, ...furniture.key });
       },
       // A table of a kind's or a relation's records.
       table(view, name, order, rowsOf) {

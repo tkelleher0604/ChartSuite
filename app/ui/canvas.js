@@ -63,7 +63,9 @@ function kinds(scene = App.scene.peek()) {
   const all = new Set([...count.keys(), ...Object.values(App.schema.peek()).filter(s => !s.args && s.kind && !Tree.isView(s)).map(s => s.kind)]);
   const ks = [...all].filter(k => count.has(k) || !scene || N.value('Shown', { kind: k }, scene.view) !== false)
     .sort((a, b) => (count.get(b) ?? 0) - (count.get(a) ?? 0) || a.localeCompare(b));
-  return ks.length ? ks : ['Box'];
+  // (A kind of which there's none and of which nothing's said, as a blank chart's Box once its first box is a Person, isn't offered beside others.)
+  const said = ks.filter(k => count.has(k) || Tree.index(st).kinds.get(Tree.norm(k))?.length || Object.values(App.schema.peek()).some(s => s.args?.length === 1 && Tree.same(s.args[0].loc?.kind ?? '', k) && !Tree.same(s.args[0].edge, 'Name')));
+  return said.length ? said : ks.length ? ks : ['Box'];
 }
 // The kind last added, while it can be; or the most drawn.
 const lastKind = () => { const ks = kinds(), k = Shell.store.get('kind'); return ks.includes(k) ? k : ks[0]; };
@@ -1086,7 +1088,8 @@ function mount(el) {
       // (A footnote's marker, as a field is; its line on the footnotes shape, below.)
       const f = fieldUnder(e.clientX, e.clientY), mk = down.selected && f && markerUnder(f.m, e.clientX, e.clientY);
       if (mk) { picked_foot = mk; pickField(null); return; }
-      if (down.selected && f?.it) { pickField(f); if (k === 'label') return; }
+      // (A blank says what a click on it is for, so it's picked the first time, what's typed going there and not over the name.)
+      if ((down.selected || f?.it?.blank) && f?.it) { pickField(f); if (k === 'label') return; }
       else pickField(null);
     }
     if (atRest && down.selected && scene.byId.get(node.id)?.role === 'footnotes') { const fm = scene.byId.get(node.id), got = footAt(fm, e.clientX, e.clientY); if (got) { picked_foot = { f: got }; paintFields(); } }
@@ -1564,7 +1567,7 @@ function mount(el) {
         o.addEventListener('pointerdown', e => { keep(e); const away = pane.contains(document.activeElement); set(i); shut(); if (away) toName(); });
         return o;
       }));
-      // A kind of a new name, typed under them: the keys go to it for as long as that takes, and back to the name.
+      // A kind of a new name, typed under them: the chip clicked, the keys go to it for as long as that takes, and back to the name.
       const typed = document.createElement('input');
       Object.assign(typed, { className: 'dc-newkind', placeholder: 'New kind', spellcheck: false, autocomplete: 'off' });
       typed.setAttribute('aria-label', 'New kind');
@@ -1584,7 +1587,7 @@ function mount(el) {
       Object.assign(pane.style, { left: `${chip.offsetLeft}px`, top: `${chip.offsetTop + chip.offsetHeight + 4}px` });
       chip.setAttribute('aria-expanded', 'true');
     };
-    chip.addEventListener('pointerdown', e => { keep(e); if (e.button === 0) { if (pane) { const away = pane.contains(document.activeElement); shut(); if (away) toName(); } else open(); } });
+    chip.addEventListener('pointerdown', e => { keep(e); if (e.button === 0) { if (pane) { const away = pane.contains(document.activeElement); shut(); if (away) toName(); } else { open(); pane.querySelector('.dc-newkind').focus(); } } });
     set(at);
     // At the name's right, level with it; or at its left, where the right runs off the view.
     const x = ed.offsetLeft + ed.offsetWidth + 6;
