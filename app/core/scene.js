@@ -1122,6 +1122,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
         let from = 0;
         // (A field with none yet by its name, faint, as a box selected shows it.)
         const runs = held.map(it => { const run = { from, to: from + it.text.length, Size: printed(it, kept), Bold: !it.blank && !!it.look.Bold, Italic: !!it.blank || !!it.look.Italic, ...(it.blank ? { Color: '#8a8f8c' } : it.settings.Color?.note && { Color: it.look.Color }) }; from += it.text.length + 1; return run; });
+        // (And what's typed in it, at the size it'll print.)
+        if (words) runs.push({ from, to: from + words.length, Size: r.format?.Size ?? half(BESIDE_NAME, kept) * kept, Bold: !!r.format?.Bold, Italic: !!r.format?.Italic });
         said.set(r.id, all);
         const f = partFormat(editing, { p: r, item: null, shares: sharesOf(r) }, kept, standing);
         onPage[i] = { ...r, runs, reads: true, format: { ...f, Bold: false, ...(runs.length && r.format?.Size === undefined && { Size: Math.max(...runs.map(x => x.Size)) }) } };

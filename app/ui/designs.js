@@ -349,7 +349,9 @@ const partsNow = (sc, e) => sc.marks.filter(q => q.type === 'shape' && q.geometr
 // New words on a box being edited, so they fit: in the column the other fields stand in, or else the box's, aligned with them; in the free band they were dropped at, or else its largest; where none holds them, the box grows to, under the last words; and any frame they'd stand in stops above them, so what's in it pushes them down as it runs on. On tx. → the new part's id.
 function addPart(tx, sc, e, b, at, text) {
   const shown = App.shown.peek(), chart = App.chart.peek(), rowOf = id => shown.item(chart, id).at(-1), parts = partsNow(sc, e), rest = parts.find(q => rowOf(q.id)?.rest), col = rest ?? b, inCol = p => p.x < col.x + col.w && p.x + p.w > col.x;
-  const taken = parts.filter(p => inCol(p) && p.texts?.some(t => t.lines?.length)).map(p => { const t = p.texts[0], ys = t.lines.map(l => l.y - Scene.baseline(t.look)); return [p.y + Math.min(...ys), p.y + Math.max(...ys) + Scene.lineHeight(t.look)]; }).sort((m, n) => m[0] - n[0]), gaps = [];
+  // (What words take, as far as the margin under them, a frame being no shorter than that.)
+  const under = p => { const i = rowOf(p.id)?.format?.Inset?.b; return (i != null ? i * Scene.PT : 4.8) / (sc.page.scale || 1); };
+  const taken = parts.filter(p => inCol(p) && p.texts?.some(t => t.lines?.length)).map(p => { const t = p.texts[0], ys = t.lines.map(l => l.y - Scene.baseline(t.look)); return [p.y + Math.min(...ys), p.y + Math.max(...ys) + Scene.lineHeight(t.look) + under(p)]; }).sort((m, n) => m[0] - n[0]), gaps = [];
   let from = b.y;
   for (const [top, foot] of taken) { if (top > from) gaps.push([from, top]); from = Math.max(from, foot); }
   if (b.y + b.h > from) gaps.push([from, b.y + b.h]);
