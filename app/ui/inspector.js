@@ -836,6 +836,7 @@ function carry(e, it) {
   const move = ev => {
     if (!ghost && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
     onChart = !!document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('.dc');
+    document.body.classList.toggle('carrying', onChart);
     ghost ??= Object.assign(document.createElement('div'), { className: 'drag-field', textContent: it.edge });
     if (!ghost.isConnected) document.body.appendChild(ghost);
     ghost.hidden = !onChart;
@@ -845,6 +846,7 @@ function carry(e, it) {
   const up = () => {
     removeEventListener('pointermove', move); removeEventListener('pointerup', up);
     ghost?.remove();
+    document.body.classList.remove('carrying');
     if (over) fields()?.drop(it.edge); else fields()?.over(null);
   };
   addEventListener('pointermove', move);
@@ -876,6 +878,8 @@ function Entry({ it, at, depth }) {
   const keyMenu = e => {
     if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); }
     else if (under && e.target === e.currentTarget && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); foldRow(it.id, e.key === 'ArrowLeft'); }
+    // P on a row moves the pen there.
+    else if (r && e.target === e.currentTarget && (e.key === 'p' || e.key === 'P') && !e.ctrlKey && !e.metaKey && !e.altKey && typeof FormatBar !== 'undefined') { e.preventDefault(); e.stopPropagation(); FormatBar.pen?.put({ entry: it.id }); }
   };
   // A press on its label takes the keys to the row, so Ctrl+C copies it, and may drag it: among its siblings, or onto the chart.
   const press = e => { if (e.target.closest('input, textarea, button')) return; const row = e.currentTarget.closest('.row'); row.tabIndex = -1; row.focus({ preventScroll: true }); const chart = carry(e, it); if (r) drag(e, (from, i) => { if (!chart()) reorder(at, moved(sibs(), from, i)); }); };
@@ -959,7 +963,7 @@ function Entries({ at, depth, offer }) {
 // putting one in; Enter, then, makes it; Esc, or leaving it empty, makes nothing.
 function Words({ d, depth }) {
   const [text, setText] = useState(''), [list, setList] = useState([]), [on, setOn] = useState(0), ref = useRef(), c = Canvas.active.peek(), host = d.at;
-  const look = el => { const m = /\{([^{}\n]*)$/.exec(el.value.slice(0, el.selectionStart)), q = m?.[1].toLowerCase(); setOn(0); setList(m ? c.fields.words(host).filter(l => l.toLowerCase().includes(q)) : []); };
+  const look = el => { const m = /\{([^{}\n]*)$/.exec(el.value.slice(0, el.selectionStart)), q = m?.[1].toLowerCase(); setOn(0); const items = m ? c.fields.words(host).filter(l => l.toLowerCase().includes(q)) : []; setList(items); if (items.length) el.closest('.row')?.scrollIntoView({ block: 'center' }); };
   const put = l => { const el = ref.current, s = el.value, at = el.selectionStart, from = s.slice(0, at).lastIndexOf('{'), now = `${s.slice(0, from)}{${l}}`, to = s.slice(at).replace(/^[^{}\s]*\}?/, ''); el.value = now + to; setText(el.value); setList([]); el.focus(); el.setSelectionRange(now.length, now.length); };
   const done = () => { const t = T.clean(ref.current?.value ?? text); if (draft.peek() === d) draft.value = null; if (t) (d.type === 'text' ? c.fields.addText : c.fields.addFoot)(host, t); };
   const key = e => {
@@ -1169,7 +1173,7 @@ function Relatives({ id }) {
     const rowMenu = e => { if (e.target.closest('input, textarea') || (f && !e.keyed)) return; e.preventDefault(); menu({ x: e.clientX, y: e.clientY }, f ? [{ label: 'Open', keys: 'Enter', run: () => goTo(it.rid) }, { label: 'Why', keys: 'F1', run: whyOf }] : moreOf(it.rid, { stay: true })); };
     // A row that lights opens on a click, anywhere on it: what's said of it, as its figure or role does; and on Enter, the row having the keys.
     const rowClick = e => { if (!e.target.closest('button, a, input, textarea, label') && !getSelection()?.toString()) goTo(it.rid); };
-    const rowKey = e => { if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation(); goTo(it.rid); } };
+    const rowKey = e => { if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation(); goTo(it.rid); } else if (!f && (e.key === 'p' || e.key === 'P') && e.target === e.currentTarget && !e.ctrlKey && !e.metaKey && !e.altKey && typeof FormatBar !== 'undefined') { e.preventDefault(); e.stopPropagation(); FormatBar.pen?.put(listPen(it, listNamed(it))); } };
     return html`<div class=${'row rel' + (going ? ' going' : '')} key=${it.rid} data-why=${it.rid} style=${nest ? `--nest:${nest}` : null} onClick=${rowClick} onContextMenu=${rowMenu} onKeyDown=${rowKey}>
       ${f ? null : html`<${Pen} w=${listPen(it, listNamed(it))} row=${`list:${listNamed(it)}|${it.obj}`} host=${id} />`}
       ${d.held && !still ? html`<input type="checkbox" class="tick" aria-label=${`Tick ${nameOf(it.obj)}`} checked=${picked.has(it.rid)} onChange=${() => pick(it.rid)} />` : null}

@@ -2896,6 +2896,103 @@ async function format() {
   await closeMenus();
   Shell.parts.peek().undo.undo(); await tick(200);
   Shell.select([]); await tick(150);
+
+  // ---- The pen (dendra.md, The pen): one scope, a location in the schema, in the panel's gutter ----
+  { const P = FormatBar.pen, onTop = () => txt($('[data-fb="scope"] [aria-pressed="true"]')), outlined = () => $$('.dc-marks path.dc-reach').length, dulls = () => $$('.dc .x6-cell.dc-dull').length;
+  const here = () => $$('.insp .pen.here'), rowHere = () => here()[0]?.closest('.row, .sect, .ih-at, .path'), labelOf = el => txt(el?.querySelector?.('.lbl, .k') ?? el);
+  P.home(); Shell.select([]); await tick(150);
+  Shell.select(['feeder']); await tick(200);
+  check('a box clicked: the pen goes by itself to the Styles row that fills it, one pen, in that row’s gutter', onTop() === 'All 5 funds' && here().length === 1 && /Vehicle Type/.test(labelOf(rowHere())), `${onTop()} ${here().length} ${labelOf(rowHere())}`);
+  check('… what’s in reach has a thin outline, and nothing’s dulled', outlined() === 5 && dulls() === 0, `${outlined()} ${dulls()}`);
+  const rowPen = name => $$('.insp .ent > .row').find(r => txt(r.querySelector('.lbl')) === name)?.querySelector('.pen');
+  const titlePen = () => $('.insp .ih-at > .pen'), kindPen = () => $('.insp .path > .pen');
+  rowPen('Entity Type').dispatchEvent(new PointerEvent('pointerenter')); await tick(120);
+  check('pointing at a row’s pen says what it would reach, lights it, and dulls the rest', rowPen('Entity Type').dataset.tip === 'All 5 limited partnerships' && dulls() > 0, `${rowPen('Entity Type').dataset.tip} ${dulls()}`);
+  rowPen('Entity Type').dispatchEvent(new PointerEvent('pointerleave')); await tick(120);
+  check('… and leaving it, nothing’s dulled', dulls() === 0);
+  titlePen().click(); titlePen().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  check('a click on the title’s pen moves it there: this box', onTop() === 'This box' && titlePen().classList.contains('here') && outlined() === 0 && here().length === 1, onTop());
+  Shell.select(['fund']); await tick(200);
+  check('… and it sticks as another box is clicked', onTop() === 'This box' && titlePen().classList.contains('here'), onTop());
+  rowPen('Entity Type').click(); rowPen('Entity Type').dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  Shell.select(['blocker']); await tick(200);
+  check('put at Entity Type, it goes to each box’s Entity Type', onTop() === 'All 5 corporations' && /Entity Type/.test(labelOf(rowHere())), `${onTop()} ${labelOf(rowHere())}`);
+  Shell.select(['inv_us']); await tick(200);
+  check('… a box with no such place has it go by itself', !!onTop() && here().length <= 1, onTop());
+  Shell.select(['blocker']); await tick(200);
+  check('… and it comes back at the next that has', onTop() === 'All 5 corporations', onTop());
+  kindPen().click(); kindPen().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  check('at the kind in the eyebrow: every one of the kind', /^All \d+ entities$/.test(onTop()) && kindPen().classList.contains('here'), onTop());
+  Shell.select([]); await tick(150);
+  cv().root.focus(); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(150);
+  check('Esc with nothing selected brings it home', P.level.peek() === null, JSON.stringify(P.level.peek()));
+  Shell.select(['feeder']); await tick(200);
+  check('… and it goes by itself again', onTop() === 'All 5 funds', onTop());
+  // A row whose answer a Styles row says wider: a click there, the row; a second, the one answer.
+  const vt = () => rowPen('Vehicle Type');
+  vt().dispatchEvent(new PointerEvent('pointerenter')); await tick(100);
+  const nextSays = vt().dataset.tip;
+  vt().click(); vt().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  check('a second click on a row with two places goes to its one answer', /feeder fund/i.test(onTop()) && /feeder fund/i.test(nextSays), `${nextSays} → ${onTop()}`);
+  // The pen is the scope: what goes to the scope goes there, for a value row every box that has it.
+  P.home(); await tick(100);
+  rowPen('EIN').click(); rowPen('EIN').dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  const withEin = FormatBar.scope();
+  check('at a value: every box that has that entry, said so', /^All \d+ with EIN$/.test(onTop()) && withEin.marks.size > 5 && [...withEin.marks].every(id => sc().byId.get(id).type === 'box'), onTop());
+  const changesAt = App.wb.changes().length;
+  FormatBar.apply('Fill', '#fce4d6'); await tick(300);
+  check('… a fill lands on those boxes, one change', [...withEin.marks].every(id => sc().byId.get(id).settings.Fill.value === '#fce4d6' || Tree.idsIn(sc().byId.get(id).settings.Fill.note?.pattern ?? {}).size || sc().byId.get(id).settings.Fill.note?.pattern?.out) && App.wb.changes().length === changesAt + 1 && sc().byId.get('feeder').settings.Fill.value !== undefined);
+  FormatBar.apply('Bold', true); await tick(300);
+  check('… and Bold every text of those boxes, not just the EIN', [...withEin.marks].every(id => sc().byId.get(id).texts.every(it => it.blank || it.look.Bold)), [...withEin.marks].slice(0, 2).map(id => sc().byId.get(id).texts.map(it => `${it.text}:${it.look.Bold}`).join()).join(' / '));
+  Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200);
+  // Fields by the pen: the eye says for whom, and shows it there.
+  P.home(); Shell.select([]); await tick(100); Shell.select(['feeder']); await tick(200);
+  const eye = () => $$('.insp .ent > .row').find(r => txt(r.querySelector('.lbl')) === 'EIN')?.querySelector('.onchart');
+  eye().dispatchEvent(new PointerEvent('pointerenter')); await tick(60);
+  check('the eye says for whom', eye().dataset.tip === 'Show in all 5 funds', eye().dataset.tip);
+  eye().click(); eye().dispatchEvent(new PointerEvent('pointerleave')); await tick(300);
+  const einsShown = ids => ids.filter(id => sc().byId.get(id).texts.some(it => it.blank?.edge === 'EIN' || /^\d\d-\d{7}$/.test(it.text ?? ''))).length;
+  check('… and shows it at the pen', einsShown([...FormatBar.scope().marks]) === 5, einsShown([...FormatBar.scope().marks]));
+  Shell.parts.peek().undo.undo(); await tick(200);
+  // A row carried over the chart: what the pen reaches lit, and dropped on one of those, it goes to all of them; on another, that one.
+  cv().fields.over(1, 1); const fm = sc().byId.get('feeder'), onBox = cv().graph.localToClient(fm.x + fm.w / 2, fm.y + fm.h / 2);
+  cv().fields.over(onBox.x, onBox.y); await tick(80);
+  check('a row carried over a box the pen reaches lights all it reaches', $$('.dc-marks path.dc-cue').length === 5 && dulls() > 0, `${$$('.dc-marks path.dc-cue').length}`);
+  cv().fields.drop('EIN'); await tick(300);
+  check('… dropped there, it shows at the pen', einsShown([...FormatBar.scope().marks]) === 5 && dulls() === 0);
+  Shell.parts.peek().undo.undo(); await tick(200);
+  const hm = sc().byId.get('halvard'), onOther = cv().graph.localToClient(hm.x + hm.w / 2, hm.y + hm.h / 2);
+  cv().fields.over(onOther.x, onOther.y); await tick(80);
+  check('… over one it doesn’t reach, that one alone is lit', $$('.dc-marks path.dc-cue').length === 1, `${$$('.dc-marks path.dc-cue').length}`);
+  cv().fields.drop('EIN'); await tick(300);
+  check('… and it goes to that one', einsShown(['halvard']) === 1 && einsShown([...FormatBar.scope().marks]) === 0);
+  Shell.parts.peek().undo.undo(); await tick(200);
+  // Free text at the pen, `{Entry}` reading each box's own.
+  cv().fields.addText('feeder', 'In {Jurisdiction}'); await tick(300);
+  const inJ = id => sc().byId.get(id).texts.find(it => it.free)?.text;
+  check('a free text from the panel goes to what the pen reaches, each box reading its own', inJ('feeder') === 'In Cayman Islands' && [...FormatBar.scope().marks].some(id => /^In Delaware/.test(inJ(id) ?? '')) && $$('.toast').some(t => /Added text to all 5 funds/.test(txt(t))), `${inJ('feeder')} ${txt($$('.toast').at(-1))}`);
+  Shell.parts.peek().undo.undo(); await tick(200);
+  // Footnotes: at the pen, a marker on each, one line for one text, numbered in reading order.
+  P.level.value = { own: true }; Shell.select(['feeder']); await tick(200);
+  cv().fields.addFoot('feeder', 'Offshore only'); await tick(300);
+  const foots = () => sc().marks.find(m => m.role === 'footnotes'), mk = id => sc().byId.get(id).texts.flatMap(it => it.lines ?? []).flatMap(l => l.spans ?? []).filter(s => s.foot).map(s => s.text).join();
+  check('a footnote at the title: that box has a superscript marker, and the page a line of it', mk('feeder') === '1' && !mk('fund') && foots()?.texts[0].lines.length === 1 && foots().texts[0].lines[0].spans[0].base === 'up' && /Offshore only/.test(foots().texts[0].text), `${mk('feeder')} ${foots()?.texts[0].text}`);
+  P.level.value = { kind: true }; await tick(150);
+  cv().fields.addFoot('feeder', 'An entity'); await tick(300);
+  const numbered = sc().marks.filter(m => m.type === 'box' && m.feet?.some(f => f.text === 'An entity'));
+  check('at the kind, one number for one text, however many carry it', numbered.length > 5 && new Set(numbered.map(m => m.feet.find(f => f.text === 'An entity').n)).size === 1 && foots().texts[0].text.split('\n').length === 2, `${numbered.length} ${foots()?.texts[0].text}`);
+  const topFirst = [...sc().marks.filter(m => m.type === 'box' && m.feet?.length)].sort((a, b) => a.y - b.y)[0];
+  check('… numbered in reading order: the first it reads carries 1', topFirst.feet.some(f => f.n === 1), JSON.stringify(topFirst.feet));
+  const onSheet = foots(), page = sc().page, ms = page.margins;
+  check('… placed at the foot of the page, within its margins', onSheet.y + onSheet.h <= page.h - ms.bottom + 20 && onSheet.x >= ms.left - 16, JSON.stringify({ y: onSheet.y, h: onSheet.h, H: page.h }));
+  const taken = () => { const m = foots(); return !m || (m.feet ?? []).length; };
+  const f2 = foots().feet.find(f => f.text === 'An entity');
+  cv().fields.footDelete('feeder', f2.from[0].key); await tick(300);
+  check('deleting one takes it from all that carry it, and the rest number afresh', taken() === 1 && mk('feeder') === '1', `${taken()} ${mk('feeder')}`);
+  cv().fields.footDelete('feeder', foots().feet[0].from[0].key); await tick(300);
+  check('… with none left, the page has no footnotes drawn, and no marker', !foots() && !mk('feeder'));
+  for (let i = 0; i < 4; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
+  P.home(); Shell.select([]); await tick(150); }
 }
 
 window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').pop()}:${l})`, false, e?.stack);

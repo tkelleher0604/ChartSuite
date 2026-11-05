@@ -196,6 +196,7 @@ function kinOf(sc) {
 // included), "These 2 shapes".
 function these(ms) {
   if (ms.every(isFoot)) return ms.length === 1 && ms[0].role === 'number' ? 'The page number' : 'The footer';
+  if (ms.length === 1 && ms[0].role === 'footnotes') return 'The footnotes';
   const noun = ms.every(m => m.type === 'box') ? 'box' : ms.every(m => m.type === 'line' || m.geometry === 'line') ? 'line' : 'shape', n = new Set(ms.map(m => m.merged ?? m.id)).size;
   return n === 1 ? `This ${noun}` : `These ${n} ${noun === 'box' ? 'boxes' : `${noun}s`}`;
 }
@@ -230,6 +231,8 @@ function allOf(s, n) {
   if (s.rest) return `${caption} (${n})`;
   if (s.says) return s.says(n);
   if (s.has) return `${all} with ${caption}`;
+  // A relation's, as its lines: "All 24 ownership lines".
+  if (ps.length && ps.every(p => p.args?.length > 1 && !Tree.idsIn(p).size)) { const cap = caption[0].toLowerCase() + caption.slice(1); return n === 1 ? `The only ${cap} line` : `All ${n} ${cap} lines`; }
   // What's changed is said as a state: "All 3 new or changed", "The only one gone".
   if (ps.length && ps.every(Scene.isChange)) return `${all} ${caption[0].toLowerCase()}${caption.slice(1)}`;
   // An option named as it is (Delaware) or a tag goes by its entry: "with Jurisdiction Delaware".
@@ -371,7 +374,7 @@ function byItself(c, s) {
     if (st[f.it.id]?.edge !== undefined && !n?.param) return { row: Tree.pathOf(st, f.it.id).slice(Tree.pathOf(st, m.record).length).map(x => st[x].edge) };
   }
   if ([...LOOK].some(l => mine(m.settings?.[l]?.note))) return { own: true };
-  for (const l of m.type === 'line' ? LINE_LOOK : BOX_LOOK) {
+  for (const l of m.type === 'line' ? LINE_LOOK : [...BOX_LOOK, 'Shape', 'Corner']) {
     const n = m.settings?.[l]?.note, g = n?.view === sc.view && s.scopes.find(x => !x.own && x.outputs?.some(p => Tree.key(p) === Tree.key(n.pattern)));
     if (g) return locOf(c, s, g);
   }
@@ -1676,6 +1679,9 @@ function mount(el) {
   document.documentElement.style.setProperty('--dropper', pointer('Pipette', 2, 22));
   const stopBrush = effect(() => { const c = Canvas.active.value, on = !!painter.value, dropping = !!dropper.value; c?.root.classList.toggle('painting', on); c?.root.classList.toggle('dropping', dropping); if (!c && (on || dropping)) disarm(); });
   render(html`<${Bar} />`, el);
+  // Esc with nothing selected, and nothing else it would close, brings the pen home: it goes by itself again. (Read before it's handled, so the Esc that lets go of a selection isn't this one.)
+  const escHome = e => { if (e.key === 'Escape' && level.peek() && !Shell.selection.peek().length && !typing() && !document.querySelector('.float') && onScreen()) pen.home(); };
+  addEventListener('keydown', escHome, true);
   document.addEventListener('pointerover', pointed);
   document.addEventListener('pointerdown', painting, true);
   document.addEventListener('pointermove', dropMove, { capture: true, passive: true });
@@ -1742,7 +1748,7 @@ function mount(el) {
         names: [name, `Add ${word(name)}`, `Draw ${word(name)}`, ...(also ? [also] : [])], run: () => g === 'picture' ? picture(c) : g === 'text' ? c.drawText() : g === 'line' || g === 'arrow-line' ? c.draw(g) : c.insert(g) })),
       ...Shapes.list.map(([g, name]) => ({ label: `Insert ${word(name)}`, detail: 'Action', names: [name, `Add ${word(name)}`, 'Shape'], run: () => c.draw(g) }))];
   } }));
-  return () => { stopSel(); stopCue(); stopBrush(); stopCorners(); stopFollow(); actions.forEach(off => off()); disarm(); document.removeEventListener('pointerover', pointed); document.removeEventListener('pointerdown', painting, true); document.removeEventListener('pointermove', dropMove, { capture: true });
+  return () => { stopSel(); stopCue(); stopBrush(); stopCorners(); stopFollow(); actions.forEach(off => off()); disarm(); removeEventListener('keydown', escHome, true); document.removeEventListener('pointerover', pointed); document.removeEventListener('pointerdown', painting, true); document.removeEventListener('pointermove', dropMove, { capture: true });
     preview(); Canvas.active.peek()?.cue(null); Canvas.active.peek()?.reach?.(null); render(null, el); };
 }
 // What the pointer shows while the painter or the eyedropper is armed: Lucide's brush or pipette, ink on a white edge,

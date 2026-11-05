@@ -3215,8 +3215,7 @@ function mount(el) {
     'F2': () => { const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length === 1) edit(k[0]); },
     'Enter': () => { if (relateNow) return relateNow.take(); const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length !== 1) return false; edit(k[0]); },
     // Esc backs out a step: from a field to its box, from the selection to none.
-    // (With nothing selected, it brings the pen home: it goes by itself again.)
-    'Escape': () => { if (fieldNow()) return pickField(null); const k = keysOfSelection(); if (!k.length) { FormatBar.pen?.home(); return false; } entered = null; Shell.select([]); walked = k[0]; },
+    'Escape': () => { if (fieldNow()) return pickField(null); const k = keysOfSelection(); if (!k.length) return false; entered = null; Shell.select([]); walked = k[0]; },
   };
   const turnsNow = () => selected().some(m => m.geometry === 'group' || (m.type === 'shape' && !['legend'].includes(m.geometry) && !m.role));
   const wrapped = Object.fromEntries(Object.entries(keyMap).map(([k, f]) => [k, e => { if (f(e) !== false) { e.preventDefault(); e.stopPropagation(); } }]));
