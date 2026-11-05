@@ -716,8 +716,8 @@ function compare(S, op, a, b) {
 const dayOf = v => Date.UTC(...v.iso.split('-').map((x, i) => Number(x) - (i === 1 ? 1 : 0))) / 864e5;
 const fromDay = n => ({ t: 'date', iso: Tree.isoOf(new Date(1970, 0, 1 + n)) });
 // The US federal holiday kept on a day (ISO), by its name, or null: the legal public holidays of 5 U.S.C. § 6103(a), one by a date falling on a Saturday kept the
-// Friday before and on a Sunday the Monday after, as § 6103(b) has it and EDGAR's calendar closes (so a January 1 on a Saturday is kept the December 31 before). A
-// day closed by an order of its own, as a day of mourning, isn't known here.
+// Friday before (§ 6103(b)) and on a Sunday the Monday after (Executive Order 11582, § 3(a)), as EDGAR's calendar closes (so a January 1 on a Saturday is kept the
+// December 31 before). A day closed by an order of its own, as a day of mourning, isn't known here.
 const NTH_MONDAY = (y, m, n) => { const first = new Date(Date.UTC(y, m, 1)).getUTCDay(); return 1 + ((8 - first) % 7) + (n - 1) * 7; };
 function usHoliday(iso) {
   const [y, m, d] = iso.split('-').map(Number), lastMonday = mo => { const end = new Date(Date.UTC(y, mo + 1, 0)); return end.getUTCDate() - ((end.getUTCDay() + 6) % 7); };

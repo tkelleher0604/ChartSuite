@@ -348,6 +348,7 @@ dialog.dlg:has(.ex:not(:has(> .ex-well))) { width: min(720px, calc(100vw - 32px)
 /* The views to export, each a checkbox, as many rows as they take. */
 .ex-views { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .ex-views > label { display: inline-flex; align-items: center; gap: 6px; min-height: var(--row); color: var(--ink); }
+.ex-views .ex-none { color: var(--ink-3); }
 .ex-says { margin: 0; color: var(--ink-2); }
 .ex-warns > .ex-says { color: var(--ink); }
 .ex-says.ex-off { display: flex; align-items: center; gap: 8px; min-height: var(--row); }
