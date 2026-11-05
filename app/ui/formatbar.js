@@ -376,7 +376,8 @@ function endPlace(c, s, l) {
 function place(c, s, l) {
   if (l.own) return s.scopes.find(x => x.own) ?? null;
   if (l.group) return s.scopes.find(x => x.key === l.group) ?? null;
-  if (l.shown) { const g = s.scopes.find(x => x.key === l.shown); return g ? shownOfGroup(c, s, g) : null; }
+  // (All drawn again, a filter gone, it's the group.)
+  if (l.shown) { const g = s.scopes.find(x => x.key === l.shown); return !g ? null : countOf(c, g) > (g.marks ?? marksOf(c.scene(), g)).size ? shownOfGroup(c, s, g) : g; }
   if (l.style) return s.scopes.find(x => !x.own && !x.kin && x.style === l.style && x.outputs?.some(p => Tree.key(p) === l.key)) ?? null;
   const m = s.marks.length === 1 ? s.marks[0] : null, st = App.state.peek();
   if (!m?.record || (m.type !== 'box' && m.type !== 'line')) return null;
@@ -435,7 +436,7 @@ function boxScope(c, s) {
   return (l && place(c, s, l)) ?? scopeOf(s.scopes);
 }
 // Moved by a hand: a scope, or a location.
-function penTo(c, s, g) { level.value = locOf(c, s, g); if (!g?.own && g?.key) liked.value = g.key; }
+function penTo(c, s, g) { reachHeld = !g || g.own ? new Set(s.marks.map(m => m.merged ?? m.id)) : g.marks ?? marksOf(c.scene(), g); level.value = locOf(c, s, g); if (!g?.own && g?.key) liked.value = g.key; }
 // Which row of a page the pen stands in, for the scope it's at: 'title', 'kind', 'entry:<id>', 'list:…', 'end:…', or of a chart's
 // page, 'root' and 'row:<style>|<output>'; null where the page has no row of it.
 function penRow(c, s, scope) {
@@ -532,8 +533,9 @@ function lookForEach(id) {
   const look = i => { const col = 4 + i % 6, round = Math.floor(i / 6) % 3; return { Fill: grid[(round + 1) * 10 + col], Outline: grid[(round ? 3 + round : 0) * 10 + col] }; };
   // (Those the chart has first, and none on a colour an answer has already, so what's there is told apart, and what comes later adds to it.)
   const st = App.state.peek(), given = p => N.notes('Fill').find(n => n.view === view && Tree.key(n.pattern) === Tree.key(p)), inUse = p => Object.keys(st).some(x => Tree.fits(st, x, p));
-  const taken = new Set(found.answers.map(p => given(p)?.value).filter(Boolean)), free = (function* () { for (let i = 0; ; i++) if (!taken.has(look(i).Fill)) yield look(i); })();
-  const lacking = found.answers.filter(p => !given(p)), fresh = [...lacking.filter(inUse), ...lacking.filter(p => !inUse(p))].map(p => [p, free.next().value]);
+  // (A list longer than the colours, the fifty states, only those the chart has: a row for each of what no box says would tell nothing apart.)
+  const COLOURS = 18, taken = new Set(found.answers.map(p => given(p)?.value).filter(Boolean)), free = (function* () { for (let i = 0; ; i++) if (i >= COLOURS || !taken.has(look(i).Fill)) yield look(i); })();
+  const lacking = found.answers.filter(p => !given(p)), used = lacking.filter(inUse), fresh = [...used, ...found.answers.length > COLOURS ? [] : lacking.filter(p => !inUse(p))].map(p => [p, free.next().value]);
   if (!fresh.length) return Shell.toast(`Each ${found.name} has its look already`);
   const pattern = Tree.bare(found.answers[0]), key = Tree.key(pattern), all = N.styles(view), isTag = s => s.outputs.length && s.outputs.every(o => o.pattern.out && 'tag' in o.pattern.out);
   // (A new style comes before what says a condition, Vacant, Not in good standing, so those still show on what they're said of.)

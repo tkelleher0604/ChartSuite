@@ -87,7 +87,7 @@ window.EyeDropper = undefined;  // (the way a browser without its own goes, whic
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 // (A little under what's asked: the page is near what a run of the suite gives it.)
-const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.85));
+const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.8));
 const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
 // What a click there lands on: what's travelling lands first, for frames can stall in a headless run while its clock goes on.
 const hitAt = (x, y) => { for (const a of document.getAnimations()) if (a.effect?.target?.closest?.('.dc')) a.finish(); cv()?.root.classList.remove('flying'); return document.elementFromPoint(x, y); };
@@ -1810,7 +1810,7 @@ async function pickings() {
   Shell.select([a.id]); await tick(200);
   await rightClickAt(sc().byId.get(a.id), sc().byId.get(a.id).texts[0]);
   items = menuItems();
-  check('one on a name in a box selected alone gives the box’s menu, and the name’s own in one row under Edit text', items.some(s => s.startsWith('Hide in this view')) && items[1]?.startsWith('Name') && !items.some(s => s.startsWith('Clear contents')), items.join(' | '));
+  check('one on a name in a box selected alone gives the box’s menu, with the name’s own in one row at its end, the field not selected by that', items.some(s => s.startsWith('Hide in this view')) && items.at(-1)?.startsWith('Name') && !items.some(s => s.startsWith('Clear contents')) && !cv().field(), items.join(' | '));
   await closeMenus(); Shell.select([]); await tick(150);
   // The Key's Delete.
   const key = sc().marks.find(m => m.geometry === 'legend');
@@ -3116,6 +3116,73 @@ async function designing(st) {
   cv().fields.footDelete('feeder', foots().feet[0].from[0].key); await tick(300);
   check('… with none left, the page has no footnotes drawn, and no marker', !foots() && !mk('feeder'));
   for (let i = 0; i < 4; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
+  // What a toast says of a field: one true sentence; the eye on where every box that has the entry shows it.
+  const toast = () => txt($$('.toast').at(-1)), undo = async () => { Shell.parts.peek().undo.undo(); await tick(200); };
+  P.home(); Shell.select(['fund']); await tick(200);
+  rowPen('Entity Type').click(); await tick(100); $$('.float .menu-item').find(x => /^5 limited partnerships$/.test(txt(x))).click(); await tick(100);
+  const fileRow = () => $$('.insp .ent > .row').find(r => txt(r.querySelector('.lbl')) === 'File Number');
+  const fileEye = () => fileRow().querySelector('.onchart');
+  fileEye().click(); await tick(250);
+  check('shown at a group, a toast counts what changed and names what can’t have it', /^Showed File Number in 4 of 5 limited partnerships; .*\(Cayman\).* has no File Number/.test(toast()) && !/still/.test(toast()), toast());
+  fileEye().dispatchEvent(new PointerEvent('pointerenter')); await tick(60);
+  check('… and the eye is on, those with no such entry not counting against it, so it flips to Hide', fileEye().dataset.tip === 'Hide from all 5 limited partnerships' && fileEye().getAttribute('aria-pressed') === 'true', fileEye().dataset.tip);
+  fileEye().dispatchEvent(new PointerEvent('pointerleave')); await undo();
+  // A size typed goes where the pen is, as one change.
+  { const ids = [...FormatBar.scope().marks], before = App.wb.changes().length, wide = Scene.fromSlide(sc().page, 130) * Scene.PT;
+    cv().sizeAtPen('fund', { w: wide }); await tick(250);
+    check('a Width typed goes where the pen is, as one change, with Just this box', ids.every(id => Math.abs(sc().byId.get(id).w - wide) < 1) && App.wb.changes().length === before + 1 && /^Set the width of all 5 limited partnerships to 130 pt/.test(toast()) && /Just /.test(toast()), `${ids.map(id => sc().byId.get(id).w)} ${toast()}`);
+    await undo(); }
+  // A look says its page, and can go further.
+  { const pages = App.views.peek().filter(v => v.layout === 'chart'), v0 = sc().view;
+    FormatBar.apply('Fill', '#c6e0b4'); await tick(250);
+    check('a look at a group says its page, with On every page beside Undo', / on Structure/.test(toast()) && /^Filled all 5 limited partnerships/.test(toast()) && $$('.toast button').some(b => txt(b) === 'On every page'), toast());
+    $$('.toast button').find(b => txt(b) === 'On every page').click(); await tick(250);
+    check('… which gives the same notes on each chart page, one change', pages.every(v => App.notes.peek().notes('Fill').some(n => n.view === v.id && n.value === '#c6e0b4')), toast());
+    await undo(); await undo(); }
+  // A count is everything it reaches; those shown a place of their own.
+  { const v = sc().view;
+    App.showOnly(v, ['fund', 'blocker', 'northpine'], 'x'); await tick(250);
+    Shell.select(['fund']); await tick(200); kindPen().click(); kindPen().dispatchEvent(new PointerEvent('pointerleave')); await tick(100);
+    const says = onTop(), drawn = FormatBar.scope().marks.size;
+    check('under a look, a group’s count is everything it reaches, shown or not, and only what’s drawn is outlined', /^17 entities$/.test(says) && drawn === 3 && FormatBar.scope().n === 17 && outlined() === 3, `${says} ${drawn}`);
+    $('[data-fb="groups"]').click(); await tick(100);
+    const shownRow = () => $$('.float .menu-item').find(x => txt(x) === 'The 3 shown');
+    check('… and the scope’s list adds the ones shown', !!shownRow() && $$('.float .menu-item').some(x => txt(x) === 'Entity (17)'), $$('.float .menu-item').map(txt).join(' | '));
+    shownRow().click(); await tick(120);
+    FormatBar.apply('Fill', '#ffe699'); await tick(250);
+    const own = App.notes.peek().notes('Fill').filter(n => n.view === v && n.value === '#ffe699');
+    check('… which goes to those, each by its own tree', onTop() === 'The 3 shown' && own.length === 3 && own.every(n => n.pattern.id) && /^Filled the 3 shown/.test(toast()), `${onTop()} ${own.length} ${toast()}`);
+    await undo(); App.showAll(v); await tick(250); }
+  // Choices and tags: a look for each.
+  { P.home(); Shell.select(['fund']); await tick(200);
+    const ans = FormatBar.answersOf('fund_juris'), v = sc().view, condition = () => sc().marks.filter(m => m.type === 'box' && 'tag' in (m.settings.Outline.note?.pattern?.out ?? {})).map(m => m.id).join(), flagged = condition();
+    check('a choice’s answers are its options, each a pattern at any object', ans?.answers.length > 2 && ans.answers.every(p => p.out?.choice && !Tree.idsIn(p).size), JSON.stringify(ans?.answers.slice(0, 2)));
+    FormatBar.lookForEach('fund_juris'); await tick(300);
+    const groups = Scene.groupsOf(App.notes.peek(), v).filter(g => g.outputs.some(p => p.args?.[0]?.edge === 'Jurisdiction' && p.out?.choice)), inKey = sc().marks.find(m => m.geometry === 'legend').rows.map(r => r.caption.text), fills = groups.map(g => g.swatch.Fill);
+    check('A look for each: a Styles row each, on a colour of its own, in the Key, one change', groups.length > 2 && new Set(fills).size === fills.length && inKey.includes('Cayman Islands') && /^Gave each Jurisdiction a look/.test(toast()), `${groups.map(g => g.caption)} ${fills} ${inKey}`);
+    check('… what says a condition stays over it', !!flagged && condition() === flagged, `${flagged} / ${condition()}`);
+    const was = App.notes.peek().notes('Fill').length;
+    FormatBar.lookForEach('fund_juris'); await tick(150);
+    check('… and asked again adds nothing where each has one', App.notes.peek().notes('Fill').length === was && /has its look already/.test(toast()), toast());
+    await undo(); }
+  // A marker goes at the end of the text it's on.
+  { const m0 = () => sc().marks.find(m => m.type === 'box' && m.texts[0]?.lines?.length > 1);
+    const id = m0().id; Shell.select([id]); await tick(150); cv().fields.addFoot(id, 'Long name'); await tick(250);
+    const ls = sc().byId.get(id).texts[0].lines;
+    check('a footnote’s marker comes at the end of the text it’s on, never at the end of a first line', ls.at(-1).spans?.at(-1)?.foot && !ls[0].spans?.some(x => x.foot) && /on Structure/.test(toast()), JSON.stringify(ls.map(l => l.text)));
+    const other = App.views.peek().find(v => v.layout === 'chart' && v.id !== sc().view), there = Scene.of(App.shown.peek(), App.chart.peek(), other.id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek() });
+    check('… and Export says which aren’t on the pages going out', FormatBar.footsOff([there]).some(x => x.text === 'Long name' && x.from === sc().name) || FormatBar.footsOff([there]).some(x => x.text === 'Long name'), JSON.stringify(FormatBar.footsOff([there]).map(x => x.text)));
+    await undo(); }
+  // Opening a menu previews nothing.
+  { Shell.select(['fund']); await tick(150);
+    const same = () => sc() === App.scene.peek();
+    for (const b of ['effects', 'color', 'fill']) { $(`[data-fb="${b}"]`).click(); await tick(120); check(`opening ${b} previews nothing`, same()); await closeMenus(); await tick(60); } }
+  // A Ctrl+click in the Styles list adds.
+  { P.home(); Shell.select([]); await tick(150);
+    const row = t => $$('.row.out').find(r => txt(r.querySelector('.cap')) === t);
+    row('Funds').click(); await tick(100); row('Main fund').dispatchEvent(new MouseEvent('click', { bubbles: true, ctrlKey: true })); await tick(120);
+    check('a Ctrl+click in the Styles list adds a row to what’s aimed at, and a look goes to both', /in Funds and Main fund$/.test(txt($('[data-fb="scope"] button'))) && FormatBar.aimedAt(Scene.groupsOf(App.notes.peek(), sc().view).find(g => g.caption === 'Funds')) && FormatBar.aimedAt(Scene.groupsOf(App.notes.peek(), sc().view).find(g => g.caption === 'Main fund')), txt($('[data-fb="scope"]')));
+    P.home(); await tick(80); }
   P.home(); Shell.select([]); await tick(150); }
   // ---- A table: Insert's grid, typed in as a table's typed; the master; a freeform's points; effects ----
   const ofTable = () => sc().marks.find(m => m.geometry === 'table');
@@ -3210,6 +3277,8 @@ async function templates() {
   // Each of them: what it brings, none naming what's in the app's code.
   const list = Templates.list().map(t => t.id);
   check('five ship, Blank first', list.join() === 'blank,org-chart,family-tree,company,fund-structure', list.join());
+  { const rows = Templates.of('org-chart').rows, of = e => rows.filter(r => r.tree?.args?.[0]?.edge === e), grows = e => rows.some(r => r.label === 'Grows' && r.pattern.args?.[0]?.edge === e && r.value === true);
+    check('an org chart’s Department and Location are choices whose options grow by typing', ['Department', 'Location'].every(e => of(e).length > 1 && of(e).every(r => 'choice' in r.tree.out) && grows(e))); }
   const specs = id => Tree.schema(Templates.of(id).rows.filter(r => 'tree' in r).map(r => r.tree)), kinds = id => Object.values(specs(id)).filter(s => !s.args && s.kind).map(s => s.kind);
   check('Blank is one kind, Box, with Name, and no relation', kinds('blank').join() === 'Box' && !Object.values(specs('blank')).some(s => s.args?.length > 1) && Object.values(specs('blank')).filter(s => s.args).map(s => s.args[0].edge).join() === 'Name');
   check('no template but the fund’s has a fund’s words in it', ['blank', 'org-chart', 'family-tree', 'company'].every(id => !/fund|investor|§|3\(c\)|vehicle|LEI\b/i.test(JSON.stringify(Templates.of(id).rows))));
