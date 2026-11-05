@@ -403,7 +403,7 @@ function mount(el) {
   // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
   const pageScale = () => scene?.page.scale ?? 1;
   const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); zoomedTo(graph.zoom() * (devicePixelRatio || 1)); };
-  let cued = null; // the format bar's scope, lit (see cue)
+  let cued = null, inReach = null; // a pen pointed at, lit; what's in reach of the pen (see cue)
   let pointing = false, hold = false;
   // The field selected, pointed at, lit from the inspector, and the box a row is dragged over (see Fields).
   let field = null, hovered = null, litKey = null, dropOn = null;
@@ -2059,7 +2059,7 @@ function mount(el) {
     // selected, theirs, wherever on one of them it lands.
     // A mark of the group that's lit: the group's, as what's lit is what's meant, its menu for all of them.
     const lit = FormatBar.lit?.();
-    if (lit?.marks?.size > 1 && lit.marks.has(cell.id)) { Shell.select([...lit.marks]); return setTimeout(() => Shell.menu(at, markItems())); }
+    if (lit?.marks?.size > 1 && lit.marks.has(cell.id) && !sel.isSelected(cell)) { Shell.select([...lit.marks]); return setTimeout(() => Shell.menu(at, markItems())); }
     const multi = sel.isSelected(cell) && sel.getSelectedCells().length > 1, f = (k === 'box' || k === 'line') && sel.isSelected(cell) && !multi ? fieldUnder(at.x, at.y) : null;
     if (f?.it && f.m.id === cell.id) { pickField(f); return Shell.menu(at, markItems(f)); }
     pickField(null);
@@ -2213,10 +2213,10 @@ function mount(el) {
     return m ? [m] : (App.state.peek()[id]?.args ?? []).map(a => hostOf(a.at)).filter(Boolean);
   }))];
   // What a line can be traced with: a highlight's hue and depth, a legend row's, the selection's, the scope's.
-  const TRACES = ['dc-hl', 'dc-row', 'dc-sel', 'dc-cue', 'strong', 'deep', 'pulse', 'hloop', 'haccent', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+  const TRACES = ['dc-hl', 'dc-row', 'dc-sel', 'dc-cue', 'dc-reach', 'strong', 'deep', 'pulse', 'hloop', 'haccent', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
   function paintStates(extra) {
     if (!scene) return;
-    marks.querySelectorAll('.dc-hl, .dc-row, .dc-group, .dc-cue').forEach(n => n.remove());
+    marks.querySelectorAll('.dc-hl, .dc-row, .dc-group, .dc-cue, .dc-reach').forEach(n => n.remove());
     // A box or a text is outlined over the chart; a line is traced where it lies, under the boxes, so a
     // line lit never crosses a name. A line drawn once for others traces them, in the strongest light of
     // theirs: the deeper reasons are lit first, so a witness's is over them.
@@ -2264,9 +2264,11 @@ function mount(el) {
       outline(m, 'dc-group dc-shaped', 2);
       if (m.rotate) marks.lastChild.setAttribute('transform', `${marks.lastChild.getAttribute('transform')} rotate(${m.rotate} ${m.w / 2 + 2} ${m.h / 2 + 2})`);
     }
-    // The format bar's scope, while a group is chosen or pointed at: each mark it reaches lit, as a group is.
-    const cuedHere = cued && new Set([...cued].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
+    // A pen pointed at: each mark it would reach lit, as a group is. And at rest, what's in reach of the pen, a thin outline.
+    const drawnOf = ids => ids && new Set([...ids].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
+    const cuedHere = drawnOf(cued), reachHere = drawnOf(inReach);
     for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 3);
+    if (!cuedHere) for (const id of reachHere ?? []) outline(scene.byId.get(id), 'dc-reach', 3);
     // A selected line is traced in the accent, as Office marks one.
     for (const c of sel.getSelectedCells()) if (c.isEdge()) { const m = scene.byId.get(c.id); if (m?.points) outline(m, 'dc-sel'); }
     bendGrips();
@@ -2280,7 +2282,7 @@ function mount(el) {
       // And every mark the scope doesn't reach is dulled, the page's own furniture with them.
       el.classList.toggle('dc-dull', !!cuedHere && k !== 'page' && k !== 'ink' && !cuedHere.has(id));
       // A mark selected, or in the scope chosen, shows its blanks' names.
-      el.classList.toggle('dc-on', sel.isSelected(k === 'label' ? graph.getCellById(id) ?? c : c) || !!cuedHere?.has(id));
+      el.classList.toggle('dc-on', sel.isSelected(k === 'label' ? graph.getCellById(id) ?? c : c) || !!cuedHere?.has(id) || !!reachHere?.has(id));
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
     paintFields();
@@ -2420,13 +2422,19 @@ function mount(el) {
     for (const c of cells) lit.add(c.id);
     return { appear: r.appear, go: r.go, was, texts, cells, lit };
   }
-  // The format bar's scope on the chart, its cue: `ids`, the marks a group of the selection reaches (boxes and lines,
-  // by id), each lit with the group light and every other mark dulled; null clears it. It's drawn over the scene and
-  // changes nothing in it, so no export draws it.
+  // A pen pointed at, on the chart, its cue: `ids`, the marks it would reach (boxes and lines, by id), each lit with the
+  // group light and every other mark dulled; null clears it. It's drawn over the scene and changes nothing in it, so no
+  // export draws it. And `reach`, what's in reach of the pen at rest: a thin outline, nothing else touched.
   function cue(ids) {
     const next = ids ? new Set(ids) : null;
     if (JSON.stringify(next && [...next]) === JSON.stringify(cued && [...cued])) return;
     cued = next;
+    paintStates();
+  }
+  function reach(ids) {
+    const next = ids ? new Set(ids) : null;
+    if (JSON.stringify(next && [...next]) === JSON.stringify(inReach && [...inReach])) return;
+    inReach = next;
     paintStates();
   }
   // A format pointed at in the format bar, as it would look: the chart drawn from `wb`, the workbook as the
@@ -3094,7 +3102,8 @@ function mount(el) {
     'F2': () => { const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length === 1) edit(k[0]); },
     'Enter': () => { if (relateNow) return relateNow.take(); const f = fieldNow(); if (f) return editField(f.m, f.it); const k = keysOfSelection(); if (k.length !== 1) return false; edit(k[0]); },
     // Esc backs out a step: from a field to its box, from the selection to none.
-    'Escape': () => { if (fieldNow()) return pickField(null); const k = keysOfSelection(); if (!k.length) return false; entered = null; Shell.select([]); walked = k[0]; },
+    // (With nothing selected, it brings the pen home: it goes by itself again.)
+    'Escape': () => { if (fieldNow()) return pickField(null); const k = keysOfSelection(); if (!k.length) { FormatBar.pen?.home(); return false; } entered = null; Shell.select([]); walked = k[0]; },
   };
   const turnsNow = () => selected().some(m => m.geometry === 'group' || (m.type === 'shape' && !['legend'].includes(m.geometry) && !m.role));
   const wrapped = Object.fromEntries(Object.entries(keyMap).map(([k, f]) => [k, e => { if (f(e) !== false) { e.preventDefault(); e.stopPropagation(); } }]));
@@ -3202,7 +3211,7 @@ function mount(el) {
   // What a change pending keeps where it stands, and what it places itself, over any place entered.
   function holdsFor(base) { const h = holdsOf(base), at = App.pending.peek()?.placing?.(); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, reach, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },

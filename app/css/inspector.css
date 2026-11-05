@@ -92,6 +92,20 @@ button.lk.hint { margin-left: 8px; color: var(--accent-ink); white-space: nowrap
 .typed > .meta { font: var(--t12); color: var(--ink-2); }
 .typed > .note { margin-top: 6px; color: var(--ink-2); overflow-wrap: anywhere; }
 .typed > .btn { justify-self: start; margin: 6px 0 0 -8px; }
+/* The pen: the one icon in the left gutter of the row a change goes to, solid, the accent's; faint on any row that's a place it could go, as that row is pointed at. */
+.pen { position: absolute; left: 2px; top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: pointer; display: grid; place-items: center; }
+.pen > svg { width: 13px; height: 13px; }
+:is(.row, .sect, .ih-at, .path):hover > .pen, .pen:focus-visible { opacity: .55; }
+.pen:hover, .pen:focus-visible { opacity: 1; color: var(--accent); background: var(--hover); }
+.pen.here { opacity: 1; color: var(--accent); }
+.pen.here > svg { fill: currentColor; }
+.ih-at, .path, .sect { position: relative; }
+.ih-at > .pen { left: -18px; top: 3px; }
+.path > .pen { left: -18px; top: -1px; }
+.path > .pen::after { content: none; }
+.sect > .pen { top: 18px; }
+.row.out .aa { width: 28px; text-align: center; font: var(--t13, 13px) var(--font, inherit); color: var(--ink-2); }
+.grip.end { left: auto; right: 2px; }
 .grip { position: absolute; left: calc(var(--depth, 0) * 16px + 2px); top: 6px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--ink-3); opacity: 0; cursor: grab; display: grid; place-items: center; }
 .grip > svg { width: 14px; height: 14px; }
 /* What's under a row folds: its chevron beside its name, quiet till the row's pointed at, and saying how many while it's shut. */

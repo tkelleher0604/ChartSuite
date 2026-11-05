@@ -147,6 +147,10 @@ async function run() {
   const ownPart = () => txt($('[data-fb="own"]')), like = () => txt($('[data-fb="like"]'));
   const chip = () => txt($('[data-fb="scope"] [aria-pressed="true"]'));
   const dulled = () => $$('.dc .x6-cell.dc-dull').map(e => e.getAttribute('data-cell-id'));
+  // (The pen goes by itself: these are of a pen put at the title, which sticks. Its own checks are after them: see The pen.)
+  const toTitle = () => { FormatBar.pen.level.value = { own: true }; }, penHome = FormatBar.pen.home;
+  FormatBar.pen.home = () => { const had = penHome(); toTitle(); return had; };
+  toTitle();
   Shell.select(['northpine']); await tick(120);
   check('one box selected, a format goes to “This box”, with all like it beside it', chip() === 'This box' && ownPart() === 'This box' && /^All \d+ \S/.test(like()),`${ownPart()} | ${like()}`);
   check('… and nothing on the chart is dulled', !dulled().length, dulled().join());
@@ -207,12 +211,13 @@ async function run() {
   const now = fills();
   check('a fill with one box selected fills that box alone', now.northpine === '#fff2cc' && pcs.filter(id => id !== 'northpine').every(id => now[id] === was[id]) && pcs.length === 4, JSON.stringify(now));
   $('[data-fb="like"]').click(); await tick(120);
-  check('choosing all like it presses it, and cues the group: the other boxes dulled', chip() === 'All 4 portfolio companies' && pcs.every(id => !dulled().includes(id)) && dulled().includes('fund'), `${chip()}; ${dulled().length} dulled`);
+  check('choosing all like it presses it, and what it reaches has a thin outline, the others untouched', chip() === 'All 4 portfolio companies' && $$('.dc-marks path.dc-reach').length === 4 && !dulled().length, `${chip()}; ${$$('.dc-marks path.dc-reach').length} outlined, ${dulled().length} dulled`);
   FormatBar.apply('Fill', '#e2f0d9'); await tick(120);
   check('… and a fill then goes to every box it reaches but the one entered for itself', pcs.filter(id => id !== 'northpine').every(id => fills()[id] === '#e2f0d9'), JSON.stringify(fills()));
   const kept = txt($$('.toast').at(-1)), np = App.notes.peek().nameOf(App.state.peek(), 'northpine'), groupSaid = Time.describe(App.wb.changes().at(-1));
   const green = FormatBar.colorName('#e2f0d9');
-  check('… which says at once, by the group, that the one keeps its own', kept.startsWith(`Set the fill of Portfolio companies to ${green}; ${np} keeps its own`), kept);
+  // (The first change of a session to reach more than one box says what it reached, with Undo and Just this box.)
+  check('… which says at once what it reached, and that the one keeps its own, with Undo and Just this box', kept.startsWith(`Filled all 4 portfolio companies; ${np} keeps its own`) && /Just this box/.test(kept) && /Undo/.test(kept), kept);
   check('… and History names the change by the group, as the Key does, with the color by its name', groupSaid === `Set the fill of Portfolio companies to ${green} in ${main.name}`, groupSaid);
   // Each look is said with what it's given: a switch by what it makes, none as taken off, a color and a shape by name.
   const stamp = { who: 'Dana Jordan', when: new Date().toISOString(), chart: App.chart.peek() }, npBox = { id: 'northpine', kind: 'Entity' };
@@ -241,9 +246,10 @@ async function run() {
   ctrlShiftA(); await tick(100);
   const toOwn = chip();
   ctrlShiftA(); await tick(100);
-  check('Ctrl+Shift+A goes from all like it to the selection and back', toOwn === 'This box' && chip() === 'All 4 portfolio companies' && !!dulled().length, `${toOwn}, then ${chip()}`);
+  check('Ctrl+Shift+A goes from all like it to the selection and back', toOwn === 'This box' && chip() === 'All 4 portfolio companies' && !!$$('.dc-marks path.dc-reach').length, `${toOwn}, then ${chip()}`);
+  toTitle();
   Shell.select(['halvard']); await tick(120);
-  check('another selection is formatted as itself again, and nothing is dulled', chip() === 'This box' && !dulled().length, chip());
+  check('a pen put at the title stays there as another box is clicked, and nothing is dulled', chip() === 'This box' && !dulled().length, chip());
   // A group of a box's own, chosen from the ▾ and given a fill, becomes a Styles row, keyed: every Cayman box green.
   const feeder = drawnBoxes.find(b => { const e = entryOf(b, 'Jurisdiction'); return e && rs[e].choice === 'Cayman Islands'; });
   Shell.select([feeder.id]); await tick(120);
@@ -280,6 +286,7 @@ async function run() {
   putAfter?.click(); await tick(200);
   check('… which, taken, reaches every mark of it, as one more change', peachIs() === lps.length && App.wb.changes().length === n1 + 2 && orderOf() !== orderWas, `${peachIs()} of ${lps.length}`);
   Shell.parts.peek().undo.undo(); await tick(120); Shell.parts.peek().undo.undo(); await tick(120);
+  toTitle();
   Shell.select(['halvard']); await tick(120);
 
   // ---- Live preview: a swatch or an option pointed at is drawn, and leaving ends it ----
@@ -406,6 +413,7 @@ async function run() {
     ['#AFABAB', 'Light Gray, Background 2, Darker 25%'], ['#44546A', 'Blue-Gray, Text 2'], ['#D6DCE5', 'Blue-Gray, Text 2, Lighter 80%'], ['#FFFF00', 'Yellow'], ['#92D050', 'Light Green'], ['#123456', null]];
   const bad = names.filter(([c, n]) => FormatBar.colorName(c) !== n);
   check('FormatBar.colorName gives PowerPoint’s name for a theme color, and null for a custom one', !bad.length, bad.map(([c]) => `${c}: ${FormatBar.colorName(c)}`).join('; '));
+  toTitle();
   Shell.select(['halvard']); await tick(120);
   $('[data-fb="fill"]').click(); await tick(120);
   const swatches = $$('.float .palette > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
@@ -431,7 +439,7 @@ async function run() {
   check('every swatch has one hairline, drawn on the menu, that sets off even those nearest the menu’s colour, in light and in dark', edges.every(e => e.ok), JSON.stringify(edges));
   const hex = $('.float .palette .hex > input');
   hex.focus(); hex.value = '1F5FBF'; hex.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(80);
-  check('a color typed by its hex in More colors is drawn as it’s typed, and changes nothing', fillOf('halvard') === '#1f5fbf' && App.scene.peek().byId.get('halvard').settings.Fill.value !== '#1f5fbf', fillOf('halvard'));
+  check('a color typed by its hex in More colors is drawn as it’s typed, and changes nothing', fillOf('halvard') === '#1f5fbf' && App.scene.peek().byId.get('halvard').settings.Fill.value !== '#1f5fbf', `${fillOf('halvard')} ${chip()} ${JSON.stringify(FormatBar.pen.level.peek())} ${JSON.stringify(App.notes.peek().resolve('Fill', Tree.treeOf(App.state.peek(), 'halvard'), sc().view)?.note?.pattern ?? null)}`);
   hex.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(150);
   check('… and Enter makes it, and closes the palette', App.scene.peek().byId.get('halvard').settings.Fill.value === '#1f5fbf' && !$('.float .palette'), App.scene.peek().byId.get('halvard').settings.Fill.value);
   Shell.select(['northpine']); await tick(120);
@@ -851,7 +859,7 @@ async function run() {
     && sc() !== App.scene.peek());
   await closeMenus(); await tick(80);
   check('… until the popover closes', sc() === App.scene.peek());
-  { Shell.select(['fund']); await tick(120);
+  { toTitle(); Shell.select(['fund']); await tick(120);
     $('[data-fb="outline"]').click(); await tick(150);
     const boxSubs = $$('.float .palette .menu-item.sub').map(txt);
     await closeMenus();
@@ -2491,7 +2499,7 @@ async function format() {
   // What differs from its style: a line's own arrow, a box's own weight; the ribbon says so rather than tick one.
   await show(stE);
   const boxE = () => sc().byId.get('fund');
-  Shell.select(['blocker']); await tick(200);
+  FormatBar.pen.level.value = { own: true }; Shell.select(['blocker']); await tick(200);
   FormatBar.apply('Weight', 3); await tick(400);
   Shell.select([]); await tick(150);
   const corpG = Scene.groupsOf(App.notes.peek(), stE.id).find(g => g.caption === 'Corporation');
@@ -2500,7 +2508,7 @@ async function format() {
   check('Select what differs selects and lists the one-offs on the view', Shell.selection.peek().includes('blocker') && $$('.float .menu-item').some(e => /Weight 3 pt/.test(txt(e))), $$('.float .menu-item').map(txt).join(' | '));
   await closeMenus();
   check('… Find has it', !!acts().find(a => a.id === 'look.differs')?.names.includes('One-offs'));
-  Shell.select(['blocker']); await tick(200);
+  FormatBar.pen.level.value = { own: true }; Shell.select(['blocker']); await tick(200);
   check('… and the box’s panel says it under This box, with Reset', $$('.insp .row.src .k').some(k => txt(k) === 'This box') && !!$('.insp .reset'), $$('.insp .row.src .k').map(txt).join());
   Shell.parts.peek().undo.undo(); await tick(300);
   Shell.select([]); await tick(150);
@@ -2629,16 +2637,13 @@ async function format() {
   check('with nothing selected, the ribbon’s font and size aim at All text, the rest off', barOn() && !$('[data-fb="size"]').disabled && !!$('[data-fb="all"]') && txt($('[data-fb="all"]')) === 'All text' && $('[data-fb="bold"]').disabled && $('[data-fb="fill"]').disabled);
   const scopeAt0 = $('[data-fb="scope"]').getBoundingClientRect(), fontAt0 = $('[data-fb="font"]').getBoundingClientRect();
   cap('Funds').click(); await tick(150);
-  check('a Styles row clicked aims the ribbon at it, what it reaches lit, the rest dulled', barOn() && /^All 5 funds/.test(likeSays()) && dull() > 0 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
+  check('a Styles row clicked moves the pen there: what it reaches outlined, nothing else touched', barOn() && /^All 5 funds/.test(likeSays()) && dull() === 0 && $$('.dc-marks path.dc-reach').length === 5 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
   check('… the bar’s controls where they were', Math.abs($('[data-fb="scope"]').getBoundingClientRect().left - scopeAt0.left) < 0.5 && Math.abs($('[data-fb="scope"]').getBoundingClientRect().width - scopeAt0.width) < 0.5 && Math.abs($('[data-fb="font"]').getBoundingClientRect().left - fontAt0.left) < 0.5);
   const fundBox = () => sc().byId.get('feeder');
   $('[data-fb="fill"]').click(); await tick(120);
   const hexIn = $('.float .palette .hex > input');
   hexIn.value = '1F3864'; hexIn.dispatchEvent(new Event('input', { bubbles: true })); hexIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(400);
   check('… a fill given goes to the row', fundBox().settings.Fill.value === '#1f3864' && !Shell.selection.peek().length);
-  check('… and the cue goes, so the change can be seen', dull() === 0, dull());
-  $('[data-fb="scope"]').dispatchEvent(new PointerEvent('pointerenter', { bubbles: false })); await tick(120);
-  check('… a pointer on the scope list bringing it back', dull() > 0, dull());
   // Ink on a dark fill: what has no color of its own is white, what's given one keeps it.
   check('a text with no color of its own is drawn white on a fill too dark for ink', fundBox().texts.every(it => it.look.Color === '#ffffff'), fundBox().texts.map(it => it.look.Color).join());
   // Text color at a group means every field it shows, as a shape's in PowerPoint.

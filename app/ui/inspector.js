@@ -339,6 +339,26 @@ function onward(el, d) {
   return to ?? row;
 }
 
+// The pen (dendra.md, The pen): where a change goes, a location in the schema made visible. One stands, solid, in the left
+// gutter of the row it's at; pointing at any row that's a location shows a faint one, pointing at that lights what it would
+// reach and dulls the rest, and a click, or Space on it, or P on the row, moves it there. `w`, what the row is (FormatBar's
+// pen.next), `row`, its name there. `host`, the record whose mark must be what's selected.
+function Pen({ w, row, host }) {
+  const p = typeof FormatBar !== 'undefined' ? FormatBar.pen : null, c = p && charted() ? Canvas.active.value : null;
+  if (!c?.scene()) return null;
+  App.scene.value; Shell.selection.value; p.level.value; p.aimed.value; Canvas.fieldPicked.value;
+  if (host && !p.on(host)) return null;
+  const here = p.row() === row, go = () => { p.put(w); };
+  const say = e => { const n = p.next(w); e.currentTarget.dataset.tip = n?.said ?? ''; };
+  const walk = e => {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); go(); }
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { const all = [...(e.currentTarget.closest('.insp')?.querySelectorAll('.pen') ?? [])], to = all[all.indexOf(e.currentTarget) + (e.key === 'ArrowDown' ? 1 : -1)]; if (to) { e.preventDefault(); e.stopPropagation(); to.focus(); } }
+  };
+  return html`<button type="button" class=${'pen' + (here ? ' here' : '')} tabindex=${here ? 0 : -1} aria-pressed=${here} aria-label="Pen" data-tip=""
+    onPointerEnter=${e => { say(e); p.point(w, true); }} onPointerLeave=${() => p.point(w, false)} onFocus=${e => { say(e); if (e.currentTarget.matches(':focus-visible')) p.point(w, true); }} onBlur=${() => p.point(w, false)}
+    onPointerDown=${e => e.stopPropagation()} onClick=${e => { e.stopPropagation(); go(); say(e); p.point(w, true); }} onKeyDown=${walk}>${Shell.icon('Pen')}</button>`;
+}
+
 // Drags a row among its siblings (those with the same data-drag); a click without moving is a click.
 function drag(e, onDrop, onClick) {
   if (App.readOnly.peek()) return;
@@ -805,9 +825,8 @@ function alikeIn(host, at, id) {
   for (const step of T.pathOf(recs(), at).slice(T.pathOf(recs(), host).length)) { x = entryNamed(x, recs()[step].edge); if (!x) return null; }
   return x;
 }
-// A row dragged onto the chart, by its grip or its label: the box under the pointer is lit as the target, and dropped
-// there, it shows the entry. `reorder`, where the grip also reorders the row among its siblings, which a drop on the
-// chart doesn't. → whether the drop was on the chart, asked as the row's own drag ends.
+// A row dragged by its label: among its siblings in the panel, and over the chart the boxes it would go to lit, those the pen
+// reaches, and dropped on one, it shows the entry there, at the pen. → whether the drop was on the chart, asked as the row's own drag ends.
 function carry(e, it) {
   if (e.button !== 0 || App.readOnly.peek() || !fields()) return () => false;
   const x0 = e.clientX, y0 = e.clientY;
@@ -839,8 +858,8 @@ function copied(e, it, at) {
   fields().clip(it.edge, text);
 }
 
-// An entry's row. Its grip drags it, and clicked opens its menu, as the context-menu key does from its value; dragged
-// onto the chart, by its grip or its label, it shows there. A tag is a checkbox row, its box before its name, as the
+// An entry's row. Its gutter is the pen's. Its label, pressed and dragged, reorders it, and over the chart shows it there, at the
+// pen; its right-click opens its menu, as the context-menu key does from its value. A tag is a checkbox row, its box before its name, as the
 // two-box panel draws one; its entries beneath it. Pointed at, its field on the chart lights, and the other way round.
 // What's under a row folds under it, a place in the schema at a time: shut at one entity's Jurisdiction, it's shut at every entity's, and stays so. What's gone
 // to from elsewhere, a field selected on the chart or a row Find aims at, opens what it's in.
@@ -856,18 +875,17 @@ function Entry({ it, at, depth }) {
     if (r && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) { e.preventDefault(); entryMenu(e.target, it.id); }
     else if (under && e.target === e.currentTarget && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); foldRow(it.id, e.key === 'ArrowLeft'); }
   };
-  // A press on its label takes the keys to the row, so Ctrl+C copies it, and may drag it onto the chart.
-  const press = e => { if (e.target.closest('input, textarea, button')) return; const row = e.currentTarget.closest('.row'); row.tabIndex = -1; row.focus({ preventScroll: true }); carry(e, it); };
+  // A press on its label takes the keys to the row, so Ctrl+C copies it, and may drag it: among its siblings, or onto the chart.
+  const press = e => { if (e.target.closest('input, textarea, button')) return; const row = e.currentTarget.closest('.row'); row.tabIndex = -1; row.focus({ preventScroll: true }); const chart = carry(e, it); if (r) drag(e, (from, i) => { if (!chart()) reorder(at, moved(sibs(), from, i)); }); };
   const k = html`<div class="k" onPointerDown=${press}><${Label} it=${it} fx=${f} />${under ? html`<button class=${'subfold' + (shut ? ' shut' : '')} tabindex="-1" aria-expanded=${!shut} aria-label=${`${shut ? 'Open' : 'Fold'} what’s under ${it.edge}`} data-tip=${shut ? 'Open' : 'Fold'} onClick=${e => { e.stopPropagation(); foldRow(it.id, !shut); }}>${icon('chevron')}${shut ? html`<span>${under}</span>` : null}</button>` : null}</div>`, v = end
     ? html`<div class="v redline">${r ? html`<s class="del date">${short(r.value)}</s>` : null}<span class="add date">${short(end)}</span></div>`
     : html`<div class="v ctl"><${Output} id=${it.id} slot=${it} label=${it.edge} /></div>`;
   const light = on => fields()?.light(on ? fieldKey(it, at) : null);
-  const grip = e => { const chart = carry(e, it); drag(e, (from, i) => { if (!chart()) reorder(at, moved(sibs(), from, i)); }, g => entryMenu(g, it.id)); };
   const tone = r?.tag === false ? App.noTone(it.id) : '';
   return html`<div class="ent" data-drag=${r ? at : null}>
     <div class=${'row' + (tag ? ' chk' : '') + (r?.tag === false ? (tone === 'fails' ? ' failed' : tone === 'heeds' ? ' heeds' : ' ruled') : '') + (lit(it, at) ? ' lit' : '')} data-key=${it.id ?? `${at}|${it.edge}`} style=${`--depth:${depth}`}
       onKeyDown=${keyMenu} onPointerEnter=${() => light(true)} onPointerLeave=${() => light(false)} onCopy=${e => copied(e, it, at)}>
-      ${r ? html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${grip}>${GRIP}</button>` : null}
+      ${r ? html`<${Pen} w=${{ entry: it.id }} row=${`entry:${it.id}`} host=${hostIn(at)} />` : null}
       ${tag ? [v, k] : [k, v]}
       <${OnChart} it=${it} at=${at} />
     </div>
@@ -937,12 +955,12 @@ function Entries({ at, depth, offer }) {
 }
 
 // ---- Relatives, documents and look: sections, each folding under its heading ----
-function Section({ title, n, shut = false, act, id, cls = '', list, children }) {
+function Section({ title, n, shut = false, act, id, cls = '', list, pen, children }) {
   const [open, setOpen] = useState(!shut);
   // Aimed at, as Find aims at a list, it opens.
   if (!open && aim.value === id) setOpen(true);
   // (`list`, its rows: one stop for Tab, the arrows going through them, as every list a click opens.)
-  return html`<section class=${(open ? 'open' : '') + cls} data-key=${id} data-title=${title} data-list=${list ?? null}><h3 class="sect"><button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
+  return html`<section class=${(open ? 'open' : '') + cls} data-key=${id} data-title=${title} data-list=${list ?? null}><h3 class="sect">${pen}<button class="fold" aria-expanded=${open} onClick=${() => setOpen(!open)}>${title}</button>
     ${n ? html`<span class="n">${n}</span>` : null}${act}</h3>${open ? children : null}</section>`;
 }
 // A long panel's strip, sticky at its top: the record, then each section by its name, a click from each, folded or not;
@@ -1128,6 +1146,7 @@ function Relatives({ id }) {
     const rowClick = e => { if (!e.target.closest('button, a, input, textarea, label') && !getSelection()?.toString()) goTo(it.rid); };
     const rowKey = e => { if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); e.stopPropagation(); goTo(it.rid); } };
     return html`<div class=${'row rel' + (going ? ' going' : '')} key=${it.rid} data-why=${it.rid} style=${nest ? `--nest:${nest}` : null} onClick=${rowClick} onContextMenu=${rowMenu} onKeyDown=${rowKey}>
+      ${f ? null : html`<${Pen} w=${listPen(it, listNamed(it))} row=${`list:${listNamed(it)}|${it.obj}`} host=${id} />`}
       ${d.held && !still ? html`<input type="checkbox" class="tick" aria-label=${`Tick ${nameOf(it.obj)}`} checked=${picked.has(it.rid)} onChange=${() => pick(it.rid)} />` : null}
       <div class=${'k' + (d.role || d.facts.length || d.doc ? '' : ' wide')}><${Go} to=${it.obj} cls=${f ? 'fx' : ''} tip=${`Open ${placeName(it.obj)}`}>${bound(rowName(it.obj))}</${Go}></div>
       <div class="v">${d.role || d.facts.length ? html`<${Go} to=${it.rid} cls=${(f ? 'fx' : '') + (d.fails ? ' fails' : '')} tip=${d.tip || `Open this ${lower(nameOf(it.rid))}`}>${d.role ?? facts(d.facts, true)}</${Go}>` : null}
@@ -1150,6 +1169,9 @@ function Relatives({ id }) {
     <div class="v">${x.role ? html`<${Go} to=${x.rid} tip=${`Open this ${lower(N().nameOf(x.then, x.rid))}`}>${x.role}</${Go}>` : null}</div>
     <div class="facts">from <${DayOf} id=${x.rid} side="from" day=${x.on} shows=${x.on} /></div></div>`;
   const held = lists.flatMap(([, items]) => items);
+  // The pen in a list: every box with that list, its heading's, or with that one in it, a row's.
+  const listNamed = it => lists.find(([, xs]) => xs.includes(it))?.[0] ?? '';
+  const listPen = (it, name, whole) => ({ list: N().relationPattern(tree(it.rid)), side: it.mine, name, ...(!whole && { of: it.obj }) });
   // A list's count says how many of it a check fails at: "3 · 1 doesn't hold"; and one a rule in error gives, that it's no answer.
   // A figure worked out through others on the same list is the same stake, nested under what it runs through (dendra.md, Finding your way):
   // so three rows of 66% are said to be one, and nobody adds them.
@@ -1185,7 +1207,7 @@ function Relatives({ id }) {
   const holdingFirst = items => { const bad = it => entriesAt(it.rid).some(e => recs()[e].tag === false && failed(e)); return [...items.filter(it => !bad(it)), ...items.filter(bad)]; };
   // A list a formula gives is folded where it's long; a short answer (a fund's Controllers) shows.
   return html`${[...lists.filter(([, x]) => !worked(x)), ...lists.filter(([, x]) => worked(x))].map(([name, items]) => html`<${Section} key=${name} id=${'list:' + name} title=${name} n=${items.length ? counted(items) : null} list=":scope > .row.rel"
-      cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} act=${html`${endRows(items)}${adds(name, items)}`}>${(c => (c ? c.rows.map(it => item(it, c.depth.get(it.rid))) : holdingFirst(items).map(it => item(it))))(chained(items))}${laterIn(name).map(laterRow)}
+      cls=${items.some(it => picked.has(it.rid)) ? ' ticking' : ''} shut=${worked(items) && items.length > SHORT} act=${html`${endRows(items)}${adds(name, items)}`} pen=${items.length && !worked(items) ? html`<${Pen} w=${listPen(items[0], name, true)} row=${`list:${name}|`} host=${id} />` : null}>${(c => (c ? c.rows.map(it => item(it, c.depth.get(it.rid))) : holdingFirst(items).map(it => item(it))))(chained(items))}${laterIn(name).map(laterRow)}
       ${worked(items) && asTable() ? html`<button class="lk as-table" onClick=${() => Table.openList(name, items[0].rid, id)}>Open ${name} as a table</button>` : null}
       ${worked(items) && FormulaBar.isntHere(id, items[0].rid, items[0].edge).length ? html`<div class="row"><button class="lk muted why-isnt" onClick=${e => FormulaBar.whyIsnt(e.currentTarget, id, items[0].rid, items[0].edge)}>Why isn’t… on this list?</button></div>` : null}</${Section}>`)}
     ${(FormulaBar.emptyLists?.(id, lists.map(([n]) => n)) ?? []).map(e => html`<section class="none-list" key=${'none' + e.name} data-title=${e.name}><span class="nm">${e.name}</span><span class="val">${App.broken.value.reach.has(e.def) ? html`<span class="no">can’t be relied on</span>` : 'none'}</span><button class="lk why-isnt" onClick=${ev => FormulaBar.isntOn(ev.currentTarget, id, e.def, e.side)}>Why isn’t…</button></section>`)}
@@ -1280,12 +1302,12 @@ function Look({ id }) {
 // A header: its eyebrow, where it says more than the title does, and the title, or `children` in its place.
 // `more`, what can be done with what's shown, as its box's or row's right-click offers it: behind ⋯ at the top right.
 // `span`, when it holds, under its title.
-function Head({ path = [], title, more, span, children }) {
+function Head({ path = [], title, more, span, pen, penKind, children }) {
   const said = path.length && !(path.length === 1 && T.same(path[0].label, title));
   return html`<header class="ih">
-    ${said ? html`<nav class="path">${path.map(p => p.menu ? html`<button class="lk dd kind" aria-haspopup="menu" aria-label=${`Kind: ${p.label}`} onClick=${e => menu(e.currentTarget, p.menu())}>${p.label}</button>` : p.go ? html`<button class="lk" data-tip=${p.tip ?? null} onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
+    ${said ? html`<nav class="path">${penKind}${path.map(p => p.menu ? html`<button class="lk dd kind" aria-haspopup="menu" aria-label=${`Kind: ${p.label}`} onClick=${e => menu(e.currentTarget, p.menu())}>${p.label}</button>` : p.go ? html`<button class="lk" data-tip=${p.tip ?? null} onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
     ${more ? html`<button class="btn icon more" aria-label="More" data-tip="More" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, more(), { placement: 'bottom-end' })}>${icon('more')}</button>` : null}
-    ${children ?? html`<h2 class="ih-title">${title}</h2>`}${span}</header>`;
+    ${pen ? html`<div class="ih-at">${pen}${children ?? html`<h2 class="ih-title">${title}</h2>`}</div>` : children ?? html`<h2 class="ih-title">${title}</h2>`}${span}</header>`;
 }
 // When a record holds, as its head says it (App.spanOf): "From May 22, 2023, when Fund III Blocker was formed", "Until
 // Feb 1, 2027"; an object's by the act its entries record ("Formed", "Dissolved"). Each day is a link to the chart then.
@@ -1398,11 +1420,13 @@ function RecordView({ id }) {
   // with its tag's box before it, as the formula bar has it.
   const nameId = entryNamed(id, 'Name'), held = nameId ? App.held(nameId) : undefined;
   const span = (r.kind || r.args) ? html`<${Span} id=${id} />` : null;
+  // The pen on a box's or a line's page: at its title, this one alone; at its kind or relation, every one of it.
+  const penTitle = (r.kind || r.args) ? html`<${Pen} w=${{ own: true }} row="title" host=${id} />` : null, penKind = (r.kind || r.args) ? html`<${Pen} w=${{ kind: true }} row="kind" host=${id} />` : null;
   const head = r.kind
-    ? html`<${Head} more=${() => moreOf(id)} span=${span} path=${[{ label: r.kind, menu: () => kindMenu(id) }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
+    ? html`<${Head} pen=${penTitle} penKind=${penKind} more=${() => moreOf(id)} span=${span} path=${[{ label: r.kind, menu: () => kindMenu(id) }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
         <${Field} r=${recs()[nameId]} id=${nameId} datatype="text" ph="Name" title held=${held ? held.value : null} put=${(out, o) => (out || out === false) && put(nameId, { at: id, edge: 'Name' }, out, o)}
           preview=${out => out && putChange(nameId, { at: id, edge: 'Name' }, out)} /></${Head}>`
-    : html`<${Head} title=${name} span=${span} more=${r.args ? () => moreOf(id) : null} path=${r.args ? [] : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
+    : html`<${Head} title=${name} span=${span} pen=${penTitle} penKind=${penKind} more=${r.args ? () => moreOf(id) : null} path=${r.args ? (App.scene.value?.byId.has(id) ? [{ label: 'Relation', go: () => select([general(N().relationPattern(tree(id)))]), tip: `Open ${name}` }] : []) : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
         ${boxed(id) ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm lbl asks" onClick=${e => (fx(id) ? emit('why-open', id) : typedBy(e.currentTarget, id))}>${name}</span></h2>` : null}</${Head}>`;
   const sides = r.args ? N().sides(recs(), id) : [];
   // A deletion or a transfer of it pending is asked in the bar, its one home: here it's struck, its end entry in blue. A relation
@@ -1414,7 +1438,7 @@ function RecordView({ id }) {
     <${Strip} />
     <div class="rows">
       ${sides.map(a => { const way = trail(a.at);
-        return html`<div class="row" key=${a.edge}><div class="k">${a.edge}</div><div class="v"><${Go} to=${objectOf(a.at)} tip=${`Open ${nameOf(objectOf(a.at))}`}>${bound(nameOf(objectOf(a.at)))}</${Go}>
+        return html`<div class="row" key=${a.edge}><${Pen} w=${{ end: a.edge }} row=${`end:${a.edge}`} host=${id} /><div class="k">${a.edge}</div><div class="v"><${Go} to=${objectOf(a.at)} tip=${`Open ${nameOf(objectOf(a.at))}`}>${bound(nameOf(objectOf(a.at)))}</${Go}>
         ${way ? html`<span class="muted"> › ${way}</span>` : null}</div></div>`; })}
       ${r.kind || boxed(id) ? null : html`<div class="row" data-key=${id}><div class="k"><span class="lbl">${name}</span></div>
         <div class="v ctl"><${Output} id=${id} slot=${r} label=${name} /></div></div>`}
@@ -1570,8 +1594,9 @@ function Styles({ v, only }) {
     App.change(tx => all.map(s => keys.has(s.key) ? q.shift() : s).forEach((s, k) => s.order !== k + 1 && tx.note('Order', s.pattern, k + 1, { view: v }))); };
   // A caption typed as an output's own name is no caption; and what the Key called it goes, as it's named afresh.
   const cap = (g, text) => App.change(tx => { g.outputs.forEach(p => tx.note('Caption', p, text && text !== Scene.outputName(n, p) ? text : undefined, { view: v })); if (keyWord(g)) { const { [g.key]: _, ...captions } = keyShape.captions; tx.update(keyShape.shape, { captions }); } });
-  const grip = part => only || App.readOnly.value ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, order(part))}>${GRIP}</button>`;
-  // Its own place among those of its part, a step up or down: what a row's menu offers beside its grip.
+  // A row's own gutter is the pen's: a style is dragged by its name, or a style that's one row by its swatch or caption.
+  const press = part => e => { if (!only && !e.target.closest('input, textarea, .pen, .cellbox')) drag(e, order(part)); };
+  // Its own place among those of its part, a step up or down: what a row's menu offers.
   const steps = (part, s) => { const i = part.findIndex(b => b.s.key === s.key), go = to => order(part)(i, to);
     return only ? [] : [{ label: 'Move up', disabled: i < 1, run: () => go(i - 1) }, { label: 'Move down', disabled: i >= part.length - 1, run: () => go(i + 1) }]; };
   // A row: its swatch, its caption (the Key's word, typed over, which captions each output in it), and, where a
@@ -1581,16 +1606,16 @@ function Styles({ v, only }) {
     const names = g.outputs.map(p => Scene.outputName(n, p)), said = g.outputs.some((p, i) => Scene.captionOf(n, p, v) !== names[i]), on = reached.get(g) ?? { own: 0, masked: [] };
     // What doesn't read as this row: those of its marks with a look of their own, and what another style decides of them all.
     const notes = [...on.own ? [`${on.own} ${on.own === 1 ? 'keeps its' : 'keep their'} own`] : [], ...on.masked.map(([l, by]) => `${l} decided by ${by}`)], whose = on.ownNames?.length ? on.ownNames.join(', ') : null;
-    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onClick=${e => { if (!e.target.closest('.grip, .cellbox, input, .lk')) aimAt(g); }}>${alone ? grip(alone) : null}<div class="k" onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
+    return html`<div class=${'row out' + (alone ? ' lone' : '')} key=${g.key} onPointerDown=${alone ? press(alone) : null} onClick=${e => { if (!e.target.closest('.pen, .cellbox, input, .lk')) aimAt(g); }}><${Pen} w=${{ style: g }} row=${`row:${g.style}|${T.key(g.outputs[0])}`} /><div class="k" onContextMenu=${e => styleMenu(e, g, v, steps(part, s))}><${Swatch} sw=${g.swatch} off=${g.off} /></div>
       <div class="v" title=${said && names.length === 1 ? names[0] : null}><span class="capline"><${Caption} g=${keyWord(g) ? { ...g, caption: keyWord(g) } : g} label=${names.join(', ')} put=${out => cap(g, out?.value ?? '')} moves=${steps(part, s)} v=${v} />
         ${notes.length ? html`<span class="onote" title=${whose ?? notes.join(', ')}>${on.own && fb ? html`<button type="button" class="lk" data-tip=${whose} onClick=${() => fb.selectDiffers()}>${notes[0]}</button>` : notes[0]}${notes.length > 1 ? `, ${notes.slice(1).join(', ')}` : ''}</span>` : null}</span>
         ${said && names.length > 1 ? html`<span class="oname">${names.join(', ')}</span>` : null}</div></div>`;
   };
   // A style that is its one group is that row alone: Names, not Name over Names.
   return html`${parts.flatMap(part => part.map(({ s, rows, lone }) => html`<div class=${'ent style' + (lone ? ' lone' : '')} data-drag=${only ? null : lone ? 'lone' : 'style'} key=${s.key}>
-    ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0">${grip(part)}<div class="k sname">${Scene.isChange(s.pattern) ? rows[0].name : html`<${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}>`}</div></div>${rows.map(g => output(g, null, part, s))}`}
+    ${lone ? output(rows[0], part, part, s) : html`<div class="row" style="--depth:0" onPointerDown=${press(part)}><${Pen} w=${{ general: s.pattern, name: rows[0].name }} row=${`general:${T.key(s.pattern)}`} /><div class="k sname">${Scene.isChange(s.pattern) ? rows[0].name : html`<${Go} to=${general(s.pattern)}>${rows[0].name}</${Go}>`}</div></div>${rows.map(g => output(g, null, part, s))}`}
   </div>`))}
-  ${only ? null : html`<${EverythingElse} v=${v} sc=${sc} n=${n} />`}
+  ${only ? null : html`<${AllText} v=${v} /><${EverythingElse} v=${v} sc=${sc} n=${n} />`}
   ${off.length ? html`<div class="row styles-off"><button type="button" class="lk" aria-expanded=${offOpen} onClick=${() => setOffOpen(x => !x)}>Not on this page (${off.length})</button></div>
     ${offOpen ? off.map(g => { const s = styleAt.get(g.style); return html`<div class="ent style lone" key=${g.key}>${output(g, null, [], s)}</div>`; }) : null}` : null}`;
 }
@@ -1598,11 +1623,17 @@ function Styles({ v, only }) {
 function EverythingElse({ v, sc, n }) {
   const self = { id: v, kind: 'View' }, g = { style: '·rest', key: '·rest', outputs: [self], caption: 'Everything else', name: null, rest: true, swatch: { kind: 'box', ...Scene.DEFAULTS.box, ...Object.fromEntries(['Fill', 'Gradient', 'Pattern', 'Transparency', 'Outline', 'Weight', 'Dash', 'Shadow'].map(l => [l, n.resolve(l, self, v)?.note.view === v ? n.resolve(l, self, v).value : undefined]).filter(([, x]) => x !== undefined)) } };
   const on = typeof FormatBar !== 'undefined' && FormatBar.aimedAt?.(g);
-  return html`<div class="ent style lone" key="·rest"><div class=${'row out lone' + (on ? ' on' : '')} onClick=${() => aimAt(g)}><div class="k"><${Swatch} sw=${g.swatch} /></div><div class="v"><span class="capline"><button type="button" class=${'cap' + (on ? ' on' : '')}>Everything else</button></span></div></div></div>`;
+  return html`<div class="ent style lone" key="·rest"><div class=${'row out lone' + (on ? ' on' : '')} onClick=${e => { if (!e.target.closest('.pen')) aimAt(g); }}><${Pen} w=${{ rest: g }} row=${`row:·rest|${T.key(self)}`} /><div class="k"><${Swatch} sw=${g.swatch} /></div><div class="v"><span class="capline"><button type="button" class=${'cap' + (on ? ' on' : '')}>Everything else</button></span></div></div></div>`;
+}
+// All text: every text on the page that nothing narrower sets, the widest place a page has, and where the pen is with nothing selected and nothing else aimed at.
+function AllText({ v }) {
+  if (typeof FormatBar === 'undefined' || !FormatBar.pen) return null;
+  const go = () => FormatBar.pen.put({ root: true }), sw = N().resolve('Font', { id: v, kind: 'View' })?.value;
+  return html`<div class="ent style lone" key="·all"><div class="row out lone" onClick=${e => { if (!e.target.closest('.pen')) go(); }}><${Pen} w=${{ root: true }} row="root" /><div class="k"><span class="aa" style=${sw ? `font-family:${Scene.fontFamily(sw)}` : null}>Aa</span></div><div class="v"><span class="capline"><button type="button" class="cap">All text</button></span></div></div></div>`;
 }
 
 // A Styles row aimed at: the ribbon's scope, what it reaches lit on the chart (the format bar's aim), till it's clicked again.
-const aimAt = g => { if (typeof FormatBar !== 'undefined') FormatBar.aim?.(FormatBar.aimedAt?.(g) ? null : g); };
+const aimAt = g => { if (typeof FormatBar !== 'undefined') FormatBar.aimedAt?.(g) ? FormatBar.pen?.home() : FormatBar.aim?.(g); };
 // What a Styles row's right-click offers, as they apply: Rename; a step up or down; Copy look and Paste look; Delete, which
 // takes away what it gives the view.
 function styleMenu(e, g, v, moves, rename) {
@@ -2073,6 +2104,8 @@ function limits(s0, def) {
 // An entry, relation or kind in general: what it's called and means, its options, whether it's required,
 // a start or an end, where it's at, its definition, and its styles. Seen as a `style` (a frame selected), it
 // says so. A Description or a Formula not yet written is added from Add.
+// A pattern, as a place on the chart: at any object, as a group of a box's own is (the pen on a page in general).
+const anyAt = p => { const out = q => q.args ? { args: q.args.map(a => ({ edge: a.edge, loc: out(a.loc) })) } : {}; return p.args ? { ...(p.out && { out: p.out }), args: p.args.map(a => ({ edge: a.edge, loc: out(a.loc) })) } : p; };
 function GeneralView({ p, style }) {
   const n = N(), S = App.schema.value, specs = n.fitting(S, p), kind = !p.args, rel = p.args?.length > 1, s0 = specs[0], still = App.readOnly.value;
   const [describing, setDescribing] = useState(false);
@@ -2107,7 +2140,7 @@ function GeneralView({ p, style }) {
   // As of a day past, today's rule is what's read: where it's changed since, it says so.
   const since = def && typeof Time !== 'undefined' ? Time.ruleSince(def.pattern) : null;
   return html`<div class="insp">
-    <${Head} title=${name} path=${style ? [{ label: 'Style' }] : kind ? [] : rel ? [{ label: 'Relation' }] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Yes or no') }]}>
+    <${Head} title=${name} pen=${html`<${Pen} w=${{ general: anyAt(p), name }} row=${`general:${T.key(anyAt(p))}`} />`} path=${style ? [{ label: 'Style' }] : kind ? [] : rel ? [{ label: 'Relation' }] : [{ label: T.DATATYPES[s0?.out.field] ?? (type === 'choice' ? 'Choice' : 'Yes or no') }]}>
       <${Field} r=${{ field: 'text', value: name }} datatype="text" label="Name" title put=${out => out && setName(out.value)} /></${Head}>
     ${since ? html`<div class="later"><span>Today’s rule: changed ${since.day} by ${since.who}</span>${since.stand ? html`<button class="btn" onClick=${since.stand}>As it stood</button>` : null}</div>` : null}
     <div class="rows">
@@ -2126,7 +2159,7 @@ function GeneralView({ p, style }) {
       ${adds.length ? html`<${AddRow} items=${() => adds} />` : null}
     </div>
     ${type === 'choice' ? html`<${Section} title="Options" n=${options.length}>
-      ${options.map(o => html`<div class="ent" data-drag="opt" key=${o}><div class="row" style="--depth:0">${still ? null : html`<button class="grip" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, reorderOpts)}>${GRIP}</button>`}
+      ${options.map(o => html`<div class="ent" data-drag="opt" key=${o}><div class="row" style="--depth:0"><${Pen} w=${{ general: anyAt({ out: { choice: o }, args: p.args }), name: o }} row=${`general:${T.key(anyAt({ out: { choice: o }, args: p.args }))}`} />${still ? null : html`<button class="grip end" tabindex="-1" aria-hidden="true" onPointerDown=${e => drag(e, reorderOpts)}>${GRIP}</button>`}
         <div class="k wide"><${Field} r=${{ field: 'text', value: o }} datatype="text" label="Option" put=${out => out && out.value !== o && App.change(tx => tx.rename(loose(p), o, out.value))} /></div></div></div>`)}
       ${still ? null : html`<div class="row"><div class="k wide"><${Field} datatype="text" ph="New options" put=${out => out && App.change(tx => optionsTyped(out.value).forEach(o => tx.add('spec', { tree: { ...T.specOf(s0), out: { choice: o } } })))} /></div></div>`}</${Section}>` : null}
     ${below.length ? html`<${Section} title="Entries" n=${below.length}>
