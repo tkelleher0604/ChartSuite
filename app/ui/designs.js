@@ -1,8 +1,8 @@
 // Designs: a group of shapes standing for a box, Figma's component (dendra.md, Group designs). One note, Design, at a pattern in a
 // view, so the narrowest decides, as Fill does; the scene and every output draw what it says. Here: the gallery, each thumbnail by the
 // renderer's own hand in the selected record's words; a design applied at the pen as any look is; what's said over one at the pen,
-// only what's different; Reset to design; Make a design from a box and the free shapes drawn over it; and Edit design, which stands the
-// parts on the page as free shapes over one box, so every drawing tool works on them, the rest of the chart dulled, till Done writes the note.
+// only what's different; Reset to design; Make a design from free shapes or a group, fitted to the box it's for; and Edit design, which stands the
+// parts on the page as free shapes over one box, so every drawing tool works on them, the rest of the chart dulled, the panel listing them and saying a part's words as chips, till Done writes the note.
 const Designs = (() => {
 const { h } = preact;
 const html = htm.bind(h);
@@ -518,7 +518,7 @@ const onChart = () => (canvas()?.root.clientWidth ?? 0) > 0 && !!canvas().scene(
 const whyNot = () => App.readOnly.peek() ? App.whyNot() : !onChart() ? 'Show a chart first' : 'Select a box first';
 const pick = () => { const m = canvas()?.selected().find(x => x.type === 'box'); return onChart() && !App.readOnly.peek() ? m ?? null : null; };
 for (const [id, name, names, run, enabled, why] of [
-  ['design.make', 'Make a design…', ['Component', 'Group', 'Make a component', 'Create component', 'Template', 'New design'], () => make(), () => onChart() && !App.readOnly.peek() && !!makeable(canvas().selected()), () => App.readOnly.peek() ? App.whyNot() : 'Select a box and the shapes drawn over it first'],
+  ['design.make', 'Make a design…', ['Component', 'Group', 'Make a component', 'Create component', 'Template', 'New design'], () => make(), () => onChart() && !App.readOnly.peek() && !!makeable(canvas().selected()), () => App.readOnly.peek() ? App.whyNot() : 'Select shapes, or a group, to make a design of first'],
   ['design.edit', 'Edit design', ['Edit component', 'Master', 'Change the design'], () => edit(pick()), () => !!pick() && !editing.peek(), whyNot],
   ['design.reset', 'Reset to design', ['Reset overrides', 'Detach', 'Reset instance', 'Take the overrides off'], () => reset(pick()), () => !!pick()?.design?.overs.length, () => App.readOnly.peek() ? App.whyNot() : 'Select a box with what’s said over its design first'],
   ['design.house', 'Save design to house style…', ['Publish', 'Library', 'House style'], () => saveToHouse(pick()?.design?.value), () => !!pick()?.design, whyNot],
