@@ -100,6 +100,11 @@ function scopeNow() {
   const s = typeof FormatBar !== 'undefined' && FormatBar.scope?.();
   return s?.outputs?.length ? s : { own: true };
 }
+// What's of a box rather than of the field picked in it (another field shown, a free text, a footnote) goes where the pen stands for the box.
+function scopeOfBox() {
+  const s = typeof FormatBar !== 'undefined' && FormatBar.scope?.(true);
+  return s?.outputs?.length ? s : { own: true };
+}
 // A group, as the scope's toggle names it, mid-sentence: "all 6 funds".
 const named = s => { const a = FormatBar.allOf(s, s.marks?.size ?? s.n ?? 0); return a[0].toLowerCase() + a.slice(1); };
 // The boxes a group of a field's own entry reaches (Jurisdictions: Jurisdiction at no kind) are where the entry is: the
@@ -1811,7 +1816,9 @@ function mount(el) {
   // Whether a mark shows an entry of a label at a record (its own, or one in it), as a field or a blank.
   const shows = (m, edge, at = m.record) => (m.texts ?? []).some(it => it.blank ? it.blank.at === at && Tree.same(it.blank.edge, edge) : st()[it.id]?.at === at && Tree.same(st()[it.id].edge, edge));
   // The pen, for a mark: where it reaches that, the pen's place; else that mark alone, as what's dragged onto a box the pen doesn't reach is.
-  const scoped = m => { const s = scopeNow(canvas); return !s.own && s.marks?.has(m.id) ? s : { own: true }; };
+  const scoped = (m, s = scopeOfBox()) => !s.own && s.marks?.has(m.id) ? s : { own: true };
+  // A row's field, from the panel: where it's the field picked, the field's own place; any other, the box's.
+  const scopeOfField = edge => { const f = fieldNow(); return f?.it && Tree.same(fieldName(f.it), edge) ? scopeNow() : scopeOfBox(); };
   // Where a scope reaches, said: a mark by its name, several by their count, a group as the Key calls it.
   const whereSaid = (ms, s) => s.own ? (ms.length === 1 ? called(ms[0]) : counted(ms.map(m => ({ type: m.type, name: called(m) })))) : named(s);
 
@@ -1845,7 +1852,7 @@ function mount(el) {
   // A free text written in a mark at a scope, as it's typed in place (new, where `it` is none): its words, {Entry} and
   // all, its look kept. Left empty, it's taken away (see unText).
   function writeText(m, it, typed) {
-    const s = scopeNow(canvas), view = viewOf(), rec = treeOf(m.record), N = App.notes.peek();
+    const s = it ? scopeNow(canvas) : scopeOfBox(), view = viewOf(), rec = treeOf(m.record), N = App.notes.peek();
     const at = p => N.notes('Text').find(n => n.view === view && Tree.key(n.pattern) === Tree.key(p));
     // A new one goes under the mark's texts: in a box, across it; on a line, under its label, or at its middle.
     const raw = it?.free.text ?? '', drawn = m.texts.filter(x => x.lines?.length).map(x => fieldRect(m, x)), mid = m.points?.[Math.floor(m.points.length / 2)] ?? [m.x, m.y];
@@ -1956,7 +1963,7 @@ function mount(el) {
     if (u?.m.id !== f.m.id || u.it?.id !== f.it.id) return;
     e.stopPropagation();
     root.focus({ preventScroll: true });
-    const x0 = e.clientX, y0 = e.clientY, s = scoped(f.m), off = ev => { const p = graph.clientToLocal(ev.clientX, ev.clientY); return p.x < f.m.x || p.x > f.m.x + f.m.w || p.y < f.m.y || p.y > f.m.y + f.m.h; };
+    const x0 = e.clientX, y0 = e.clientY, s = scoped(f.m, scopeNow()), off = ev => { const p = graph.clientToLocal(ev.clientX, ev.clientY); return p.x < f.m.x || p.x > f.m.x + f.m.w || p.y < f.m.y || p.y > f.m.y + f.m.h; };
     let ghost = null, gone = false;
     const move = ev => {
       if (!ghost && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
@@ -3364,7 +3371,8 @@ function mount(el) {
     addFoot: (id, text) => { const m = marked(id); return m && addFoot(m, text, scoped(m), null); },
     footDelete: (id, key) => { const fm = scene.marks.find(x => x.role === 'footnotes'), f = fm?.feet?.find(y => y.from.some(z => z.key === key)); return f && footDelete(f); },
     footEdit: (id, key) => { const fm = scene.marks.find(x => x.role === 'footnotes'), f = fm?.feet?.find(y => y.from.some(z => z.key === key)); if (f) editFoot(fm, f); },
-    show: (id, edge, on, at = id) => { const m = marked(id); return m && setField([m], edge, on, scoped(m), at); },
+    scope: scopeOfField,
+    show: (id, edge, on, at = id) => { const m = marked(id); return m && setField([m], edge, on, scoped(m, scopeOfField(edge)), at); },
     showHere: (id, edge, on, at = id) => { const m = marked(id); return m && setField([m], edge, on, { own: true }, at); },
     // In every box that has it, as more get it too: a note at the entry wherever it is (dendra.md, Fields); a choice
     // alone wouldn't say what it is ("High"), so it says so ("Risk Rating: High"), unless a note says how it reads.
@@ -3383,7 +3391,7 @@ function mount(el) {
       const p = cx == null ? null : graph.clientToLocal(cx, cy), m = p && [...scene.marks].reverse().find(b => b.type === 'box' && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
       if ((m?.id ?? null) !== dropOn) { dropOn = m?.id ?? null; paintFields(); }
       // Those it would go to lit: what the pen reaches; or else the one box it's over, where the pen doesn't reach that.
-      const s = scopeNow(canvas), many = s.own ? null : s.marks;
+      const s = scopeOfBox(), many = s.own ? null : s.marks;
       cue(cx == null ? null : m && !many?.has(m.id) ? [m.id] : many ? [...many] : m ? [m.id] : null);
       return m ?? null;
     },

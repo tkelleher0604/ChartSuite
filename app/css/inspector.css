@@ -72,7 +72,8 @@ button.lk.hint { margin-left: 8px; color: var(--accent-ink); white-space: nowrap
 
 /* A row's depth in the tree, and its grip: drag to reorder, click for its menu. */
 .row { position: relative; }
-.row > .k { padding-left: calc(var(--depth, 0) * 16px); }
+.row > .k { padding-left: calc(var(--depth, 0) * 16px); user-select: none; }
+.row.out { user-select: none; }
 .row > .v.ctl { display: flex; align-items: center; gap: 2px; padding: 0; min-height: var(--row); }
 /* A deletion pending, as its redline shows it here: the record struck where it goes as of the day shown, and the end
    entry it's given in blue, after any it had, struck. */

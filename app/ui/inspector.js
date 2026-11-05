@@ -818,7 +818,7 @@ function OnChart({ it, at }) {
   const c = charted() ? Canvas.active.value : null, host = c && hostIn(at), [pointed, setPointed] = useState(null);
   if (!host || !c || App.readOnly.value || it.error || it.na) return null;
   App.scene.value; Shell.selection.value;
-  const state = () => { const s = Canvas.scope(); return { s, on: s.own ? c.fields.shown(host, it.edge, at) : [...s.marks].every(id => { const x = alikeIn(host, at, id); return !!x && c.fields.shown(id, it.edge, x); }) }; };
+  const state = () => { const s = c.fields.scope(it.edge); return { s, on: s.own ? c.fields.shown(host, it.edge, at) : [...s.marks].every(id => { const x = alikeIn(host, at, id); return !!x && c.fields.shown(id, it.edge, x); }) }; };
   const { s, on } = pointed ?? state();
   const say = ({ s, on }) => `${on ? 'Hide from' : 'Show in'} ${s.own ? (recs()[host]?.args ? 'this line' : 'this box') : Canvas.named(s)}`;
   // Its right-click: here, or in every box that has it, kept true as more get it; and with its name, so "High" says what it is.
