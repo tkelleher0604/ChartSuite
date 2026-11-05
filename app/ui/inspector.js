@@ -1399,7 +1399,7 @@ function Look({ id }) {
   // (And what's this box's alone of its fields, beside it, as a look pasted on it gives.)
   const beside = n.notes('Size').length ? WORDS.flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
   const own = [...Object.values(n.formats(t, v)).map(r => r.note), ...beside, n.resolve('Position', t, v)?.note, bent].filter(x => x && x.view === v && mine(x));
-  const resetPlace = !App.readOnly.value && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ only: id, say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
+  const resetPlace = !App.readOnly.value && !App.scene.peek()?.page.composed && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ only: id, say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
   // (Its position before its look, so a row or a section the look gains moves no field under the pointer.)
   return html`${drawn ? html`<${Place} at=${drawn} put=${(k, x) => k === 'w' || k === 'h' ? cv?.sizeAtPen(id, { [k]: x }) : cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}
     <${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />`;
@@ -1699,9 +1699,9 @@ function Swatch({ sw, off }) {
         stroke-width=${w} stroke-dasharray=${dash} />${Scene.swatchParts(sw, { x: 2, y: 2, w: 24, h: 12 }).map(p => p.points ? html`<path d=${`M${p.points.map(q => q.join(',')).join(' L')}`} fill="none" stroke=${p.look.Outline} stroke-width="1" />` : html`<path d=${Scene.path(p.geometry === 'frame' ? 'rect' : p.geometry, p.w, p.h, p.look.Corner)} transform=${`translate(${p.x} ${p.y})`} fill=${p.look.Fill === 'none' ? 'none' : p.look.Fill} stroke=${p.look.Outline === 'none' ? 'none' : p.look.Outline} stroke-width=${p.look.Outline === 'none' ? 0 : 0.5} />`)}`}</svg>`;
 }
 // A view's styles (those reaching `only`, if given), each with the outputs it formats: an output that only
-// shows or hides is a filter, which the legend doesn't key and nor does this.
+// shows or hides is a filter, which the legend doesn't key and nor does this; but a field shown has its row.
 const stylesOf = (v, only) => N().styles(v).filter(s => !only || T.narrower(only, s.pattern) || T.narrower(s.pattern, only))
-  .map(s => ({ ...s, outputs: s.outputs.filter(o => Object.keys(o.formats).some(k => k !== 'Shown')) })).filter(s => s.outputs.length);
+  .map(s => ({ ...s, outputs: s.outputs.filter(Scene.hasRow) })).filter(s => s.outputs.length);
 function Styles({ v, only }) {
   const n = N(), all = n.styles(v), listed = new Set(stylesOf(v, only).map(s => s.key)), styleAt = new Map(all.map(s => [s.key, s]));
   // What a row reaches on this page: its marks, those keeping their own and what another style decides of them.

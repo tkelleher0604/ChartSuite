@@ -642,8 +642,10 @@ function write(tx, c, label, value) {
   if (f) return c.styleField(tx, f, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
   const view = c.scene().view, tree = id => Tree.treeOf(App.state.peek(), id), texty = TEXT_LABELS.has(label) && label !== 'Format';
   if (scope.has && texty) {
-    // (At an entry, a text property would be that entry's own: every box that has it takes it beside each of its fields.)
-    for (const m of [...scope.marks].map(id => c.scene().byId.get(id)).filter(Boolean)) for (const it of m.texts ?? []) { const e = fieldEdge(it) ?? it.blank?.edge; if (e) tx.note(label, scope.outputs[0], value, { view, param: e }); }
+    // (The pen at an entry's row, a size or a font is that field's, a size at a field's pen being no one else's. Any other text property: every box that has it takes it beside each of its fields.)
+    const own = label === 'Size' || label === 'Font' ? scope.outputs[0].args?.[0]?.edge : null;
+    if (own) tx.note(label, scope.outputs[0], value, { view, param: own });
+    else for (const m of [...scope.marks].map(id => c.scene().byId.get(id)).filter(Boolean)) for (const it of m.texts ?? []) { const e = fieldEdge(it) ?? it.blank?.edge; if (e) tx.note(label, scope.outputs[0], value, { view, param: e }); }
   } else if (scope.outputs) {
     for (const p of scope.outputs) tx.note(label, p, value, { view });
     if (texty) everyField(tx, c.scene(), scope, label, value);
@@ -716,8 +718,12 @@ function apply(label, value) {
   const sceneWas = App.scene.peek();
   // The first change of a session that reaches more than one box says what it reached, with a way to have given it to this one alone; on a chart of several pages, every such change says the page, with a way to go further.
   const reach = firstReach(c, scope, label, value), just = reach?.just && (() => { Shell.parts.peek().undo?.undo(); const s = scopesOf(c); penTo(c, s, s.scopes.find(x => x.own)); apply(label, value); Shell.toast(label === 'Fill' && value !== 'none' ? `Filled just ${reach.own}` : Time.looked(label, value, `just ${reach.own}`), { undo: () => Shell.parts.peek().undo?.undo() }); });
+  // (Bigger text keeps the same tidy chart: laid out with the change, one change.)
+  const relay = laysOut(c, label) ? c.relaid(trying(c, label, value)) : null;
+  if (relay?.hands) says.push('laid out again, so no box is over another');
   let said = [];
-  App.change(tx => { write(tx, c, label, value); said = wroteHere(tx, c); if (ofDesign) tx.says(ofDesign); else if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: reach ? [ofDesign ? `${ofDesign}${reach.page}` : reach.said, ...says].join('; ') : ofDesign || (says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null),
+  App.change(tx => { write(tx, c, label, value); said = wroteHere(tx, c); relay?.write(tx); if (ofDesign) tx.says(ofDesign); else if (oneAct) tx.says(inView); else if (ofFoot) tx.says(ofFoot); else if (ofFree) tx.says(ofFree); }, { say: reach ? [ofDesign ? `${ofDesign}${reach.page}` : reach.said, ...says].join('; ') : ofDesign || (says.length ? `${Time.looked(label, value, scope.caption)}; ${says.join('; ')}` : scope.root ? inView : ofFoot || ofFree || null),
+    ...(relay && { keep: false }),
     go: () => [first.also ? [first.offer, () => App.change(first.also, { dated: false, say: first.done })] : under?.clear ?? (just && reach.own ? [`Just ${reach.own}`, just] : null), reach ? everyPage(said, reach.of) : null].filter(Boolean) });
   if (label === 'Fill' && scope.own) sayLies(sceneWas);
   // A size the chart can't hold is said, never left to be seen.
@@ -771,7 +777,14 @@ function preview(label, value) {
   if (!key) return c.restyle(null);
   if (label === 'Tidy') return c.restyle(c.tidied(), { moves: true });
   if (label === 'Tidy for every date') return c.restyle(c.tidiedEvery(), { moves: true });
-  c.restyle(trying(c, label, value), label === 'Size' || label === 'Design' || scopeOf(scopesOf(c).scopes)?.root ? { moves: true } : undefined);
+  const wb = trying(c, label, value);
+  c.restyle(laysOut(c, label) ? c.relaidLook(wb) : wb, label === 'Size' || label === 'Design' || scopeOf(scopesOf(c).scopes)?.root ? { moves: true } : undefined);
+}
+// A size or font given what the chart draws by the group, of two boxes or more, not one box's, a free shape's or what's being typed: it's laid out with the change (see the canvas's relaid).
+function laysOut(c, label) {
+  if (label !== 'Size' && label !== 'Font') return false;
+  const scope = scopeOf(scopesOf(c).scopes);
+  return !partPicked(c, label) && !!scope && !scope.own && (!!scope.root || (!!scope.outputs?.length && (scope.marks ?? marksOf(c.scene(), scope)).size > 1));
 }
 // What keeps its own font or size under All text, a value going there: the styles, boxes and page's own texts a narrower
 // note gives it to. → { say, clear: [label, run] }, or null where it's all of it.
@@ -840,7 +853,8 @@ function firstFor(c, scope, label, value) {
 // its caption's).
 function value(label) {
   const m = current?.marks[0];
-  if (current?.scope?.root) { const v = App.notes.peek().resolve(label, viewSelf(current.canvas.scene()))?.value; return label === 'Size' && v != null ? Scene.fromSlide(page(), v) : v ?? (label === 'Font' ? Scene.DEFAULTS.text.Font : undefined); }
+  // (All text: what it says, or what the page's names print at, nothing having said a size of it, so its size can be stepped from there.)
+  if (current?.scope?.root) { const sc = current.canvas.scene(), v = App.notes.peek().resolve(label, viewSelf(sc))?.value; return label === 'Size' ? (v != null ? Scene.fromSlide(page(), v) : sc.marks.find(x => x.type === 'box' && x.texts?.[0])?.texts[0].look.Size) : v ?? (label === 'Font' ? Scene.DEFAULTS.text.Font : undefined); }
   if (current?.aim && !m) return current.aim.swatch[label];
   if (!m) return undefined;
   // A Key row's look is its swatch's, and its text what the marks it stands for print at.
@@ -1371,7 +1385,12 @@ const grown = v => v < 8 ? Math.floor(v + 1e-6) + 1 : STEPS.find(z => z > v + 1e
 const shrunk = v => v <= 8 + 1e-6 ? Math.max(1, Math.ceil(v - 1 - 1e-6)) : [...STEPS].reverse().find(z => z < v - 1e-6) ?? 96;
 function resize(f) {
   const v = shown(value('Size'));
-  if (typeof v === 'number' && (current?.marks.length || current?.scope?.root)) apply('Size', f(v));
+  if (typeof v !== 'number' || !(current?.marks.length || current?.scope?.root)) return;
+  const to = f(v);
+  apply('Size', to);
+  // (Larger never comes out smaller: where the page can't hold it, nothing's changed, and it's said.)
+  const short = to > v ? (App.scene.peek()?.page.short ?? []).find(x => x.printed < v - 0.01) : null;
+  if (short) { Shell.parts.peek().undo?.undo(); Shell.toast(`${short.what} can't print larger on this page: the chart doesn't fit at ${to} pt`); }
 }
 // The size: a field that takes any size typed (11.5), made with Enter, Esc putting it back; and its list.
 function SizeBox({ v, disabled, why }) {
@@ -1974,10 +1993,10 @@ function Bar() {
     { label: 'Send backward', icon: 'backward', keys: '$mod+[', run: () => c.order('backward') }, { label: 'Send to back', icon: 'back', keys: '$mod+Shift+[', run: () => c.order('back') },
   ];
   const grouping = s.group ? { label: 'Ungroup', icon: 'ungroup', keys: '$mod+Shift+G', disabled: ro, run: () => c.ungroup() } : { label: 'Group', icon: 'group', keys: '$mod+G', disabled: ro || placeable < 2, run: () => c.group() };
-  // Tidy lays the view out again, or with boxes selected, those around what stands, as its name says, with nothing to do where nothing in it was placed by hand; pointed
+  // Tidy lays the view out again, or with boxes selected, those around what stands, as its name says; it's never grey, and where there's nothing to do it says so; pointed
   // at, the pointer moved onto it (not found on it as a menu over it closes), it's drawn as it would be once the
   // pointer has rested there (the canvas's restyle). Made, the change ends the preview.
-  const view = c.scene().view, tidy = { label: c.tidyName(), disabled: ro || !c.tidyable(),
+  const view = c.scene().view, tidy = { label: c.tidyName(), disabled: ro,
     run: () => { tried = null; c.tidy(); }, tries: ['Tidy'] };
   // In one order, so the hand knows where each is: the selection; those under no style's name, which most marks have
   // (Names, Jurisdictions); the Styles rows as Styles lists them, each style's under its name; then Same field value,

@@ -1036,8 +1036,9 @@ async function run() {
         // … and drawn there, where it's drawn (cells out of view aren't): the path goes through every point of the
         // route, not only the cell's model, its ends as near as an arrowhead allows.
         const d = cv().graph.findViewByCell(c)?.container.querySelector('path[d]')?.getAttribute('d') ?? '', xy = (d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
-        const on = ([x, y], i) => { const e = i === 0 || i === m.points.length - 1 ? 4 : 0.5; return xy.some((v, k) => k % 2 === 0 && Math.abs(v - x) < e && Math.abs(xy[k + 1] - y) < e); };
-        if (d && !m.points.every(on)) bad.push(`${c.id} drawn on another route`);
+        // (Where it runs over a line alike it's left out, one stroke: what's left of it is drawn.)
+        const on = ([x, y], i) => { const e = m.strokes || i === 0 || i === m.points.length - 1 ? 4 : 0.5; return xy.some((v, k) => k % 2 === 0 && Math.abs(v - x) < e && Math.abs(xy[k + 1] - y) < e); };
+        if (d && !(m.strokes?.flat() ?? m.points).every(on)) bad.push(`${c.id} drawn on another route`);
       }
       else {
         const p = c.getPosition(), z = c.getSize();
@@ -1571,8 +1572,9 @@ async function reloaded() {
     tx.remove('own_fund_blkr');
   }, { dated: D[1] }); await tick(300);
   App.change(tx => tx.remove('northpine'), { dated: D[2] }); await tick(300);
-
+  // (Arranged, by one place a hand gave: a page nobody has is composed afresh as it's drawn, and has nothing to tidy.)
   await on(D[1]);
+  { const m = App.scene.peek().byId.get('fund'); App.change(tx => tx.note('Position', Tree.treeOf(st(), 'fund'), { x: m.x + 30, y: m.y, w: m.w }, { view }), { dated: false }); await tick(300); }
   const n0 = App.wb.changes().length, boxes = s => s.marks.filter(m => m.type === 'box').map(m => [m.id, m.x, m.y, m.w, m.h]);
   const preview = boxes(Scene.of(cv().tidied(), App.chart.peek(), view, D[1], { state: st(), computed: App.computed.peek(), ahead: true }));
   cv().tidy(); await Promise.resolve();
@@ -1587,7 +1589,19 @@ async function reloaded() {
   check('Tidy draws what its preview did, to the half point a place is kept to, one change, and enters it: every box it lays out stands where it’s drawn', App.wb.changes().length === n0 + 1 && madeBoxes.length === preview.length
     && madeBoxes.every((b, i) => b[0] === preview[i][0] && b.slice(1).every((v, k) => Math.abs(v - preview[i][k + 1]) <= 0.5)) && App.scene.peek().marks.every(m => m.type !== 'box' || m.entered),
     JSON.stringify([App.wb.changes().length - n0, madeBoxes, preview]));
-  check('… and it’s said as Tidy, and greys, with nothing more to tidy', Time.describe(App.wb.changes().at(-1)) === 'Tidied the layout' && !cv().tidyable(), Time.describe(App.wb.changes().at(-1)));
+  check('… and it’s said as Tidy', Time.describe(App.wb.changes().at(-1)) === 'Tidied the layout', Time.describe(App.wb.changes().at(-1)));
+  const n00 = App.wb.changes().length;
+  cv().tidy(); await tick(150);
+  check('… with nothing more to tidy it’s never grey: it says so, and writes nothing', !$('[data-fb="tidy"]').disabled && App.wb.changes().length === n00 && txt($$('.toast').at(-1)).startsWith('Already tidy'), txt($$('.toast').at(-1)));
+  // Bigger text keeps the same tidy chart: All text's size, with nothing selected, stepped from what names print at, laid out with the change.
+  {
+    Shell.select([]); await tick(120);
+    const rowsOf = s => { const bs = s.marks.filter(m => m.type === 'box'), ys = [...new Set(bs.map(b => Math.round(b.y)))].sort((a, b) => a - b); return JSON.stringify(bs.map(b => [b.id, ys.indexOf(Math.round(b.y))])); }, rows0 = rowsOf(App.scene.peek()), printed = () => { const s = App.scene.peek(); return s.marks.find(m => m.type === 'box').texts[0].look.Size * s.page.scale; }, at0 = printed(), n1 = App.wb.changes().length;
+    FormatBar.resize(1); await tick(500);
+    const s1 = App.scene.peek(), bs = s1.marks.filter(m => m.type === 'box'), clash = bs.some((a, i) => bs.slice(i + 1).some(b => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1));
+    check('Bigger text keeps the same tidy chart: All text steps up, one change, its rows the same, no box over another', printed() > at0 && App.wb.changes().length === n1 + 1 && rowsOf(s1) === rows0 && !clash, JSON.stringify([at0, printed(), App.wb.changes().length - n1, clash]));
+    Shell.parts.peek().undo.undo(); await tick(300);
+  }
   const off0 = await sameAsFresh();
   check('after Tidy, each day draws what a page opened on the same log draws', !off0.length, off0.join());
 
@@ -1748,23 +1762,23 @@ async function layered() {
     check('… and a line goes round it where its way isn’t long', under.length <= 3, under.map(m => m.id).join());
     // And Tidy, which it's offered, is of the page with one box selected, and gives that Key back to the page, clear of them all.
     Shell.select(['halvard']); await tick(200);
-    check('… Tidy is on offer, one box selected, called Tidy', cv().tidyable() && cv().tidyName() === 'Tidy', cv().tidyName());
+    check('… Tidy is on offer, one box selected, called Tidy', !$('[data-fb="tidy"]').disabled && cv().tidyName() === 'Tidy', cv().tidyName());
     cv().tidy(); await tick(600);
     const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h, keyNow = sc().marks.find(m => m.geometry === 'legend');
     check('… it clears the Key of every box: the page’s to place again, and it’s said no more', !sc().marks.some(m => m.type === 'box' && hit(m, keyNow)) && !Scene.says(sc()).some(w => /^The Key overlaps /.test(w)) && !Number.isFinite(App.shown.peek().rows(App.chart.peek()).find(r => r.shape === key.id && 'x' in r)?.x), JSON.stringify(Scene.says(sc())));
     Shell.select([]); await tick(150);
     for (let i = App.wb.changes().length; i > n2; i--) { Shell.parts.peek().undo.undo(); await tick(150); }
   }
-  // A page nobody has arranged: every place the layout's own, the first Tidy is free of the order they stand in. One place a hand gave, and it keeps it.
+  // A page nobody has arranged: every place the layout's own, so it's composed afresh, what's kept of it saying nothing, and Tidy has nothing to do. One place a hand gave, and it keeps it, and Tidy keeps the order they stand in.
   {
     const hereView = sc().view, ctrl = charts().find(v => v.id === 'view_control'), nA = App.wb.changes().length, stNow = () => App.state.peek();
     await show(ctrl); Shell.select([]); await tick(300);
     const placed = () => App.change(tx => sc().marks.filter(m => m.type === 'box').forEach(m => tx.note('Position', Tree.treeOf(stNow(), m.record), { x: m.x, y: m.y, w: m.w, kept: true }, { view: ctrl.id })), { dated: false });
     const heldIn = () => cv().tidied().rows(App.chart.peek()).filter(r => 'note' in r && r.label === 'Position' && r.view === ctrl.id).length;
     placed(); await tick(400);
-    const free = heldIn();
-    cv().tidy(); await tick(700);
-    check('a page nobody has arranged: its first Tidy is held to no order, and enters what it lays out', free === 0 && App.notes.peek().notes('Position').filter(n => n.view === ctrl.id).every(n => Number.isFinite(n.value.x) && n.value.order === n.value.x), `${free}`);
+    const free = heldIn(), nT = App.wb.changes().length;
+    cv().tidy(); await tick(300);
+    check('a page nobody has arranged is composed as it’s drawn: its Tidy is held to no order, finds nothing to do, and writes nothing', free === 0 && !!sc().page.composed && App.wb.changes().length === nT && txt($$('.toast').at(-1)).startsWith('Already tidy'), `${free} ${sc().page.composed} ${txt($$('.toast').at(-1))}`);
     for (let i = App.wb.changes().length; i > nA; i--) { Shell.parts.peek().undo.undo(); await tick(200); }
     placed(); await tick(400);
     const moved1 = sc().marks.find(m => m.type === 'box');
@@ -2464,7 +2478,7 @@ async function format() {
   const allAct = acts().find(a => a.id === 'format.alltext');
   check('Find reaches it by All text and Theme, with nothing selected', !!allAct && allAct.name.startsWith('All text') && allAct.names.includes('Theme') && acts().find(a => a.id === 'format.font').enabled(), allAct?.name);
   FormatBar.apply('Size', 9); await tick(600);
-  check('… its size too, each text printing at what was typed', rootOf(stE.id, 'Size') === 9 && Math.abs(sc().marks.find(m => m.role === 'title').texts[0].look.Size * sc().page.scale - 9) < 0.01 && $('[data-fb="size"]').value === '9', $('[data-fb="size"]').value);
+  check('… its size too, names printing at what was typed, what’s beside them under it, the sheet’s own title as it was', rootOf(stE.id, 'Size') === 9 && Math.abs(sc().marks.find(m => m.type === 'box').texts[0].look.Size * sc().page.scale - 9) < 0.01 && Math.abs(sc().marks.find(m => m.role === 'title').texts[0].look.Size * sc().page.scale - 9) > 1 && $('[data-fb="size"]').value === '9', $('[data-fb="size"]').value);
   Shell.parts.peek().undo.undo(); await tick(400);
   // A narrower note keeps its own, said, with a way to make it all that font.
   App.change(tx => tx.note('Font', { args: [{ edge: 'Name', loc: {} }] }, 'Garamond', { view: stE.id }), { dated: false }); await tick(300);
@@ -2599,7 +2613,7 @@ async function format() {
   await show(actE);
   App.change(tx => Canvas.keyCorner(tx, keyE().id, ['bottom', 'right']), { dated: false }); await tick(600);
   const clearOfKey = () => { const k = keyE(); return !sc().marks.some(b => b.type === 'box' && b.x < k.x + k.w && k.x < b.x + b.w && b.y < k.y + k.h && k.y < b.y + b.h); };
-  check('(a Key put in a corner stands there over what’s there, and it’s said)', !clearOfKey() && Scene.says(sc()).some(t => t.startsWith('The Key overlaps')) && cv().tidyable(), Scene.says(sc()).join('; '));
+  check('(a Key put in a corner stands there over what’s there, and it’s said)', !clearOfKey() && Scene.says(sc()).some(t => t.startsWith('The Key overlaps')), Scene.says(sc()).join('; '));
   cv().tidy(); await tick(900);
   const keyStill = keyE(), keyR = sc().page.sheet.w - (keyStill.x + keyStill.w) * sc().page.scale;
   check('… Tidy sets the chart clear of it, its Key where it was put', clearOfKey() && Math.abs(keyR - 48) < 1, `${clearOfKey()} ${keyR}`);

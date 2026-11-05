@@ -103,6 +103,11 @@ function index(rows) {
         outs.get(k).formats[n.label] = n.value;
       }
     }
+    // (But a field so shown, with no row of its own, has one where it's shown: its look is there to give, whatever's yet said of it. Departments.)
+    for (const n of rows) if (n.view === view && n.label === 'Shown' && n.param && n.value === true && ![...groups.values()].some(g => g.pattern.args?.length === 1 && same(g.pattern.args[0].edge, n.param))) {
+      const p = { args: [{ edge: n.param, loc: {} }] };
+      group(p).outputs.set(key(p), { pattern: p, formats: { Shown: true } });
+    }
     return [...groups.values()].sort((a, b) => (order.get(a.key) ?? Infinity) - (order.get(b.key) ?? Infinity))
       .map(g => ({ ...g, order: order.get(g.key), outputs: [...g.outputs.values()] }));
   }

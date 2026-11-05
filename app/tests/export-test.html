@@ -466,6 +466,9 @@ async function run() {
     const N = wb9.notes(C), R2 = at(D2), s2 = { ...Scene.of(wb9, C, main, D2, { state: R2.records, computed: R2 }), name: 'Step' }, R1b = at(D1), s0 = { ...Scene.of(wb9, C, main, D1, { state: R1b.records, computed: R1b }), name: 'Before' };
     const zip = await JSZip.loadAsync(await Export.write('pptx', [s0, s2], 'Changes', { R: R2, N })), slide = await zip.file('ppt/slides/slide2.xml').async('string'), first = await zip.file('ppt/slides/slide1.xml').async('string');
     const svg = Export.svg(s2, { pdf: true });
+    // (A label on a box is written over everything in the PDF, as it's over the box in the deck and on the page.)
+    const carrying = s2.marks.find(m => m.type === 'line' && m.labelAt && m.texts.length && !m.merged), said = carrying.texts.at(-1).lines[0].text, onIt = Export.svg({ ...s2, marks: s2.marks.map(m => m === carrying ? { ...m, onBox: true } : m) }, { pdf: true }), lastBox = s2.marks.filter(m => m.type === 'box').at(-1).texts[0].lines[0].text.split(' ')[0];
+    check('a line’s label on a box is drawn after all that’s under it in the PDF', onIt.lastIndexOf(said) > onIt.lastIndexOf(lastBox), j([said, lastBox, onIt.lastIndexOf(said), onIt.lastIndexOf(lastBox)]));
     check('In the deck a changed percentage is its old, struck, and its new, on one line of one paragraph', /<a:p>(?:(?!<\/a:p>)[\s\S])*strike="sngStrike"(?:(?!<\/a:p>)[\s\S])*<a:t>12\.3%<\/a:t>(?:(?!<\/a:p>)[\s\S])*<\/a:p>/.test(slide), slide.length);
     const gone = s2.marks.find(m => m.type === 'line' && m.change === 'Gone'), holder = gone && N.shortOf(s2.state, s2.state[gone.record].args.find(a => a.edge === 'Owner').at);
     check('… what’s gone in the deck stands where it stood, dashed in grey, a connector named as of its page’s day', !!gone && new RegExp(`name="${holder} is an owner of [^"]*"[\\s\\S]{0,900}<a:schemeClr val="bg1"><a:lumMod val="65000"/></a:schemeClr></a:solidFill><a:prstDash val="dash"/>`, 'i').test(slide), holder);
@@ -979,6 +982,16 @@ async function run() {
     await cancel(opening);
     S.parts.peek().undo.undo(); await tick(200); S.parts.peek().undo.undo(); await tick(200);
     S.select([]); await tick(60);
+    // Fit to page goes up as well as down: as large as it holds, in the middle of its room; and with that done, it says so.
+    {
+      const was = A.scene.peek(), n0 = A.wb.changes().length, boxesOf = sc => sc.marks.filter(m => m.type === 'box'), onSheet = sc => { const bs = boxesOf(sc), s = sc.page.scale; return { left: Math.min(...bs.map(b => b.x * s)), right: Math.max(...bs.map(b => (b.x + b.w) * s)), W: sc.page.sheet.w }; };
+      X.fit(); await tick(500);
+      const up = A.scene.peek(), o = onSheet(up);
+      check('Fit to page holds the chart as large as it holds, up as well as down, in the middle of its room, one change', up.page.scale >= was.page.scale && Math.abs(o.left - (o.W - o.right)) < 3 && A.wb.changes().length === n0 + 1, j([was.page.scale, up.page.scale, o]));
+      X.fit(); await tick(300);
+      check('… and asked again, it says it already fills its page, and writes nothing', A.wb.changes().length === n0 + 1 && /already fills its page/.test([...f.contentDocument.querySelectorAll('.toast')].at(-1)?.textContent ?? ''), [...f.contentDocument.querySelectorAll('.toast')].at(-1)?.textContent);
+      S.parts.peek().undo.undo(); await tick(300);
+    }
     f.remove();
   }
 }
