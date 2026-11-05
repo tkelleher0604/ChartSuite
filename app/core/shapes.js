@@ -152,20 +152,20 @@ const others = (y, h, format, x = 0, w = 1) => ({ id: 'rest', rest: true, geomet
 const panelled = (y, h, format, x = 0, w = 1) => ({ id: 'rest', rest: true, geometry: 'rect', x, y, w, h, format: { ...PANEL, Align: 'center', Valign: 'middle', ...format } });
 const DESIGNS = [
   { id: 'plain', name: 'Plain', base: {}, parts: [] },
-  { id: 'rule', name: 'Rule under the name', w: 148, h: 66, base: { Shape: 'rect' }, parts: [words('name', 0, 0.52, { Valign: 'bottom' }),
+  { id: 'rule', name: 'Name rule', w: 148, h: 66, base: { Shape: 'rect' }, parts: [words('name', 0, 0.52, { Valign: 'bottom' }),
     { id: 'rule', geometry: 'line', x: 0.12, y: 0.55, w: 0.76, h: 0, points: [[0.12, 0.55], [0.88, 0.55]], format: { Outline: '{Outline}', Weight: 0.75 } }, others(0.57, 0.43)] },
   { id: 'header', name: 'Header band', w: 156, h: 72, base: { Shape: 'rect', Fill: ACCENT }, parts: [words('name', 0, 0.42), panelled(0.42, 0.58)] },
   { id: 'side', name: 'Side band', w: 164, h: 64, base: { Shape: 'rect', Fill: ACCENT }, parts: [{ id: 'panel', geometry: 'rect', x: 0.08, y: 0, w: 0.92, h: 1, format: PANEL }, words('name', 0.04, 0.5, { Align: 'left', Valign: 'bottom' }, 0.08, 0.92), others(0.54, 0.46, { Align: 'left' }, 0.08, 0.92)] },
   { id: 'corner', name: 'Corner tag', w: 156, h: 70, base: { Shape: 'rect' }, parts: [others(0.24, 0.76, { Valign: 'middle' }),
     { id: 'tag', geometry: 'rect', x: 0.42, y: 0, w: 0.58, h: 0.24, text: '{?}', format: { Fill: ACCENT, Outline: 'none', Inset: { l: 2, r: 2, t: 1, b: 1 }, Align: 'center', Valign: 'middle' } }] },
-  { id: 'tiers', name: 'Two-tier', w: 148, h: 76, base: { Shape: 'rect', Fill: '#dbe5f1' }, parts: [words('name', 0, 0.5), panelled(0.5, 0.5)] },
-  { id: 'card', name: 'Card with a shadow', w: 156, h: 66, base: { Shape: 'rounded', Corner: 8, Outline: 'none', Shadow: { blur: 8, distance: 2.5, angle: 90, color: '#000000', transparency: 70 } }, parts: [words('name', 0.04, 0.5, { Align: 'left', Valign: 'bottom' }), others(0.54, 0.46, { Align: 'left' })] },
+  { id: 'tiers', name: 'Two tiers', w: 148, h: 76, base: { Shape: 'rect', Fill: '#dbe5f1' }, parts: [words('name', 0, 0.5), panelled(0.5, 0.5)] },
+  { id: 'card', name: 'Shadow card', w: 156, h: 66, base: { Shape: 'rounded', Corner: 8, Outline: 'none', Shadow: { blur: 8, distance: 2.5, angle: 90, color: '#000000', transparency: 70 } }, parts: [words('name', 0.04, 0.5, { Align: 'left', Valign: 'bottom' }), others(0.54, 0.46, { Align: 'left' })] },
   { id: 'person', name: 'Person', w: 176, h: 60, base: { Shape: 'rect' }, parts: [{ id: 'face', geometry: 'oval', square: true, x: 0.04, y: 0.14, w: 0.245, h: 0.72, text: '{Name|initials}', format: { Fill: ACCENT, Outline: 'none', Bold: true, Inset: { l: 0, r: 0, t: 0, b: 0 }, Align: 'center', Valign: 'middle' } },
     words('name', 0.04, 0.5, { Align: 'left', Valign: 'bottom' }, 0.3, 0.7), others(0.54, 0.46, { Align: 'left' }, 0.3, 0.7)] },
   { id: 'ticket', name: 'Ticket', w: 156, h: 66, base: { Shape: 'plaque' }, parts: [words('name', 0.04, 0.5, { Valign: 'bottom' }),
     { id: 'tear', geometry: 'line', x: 0.1, y: 0.56, w: 0.8, h: 0, points: [[0.1, 0.56], [0.9, 0.56]], format: { Outline: '{Outline}', Weight: 0.75, Dash: 'dash' } }, others(0.58, 0.42)] },
   { id: 'pill', name: 'Pill', w: 176, h: 44, base: { Shape: 'rounded', Corner: 50 }, parts: [] },
-  { id: 'org', name: 'Org-chart card', w: 156, h: 68, base: { Shape: 'rect', Fill: ACCENT }, parts: [{ id: 'panel', geometry: 'rect', x: 0, y: 0.1, w: 1, h: 0.9, format: PANEL }, words('name', 0.12, 0.46, { Valign: 'bottom' }), others(0.58, 0.42)] },
+  { id: 'org', name: 'Org card', w: 156, h: 68, base: { Shape: 'rect', Fill: ACCENT }, parts: [{ id: 'panel', geometry: 'rect', x: 0, y: 0.1, w: 1, h: 0.9, format: PANEL }, words('name', 0.12, 0.46, { Valign: 'bottom' }), others(0.58, 0.42)] },
   { id: 'triangle', name: 'Triangle', base: { Shape: 'triangle' }, parts: [] },
 ];
 
@@ -434,7 +434,7 @@ const inTheme = (colors = null) => {
 };
 
 return {
-  hasEffect, effectKey, effectDef, reflectionMask, compoundDef, turned3d, pictureDef, lineGradientDef, hashed, TEXTURES, textureTile, parseD, pointsOf, iconPoints, throughPoints, flatten, boundsOf, refit, custGeom, merge, framed, TAIL, CALLOUTS, OPEN, OFFICE, SLOTS, PATTERNS, patternDef, gradientDef, swatches, inTheme, shaded, gallery, DESIGNS, boxy: id => id === 'rect' || id === 'rounded' || id === 'freeform' || TABLE.find(t => t[0] === id)?.[2] === 'Rectangles', ids: TABLE.map(t => t[0]), list: TABLE.map(t => [t[0], t[1]]),
+  hasEffect, effectKey, effectDef, reflectionMask, compoundDef, turned3d, pictureDef, lineGradientDef, hashed, TEXTURES, textureTile, parseD, pointsOf, iconPoints, throughPoints, flatten, boundsOf, refit, custGeom, merge, framed, TAIL, CALLOUTS, OPEN, OFFICE, SLOTS, PATTERNS, patternDef, gradientDef, swatches, inTheme, shaded, gallery, DESIGNS, ACCENT, boxy: id => id === 'rect' || id === 'rounded' || id === 'freeform' || TABLE.find(t => t[0] === id)?.[2] === 'Rectangles', ids: TABLE.map(t => t[0]), list: TABLE.map(t => [t[0], t[1]]),
   has: id => by.has(id),
   name: id => by.get(id)?.name ?? null,
   prst: id => by.get(id)?.prst ?? 'rect',
