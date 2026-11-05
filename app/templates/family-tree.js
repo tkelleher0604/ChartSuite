@@ -8,6 +8,8 @@ Templates.register({
     const person = { kind: 'Person' }, field = (edge, type = 'text') => ({ out: { field: type }, ...t.entry(edge, {}) });
     t.kind('Person', { Name: 'text', Born: 'date', Died: 'date', Birthplace: 'text', 'Maiden Name': 'text' });
     t.undated();
+    // (Its own type, as warm as its colours, a face every copy of Office has, so the deck carries it.)
+    t.note('Theme Fonts', { kind: 'View' }, { heading: 'Palatino Linotype', body: 'Palatino Linotype' });
     t.note('Order', person, { by: 'Born' });
     const parent = t.relation('Parent Of', ['Parent', 'Child'], { kinds: [['Person', 'Person']], lists: { Parent: 'Parents', Child: 'Children' } });
     const married = t.relation('Married To', ['Spouse', 'Partner'], { kinds: [['Person', 'Person']], lists: { Spouse: 'Spouses', Partner: 'Spouses' }, at: { Married: 'date', Ended: 'date' }, above: 'level' });

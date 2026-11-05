@@ -188,6 +188,10 @@ async function run() {
   check('Tour, from the chart menu, starts it again', step() === '1 / 7', step());
   Shell.select(['fund']); await tick(150);
   check('… its first step done by a box clicked', step() === '2 / 7', step());
+  $('.tour-card .next').click(); await tick(150);
+  const passed = step();
+  $('.tour-card .back').click(); await tick(150);
+  check('Next passes a step over and Back goes to the one before, so no one’s stuck with Skip the only way on', passed === '3 / 7' && step() === '2 / 7', `${passed} ${step()}`);
   $('.tour-card .skip').click(); await tick(150);
   check('Skip ends it, with the selection the tour began on', step() === null && Shell.selection.peek().join() === 'gp', `${step()} ${Shell.selection.peek().join()}`);
   // In a step, Esc first leaves what's being done (a menu open, what's typed), and then ends the tour, with the selection it began on,

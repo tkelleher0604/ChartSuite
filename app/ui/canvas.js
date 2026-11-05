@@ -483,7 +483,7 @@ function mount(el) {
   // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
   const pageScale = () => scene?.page.scale ?? 1;
   const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); zoomedTo(graph.zoom() * (devicePixelRatio || 1)); };
-  let cued = null, inReach = null; // a pen pointed at, lit; what's in reach of the pen (see cue)
+  let cued = null, cuedWords = null, hinted = null, hintedWords = null, inReach = null, reachNames = false, reachWords = null; // a pen pointed at, lit; a row pointed at; what's in reach of the pen (see cue)
   let pointing = false, hold = false;
   // The field selected, pointed at, lit from the inspector, and the box a row is dragged over (see Fields).
   let field = null, hovered = null, litKey = null, dropOn = null, dropAt = null;
@@ -2420,7 +2420,7 @@ function mount(el) {
     if (e.target.closest?.('.dc-handle, .x6-widget-transform, .dc-edit')) return;
     root.classList.remove('near-grips'); showHandles(null); hover(null);
   }, true);
-  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') bendGrips(); if (aids.peek().rulers) paintAids(); zoomRead(); snapSoon(); });
+  for (const name of ['scale', 'translate']) graph.on(name, () => { if (!quiet) { framed = false; left = wanted = null; onScreen(); } showHandles(null); grips(); if (name === 'scale') { if (inReach || sel.getSelectedCells().length) paintStates(); else bendGrips(); } if (aids.peek().rulers) paintAids(); zoomRead(); snapSoon(); });
 
   // The line of the chart a point is on, within 8 px on screen, the nearest, but those of a box given (a dot dropped on its own line is nothing asked).
   function lineAt(p, not) {
@@ -2476,14 +2476,15 @@ function mount(el) {
     // the keys, in their words.
     const others = scene.marks.some(m => m.type === 'box' && m.id !== from.id);
     const next = click ? over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-tip dc-next', textContent: Shell.keyed() ? (others ? (only ? 'Now Tab to the other box and press Enter' : 'Now Tab to the other box and press Enter, or type a new name') : 'Now type its name') : others ? 'Now click the other box' : 'Now click where the other box goes' })) : null;
-    const beside = m => { const g = graph.localToGraph(m.x + m.w, m.y + m.h / 2); Object.assign(next.style, { left: `${g.x + 8}px`, top: `${g.y - 12}px` }); };
+    // (Its words whole: where they'd run under the panel, on the box's other side, or held inside the chart's edge as it follows the pointer.)
+    const beside = m => { const g = graph.localToGraph(m.x + m.w, m.y + m.h / 2), l = graph.localToGraph(m.x, m.y), w = next.offsetWidth; Object.assign(next.style, { left: `${g.x + 8 + w > root.clientWidth - 8 ? Math.max(8, l.x - 8 - w) : g.x + 8}px`, top: `${g.y - 12}px` }); };
     if (next) beside(from);
     const lit = () => paintStates(new Map([[from.id, ['accent', 1]], ...(target ? [[target.id, ['accent', 1]]] : [])]));
     const move = ev => {
       const p = at(ev);
       target = boxAt(p);
       line.setAttribute('d', `M${start[0]},${start[1]} L${p.x},${p.y}`);
-      if (next) { const r = root.getBoundingClientRect(); Object.assign(next.style, { left: `${ev.clientX - r.left + 14}px`, top: `${ev.clientY - r.top + 14}px` }); }
+      if (next) { const r = root.getBoundingClientRect(); Object.assign(next.style, { left: `${Math.min(ev.clientX - r.left + 14, root.clientWidth - next.offsetWidth - 8)}px`, top: `${ev.clientY - r.top + 14}px` }); }
       lit();
     };
     const end = () => {
@@ -2718,6 +2719,8 @@ function mount(el) {
     { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, '-',
     { label: 'Tidy', disabled: still(), run: tidy },
     { label: 'Page setup…', disabled: still(), run: () => Export.setup() },
+    { label: 'Edit master', ...(App.mastering.peek() && { checked: true }), run: () => { App.mastering.value = !App.mastering.peek(); } },
+    ...(App.mastering.peek() ? [] : [{ label: 'Leave the master off', ...(!App.hasMaster(viewOf()) && { checked: true }), disabled: still(), run: () => App.pageMaster(viewOf(), !App.hasMaster(viewOf())) }]),
     { label: 'More', items: [{ label: 'Selection pane', keys: 'Alt+F10', run: () => hand.pane(true) }, { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
       ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-', aidsRow()] },
   ];
@@ -2754,6 +2757,14 @@ function mount(el) {
       p.setAttribute('class', cls);
       marks.appendChild(p);
     };
+    // A text's own words, outlined where they stand in the box or on the line they're in.
+    const outlineWords = (h, m, cls) => {
+      const o = h.type === 'line' ? h.labelAt ?? { x: 0, y: 0 } : h;
+      const xs = m.lines.map(l => l.x - (m.look.Align === 'center' ? l.w / 2 : m.look.Align === 'right' ? l.w : 0)), ys = m.lines.map(l => l.y);
+      outline({ type: 'box', x: o.x + Math.min(...xs), y: o.y + Math.min(...ys) - Scene.baseline(m.look), w: Math.max(...m.lines.map(l => l.w)), h: m.lines.length * Scene.lineHeight(m.look) }, cls, 1.5);
+    };
+    // The ring of what's selected and of what the pen reaches: clear of a mark's own edge by as much on screen at any zoom, so it shows whatever the mark's filled with.
+    const RING = 3 / graph.zoom();
     const hosts = new Map();
     for (const m of scene.marks) for (const it of m.texts ?? []) hosts.set(it.id, m);
     const lit = new Set();
@@ -2766,9 +2777,7 @@ function mount(el) {
         const h = hosts.get(m.id);
         if (!h) continue;
         lit.add(h.id);
-        const o = h.type === 'line' ? h.labelAt ?? { x: 0, y: 0 } : h;
-        const xs = m.lines.map(l => l.x - (m.look.Align === 'center' ? l.w / 2 : m.look.Align === 'right' ? l.w : 0)), ys = m.lines.map(l => l.y);
-        outline({ type: 'box', x: o.x + Math.min(...xs), y: o.y + Math.min(...ys) - Scene.baseline(m.look), w: Math.max(...m.lines.map(l => l.w)), h: m.lines.length * Scene.lineHeight(m.look) }, cls, 1.5);
+        outlineWords(h, m, cls);
       } else { lit.add(m.merged ?? m.id); outline(m, cls); }
     }
     // A selected legend row, and an entered or selected group.
@@ -2780,18 +2789,23 @@ function mount(el) {
       for (const m of scene.marks) if (m.settings && Object.values(m.settings).some(s => s.note && outs.has(Tree.key(s.note.pattern)))) outline(m, 'dc-row', 3);
     }
     for (const g of groups()) if (g.members.some(id => sel.isSelected(graph.getCellById(id) ?? {}))) outline(g, 'dc-group', 4);
-    // What's selected is outlined by its own shape, not by a frame round it; X6's frame shows only while it's dragged (see the stylesheet).
+    // What's selected is ringed by its own shape, clear of its edge; X6's frame shows only while it's dragged (see the stylesheet).
     for (const c of sel.getSelectedCells()) if (c.isNode()) {
       const m = scene.byId.get(c.id);
       if (!m || m.points) continue;
-      outline(m, 'dc-group dc-shaped', 0);
+      outline(m, 'dc-group dc-shaped', RING);
       if (m.rotate) marks.lastChild.setAttribute('transform', `${marks.lastChild.getAttribute('transform')} rotate(${m.rotate} ${m.w / 2} ${m.h / 2})`);
     }
-    // A pen pointed at: each mark it would reach lit on its own edge, so there's one rule and not two. And at rest, what's in reach of the pen, a faint tint.
+    // A pen pointed at: each mark it would reach lit on its own edge, or its words where it reaches words, so there's one rule and not two.
+    // A row pointed at, what it governs lit the same, nothing else touched. And at rest, what's in reach of the pen: a thin ring, every colour left as it is.
     const drawnOf = ids => ids && new Set([...ids].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
-    const cuedHere = drawnOf(cued), reachHere = drawnOf(inReach);
-    for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 0);
-    if (!cuedHere) for (const id of reachHere ?? []) outline(scene.byId.get(id), 'dc-reach', 0);
+    const cuedHere = drawnOf(cued), reachHere = drawnOf(inReach), hintHere = drawnOf(hinted);
+    const lightWords = (words, cls) => { for (const id of words) { const h = hosts.get(id), it = h?.texts.find(t => t.id === id); if (it) outlineWords(h, it, cls); } };
+    if (cuedWords) lightWords(cuedWords, 'dc-cue'); else for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 0);
+    if (!cuedHere) {
+      if (reachWords) lightWords(reachWords, 'dc-reach'); else for (const id of reachHere ?? []) outline(scene.byId.get(id), 'dc-reach', RING);
+      if (hintedWords) lightWords(hintedWords, 'dc-cue'); else for (const id of hintHere ?? []) outline(scene.byId.get(id), 'dc-cue', 0);
+    }
     // A selected line is traced in the accent, as Office marks one.
     for (const c of sel.getSelectedCells()) if (c.isEdge()) { const m = scene.byId.get(c.id); if (m?.points) outline(m, 'dc-sel'); }
     bendGrips();
@@ -2806,8 +2820,8 @@ function mount(el) {
       const off = !!designing && k !== 'page' && k !== 'ink' && !designing.keeps(id);
       el.classList.toggle('dc-locked', off);
       el.classList.toggle('dc-dull', off || (!!cuedHere && k !== 'page' && k !== 'ink' && !cuedHere.has(id)));
-      // A mark selected, or in the scope chosen, shows its blanks' names.
-      el.classList.toggle('dc-on', sel.isSelected(k === 'label' ? graph.getCellById(id) ?? c : c) || !!cuedHere?.has(id) || !!reachHere?.has(id));
+      // A mark selected, or in a scope pointed at or that a hand chose, shows its blanks' names; where the pen went by itself, only the one selected does.
+      el.classList.toggle('dc-on', sel.isSelected(k === 'label' ? graph.getCellById(id) ?? c : c) || !!cuedHere?.has(id) || (reachNames && !!reachHere?.has(id)));
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
     paintFields();
@@ -2949,17 +2963,34 @@ function mount(el) {
   }
   // A pen pointed at, on the chart, its cue: `ids`, the marks it would reach (boxes and lines, by id), each lit with the
   // group light and every other mark dulled; null clears it. It's drawn over the scene and changes nothing in it, so no
-  // export draws it. And `reach`, what's in reach of the pen at rest: a thin outline, nothing else touched.
-  function cue(ids) {
-    const next = ids ? new Set(ids) : null;
-    if (JSON.stringify(next && [...next]) === JSON.stringify(cued && [...cued])) return;
-    cued = next;
+  // export draws it. `by`, what's pointed at: a thing gone from under the pointer sends no word of its going, so the cue
+  // goes with it, whatever took it. `words`, the texts it reaches, where it reaches words and not the boxes they're in.
+  // `hint`, a row pointed at, lights what it governs the same way, with nothing dulled. And `reach`, what's in reach of the pen at rest: a thin ring, nothing else touched;
+  // with `names`, a hand having put it there, the blanks' names in those too.
+  const pointedAt = new Map();
+  function whilePointed(kind, by, end) {
+    pointedAt.get(kind)?.();
+    pointedAt.delete(kind);
+    if (by?.isConnected) pointedAt.set(kind, Shell.whileThere(by, end));
+  }
+  function cue(ids, by = null, words = null) {
+    const next = ids ? new Set(ids) : null, say = JSON.stringify([next && [...next], words]);
+    whilePointed('cue', next && by, () => cue(null));
+    if (say === JSON.stringify([cued && [...cued], cuedWords])) return;
+    cued = next; cuedWords = next && words;
     paintStates();
   }
-  function reach(ids) {
-    const next = ids ? new Set(ids) : null;
-    if (JSON.stringify(next && [...next]) === JSON.stringify(inReach && [...inReach])) return;
-    inReach = next;
+  function hint(ids, by = null, words = null) {
+    const next = ids ? new Set(ids) : null, say = JSON.stringify([next && [...next], words]);
+    whilePointed('hint', next && by, () => hint(null));
+    if (say === JSON.stringify([hinted && [...hinted], hintedWords])) return;
+    hinted = next; hintedWords = next && words;
+    paintStates();
+  }
+  function reach(ids, names = false, words = null) {
+    const next = ids ? new Set(ids) : null, say = JSON.stringify([next && [...next], names, words]);
+    if (say === JSON.stringify([inReach && [...inReach], reachNames, reachWords])) return;
+    inReach = next; reachNames = names; reachWords = next && words;
     paintStates();
   }
   // A format pointed at in the format bar, as it would look: the chart drawn from `wb`, the workbook as the
@@ -3781,7 +3812,8 @@ function mount(el) {
     }, { dated: false }),
     captioned: edge => App.notes.peek().value('Format', entryAnywhere(edge), viewOf()) === 'label',
     setCaptioned: (edge, on) => App.change(tx => tx.note('Format', entryAnywhere(edge), on ? 'label' : undefined, { view: viewOf() }), { dated: false, say: `${on ? 'Named' : 'Stopped naming'} ${edge} where it’s shown` }),
-    light: key => { if (litKey !== key) { litKey = key; paintFields(); } },
+    // (`by`, the row pointed at: gone from under the pointer, it takes the light with it, as a cue's does.)
+    light(key, by = null) { whilePointed('light', key && by, () => fields.light(null)); if (litKey !== key) { litKey = key; paintFields(); } },
     over(cx, cy) {
       // (While a design is edited, a part stood on the page takes a row dropped too.)
       const p = cx == null ? null : graph.clientToLocal(cx, cy), m = p && [...scene.marks].reverse().find(b => (b.type === 'box' || (designing && b.type === 'shape' && designing.keeps(b.id))) && (!designing || designing.keeps(b.id)) && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
@@ -3836,7 +3868,7 @@ function mount(el) {
   function holdsAhead(base) { return base.page.composed ? null : holdsOf(base); }
   function holdsFor(base) { const at = App.pending.peek()?.placing?.(); if (!at && base.page.composed) return null; const h = holdsOf(base); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, reach, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, hint, reach, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, relaid, relaidLook, tidyEvery, tidiedEvery, zoom, put, sizeAtPen, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
@@ -3911,8 +3943,16 @@ const aidToggle = k => () => { aids.value = { ...aids.peek(), [k]: !aids.peek()[
 const aidsRow = () => ({ label: 'Gridlines and guides', items: [['Gridlines', 'grid'], ['Snap to grid', 'snap'], ['Rulers', 'rulers'], ['Margins', 'margins'], ['Guides', 'guides']].map(([label, k]) => ({ label, checked: aids.peek()[k], run: aidToggle(k) })) });
 for (const [id, name, k, names] of [['chart.grid', 'Gridlines', 'grid', ['Grid', 'Show grid']], ['chart.snap', 'Snap to grid', 'snap', ['Grid', 'Snap', 'Align to grid']], ['chart.rulers', 'Rulers', 'rulers', ['Ruler', 'Show rulers', 'Guides']]])
   Shell.register('action', { id, name, names, enabled: here, run: aidToggle(k) });
+// Position in the panel, opened where it's folded, and the keys on the first of those fields it has.
+const toPlace = (...ks) => {
+  Shell.showPanel?.();
+  setTimeout(() => {
+    document.querySelector('.insp section[data-key="place"] > .sect > .fold[aria-expanded="false"]')?.click();
+    setTimeout(() => { const f = ks.map(k => document.querySelector(`.insp [data-place="${k}"] input`)).find(Boolean); f?.scrollIntoView({ block: 'center' }); f?.focus(); f?.select(); }, 40);
+  }, 60);
+};
 Shell.register('action', { id: 'chart.rotate', name: 'Rotate…', names: ['Rotation', 'Turn', 'Angle'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && active.peek().selected()[0].type === 'shape',
-  run: () => { Shell.showPanel?.(); setTimeout(() => { const f = document.querySelector('.insp [data-place="r"] input'); f?.scrollIntoView({ block: 'center' }); f?.focus(); f?.select(); }, 60); },
+  run: () => toPlace('r'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one free shape first' });
 Shell.register('action', { id: 'chart.tidyEvery', name: 'Tidy for every date', names: ['Tidy all dates', 'Tidy across dates', 'Line up the dates', 'Same places on every date'], enabled: () => here() && !App.readOnly.peek(), run: call('tidyEvery'),
   why: () => !here() ? 'Show a chart first' : App.whyNot() });
@@ -3925,7 +3965,7 @@ Shell.register('action', { id: 'chart.with', name: 'With another box…', names:
   why: () => !here() ? 'Show a chart first' : !App.canAsk() ? App.whyNot() : 'Select a box first' });
 // A box's size, typed in its panel; so with a shape's.
 Shell.register('action', { id: 'chart.size', name: 'Size…', names: ['Height', 'Width', 'Resize', 'Lock proportions', 'Aspect ratio'], enabled: () => here() && !App.readOnly.peek() && active.peek().selected().length === 1 && ['box', 'shape'].includes(active.peek().selected()[0].type),
-  run: () => { Shell.showPanel?.(); setTimeout(() => { const f = document.querySelector('.insp [data-place="h"] input') ?? document.querySelector('.insp [data-place="w"] input'); f?.scrollIntoView({ block: 'center' }); f?.focus(); f?.select(); }, 60); },
+  run: () => toPlace('h', 'w'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one box first' });
 Shell.register('action', { id: 'chart.relate', name: 'Relate…', names: ['Connect', 'Link', 'Add a relation', 'Draw a line'], enabled: () => here() && !App.readOnly.peek() && !!active.peek().relatable(), run: call('relate'),
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select one box first' });
@@ -3933,7 +3973,7 @@ Shell.register('action', { id: 'chart.relate', name: 'Relate…', names: ['Conne
 const lineNow = () => { const s = here() ? active.peek().selected() : []; return s.length === 1 && s[0].type === 'line' ? s[0] : null; };
 const bendNote = () => { const m = lineNow(), t = m && Tree.treeOf(App.state.peek(), m.record); return t ? App.notes.peek().resolve('Bend', t, active.peek().scene().view)?.note : null; };
 Shell.register('action', { id: 'chart.route', name: 'Route…', names: ['Bend', 'Bend a line', 'Move a line', 'Jog', 'Reroute', 'Elbow', 'Straight', 'Connector'], enabled: () => !App.readOnly.peek() && !!lineNow(), run: () => FormatBar.open('outline'),
-  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line first, then drag a yellow grip on it' });
+  why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line first, then drag a grip on it' });
 Shell.register('action', { id: 'chart.unbend', name: 'Reset the route', names: ['Bend', 'Route', 'Unbend', 'Take away the bend', 'Straighten'], enabled: () => !App.readOnly.peek() && !!bendNote(),
   run: () => { const m = lineNow(), n = bendNote(); if (n) App.change(tx => tx.remove(n.note), { dated: false, say: `Reset the route of ${App.notes.peek().nameOf(App.state.peek(), m.record)}: ${App.notes.peek().segmentOf(App.state.peek(), m.record)}` }); },
   why: () => !here() ? 'Show a chart first' : App.readOnly.peek() ? App.whyNot() : 'Select a line a hand has bent first' });

@@ -1146,7 +1146,7 @@ function attach(x) {
     root.classList.toggle('mastering', on);
     // (What was selected on one page is no selection on the other.)
     if (on !== wasMastering) { wasMastering = on; queueMicrotask(() => Shell.select([])); }
-    render(on ? html`<div class="dc-masterbar" role="status"><span>Master</span><button class="btn primary" onClick=${() => { App.mastering.value = false; }}>Close master</button></div>` : null, masterEl);
+    render(on ? html`<div class="dc-masterbar" role="status"><span>Editing the master</span><button class="btn primary" onClick=${() => { App.mastering.value = false; }}>Done</button></div>` : null, masterEl);
   });
   const leaveMaster = e => { if (e.key === 'Escape' && App.mastering.peek() && !armed && !x.selectedNow().length && !e.target.closest?.('.dc-edit')) { e.preventDefault(); e.stopPropagation(); App.mastering.value = false; } };
   root.addEventListener('keydown', leaveMaster);
