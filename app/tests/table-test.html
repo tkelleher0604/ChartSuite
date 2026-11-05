@@ -2088,7 +2088,7 @@ async function run() {
   check('… so Undo straight after leaves it whole', C() === C1 && App.wb.charts().some(c => c.chart === C1) && views().length > 0 && /Nothing to undo/.test($('.toast')?.textContent ?? ''), $('.toast')?.textContent);
   const kept = views().map(v => v.name), chart1 = views().find(v => v.layout === 'chart');
   check('It keeps the views named for what they show, and every page, by what it says of what it shows; not a table made of one list (Entities 2)', ['Structure', '40 Act', 'Fund', 'Management and control', 'Entities', 'Ownership', 'Dates', 'Documents'].every(n => kept.includes(n))
-    && !kept.includes('Entities 2') && views().filter(v => v.layout === 'chart').length === 4 && !Object.values(App.state.peek()).some(r => r.kind && !Tree.isView(r)), kept.join());
+    && !kept.includes('Entities 2') && views().filter(v => v.layout === 'chart').length === 4 && !Object.values(App.state.peek()).some(r => r.kind && !Tree.isView(r) && !r.calendar), kept.join());
   check('… its chart with the styles and Shown of the old chart’s first', chart1 && App.notes.peek().resolve('Shown', { kind: 'Document' }, chart1.id)?.note.view === chart1.id);
   const pages = views().filter(v => v.layout === 'chart'), furniture = v => App.wb.rows(C1).filter(r => 'shape' in r && r.view === v.id);
   check('Each of its pages has a title, its name and the page’s, an as-of line and a Key', pages.length > 0 && pages.every((v, i) => furniture(v).some(s => s.role === 'title' && s.text === (i ? `${name1}: ${v.name}` : name1))

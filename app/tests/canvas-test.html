@@ -3343,7 +3343,7 @@ async function templates() {
   const likePages = App.wb.rows(like).filter(r => 'note' in r && r.label === 'Name' && r.pattern.kind === 'View').map(r => r.value);
   const tmpl = App.chart.peek(), tmplRows = wb().rows(tmpl).filter(r => !('chart' in r) && !r.calendar), a = said(likeRows), b = said(tmplRows), onlyA = a.filter(x => !b.includes(x)), onlyB = b.filter(x => !a.includes(x));
   check('the fund template is the sample’s chart less its records, so the two can’t drift', like !== sample && tmpl !== like && !onlyA.length && !onlyB.length, `${onlyA.slice(0, 3).join(' | ')} ::: ${onlyB.slice(0, 3).join(' | ')}`);
-  check('Like this chart brings the chart’s pages, empty', likePages.includes('40 Act') && !App.wb.rows(like).some(r => 'record' in r && r.kind !== 'View' && !r.tree), likePages.join());
+  check('Like this chart brings the chart’s pages, empty', likePages.includes('40 Act') && !App.wb.rows(like).some(r => 'record' in r && r.kind !== 'View' && !r.tree && !r.calendar), likePages.join());
   check('… and it has no record but its views', !tmplRows.some(r => 'record' in r && r.kind !== 'View'));
   check('… a template is one change, in History as any is', wb().changes().filter(c => c.chart === tmpl).length === 1);
   // Each of them: what it brings, none naming what's in the app's code.

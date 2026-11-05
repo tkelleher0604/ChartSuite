@@ -94,18 +94,18 @@ async function run() {
   { // Typed in a short list, it finds what begins with all that's typed, and no key of it gets out.
     const got = [], offer = async () => { Shell.menu($('.ih'), [{ label: '3(c)(1)', run: () => got.push(1) }, { label: '3(c)(7)', run: () => got.push(7) }]); await tick(60); };
     let out = 0; const spy = e => { if (!e.defaultPrevented) out++; };
-    const keys = t => [...t].forEach(key => $('.float .menu').dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })));
+    const open = s => document.querySelector(`.float ${s}`), keys = t => [...t].forEach(key => open('.menu').dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })));
     addEventListener('keydown', spy);
     await offer(); keys('3(c)(7)'); await tick(); keys(['Enter']); await tick();
     check('typed in a short list, it goes to what begins with all that’s typed, and Enter chooses it', got.join() === '7', got.join());
     await offer(); keys('3(c)(9)'); await tick(); keys(['Enter']); await tick();
-    check('… what finds nothing is chosen by no Enter', got.join() === '7' && !!$('.float .menu'), got.join());
+    check('… what finds nothing is chosen by no Enter', got.join() === '7' && !!open('.menu'), got.join());
     Shell.closeAll(); await tick();
     const grown = [];
     Shell.menu($('.ih'), [{ label: 'Remote', run: () => grown.push('Remote') }], { more: q => [{ label: `New option: ${q}`, asked: true, run: () => grown.push(q) }] }); await tick(60);
     keys('L'); await tick(60);
-    const field = $('.float .menu-find');
-    check('in a short list that can grow, the first key opens its field, with that key in it and the keys going on there', field?.textContent === 'L' && document.activeElement === field && $('.float .menu-item.on')?.textContent.includes('New option: L'), `${field?.textContent} ${document.activeElement?.className}`);
+    const field = open('.menu-find');
+    check('in a short list that can grow, the first key opens its field, with that key in it and the keys going on there', field?.textContent === 'L' && document.activeElement === field && open('.menu-item.on')?.textContent.includes('New option: L'), `${field?.textContent} ${document.activeElement?.className}`);
     field.textContent = 'Legal'; field.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60);
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick();
     check('… and Enter takes what’s typed as the new one it is', grown.join() === 'Legal', grown.join());
