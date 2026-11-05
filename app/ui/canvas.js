@@ -2110,7 +2110,8 @@ function mount(el) {
       ...(one?.type === 'box' && !ro ? addsOf(one) : []),
       // What's between it and another box: asked for, a tick in the two's panel relates them; Viewing, it reads what's there, and makes nothing.
       ...(one?.type === 'box' ? [{ label: ro ? 'With…' : 'Relate…', run: () => relating(one, undefined, null, ro) }] : []),
-      // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
+      // A relation recorded, as its panel's ⋯ has it: renamed where it's seen; given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
+      ...(one?.type === 'line' && !ro ? [{ label: `Rename ${App.notes.peek().nameOf(App.state.peek(), one.record)}…`, run: () => Shell.parts.peek().inspector?.renameLine?.(one.record) }] : []),
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: App.interposeWord(one.record), disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
       // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line. (One row, so the menu fits the window it opens in.)

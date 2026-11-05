@@ -1,6 +1,6 @@
 # The sample
 
-The workbook a first launch opens is Calder Ridge, a fictional private fund manager, with its Fund III family. Everything in it is fictional. It is a log, like any workbook: [app/sample/calder-ridge.js](../app/sample/calder-ridge.js) holds 136 changes by three people (Jordan Alvarez, Rebecca A. Moretti and Jonathan S. Ferraro), from June 2024 to October 2026. So its History reads as a team's record would.
+The workbook a first launch opens is Calder Ridge, a fictional private fund manager, with its Fund III family. Everything in it is fictional. It is a log, like any workbook: [app/sample/calder-ridge.js](../app/sample/calder-ridge.js) holds 136 changes by three people (Jordan Alvarez, Rebecca A. Moretti and Jonathan S. Ferraro), from June 2024 to October 2026. So its History reads as a team's record would. Less its records, it's a template: [app/templates/fund-structure.js](../app/templates/fund-structure.js), Fund structure (Investment Company Act) in the New chart gallery, generated from it and checked against it.
 
 ## What's in it
 

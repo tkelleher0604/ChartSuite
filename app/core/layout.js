@@ -333,7 +333,7 @@ function elkPlace(boxes, links, clusters, options, room) {
   const ranks = new Map(blocks.map(bs => [nodeOf(bs[0].id), firstOf(bs)]));
   const rankIn = n => ranks.get(n.id) ?? (ranks.set(n.id, n.children.map(rankIn).sort(earlier)[0] ?? [Infinity, Infinity]), ranks.get(n.id));
   for (const n of node.values()) n.children.sort((a, b) => earlier(rankIn(a), rankIn(b)));
-  const end = (id, k) => ported(inBlock.get(id).block) ? `${nodeOf(id)}|${id}|${k}` : id, seen = new Set(), main = mainOf(links), shape = new Map(boxes.map(b => [b.id, b.shape]));
+  const end = (id, k) => ported(inBlock.get(id).block) ? `${nodeOf(id)}|${id}|${k}` : id, seen = new Set(), main = mainOf(links.filter(l => !l.level)), shape = new Map(boxes.map(b => [b.id, b.shape]));
   // (With no frames, a line of another relation orders nothing where both its boxes have lines of the main one: a general partner stands with its owners, not among the funds it's general partner of.)
   const onMain = new Set(clusters.length ? [] : ranked.filter(l => l.trunk === main && tier.get(l.from) < tier.get(l.to)).flatMap(l => [l.from, l.to]));
   ranked.forEach((l, i) => {
@@ -537,7 +537,8 @@ function columns({ boxes, ranked, tier, blocks, inBlock, widthOf, out, main, sta
         if (l.from !== b.id && l.to !== b.id) continue;
         const o = middle(l.from === b.id ? l.to : l.from);
         if (o.r === r) continue;
-        const w = pull(l);
+        // (In a chart whose lines say no figure, a box that runs others stands over them, whoever it answers to: that one stands over it in turn.)
+        const w = pull(l) * (plain && l.to === b.id && kidsOf.has(b.id) ? 0.02 : 1);
         sum += w * (place.get(o.r) + o.x - (place.get(r) + middle(b.id).x));
         weight += w;
       }
@@ -698,7 +699,7 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   for (const b of boxes) { const p = keep?.get(b.id) ?? entered.get(b.id); if (p) out.set(b.id, { x: p.x, y: p.y }); }
   const rest = boxes.filter(b => !out.has(b.id));
   if (!rest.length) return out;
-  const ups = groupBy(links, l => l.to), downs = groupBy(links, l => l.from);
+  const ranking = links.filter(l => !l.level), ups = groupBy(ranking, l => l.to), downs = groupBy(ranking, l => l.from);
   const at = keep && out.size ? rough(boxes, ups, downs, out) : place({ boxes, links, clusters, room: page.room }), size = new Map(boxes.map(b => [b.id, b]));
   if (!out.size) return new Map(boxes.map(b => [b.id, { ...at.get(b.id) }]));
   const known = [...out.keys()];
@@ -729,6 +730,22 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   let loose = { x: leftAll, y: Math.max(...standing.map(g => g.y + g.h)) + GAP.down, h: 0 };
   const looseAt = b => { if (loose.x > leftAll && loose.x + b.w > rightAll) loose = { x: leftAll, y: loose.y + loose.h + GAP.down, h: 0 }; const p = { x: loose.x, y: loose.y }; loose = { x: loose.x + b.w + GAP.across, y: loose.y, h: Math.max(loose.h, b.h) }; return p; };
   for (const b of rest.sort((a, c) => flanking(a) - flanking(c) || at.get(a.id).y - at.get(c.id).y || (a.order ?? Infinity) - (c.order ?? Infinity) || madeAt.get(a.id) - madeAt.get(c.id))) {
+    // Kept on one rank with one that stands, it goes on that one's row, beside it, on the side it was made on, as near as is clear.
+    const mate = links.filter(l => l.level && (l.from === b.id || l.to === b.id)).map(l => geo.get(l.from === b.id ? l.to : l.from)).find(Boolean);
+    if (mate) {
+      const hinted = hints?.get(b.id), dir = hinted ? Math.sign(hinted.x + b.w / 2 - mate.x - mate.w / 2) || 1 : 1;
+      let spot = null;
+      for (let i = 0; i < 200 && !spot; i++) for (const d of i ? [dir, -dir] : [dir]) {
+        const q = { x: d > 0 ? mate.x + mate.w + 24 + i * 8 : mate.x - b.w - 24 - i * 8, y: mate.y, w: b.w, h: b.h };
+        if (q.x >= m / 2 && clear(q)) { spot = q; break; }
+      }
+      if (spot) {
+        geo.set(b.id, { id: b.id, ...spot, shape: b.shape });
+        nearBoxes.add(geo.get(b.id), placedBoxes.push(geo.get(b.id)) - 1);
+        out.set(b.id, { x: spot.x, y: spot.y });
+        continue;
+      }
+    }
     const kids = linked(b.id, 'down').filter(id => geo.has(id)), parents = linked(b.id, 'up').filter(id => geo.has(id));
     const near = [...kids, ...parents];
     const [dx, dy] = near.length ? shift(near.filter(id => out.has(id) && at.has(id))) : all, hint = hints?.get(b.id);
@@ -985,10 +1002,11 @@ function routing(geo, lines, opts = {}) {
     if (between) continue;
     const pair = { id: `·pair:${m.id}`, x: l.x + l.w, y: y0, w: r.x - l.x - l.w, h: y1 - y0, shape: 'frame' }, ls = [];
     for (const p of by.get(l.id) ?? []) {
-      if (p.level || p.bend || p.straight || p.label || one.has(p)) continue;
-      const q = (by.get(r.id) ?? []).find(o => o.to === p.to && o.trunk === p.trunk && !o.level && !o.bend && !o.straight && !o.label && !one.has(o));
+      if (p.level || p.bend || p.straight || one.has(p)) continue;
+      // (A label they share is said once, on the one line they draw.)
+      const q = (by.get(r.id) ?? []).find(o => o.to === p.to && o.trunk === p.trunk && !o.level && !o.bend && !o.straight && (o.label?.text ?? null) === (p.label?.text ?? null) && !one.has(o));
       if (!q || geo.get(p.to)?.y < y1 + 16) continue;
-      const stand = { id: `·one:${p.id}`, from: pair.id, to: p.to, trunk: p.trunk };
+      const stand = { id: `·one:${p.id}`, from: pair.id, to: p.to, trunk: p.trunk, ...(p.label && { label: p.label }) };
       one.set(p, stand); one.set(q, stand);
       ls.push([p, q, stand, m]);
     }
@@ -1003,7 +1021,7 @@ function routing(geo, lines, opts = {}) {
     const y = c.m.points?.[0]?.[1] ?? sideY(c.l, c.r);
     for (const [p, q, stand] of c.ls) {
       const ps = stand.points ?? [], x = ps[0]?.[0] ?? c.pair.x + c.pair.w / 2, on = ps.slice(1);
-      for (const [l, g, right] of [[p, c.l, true], [q, c.r, false]]) Object.assign(l, Object.fromEntries(ROUTED.map(k => [k, stand[k]])), { from: l.from, to: l.to, dir: stand.dir, points: [[sideX(g, y, right), y], [x, y], ...on], down: true });
+      for (const [l, g, right] of [[p, c.l, true], [q, c.r, false]]) Object.assign(l, Object.fromEntries(ROUTED.map(k => [k, stand[k]])), { from: l.from, to: l.to, dir: stand.dir, points: [[sideX(g, y, right), y], [x, y], ...on], down: true }, l === q && l.label ? { labelAt: null, quiet: true } : {});
     }
   }
 }

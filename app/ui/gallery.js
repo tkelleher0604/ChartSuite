@@ -46,15 +46,18 @@ const Gallery = (() => {
     const [at, setAt] = useState(choice.at), [look, setLook] = useState(''), row = useRef();
     const styles = typeof FormatBar === 'undefined' ? [] : FormatBar.houseStyles();
     const take = id => { setAt(id); choice.at = id; };
+    // The arrows go from card to card, from the name too while nothing's typed in it, where they've nothing else to do; there, the keys stay.
     const keys = e => {
+      const naming = e.target.matches?.('input');
+      if (naming && e.target.value) return;
       const i = cards.findIndex(c => c.id === at), to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? cards.length - 1 : null;
       if (to === null || to < 0 || to >= cards.length) return;
       e.preventDefault();
       take(cards[to].id);
-      row.current?.querySelector(`[data-card="${CSS.escape(cards[to].id)}"]`)?.focus();
+      if (!naming) row.current?.querySelector(`[data-card="${CSS.escape(cards[to].id)}"]`)?.focus();
     };
-    return html`<div class="gallery">
-      <div class="gal-row" role="radiogroup" aria-label="What to begin from" ref=${row} onKeyDown=${keys}>
+    return html`<div class="gallery" onKeyDown=${keys}>
+      <div class="gal-row" role="radiogroup" aria-label="What to begin from" ref=${row}>
         ${cards.map(c => html`<button type="button" key=${c.id} class=${'gal-card' + (c.id === at ? ' on' : '')} role="radio" aria-checked=${c.id === at} tabindex=${c.id === at ? 0 : -1} data-card=${c.id}
           onClick=${() => { take(c.id); begin(); }} onFocus=${() => take(c.id)}><${Drawing} make=${c.draw} /><span class="gal-name">${c.name}</span></button>`)}
       </div>

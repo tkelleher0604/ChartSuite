@@ -1602,7 +1602,8 @@ function clearTops(boxes, links, given) {
     const ins = into.get(c.id).filter(l => by.has(l.from) && by.get(l.from).y + by.get(l.from).h <= c.y);
     if (!ins.length) continue;
     const top = Math.max(...ins.map(l => by.get(l.from).y + by.get(l.from).h)) + 8, own = new Set([c.id, ...ins.map(l => l.from)]);
-    const over = boxes.filter(g => g.y < c.y && g.y + g.h > top && g.x < c.x + c.w && g.x + g.w > c.x && !own.has(g.id));
+    // (Of one parent, in one column, it hangs: see Layout's hanging.)
+    const over = boxes.filter(g => g.y < c.y && g.y + g.h > top && g.x < c.x + c.w && g.x + g.w > c.x && !own.has(g.id) && !(Math.abs(g.x - c.x) < 1 && (into.get(g.id) ?? []).some(m => ins.some(l => l.from === m.from))));
     if (!over.length) continue;
     const need = ins.slice(1).reduce((n, l) => n + (l.label ? l.label.w + 20 : 14), 12), left = Math.min(...over.map(g => g.x)) - 8, right = Math.max(...over.map(g => g.x + g.w)) + 8;
     if (Math.max(left - c.x, c.x + c.w - right) >= need) continue;
