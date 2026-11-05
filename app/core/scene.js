@@ -3160,6 +3160,7 @@ const reachesBox = (scene, b, p) => { const st = scene.state ?? {}, { entries } 
 // a note of the holder's own, one by one, and not by what the whole page leaves out of every box of its sort.
 function offPage(scene, recs, N, S) {
   const specs = Object.values(S).filter(s => s.out?.field === 'percent' && s.args?.length === 1 && s.args[0].loc.args?.length > 1), I = Tree.index(recs), out = [];
+  if (!specs.length) return out;
   const drawn = id => { const m = scene.byId.get(id); return !!m && m.type === 'box' && !m.revealed; };
   for (const id in recs) {
     const r = recs[id];

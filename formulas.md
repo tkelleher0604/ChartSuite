@@ -235,29 +235,29 @@ An investor group records how many beneficial owners it stands for, in a number 
 - It's worked out only for 3(c)(1) funds; a 3(c)(7) fund has no such limit, so the IF gives nothing there. Every fund in the sample is a 3(c)(7) fund, so nothing is recorded.
 - An owner counts as one, and an investor group as its beneficial owners, except where §3(c)(1)(A) applies: an entity holding 10% or more that is, or but for §3(c)(1) or §3(c)(7) would be, an investment company. Such an owner counts as its own holders, and as one if the chart records none. A knowledgeable employee's holding isn't counted (Rule 3c-5(b)), which a group's Beneficial Owners leaves out.
 - Inside the inner EACH, `@` is each of the holder's own owners.
-- The 10% test reads the holding's Percentage rather than its votes: SEC staff have treated a limited partnership interest as the equivalent of a voting security for it.
+- The 10% test is of voting securities, so it reads the holding's Voting Percentage. A limited partnership interest that shows no vote is read by its Percentage instead: SEC staff have treated an interest carrying the right to name or remove a general partner as a voting security (Horsley Keogh Venture Fund, Apr. 27, 1988; Weiss, Peck & Greer Venture Associates II, Apr. 10, 1990; both cited in Laifer Inc., Jan. 5, 1993), and whether this one does is for counsel, so it's read as if it might. Votes entered are read, and a holding counsel says doesn't vote is typed over.
 - The statute doesn't say whether the 10% test applies again at each tier. This looks through one tier, to the holder's own holders, so it doesn't read itself and settles around a loop of holdings. Were the fund a 3(c)(1) fund, its count would be 127: the U.S. investors' 86 and, through the feeder's 28.4%, the feeder's 41.
 
 Whether a holder is looked through is asked, not assumed: a tag **Looked Through**, at an ownership by an entity:
 
 | Label | Row |
 | --- | --- |
-| Under 10%: a company is one person | `= IF(Owned.[Investment Company Status] = "3(c)(1) Fund" AND Percentage < 10%, FALSE)` |
+| Under 10% of the votes, or of the interest where a limited partnership interest shows no vote: a company is one person | `= IF(Owned.[Investment Company Status] = "3(c)(1) Fund" AND IF(Owned.[Entity Type] IN {"Limited Partnership", "Exempted Limited Partnership"} AND [Voting Percentage] = 0%, Percentage, [Voting Percentage]) < 10%, FALSE)` |
 | 10% or more, and an investment company, or one but for 3(c)(1) or 3(c)(7): its holders | `= IF(Owned.[Investment Company Status] = "3(c)(1) Fund" AND (Owner.[Private Fund] OR Owner.[Investment Company]), TRUE)` |
 | Not an investment company: one person | `= IF(Owned.[Investment Company Status] = "3(c)(1) Fund" AND Owner.[Investment Company Status] = "Not an Investment Company", FALSE)` |
 | Its status isn't said | `= IF(Owned.[Investment Company Status] = "3(c)(1) Fund", Owner.[Investment Company Status] <> "Not an Investment Company")` |
 
-Its last row comes to a test of what's blank: a holder of 10% or more with no Investment Company Status can't say, so the count waits, "Needs Investment Company Status", and that's the one thing to fill in. Typed over, it's a decision, with its why, for counsel to make where a holder's interest doesn't vote.
+Its last row comes to a test of what's blank: a holder of 10% or more with no Investment Company Status can't say, so the count waits, "Needs Offshore Feeder's Investment Company Status", and that's the one thing to fill in. Typed over, it's a decision, with its why, for counsel to make where a holder's interest doesn't vote.
 
 And a check on the limit, **Within 3(c)(1) Limit**, at the status 3(c)(1) Fund, not more than one hundred persons, or 250 for a qualifying venture capital fund (a tag of that name, typed):
 
 | Label | Row |
 | --- | --- |
-| Over, whatever's looked through | `= IF(SUM(EACH(Owners, IF(KIND(@) = "Investor Group", @.[Beneficial Owners], 1))) > IF([Qualifying Venture Capital Fund], 250, 100), FALSE)` |
+| Over, whatever's looked through | `= IF(SUM(EACH(Owners, IF(KIND(@) = "Investor Group", @.[Beneficial Owners], IF(ISBLANK(@.[Investment Company Status]) OR ISBLANK(@.Percentage), 1, IF(@.[Looked Through], MAX(SUM(EACH(@.Owners, IF(KIND(@) = "Investor Group", @.[Beneficial Owners], 1))), 1), 1))))) > IF([Qualifying Venture Capital Fund], 250, 100), FALSE)` |
 | Over | `= IF([3(c)(1) Count] > IF([Qualifying Venture Capital Fund], 250, 100), FALSE)` |
 | Within | `= [3(c)(1) Count] <= IF([Qualifying Venture Capital Fund], 250, 100)` |
 
-So a fund with 120 in a group and a feeder not yet said is over already, each holder being at least one person; 59 and the feeder's 41 is 100, within it; 60 and 41, 101, over.
+So a fund with 120 in a group and a feeder not yet said is over already, each holder in doubt being at least one person; 40 and that feeder can't say, naming it, and it's counted among what can't; 59 and the feeder's 41 is 100, within it; 60 and 41, 101, over. A 3(c)(1) fund with no one in it has no count, so it can't say, for want of that.
 
 ### Is a signatory's capacity borne out?
 
@@ -274,21 +274,21 @@ In an entry's formula at a relation, `Signatory` and `Via` are the relation's si
 
 ### Whose assets are plan assets?
 
-A private fund's assets are plan assets where benefit plan investors hold 25% or more of it, unless it's an operating company (29 C.F.R. § 2510.3-101, as ERISA § 3(42) modifies it). So **ERISA Plan Assets** is worked out at a fund, never typed, from **Benefit Plan Percentage**, worked out at a fund from **Benefit Plan Investors**, typed at an investor group, by the group's look-through ownership of it, so through a feeder as well:
+A private fund's assets are plan assets where benefit plan investors hold 25% or more of it, unless it's an operating company (29 C.F.R. § 2510.3-101, as ERISA § 3(42) modifies it). So **ERISA Benefit Plan Test**, a check at a private fund's status, is worked out, typed over only by a decision, from **Benefit Plan Percentage**, worked out at a fund from **Benefit Plan Investors**, typed at an investor group, by the group's look-through ownership of it, so through a feeder as well:
 
 | Label | Row |
 | --- | --- |
-| Through its investors | `= IF([Private Fund], SUM(EACH([Look-Through Investors], @.[Look-Through Ownership] * @.[Benefit Plan Investors])))` |
+| Through its investors, its sponsor's own interests read out | `= IF([Private Fund], LET(plans, SUM(EACH([Look-Through Investors], @.[Look-Through Ownership] * @.[Benefit Plan Investors])), runs, Controllers, advises, Advisers, sponsor, SUM(FILTER(Owners, NOT @.[Private Fund] AND (@ IN runs OR @ IN advises OR ANY(@.Controllers, @ IN runs OR @ IN advises) OR ANY(@.[Controlled Companies], @ IN advises))).Percentage), IF(sponsor > 0% AND sponsor < 100%, plans / (100% - sponsor), plans)))` |
 
 and:
 
 | Label | Row |
 | --- | --- |
-| An operating company | `= IF([Benefit Plan Percentage] >= 25% AND ANY(Documents, @.[Document Type] = "VCOC Opinion" AND @.Status IN {"Executed", "Final"}), FALSE)` |
-| Under the limit | `= IF([Benefit Plan Percentage] < 25%, FALSE)` |
-| At the limit or over | `← [Benefit Plan Percentage] >= 25%` |
+| An operating company | `= IF([Benefit Plan Percentage] >= 25% AND ANY(Documents, @.[Document Type] = "VCOC Opinion" AND @.Status IN {"Executed", "Final"}), TRUE)` |
+| Under 25% | `= IF([Benefit Plan Percentage] < 25%, TRUE)` |
+| 25% or more: its assets are plan assets | `= IF([Benefit Plan Percentage] >= 25%, FALSE)` |
 
-The exception comes first, so where it holds it's the reason; it's read only where the test is met. A record that's no private fund has no Benefit Plan Percentage, so nothing to say. On the sample, Fund III's benefit plan investors hold 12.84%, and Fund III-A's 100%, with a VCOC opinion. The regulation tests each class of equity by value and leaves out the sponsor's own interests; this reads the holding.
+The exception comes first, so where it holds it's the reason; it's read only where the test is met. A record that's no private fund has no Benefit Plan Percentage, so nothing to say. On the sample, Fund III's benefit plan investors hold 12.84%, and Fund III-A's 100%, with a VCOC opinion. The regulation leaves out the interests of a person with discretionary authority or control over the assets, one who gives investment advice on them for a fee, and an affiliate of either (29 C.F.R. § 2510.3-101(f)(1), (f)(3); ERISA § 3(42)), so what a fund's general partner, adviser and those they control or are controlled by hold of it directly comes off the bottom; a fund's own holding is its investors', read through it. It tests each class by value, after the most recent acquisition; this reads one class, by Percentage. A feeder under 25% holds no plan assets, so isn't itself a benefit plan investor; this reads it through all the same, and can read high there.
 
 ### Deadlines
 
@@ -309,7 +309,7 @@ Each rule begins `IF([Ours to Track] <> FALSE, …)`, a condition that only excl
 
 **An LEI renewed early.** An LOU renewing an LEI before it lapses extends it a year from the date it was due, not from the renewal; one renewed after it lapsed runs a year from the renewal. The date it was due is the anniversary of its registration that the renewal renewed, the one within six months of it. So **Next Renewal**, "A year on from the anniversary renewed, or from a late renewal", is `= LET(renewed, MAX([Last Renewed], [Registered On]), from, EDATE(renewed, -6), anniversary, DATE(YEAR(from), MONTH([Registered On]), DAY([Registered On])), due, IF(anniversary < from, EDATE(anniversary, 12), anniversary), WORKDAY(EDATE(MAX(due, renewed), 12) + 1, -1))`. Fund III's, renewed October 28, 2026 with November 14 to come, runs to November 14, 2027, a Sunday, so it's due November 12; renewed December 20, after the anniversary, it would run to December 20, 2027. Fund III-A's, registered October 2, 2024 and renewed September 24, 2025, ran to October 2, 2026, overdue. A lapse moves the anniversary, which the last renewal alone can't tell: where an LEI has lapsed and been renewed since, its Next Renewal is entered from GLEIF, and entered wins.
 
-**The first Form D, and the rest.** Rule 503 (17 C.F.R. § 230.503) gives each weekend rule once. **Form D Due** at a Regulation D Offering: "The notice: 15 calendar days after the first sale, or the next business day", `= IF([Ours to Track] <> FALSE AND ISBLANK([Last Filed]), WORKDAY([First Sale] + 14, 1))`, and "On or before the anniversary, while the offering is open", `= IF([Ours to Track] <> FALSE AND [Offering Open], WORKDAY(EDATE([Last Filed], 12) + 1, -1))`. So a first sale of October 20, 2036 has its notice due November 4, 2036; one of October 17 or 18, whose fifteenth day is a weekend, November 3; and its First Sale, required of an offering that's ours, is counted blank till it's given. A holiday isn't rolled: no calendar of them is kept.
+**The first Form D, and the rest.** Rule 503 (17 C.F.R. § 230.503) gives each weekend rule once. **Form D Due** at a Regulation D Offering: "The notice: 15 calendar days after the first sale, or the next business day", `= IF([Ours to Track] <> FALSE AND ISBLANK([Last Filed]), WORKDAY([First Sale] + 14, 1, "US"))`, and "On or before the anniversary, while the offering is open", `= IF([Ours to Track] <> FALSE AND [Offering Open], WORKDAY(EDATE([Last Filed], 12) + 1, -1, "US"))`. So a first sale of October 20, 2036 has its notice due November 4, 2036; one of October 17 or 18, whose fifteenth day is a weekend, November 3; and its First Sale, required of an offering that's ours, is counted blank till it's given. A holiday rolls as a weekend does, the third argument saying which: one of December 17, 2036 falls due on New Year's Day, 2037, so January 2. The other deadlines say weekends only, and that a holiday isn't rolled: IARD's closings aren't kept (a filing due on a day it's closed is timely the next business day, Rule 0-4(a)(2), 17 C.F.R. § 275.0-4), and no source was found for Form PF's.
 
 **Each tax year's Delaware tax.** A formula can't tell which tax years have begun, so the tax years are objects of a kind **Tax Year**, the calendar's (dendra.md, Time), each in the chart from its first day, its Year `= VALUE(Name)`. A tag relation **Annual Tax** has edges Taxpayer, at Entity › Jurisdiction: Delaware, and Tax Year:
 
@@ -392,7 +392,7 @@ So a missing percentage leaves a look-through through it unknown, rather than sm
 | `OBJECT(name)` | The object whose Name is the text, without regard to case: nothing if there's none, `#VALUE!` if there are several. |
 | `WITHOUT(x, expression)` | The expression, worked out as if x and everything that depends on it weren't in the chart, with every computed record worked out again. For counterfactuals like §57(b)(2)'s carve-out. It can't read the definition it's in, since that's always a loop. |
 | `TODAY`, `DATE`, `YEAR`, `MONTH`, `DAY`, `YEARFRAC`, `EDATE`, `EOMONTH`, and text functions | As in Excel, but that `TODAY` is the day shown, not the clock's (dendra.md, Definitions: Today). A day of the year, as a fiscal year ends on, has a `MONTH` and a `DAY` and no `YEAR`, and isn't counted from. |
-| `WORKDAY(date, days)` | As in Excel, without holidays. `WORKDAY(d - 1, 1)` is the first working day on or after d, where a deadline falling on a weekend moves to. |
+| `WORKDAY(date, days, "US"?)` | As in Excel, weekends alone; with `"US"`, US federal holidays too, on the day each is kept (dendra.md, Definitions: Business days). `WORKDAY(d - 1, 1)` is the first working day on or after d, where a deadline falling on a weekend moves to. |
 
 ### Errors
 

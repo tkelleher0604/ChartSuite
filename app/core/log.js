@@ -203,7 +203,7 @@ function open(data) {
       if (!('kind' in r) && byArgs.get(argKey(r)).some(x => x.record !== r.record && overlap(x, r)))
         return 'args' in r ? 'That relation is already recorded.' : `${r.edge} is already recorded here.`;
       // One object at both sides of a relation is no relation, unless the relation says it can be (an Itself note): a company doesn't own itself.
-      if (r.args?.length === 2 && home(r.args[0].at) === home(r.args[1].at) && !(itself.length && d.notes.value('Itself', { args: r.args.map(a => ({ edge: a.edge, loc: {} })) }))) return `Nothing can be its own ${r.args[0].edge}.`;
+      if (r.args?.length === 2 && home(r.args[0].at) === home(r.args[1].at) && !itself.some(n => n.value === true && n.pattern.args?.length === 2 && r.args.every(a => n.pattern.args.some(b => Tree.same(a.edge, b.edge))))) return `Nothing can be its own ${r.args[0].edge}.`;
     }
     const now = c.adds.some(r => 'record' in r || 'spec' in r) && !sameSchema(d.records, c.removes.map(id => added.get(id)), c.adds) && Tree.schemaError(schemaOf(after));
     return now && now !== Tree.schemaError(schema(c.chart)) ? now : null;

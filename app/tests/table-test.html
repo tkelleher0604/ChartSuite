@@ -1175,6 +1175,12 @@ async function run() {
       && App.pending.peek()?.verb === "Add" && App.pending.peek()?.asks === "from" && $$(".grid .tabulator-row.red-add").length === 1 && N() === n2, `${asked} ${asked2} ${said} ${App.pending.peek()?.what} ${App.pending.peek()?.asks} ${$$(".grid .tabulator-row.red-add").length} ${N() - n2}`);
     press('Escape', $('.pendbar .from input') ?? document.body); await tick(150);
     check('… and Esc leaves it unmade', !App.pending.peek() && N() === n2 && !$$('.grid .tabulator-row.red-add').length);
+    $('.newslot .nr-go').click(); await tick(80);
+    await pickIn('Northpine Software');
+    const f2 = $('.float .menu-find'); f2.textContent = 'Northpine'; f2.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60);
+    const selfs = $$('.float .menu-item').map(x => x.textContent.trim());
+    check('What’s on one side isn’t offered for the other: nothing owns itself', !selfs.some(t => /^Northpine Software/.test(t)), selfs.join(' / '));
+    Shell.closeAll(); await tick(60);
   }
   Shell.at({ asOf: '2026-11-02' }); await tick(100);
   n0 = N();
@@ -2403,6 +2409,19 @@ async function tablesG3() {
   }
   // No traps: a side takes only some kinds, and a name of another kind says so, never offering a new record of the wrong sort.
   {
+    // A relation whose record is a choice asks which, as its last side: no row's refused for being neither; and what's on one side isn't offered for the other.
+    const q2 = async text => { const f = $('.float .menu-find'); f.textContent = text; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(60); };
+    await addTable('Relations', 'Position', true);
+    const n0 = Table.grid.getRows('active').length;
+    $('.newslot .nr-go').click(); await tick(60);
+    await q2('Priya'); press('Enter', $('.float .menu')); await tick(100);
+    await q2('Northpine'); press('Enter', $('.float .menu')); await tick(100);
+    const roles = $$('.float .menu-item').map(x => x.textContent.trim());
+    check('A row of a relation whose record is a choice asks which, after its sides', roles.includes('Director') && roles.includes('Officer'), roles.join(' / '));
+    $$('.float .menu-item').find(x => x.textContent.trim() === 'Officer').click(); await tick(200);
+    check('… and it’s made as that, no schema at odds', App.pending.peek()?.verb === 'Add' && !$('.pendbar .btn.primary')?.disabled && /Officer|Position/.test($('.pendbar')?.textContent ?? ''), $('.pendbar')?.textContent);
+    press('Escape', $('.pendbar .from input') ?? document.body); await tick(150);
+    Shell.closeAll(); await tick(40);
     await addTable('Relations', 'Evidence', true);
     const ev0 = Table.grid.getRows('active').map(r => r.getData());
     check('Evidence says what it evidences, by its place, of whichever kind', ev0.some(d => /^Fund III → Fund III Blocker, 100%$/.test(d['f:@evidenced'])) && ev0.some(d => /^Margaret A\. Chen → Cayman GP, Director$/.test(d['f:@evidenced'])) && ev0.some(d => /Managing Member$/.test(d['f:@evidenced'])), ev0.map(d => d['f:@evidenced']).slice(0, 4).join(' | '));

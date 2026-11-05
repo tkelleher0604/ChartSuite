@@ -811,7 +811,7 @@ const Shell = (() => {
     const keyed = new Map(all.filter(x => x.key !== undefined).map(x => [x.key, x])), heads = new Map();
     const kind = x => x.of !== undefined && keyed.has(x.of) ? kind(keyed.get(x.of)) : x.detail ?? '';
     for (const x of found) { const k = kind(x); if (!heads.has(k)) heads.set(k, []); heads.get(k).push({ ...x, detail: x.why ?? null }); }
-    return [...heads].flatMap(([k, xs]) => [...(k ? [{ head: Tree.plural(k) }] : []), ...xs]);
+    return [...heads].flatMap(([k, xs]) => [...(k ? [{ head: /ed$/.test(k) ? k : Tree.plural(k) }] : []), ...xs]);
   }
   function answers(q) {
     if (q.startsWith('=')) {

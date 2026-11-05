@@ -734,7 +734,7 @@ function whoFor(id, l, q) {
   const out = [], seen = new Set(relatives(id).lists.find(([name]) => T.same(name, l.name))?.[1].map(it => it.obj) ?? []), words = T.norm(q ?? '').split(' ').filter(Boolean);
   for (const w of l.ways) for (const x of Object.keys(recs())) {
     const b = objectOf(x);
-    if (seen.has(b) || b === id || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {})) continue;
+    if (seen.has(b) || (b === id && !N().value('Itself', T.bare(w.s))) || 'field' in recs()[x] || !T.narrower(tree(x), w.sl.loc) || T.isView(recs()[b] ?? {})) continue;
     const hay = T.norm(`${placeName(b)} ${recs()[b].args ? '' : shortOf(b)}`);
     if (!words.every(word => hay.includes(word))) continue;
     seen.add(b);
@@ -2391,6 +2391,7 @@ function GeneralView({ p, style }) {
         return html`<div class="row" key="stands"><div class="k">Stands</div><div class="v ctl">${still ? said(now) : html`<button class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, [...es, 'level', 'none'].map(s => ({ label: said(s), checked: T.same(s, now), run: () => !T.same(s, now) && setIt(s) })))}><span>${said(now)}</span></button>`}</div></div>`; })() : null}
       ${kind && below.some(s => s.out?.field === 'date' || s.out?.field === 'number') ? (() => { const by = n.across(p.kind), said = by ?? 'As they were made', take = e => App.change(tx => tx.note('Order', p, e ? { by: e } : undefined), { dated: false, say: e ? `Stood each ${lower(p.kind)} in the order of ${e}` : `Stood each ${lower(p.kind)} as they were made` });
         return html`<div class="row" key="across"><div class="k">Across, in order of</div><div class="v ctl">${still ? said : html`<button class="sel dd" aria-haspopup="menu" aria-label="Across, in order of" onClick=${e => menu(e.currentTarget, [{ label: 'As they were made', checked: !by, run: () => by && take(null) }, ...below.filter(s => s.out?.field === 'date' || s.out?.field === 'number').map(s => ({ label: s.args[0].edge, checked: T.same(by ?? '', s.args[0].edge), run: () => !T.same(by ?? '', s.args[0].edge) && take(s.args[0].edge) }))])}><span>${said}</span></button>`}</div></div>`; })() : null}
+      ${rel && !def && specs.every(s => s.args.length === 2) ? checkRow('Can relate a box to itself', n.value('Itself', p) === true, on => flag('Itself', p, on ? true : undefined)) : null}
       ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('Required', n.required(p), on => flag('Required', p, on))}
       ${type === 'tag' ? checkRow('Count a No as an error', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
       ${kind || rel || def || writing || (dated && (n.isStart(dp) || n.isEnd(dp))) ? null : checkRow('Changes over time', dated ? n.changing(p) : !n.fixed(p), on => flag('Fixed', p, dated ? (on ? false : undefined) : (on ? undefined : true)))}
@@ -2578,7 +2579,7 @@ Shell.register('action', { id: 'record.merge', name: 'Merge into…', names: ['M
 Shell.register('action', { id: 'record.delete', get name() { return theOne() ? App.deleteLabel([theOne()]) : 'Delete…'; }, names: ['Delete', 'Remove', 'Dissolve', 'End', 'Sell', 'Sale', ...WHAT_IF],
   enabled: () => App.canAsk() && !!theOne() && App.scene.peek()?.byId.get(theOne())?.change !== 'Gone', run: () => remove(theOne(), { auto: true }), why: notAsked('', 'what to delete') });
 // What this chart says it doesn't track, on the list of its rules and in Find, by the words a person looks for it by; each opens what it says, and of whom.
-const untrackedItem = x => ({ label: x.name, detail: x.who.length ? `Not tracked: ${x.who.length}` : 'Not tracked', tip: x.about, names: ['Not tracked', 'Untracked', ...x.names], run: () => App.sayUntracked(x) });
+const untrackedItem = x => ({ label: x.name, detail: 'Not tracked', why: x.who.length ? `Of ${x.who.length}` : null, tip: x.about, names: ['Not tracked', 'Untracked', ...x.names], run: () => App.sayUntracked(x) });
 Shell.register('find', { items: () => App.untracked.peek().map(untrackedItem) });
 // The list of the rules, from the chart's menu and Find: what checks something first, then every other, then the relations entered,
 // each a click from its page.
