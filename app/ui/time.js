@@ -834,6 +834,17 @@ const Time = (() => {
     if (label === 'Indent') return v ? `Indented ${of} ${v} pt` : `Took the indent off ${of}`;
     if (label === 'Bullet') return v === 'none' ? `Took the bullets off ${of}` : v === 'number' ? `Numbered ${of}` : `Bulleted ${of}`;
     if (label === 'Shrink') return v ? `Made ${of} shrink its text to fit` : `Stopped ${of} shrinking its text`;
+    const EFFECT = { Picture: 'a picture fill', 'Line Gradient': 'a gradient line', Glow: 'a glow', Reflection: 'a reflection', Bevel: 'a bevel', 'Turn 3D': 'a 3-D rotation', 'Text Gradient': 'gradient words', 'Text Outline': 'outlined words' }[label];
+    if (EFFECT) return v ? `Gave ${of} ${EFFECT}` : `Took ${EFFECT} off ${of}`;
+    if (label === 'Inner Shadow') return v && v !== 'none' ? `Gave ${of} an inner shadow` : `Took the inner shadow off ${of}`;
+    if (label === 'Soft Edge') return v ? `Gave ${of} soft edges` : `Took the soft edges off ${of}`;
+    if (label === 'Compound') return v === 'single' ? `Made the outline of ${of} single` : `Made the outline of ${of} ${String(v).replace(/-/g, ' and ')}`;
+    if (label === 'Line Transparency') return `Made the outline of ${of} ${v}% transparent`;
+    if (label === 'Points') return `Edited the points of ${of}`;
+    if (label === 'Columns') return v ? `Set ${of} in ${v.n} columns` : `Set ${of} in one column`;
+    if (label === 'First Line') return v ? `Set the first line of ${of} ${v < 0 ? 'hanging' : 'in'}` : `Set the first line of ${of} flush`;
+    if (label === 'Tabs') return `Set the tab stops of ${of}`;
+    if (label === 'Direction') return `Set ${of} ${v === 'across' ? 'across' : v === 'down' ? 'down its side' : 'up its side'}`;
     const noun = NOUNS[label];
     if (!noun) return `Changed ${label} of ${of}`;
     if (v === 'none') return `Took the ${noun} off ${of}`;

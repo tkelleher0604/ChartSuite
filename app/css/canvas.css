@@ -363,6 +363,45 @@ dialog.dlg:has(.ex)[open] { animation: none; }
 .dc-margins { fill: none; stroke: var(--accent); stroke-opacity: .55; stroke-width: 1px; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; pointer-events: none; }
 .dc-gap { fill: none; stroke: #c2372b; pointer-events: none; }
 text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-serif); }
+/* Edit points: the outline, each point, the handles of the one picked; Alt's measure; a smart guide; a pin. */
+.dc-pts.outline { stroke: var(--accent); vector-effect: non-scaling-stroke; pointer-events: none; }
+.dc-pts.hit { stroke: transparent; pointer-events: stroke; cursor: copy; }
+.dc-pts.node { fill: #fff; stroke: var(--accent); pointer-events: auto; cursor: move; }
+.dc-pts.node.on { fill: var(--accent); }
+.dc-pts.ctl { fill: #fff; stroke: var(--accent); pointer-events: auto; cursor: move; }
+.dc-pts.arm { stroke: var(--accent); fill: none; pointer-events: none; }
+.dc-measured { stroke: #c2372b; pointer-events: none; }
+.dc-smart { stroke: #d6336c; pointer-events: none; }
+.dc-pin { fill: none; stroke: var(--accent); pointer-events: none; stroke-linecap: round; stroke-linejoin: round; }
+/* The chart's master, being edited: a bar over its page. */
+.dc-over > .dc-masterhost { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); pointer-events: none; }
+.dc-masterbar { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 4px 4px 4px 12px; background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r); box-shadow: 0 6px 18px rgb(0 0 0 / .12); font-weight: 600; }
+/* A popover's own rows: Effects' and Edit points, as a menu's. */
+.picker > button.menu-item { width: 100%; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; }
+.picker > button.menu-item:hover, .picker > button.menu-item:focus-visible { background: var(--hover); }
+.picker:has(> button.menu-item) { gap: 2px; }
+.fonts > button.menu-item { width: 100%; margin-top: 4px; border: 0; border-top: 1px solid var(--rule); background: transparent; color: var(--ink); font: inherit; text-align: left; }
+.fonts > button.menu-item:hover, .fonts > button.menu-item:focus-visible { background: var(--hover); }
+/* A table on the page: the cell picked; the rule between two columns, to drag; Insert's grid of rows and columns. */
+.dc-tcell { fill: none; stroke: var(--accent); vector-effect: non-scaling-stroke; pointer-events: none; }
+.dc-tcol { cursor: col-resize; }
+.pop:has(> .iconpick) { padding: 6px; }
+.iconpick { width: 320px; }
+.iconpick .find { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.iconpick .grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; max-height: 280px; overflow-y: auto; }
+.iconpick .grid button { aspect-ratio: 1; padding: 4px; border: 0; background: transparent; border-radius: var(--r); cursor: pointer; color: var(--ink); }
+.iconpick .grid button:hover, .iconpick .grid button:focus-visible { background: var(--hover); outline: none; }
+.iconpick .grid svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.iconpick .menu-none { grid-column: 1 / -1; }
+input.cell.tabs { width: 88px; }
+.pop:has(> .tablepick) { padding: 4px; }
+.tablepick { min-width: 216px; }
+.tablepick .grid { display: grid; grid-template-columns: repeat(8, 22px); gap: 2px; padding: 4px; }
+.tablepick .grid button { width: 22px; height: 18px; padding: 0; border: 1px solid var(--rule-2); border-radius: 1px; background: var(--surface); cursor: pointer; }
+.tablepick .grid button.on { background: var(--selected); border-color: var(--accent); }
+.tablepick .grid button:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
+.tablepick > .menu-item { width: 100%; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; }
+.tablepick > .menu-item:hover, .tablepick > .menu-item:focus-visible { background: var(--hover); }
 .dc-cropper.frame { stroke: var(--ink); stroke-dasharray: 3 2; pointer-events: none; }
 .dc-cropper.bar { fill: var(--ink); stroke: #fff; stroke-width: .5; pointer-events: auto; }
 .dc-cropper.bar.tall { cursor: ew-resize; }
@@ -390,6 +429,9 @@ text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-seri
 .ex-margins { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .ex-label { font: var(--t12); font-weight: 600; color: var(--ink-2); }
 .ex-unit { font: var(--t12); color: var(--ink-3); }
+.palette-def:has(> .row) { display: grid; gap: 8px; padding: 2px; }
+.palette-def > .row { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 8px; }
+.palette-def > .row input.cell { width: 100%; box-sizing: border-box; }
 .palette-slots { display: grid; gap: 4px; }
 .palette-slots > .row { display: grid; grid-template-columns: 1fr 34px 86px; align-items: center; gap: 8px; }
 .palette-slots input[type="color"] { width: 34px; height: 24px; padding: 0; border: 1px solid var(--rule-2); border-radius: var(--r); background: none; }

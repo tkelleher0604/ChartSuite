@@ -15,7 +15,8 @@ const Templates = (() => {
   const moved = (p, to) => p.args ? { ...p, args: p.args.map(a => ({ ...a, loc: moved(a.loc, to) })) } : p.id === undefined ? p : { ...p, id: to(p.id) };
   // A template written into a chart a transaction is making, each item under a fresh id, its title saying `title`.
   function begin(tx, t, title) {
-    const ids = new Map(), to = x => ids.get(x) ?? ids.set(x, Log.newId()).get(x);
+    // (A view named with a · is the app's own, the chart's master, and stays so.)
+    const ids = new Map(), to = x => String(x).startsWith('·') ? x : ids.get(x) ?? ids.set(x, Log.newId()).get(x);
     for (const r of t.rows) {
       if ('tree' in r) tx.add('spec', { tree: r.tree });
       else if ('record' in r) tx.add('record', { kind: r.kind }, to(r.record));
