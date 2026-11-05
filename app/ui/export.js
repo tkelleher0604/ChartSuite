@@ -442,7 +442,7 @@ const headEnd = (tag, h) => `<a:${tag} type="${HEAD_TYPE[h.type] ?? 'triangle'}"
 const ALIGN = { left: 'l', center: 'ctr', right: 'r' };
 // The page's own texts, by the names PowerPoint's Selection Pane gives them; any other shape, as a box is, by
 // what it says.
-const ROLE = { title: 'Title', date: 'Date', footer: 'Footer', number: 'Page number' };
+const ROLE = { title: 'Title', date: 'Date', footer: 'Footer', number: 'Page number', footnotes: 'Footnotes' };
 // The footer and its number as a deck holds them: the master's placeholders, and each slide's, which take their place and
 // look from there, so a footer changed on the master is changed on every slide; its number a field, so a slide moved
 // renumbers. A slide says its own place or look only where its sheet or the page's font makes it other than the master's.

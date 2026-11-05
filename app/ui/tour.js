@@ -21,13 +21,13 @@ const Tour = (() => {
   }
   // A field being typed in, left as it was: what's typed is the user's to keep with Enter, not the tour's.
   const unedit = () => document.querySelector('.dc-edit')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-  // All like it chosen, given back: the same selection again is formatted as itself (formatbar.js).
-  const unlike = () => { const s = Shell.selection.peek(); preactSignals.batch(() => { Shell.select([], { replace: true }); Shell.select([...s], { replace: true }); }); };
+  // The pen moved for the step, given back: it goes by itself again (formatbar.js).
+  const unlike = () => { FormatBar.pen?.home(); };
   // Each step's act as it's done by the pointer, and, once the keys are what's being used, by the keys (`keys`): it says what they'd press.
   const STEPS = [
     { event: 'select', target: 'box', act: 'Click a box.', keys: 'Tab to a box.', say: 'Every box is a record.', when: s => s?.length },
     { event: 'field-edit', target: 'box', act: 'Double-click a box’s name.', keys: 'Press Enter on a box.', say: 'Type here or in the panel: it’s the same record.', ends: unedit },
-    { click: true, event: 'scope-toggled', target: 'like', act: 'Click “All …” above the chart.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+KeyA')}.`, say: 'A change then goes to every box like this one, lit; This box takes it back to the one.', ends: unlike },
+    { click: true, event: 'scope-toggled', target: 'like', act: 'Click “This box” or “All …” above the chart.', keys: () => `Press ${Shell.keyLabel('$mod+Shift+KeyA')}.`, say: 'That moves the pen in the panel: a change goes where the pen is, what it reaches outlined. Click a pen on any row to move it there.', ends: unlike },
     { event: 'relate-open', target: 'box', act: 'Drag a dot on a box’s edge to another box.', keys: 'Press Shift+F10 on a box, choose Relate…, Tab to another box and press Enter.', say: 'The panel then says how the two are related.' },
     // What the drag made, the two boxes' panel, shown before anything takes its place.
     { point: true, target: 'pair', act: 'Point at what holds between them.', keys: 'Press F6 until you’re in the panel.', say: 'Tick a relation to add it; one a formula gives is italic.' },

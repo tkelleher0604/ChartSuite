@@ -450,7 +450,7 @@ function mount(el) {
   // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
   const pageScale = () => scene?.page.scale ?? 1;
   const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); zoomedTo(graph.zoom() * (devicePixelRatio || 1)); };
-  let cued = null; // the format bar's scope, lit (see cue)
+  let cued = null, inReach = null; // a pen pointed at, lit; what's in reach of the pen (see cue)
   let pointing = false, hold = false;
   // The field selected, pointed at, lit from the inspector, and the box a row is dragged over (see Fields).
   let field = null, hovered = null, litKey = null, dropOn = null;
@@ -1078,11 +1078,15 @@ function mount(el) {
     if (hold) return;
     // A click on a field of a mark already selected selects the field; on its own room, the mark again.
     const atRest = down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 4;
+    picked_foot = null;
     if ((k === 'box' || k === 'label') && atRest && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-      const f = fieldUnder(e.clientX, e.clientY);
+      // (A footnote's marker, as a field is; its line on the footnotes shape, below.)
+      const f = fieldUnder(e.clientX, e.clientY), mk = down.selected && f && markerUnder(f.m, e.clientX, e.clientY);
+      if (mk) { picked_foot = mk; pickField(null); return; }
       if (down.selected && f?.it) { pickField(f); if (k === 'label') return; }
       else pickField(null);
     }
+    if (atRest && down.selected && scene.byId.get(node.id)?.role === 'footnotes') { const fm = scene.byId.get(node.id), got = footAt(fm, e.clientX, e.clientY); if (got) { picked_foot = { f: got }; paintFields(); } }
     if (k === 'label') {
       const line = graph.getCellById(node.getData().mark);
       if (line) { pressed = { id: line.id }; if (e.shiftKey) sel.isSelected(line) ? sel.unselect(line) : sel.select(line); else sel.reset(line); pressed = null; }
@@ -1628,6 +1632,8 @@ function mount(el) {
     const k = node.getData()?.kind;
     if (k === 'page') return addAt(e);
     if (k === 'foot') return edit(node.id, e.target);
+    // A footnote's line double-clicked is typed over, for all that carry it.
+    if (scene.byId.get(node.id)?.role === 'footnotes') { const fm = scene.byId.get(node.id), got = footAt(fm, e.clientX, e.clientY); return got ? editFoot(fm, got) : undefined; }
     // A field double-clicked is typed in, a line's label's too; the room of a box that was selected already starts
     // a free text there.
     if (k === 'box' || k === 'label') {
@@ -1703,6 +1709,9 @@ function mount(el) {
     if (litKey) for (const m of scene.marks) for (const it of m.texts ?? []) if (rowKey(it) === litKey && it.lines?.length) draw(fieldRect(m, it), 'lit');
     const d = dropOn && scene.byId.get(dropOn);
     if (d) draw(d, 'drop', 4);
+    // A footnote's line, or a marker, selected.
+    if (picked_foot?.rect) draw(picked_foot.rect, 'on', 1);
+    if (picked_foot?.f) { const fm = scene.marks.find(x => x.role === 'footnotes'); if (fm?.feet?.some(y => y.n === picked_foot.f.n)) draw(footRect(fm, picked_foot.f), 'on', 1); else picked_foot = null; }
     fieldLit.value = rowKey((h && hovered ? h : null) ?? fieldNow()?.it) ?? null;
     fieldPicked.value = field ? `${field.box}|${field.id}` : null;
   }
@@ -1784,6 +1793,8 @@ function mount(el) {
   }
   // Whether a mark shows an entry of a label at a record (its own, or one in it), as a field or a blank.
   const shows = (m, edge, at = m.record) => (m.texts ?? []).some(it => it.blank ? it.blank.at === at && Tree.same(it.blank.edge, edge) : st()[it.id]?.at === at && Tree.same(st()[it.id].edge, edge));
+  // The pen, for a mark: where it reaches that, the pen's place; else that mark alone, as what's dragged onto a box the pen doesn't reach is.
+  const scoped = m => { const s = scopeNow(canvas); return !s.own && s.marks?.has(m.id) ? s : { own: true }; };
   // Where a scope reaches, said: a mark by its name, several by their count, a group as the Key calls it.
   const whereSaid = (ms, s) => s.own ? (ms.length === 1 ? called(ms[0]) : counted(ms.map(m => ({ type: m.type, name: called(m) })))) : named(s);
 
@@ -1831,17 +1842,121 @@ function mount(el) {
         { dated: false, say: it ? null : `Added text to ${whereSaid([m], s)}` });
     }, { multiline: true, selectAll: typed === undefined && !!raw, ph: 'Text', complete: labels, tab: it ? d => stepField(d, true) : null, kept: true, rich: { runs: typed !== undefined ? [] : it?.free.runs ?? [] } });
   }
+  // A free text written from the panel, at the pen.
+  function putText(m, text, s = scoped(m)) {
+    const view = viewOf(), N = App.notes.peek();
+    return App.change(tx => { for (const p of s.own ? [treeOf(m.record)] : s.outputs) { const was = N.notes('Text').find(n => n.view === view && Tree.key(n.pattern) === Tree.key(p))?.value; tx.note('Text', p, { ...was, text: text.trim() }, { view }); } }, { dated: false, say: `Added text to ${whereSaid([m], s)}` });
+  }
+  // ---- Footnotes (dendra.md, Footnotes) ----
+  // A Footnote note at the pen, its param its name, so a box carries one of each; a free shape's are in its row. What the page places them in, a shape of its own with
+  // the role footnotes, comes with the first on a page. What a footnote can read of: the entries of what the pen reaches.
+  const wordsAt = (m, s = scoped(m)) => [...new Set((s.own ? [m] : [...s.marks].map(id => scene.byId.get(id)).filter(Boolean)).flatMap(x => x.record ? entriesOf(x) : []))].sort((a, b) => a.localeCompare(b));
+  const footRowHere = () => App.shown.peek().rows(App.chart.peek()).find(r => 'shape' in r && r.view === viewOf() && r.role === 'footnotes');
+  function addFoot(m, text, s, field) {
+    const view = viewOf(), key = `fn${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`, row = footRowHere(), said = `Added a footnote to ${m ? (m.type === 'shape' ? `the ${SHAPE[m.geometry] ?? 'shape'}` : whereSaid([m], s)) : named(s)}`;
+    return App.change(tx => {
+      if (!row) tx.add('shape', { view, geometry: 'text', role: 'footnotes', name: 'Footnotes', text: '' });
+      else if (row.hidden) tx.update(row.shape, { hidden: false });
+      if (m?.type === 'shape') tx.update(m.id, { footnotes: [...rowOf(m.id)?.footnotes ?? [], { key, text }] });
+      else for (const p of s.own ? [treeOf(m.record)] : s.outputs) tx.note('Footnote', p, { text, ...(field && { field }) }, { view, param: key });
+      tx.says(said);
+    }, { dated: false, say: () => { const o = footOver(); return o ? `${said}; ${o}` : said; }, go: () => footOver() ? ['Tidy, to make room', () => tidy()] : null });
+  }
+  // Where a chart placed leaves no room for them anywhere at its foot, that's said, as a Key over a box is.
+  const footOver = () => Scene.says(App.scene.peek(), b => App.notes.peek().shortOf(App.state.peek(), b.record)).find(t => t.startsWith('The footnotes block overlaps'));
+  // Begun (Ctrl+Alt+F, Insert, a right-click): typed in where its line will go; Enter makes it, and it goes where the pen is.
+  function footnote(m = selected().length === 1 ? selected()[0] : null) {
+    if (still()) return Shell.toast(App.whyNot());
+    const ok = x => x?.type === 'box' || x?.type === 'line' || (x?.type === 'shape' && !x.role && !x.master && !['legend', 'group', 'line', 'picture', 'table'].includes(x.geometry));
+    const s = m?.type === 'shape' ? { own: true } : m ? scoped(m) : scopeNow(canvas);
+    // (A footnote is a page's, numbered on it: the master, which every page shares, has none of its own.)
+    if (scene.view === Scene.MASTER) return Shell.toast('A footnote is a page’s: add it on a page');
+    if (m ? !ok(m) : s.own) return Shell.toast('A footnote goes on a box, a line or a shape with words: select one first');
+    const f = m && fieldNow()?.m.id === m.id && !fieldNow().it.free ? fieldName(fieldNow().it) : null, foot = scene.marks.find(x => x.role === 'footnotes'), ms = scene.page.margins, u = 1 / (scene.page.scale ?? 1);
+    const look = foot?.texts[0]?.look ?? { ...Scene.DEFAULTS.text, Size: 8 * u, Align: 'left', Bold: false, Color: '#595959' }, lh = Scene.lineHeight(look);
+    const rect = foot ? { x: foot.x, y: Math.min(foot.y + foot.h, scene.page.h - lh * 1.5), w: foot.w, h: lh * 1.4 } : { x: ms.left, y: scene.page.h - ms.bottom - lh * 1.4, w: scene.page.w - ms.left - ms.right, h: lh * 1.4 };
+    openEditor({ look }, rect, '', text => { const t = text.trim(); if (t) addFoot(m, t, s, f); }, { ph: 'Footnote', complete: m?.record ? wordsAt(m, s) : [], kept: true });
+  }
+  // One of those the page lists: what it's made from rewritten, or taken away; an entry that reads differently for different boxes is several lines, each of them.
+  function footWritten(f, change) {
+    const view = viewOf();
+    return tx => { const shapes = new Map(); for (const x of f.from) { if (x.shape) shapes.set(x.shape, x); else tx.note('Footnote', x.pattern, change(x.value), { view, param: x.key }); }
+      for (const [id, x] of shapes) { const all = rowOf(id)?.footnotes ?? [], v = change(x.value); tx.update(id, { footnotes: v ? all.map(y => y.key === x.key ? { ...y, ...v } : y) : all.filter(y => y.key !== x.key) }); } };
+  }
+  const footDelete = f => App.change(tx => { footWritten(f, () => undefined)(tx); tx.says(`Deleted footnote ${f.n}`); }, { dated: false, say: `Deleted footnote ${f.n}` });
+  const footsDelete = m => App.change(tx => { for (const f of m.feet ?? []) footWritten(f, () => undefined)(tx); tx.remove(m.id); tx.says('Deleted the footnotes of this page'); }, { dated: false, say: 'Deleted the footnotes of this page' });
+  // A number under a point on the footnotes shape, by the line there and the first of its paragraph; and its first line's rect.
+  function footAt(m, cx, cy) {
+    const p = graph.clientToLocal(cx, cy), it = m.texts[0], lh = Scene.lineHeight(it.look), ls = it.lines ?? [], near = ls.findIndex(l => p.y - m.y < l.y + lh * 0.3 && p.y - m.y >= l.y - lh * 0.9 && ((m.look?.Columns?.n ?? 1) < 2 || (p.x - m.x >= l.x - 2 && p.x - m.x <= l.x + m.w / m.look.Columns.n)));
+    for (let i = near < 0 ? ls.length - 1 : near; i >= 0; i--) if (ls[i].spans?.[0]?.base) return m.feet?.find(f => f.n === +ls[i].spans[0].text) ?? null;
+    return null;
+  }
+  function footRect(m, f) {
+    const it = m.texts[0], lh = Scene.lineHeight(it.look), i = it.lines.findIndex(l => l.spans?.[0]?.base && +l.spans[0].text === f.n), l = it.lines[i];
+    return { x: m.x + l.x, y: m.y + l.y - Scene.baseline(it.look), w: Math.max(l.w, 60), h: lh };
+  }
+  function editFoot(m, f) {
+    if (still()) return Shell.toast(App.whyNot());
+    picked_foot = null;
+    const raw = String(f.from[0].value?.text ?? f.text), box = f.from[0].shape ? null : scene.marks.find(x => x.feet?.some(y => y.n === f.n && y.key === f.from[0].key));
+    openEditor({ look: m.texts[0].look }, { ...footRect(m, f), w: m.w }, raw, text => { const t = text.trim(); if (!t) return footDelete(f); if (t !== raw) App.change(tx => { footWritten(f, v => ({ ...v, text: t }))(tx); tx.says(`Reworded footnote ${f.n}`); }, { dated: false, say: `Reworded footnote ${f.n}` }); }, { ph: 'Footnote', complete: box?.record ? entriesOf(box) : [], kept: true });
+  }
+  // A marker selected in a box selected, by a click on it: Delete takes its footnotes away. → the marker under a point, of its marks' first lines.
+  let picked_foot = null;
+  function markerUnder(m, cx, cy) {
+    if (!m?.feet?.length || m.type === 'shape') return null;
+    const p = graph.clientToLocal(cx, cy), o = m.type === 'line' ? m.labelAt ?? { x: 0, y: 0 } : m;
+    for (const it of m.texts ?? []) { const l = it.lines?.[0]; if (!l?.footW) continue; const x0 = o.x + l.x - (it.look.Align === 'center' ? l.w / 2 : it.look.Align === 'right' ? l.w : 0) + l.w - l.footW, y0 = o.y + l.y - Scene.baseline(it.look);
+      if (p.x >= x0 - 2 && p.x <= x0 + l.footW + 2 && p.y >= y0 - 2 && p.y <= y0 + Scene.lineHeight(it.look) + 2) return { box: m.id, rect: { x: x0, y: y0, w: l.footW, h: Scene.lineHeight(it.look) * 0.7 }, ns: l.spans.at(-1).text.split(',').map(Number) }; }
+    return null;
+  }
   // A free text taken away at the scope: the scope's own note goes; and where the mark's own is taken away but a group's
   // would still give it text, it keeps an empty one, the narrowest, which gives none.
   function unText(m, s = scopeNow(canvas)) {
     const view = viewOf(), rec = treeOf(m.record), N = App.notes.peek(), s0 = st();
     const ids = [...Tree.dependents(s0, [m.record])].filter(id => id === m.record || s0[id]?.at);
     return App.change(tx => {
-      if (!s.own) return s.outputs.forEach(p => tx.note('Text', p, undefined, { view }));
+      // (And what gives this mark its text, where that's elsewhere, so it goes as it's asked to.)
+      if (!s.own) { const n = N.notes('Text').find(x => x.note === m.texts?.find(y => y.free)?.free.note); s.outputs.forEach(p => tx.note('Text', p, undefined, { view })); if (n && !s.outputs.some(p => Tree.key(p) === Tree.key(n.pattern))) tx.note('Text', n.pattern, undefined, { view }); return; }
       const others = N.notes('Text').some(n => n.view === view && Tree.key(n.pattern) !== Tree.key(rec) && ids.some(id => Tree.fits(s0, id, n.pattern)));
       tx.note('Text', rec, others ? { text: '' } : undefined, { view });
     }, { dated: false, say: `Removed the text from ${whereSaid([m], s)}` });
   }
+  // What Delete takes: a footnote's line or marker selected; the footnotes, with their shape; a field; or else what's selected.
+  function deleting() {
+    const fm = scene.marks.find(x => x.role === 'footnotes'), one = selected().length === 1 ? selected()[0] : null;
+    if (picked_foot?.f) { const f = picked_foot.f; picked_foot = null; return footDelete(f); }
+    if (picked_foot?.ns && fm?.feet) { const fs = fm.feet.filter(f => picked_foot.ns.includes(f.n)); picked_foot = null; return App.change(tx => { fs.forEach(f => footWritten(f, () => undefined)(tx)); tx.says(`Deleted footnote ${fs.map(f => f.n).join(', ')}`); }, { dated: false, say: `Deleted footnote ${fs.map(f => f.n).join(', ')}` }); }
+    if (one?.role === 'footnotes') return footsDelete(one);
+    return fieldNow() ? clearField() : remove(true);
+  }
+  // A field dragged off its box, to the panel or into empty room, is taken away at the pen, what it reaches lit as it goes. Only a field already selected drags so; a
+  // press elsewhere in a box selected moves the box, as ever.
+  gEl.addEventListener('mousedown', e => {
+    const f = fieldNow();
+    if (!f || e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || still() || f.m.type !== 'box') return;
+    const u = fieldUnder(e.clientX, e.clientY);
+    if (u?.m.id !== f.m.id || u.it?.id !== f.it.id) return;
+    e.stopPropagation();
+    root.focus({ preventScroll: true });
+    const x0 = e.clientX, y0 = e.clientY, s = scoped(f.m), off = ev => { const p = graph.clientToLocal(ev.clientX, ev.clientY); return p.x < f.m.x || p.x > f.m.x + f.m.w || p.y < f.m.y || p.y > f.m.y + f.m.h; };
+    let ghost = null, gone = false;
+    const move = ev => {
+      if (!ghost && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return;
+      ghost ??= document.body.appendChild(Object.assign(document.createElement('div'), { className: 'drag-field', textContent: fieldName(f.it) }));
+      Object.assign(ghost.style, { left: `${ev.clientX + 12}px`, top: `${ev.clientY + 10}px` });
+      const now = off(ev);
+      if (now !== gone) { gone = now; ghost.classList.toggle('going', now); ghost.textContent = now ? `Hide ${fieldName(f.it)}` : fieldName(f.it); cue(now ? (s.own ? [f.m.id] : [...s.marks]) : null); }
+    };
+    const up = ev => {
+      removeEventListener('pointermove', move, true); removeEventListener('pointerup', up, true);
+      ghost?.remove();
+      cue(null);
+      if (ghost && off(ev)) hideField(f, s);
+    };
+    addEventListener('pointermove', move, true);
+    addEventListener('pointerup', up, true);
+  }, true);
   // A field hidden: its entry, or a blank, at the scope; a free text taken away.
   function hideField(f = fieldNow(), s) {
     if (!f) return;
@@ -2109,7 +2224,7 @@ function mount(el) {
     // selected, theirs, wherever on one of them it lands.
     // A mark of the group that's lit: the group's, as what's lit is what's meant, its menu for all of them.
     const lit = FormatBar.lit?.();
-    if (lit?.marks?.size > 1 && lit.marks.has(cell.id)) { Shell.select([...lit.marks]); return setTimeout(() => Shell.menu(at, markItems())); }
+    if (lit?.marks?.size > 1 && lit.marks.has(cell.id) && !sel.isSelected(cell)) { Shell.select([...lit.marks]); return setTimeout(() => Shell.menu(at, markItems())); }
     const multi = sel.isSelected(cell) && sel.getSelectedCells().length > 1, f = (k === 'box' || k === 'line') && sel.isSelected(cell) && !multi ? fieldUnder(at.x, at.y) : null;
     if (f?.it && f.m.id === cell.id) { pickField(f); return Shell.menu(at, markItems(f)); }
     pickField(null);
@@ -2123,6 +2238,9 @@ function mount(el) {
   // What applies to what's selected, and with `f`, the field it was opened on, that field's, one row of its own under Edit text.
   function markItems(f = null) {
     const ms = selected(), one = ms.length === 1 ? ms[0] : null, bound = ms.filter(m => m.type === 'box' || m.type === 'line'), ro = still();
+    // The footnotes: their columns, whether the page places them, their look; hidden in this view, or gone.
+    if (one?.role === 'footnotes') { const row = rowOf(one.id) ?? {}; return [{ label: 'Columns', disabled: ro, items: [1, 2, 3].map(n => ({ label: String(n), checked: (row.format?.Columns?.n ?? 1) === n, run: () => App.change(tx => tx.update(one.id, { format: { ...row.format, Columns: n > 1 ? { n, gap: row.format?.Columns?.gap ?? 7.2 } : null } }), { dated: false, say: `Set the footnotes in ${n === 1 ? 'one column' : `${n} columns`}` }) })) },
+      { label: 'Where the page places them', disabled: ro || row.x == null, run: () => App.change(tx => tx.update(one.id, { x: null, y: null, w: null }), { dated: false, say: 'Let the page place the footnotes' }) }, ...formatItems(ms, ro), '-', { label: 'Hide in this view', disabled: ro, run: () => App.change(tx => tx.update(one.id, { hidden: true }), { dated: false, say: 'Hid the footnotes in this view' }) }, '-', { label: 'Delete all footnotes', keys: 'Delete', danger: true, disabled: ro, run: () => footsDelete(one) }]; }
     // The footer: its words, its font and its page's setup; the page places it.
     if (ms.length && ms.every(footOf)) return [...(one?.role === 'footer' ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => edit(one.id) }] : []), ...formatItems(ms, ro), '-', { label: 'Page setup…', disabled: ro, run: () => Export.setup() }, '-', { label: 'Delete', keys: 'Delete', danger: true, disabled: ro, run: () => remove(true) }];
     // The Key: in a corner by name, or where the page places it.
@@ -2136,9 +2254,9 @@ function mount(el) {
       ...(one?.geometry === 'table' ? hand.tableItems(one, ro) : text && !ro ? [{ label: 'Edit text', keys: 'Enter', run: () => edit(one.id) }, '-'] : []), ...inCorner,
       ...(fielded ? [...(worded ? [{ label: 'Edit text', keys: 'Enter', disabled: ro, run: () => f ? editField(f.m, f.it) : edit(one.id) }] : []),
         ...(f ? [{ label: fieldName(f.it), items: fieldRows(f) }] : []),
-        { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }] : []), '-'] : []),
+        { label: 'Show on chart', disabled: ro, items: showItems(bound) }, ...(one ? [{ label: 'Add text', disabled: ro, run: () => writeText(one) }, { label: 'Add footnote', keys: '$mod+Alt+KeyF', disabled: ro, run: () => footnote(one) }] : []), '-'] : []),
       ...(pictured ? [{ label: 'Crop', disabled: ro, run: () => hand.crop(one.id) }, { label: 'Change picture…', disabled: ro, run: () => hand.changePicture(one.id) }, { label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }, '-'] : []),
-      ...(free.length && !ms.some(m => m.type === 'box') && !pictured && !one?.geometry?.startsWith?.('group') ? [...(one?.geometry === 'table' ? [] : [{ label: 'Set as default', disabled: ro || !one, run: () => hand.setDefault() }]), ...(one ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }] : []), '-'] : []),
+      ...(free.length && !ms.some(m => m.type === 'box') && !pictured && !one?.geometry?.startsWith?.('group') ? [...(one?.geometry === 'table' ? [] : [{ label: 'Set as default', disabled: ro || !one, run: () => hand.setDefault() }]), ...(one ? [{ label: 'Alt text…', disabled: ro, run: () => focusRow('alt') }, ...(one.geometry !== 'line' && one.geometry !== 'table' && scene.view !== Scene.MASTER ? [{ label: 'Add footnote', keys: '$mod+Alt+KeyF', disabled: ro, run: () => footnote(one) }] : [])] : []), '-'] : []),
       // What a structure chart is made of: its owner and its holding (or what else its first lists call them), as a list's + asks.
       ...(one?.type === 'box' && !ro ? addsOf(one) : []),
       // What's between it and another box: asked for, a tick in the two's panel relates them; Viewing, it reads what's there, and makes nothing.
@@ -2224,7 +2342,7 @@ function mount(el) {
   function fieldRows(f) {
     // All like it: the group whose note shows the field here, so hiding it there takes back what showed it; else the
     // scope's group, or the narrowest.
-    const ro = still(), s = scopeNow(canvas), all = groupOfNote(f.m, f.it.shownBy) ?? (s.own ? groupsAt(scene, f.m).find(x => x.marks.size > 1) : s);
+    const ro = still(), s = scopeNow(canvas), all = !s.own ? s : groupOfNote(f.m, f.it.shownBy) ?? groupsAt(scene, f.m).find(x => x.marks.size > 1);
     return [
       { label: 'Clear contents', keys: 'Delete', disabled: ro || !clears(f), run: () => clearField(f) },
       '-', { label: f.m.type === 'line' ? 'Hide from this line' : 'Hide from this box', disabled: ro, run: () => hideField(f, { own: true }) },
@@ -2264,10 +2382,10 @@ function mount(el) {
     return m ? [m] : (App.state.peek()[id]?.args ?? []).map(a => hostOf(a.at)).filter(Boolean);
   }))];
   // What a line can be traced with: a highlight's hue and depth, a legend row's, the selection's, the scope's.
-  const TRACES = ['dc-hl', 'dc-row', 'dc-sel', 'dc-cue', 'strong', 'deep', 'pulse', 'hloop', 'haccent', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+  const TRACES = ['dc-hl', 'dc-row', 'dc-sel', 'dc-cue', 'dc-reach', 'strong', 'deep', 'pulse', 'hloop', 'haccent', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
   function paintStates(extra) {
     if (!scene) return;
-    marks.querySelectorAll('.dc-hl, .dc-row, .dc-group, .dc-cue').forEach(n => n.remove());
+    marks.querySelectorAll('.dc-hl, .dc-row, .dc-group, .dc-cue, .dc-reach').forEach(n => n.remove());
     // A box or a text is outlined over the chart; a line is traced where it lies, under the boxes, so a
     // line lit never crosses a name. A line drawn once for others traces them, in the strongest light of
     // theirs: the deeper reasons are lit first, so a witness's is over them.
@@ -2315,9 +2433,11 @@ function mount(el) {
       outline(m, 'dc-group dc-shaped', 2);
       if (m.rotate) marks.lastChild.setAttribute('transform', `${marks.lastChild.getAttribute('transform')} rotate(${m.rotate} ${m.w / 2 + 2} ${m.h / 2 + 2})`);
     }
-    // The format bar's scope, while a group is chosen or pointed at: each mark it reaches lit, as a group is.
-    const cuedHere = cued && new Set([...cued].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
+    // A pen pointed at: each mark it would reach lit, as a group is. And at rest, what's in reach of the pen, a thin outline.
+    const drawnOf = ids => ids && new Set([...ids].map(id => scene.byId.get(id)).filter(m => m && (m.type === 'box' || m.type === 'line')).map(m => m.merged ?? m.id));
+    const cuedHere = drawnOf(cued), reachHere = drawnOf(inReach);
     for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 3);
+    if (!cuedHere) for (const id of reachHere ?? []) outline(scene.byId.get(id), 'dc-reach', 3);
     // A selected line is traced in the accent, as Office marks one.
     for (const c of sel.getSelectedCells()) if (c.isEdge()) { const m = scene.byId.get(c.id); if (m?.points) outline(m, 'dc-sel'); }
     bendGrips();
@@ -2331,7 +2451,7 @@ function mount(el) {
       // And every mark the scope doesn't reach is dulled, the page's own furniture with them.
       el.classList.toggle('dc-dull', !!cuedHere && k !== 'page' && k !== 'ink' && !cuedHere.has(id));
       // A mark selected, or in the scope chosen, shows its blanks' names.
-      el.classList.toggle('dc-on', sel.isSelected(k === 'label' ? graph.getCellById(id) ?? c : c) || !!cuedHere?.has(id));
+      el.classList.toggle('dc-on', sel.isSelected(k === 'label' ? graph.getCellById(id) ?? c : c) || !!cuedHere?.has(id) || !!reachHere?.has(id));
       if (c.isEdge()) { el.classList.remove(...TRACES); el.classList.add(...traced.get(c.id) ?? []); }
     }
     paintFields();
@@ -2471,13 +2591,19 @@ function mount(el) {
     for (const c of cells) lit.add(c.id);
     return { appear: r.appear, go: r.go, was, texts, cells, lit };
   }
-  // The format bar's scope on the chart, its cue: `ids`, the marks a group of the selection reaches (boxes and lines,
-  // by id), each lit with the group light and every other mark dulled; null clears it. It's drawn over the scene and
-  // changes nothing in it, so no export draws it.
+  // A pen pointed at, on the chart, its cue: `ids`, the marks it would reach (boxes and lines, by id), each lit with the
+  // group light and every other mark dulled; null clears it. It's drawn over the scene and changes nothing in it, so no
+  // export draws it. And `reach`, what's in reach of the pen at rest: a thin outline, nothing else touched.
   function cue(ids) {
     const next = ids ? new Set(ids) : null;
     if (JSON.stringify(next && [...next]) === JSON.stringify(cued && [...cued])) return;
     cued = next;
+    paintStates();
+  }
+  function reach(ids) {
+    const next = ids ? new Set(ids) : null;
+    if (JSON.stringify(next && [...next]) === JSON.stringify(inReach && [...inReach])) return;
+    inReach = next;
     paintStates();
   }
   // A format pointed at in the format bar, as it would look: the chart drawn from `wb`, the workbook as the
@@ -2667,7 +2793,7 @@ function mount(el) {
   // Northpine Software, LLC.
   const lineOf = id => { const N = App.notes.peek(), st = App.state.peek(); return `${N.nameOf(st, id)}: ${N.segmentOf(st, id)}`; };
   const called = m => m.type === 'box' ? nameOf(m.record) : m.type === 'line' ? lineOf(m.record) : m.type === 'frame' ? `the ${m.caption.text} frame`
-    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : `the ${SHAPE[m.geometry] ?? 'shape'}`;
+    : m.role === 'footer' ? 'the footer' : m.role === 'number' ? 'the page number' : m.role === 'footnotes' ? 'the footnotes' : `the ${SHAPE[m.geometry] ?? 'shape'}`;
   const counted = ms => ms.length === 1 ? ms[0].name : ms.every(m => m.type === 'box') ? `${ms.length} boxes` : ms.every(m => m.type === 'line') ? `${ms.length} lines` : `${ms.length} items`;
   function said(hid, gone, view) {
     const rows = hid.filter(m => m.type === 'row'), marks = hid.filter(m => m.type !== 'row');
@@ -3131,7 +3257,7 @@ function mount(el) {
     'Tab': () => fieldNow() ? stepField(1) : next(1), 'Shift+Tab': () => fieldNow() ? stepField(-1) : next(-1),
     // Delete deletes what's selected, a box or a line as a change pending (App.deleting); a field selected, it clears.
     // (Viewing, a what-if is asked for by its word; a key pressed in passing writes nothing and begins nothing.)
-    'Delete': () => still() ? Shell.toast(App.whyNot()) : fieldNow() ? clearField() : remove(true), 'Backspace': () => still() ? Shell.toast(App.whyNot()) : fieldNow() ? clearField() : remove(true),
+    'Delete': () => still() ? Shell.toast(App.whyNot()) : deleting(), 'Backspace': () => still() ? Shell.toast(App.whyNot()) : deleting(),
     // PowerPoint's: an arrow moves a step, the grid's with Snap to grid, or else 6 pt on the sheet; Ctrl+arrow 1.25 pt; Shift+arrow sizes about its middle, and with Ctrl finely; Alt+arrow
     // turns by 15 degrees what can turn (and with nothing that can, walks the trail, as it always has).
     ...Object.fromEntries([['ArrowLeft', -1, 0], ['ArrowRight', 1, 0], ['ArrowUp', 0, -1], ['ArrowDown', 0, 1]].flatMap(([k, a, b]) => {
@@ -3210,9 +3336,16 @@ function mount(el) {
   // a row's key names, as its row is pointed at; `over`, the box under a point on screen as a row is dragged, outlined as
   // its target (null ends it), and `drop`, the label dropped there; `clip`, a row copied, as a field.
   const marked = id => scene?.byId.get(id);
-  const scoped = m => Shell.selection.peek().length === 1 && keyParts(Shell.selection.peek()[0])[0] === m.id ? scopeNow(canvas) : { own: true };
   const fields = {
     shown: (id, edge, at = id) => { const m = marked(id); return !!m && shows(m, edge, at); },
+    // From the panel, at the pen: a free text, a footnote, and what they can read.
+    words: id => { const m = marked(id); return m ? wordsAt(m) : []; },
+    addText: (id, text) => { const m = marked(id); return m && putText(m, text); },
+    editText: id => { const m = marked(id), it = m?.texts?.find(x => x.free); if (it) writeText(m, it); },
+    dropText: id => { const m = marked(id); return m && unText(m, scoped(m)); },
+    addFoot: (id, text) => { const m = marked(id); return m && addFoot(m, text, scoped(m), null); },
+    footDelete: (id, key) => { const fm = scene.marks.find(x => x.role === 'footnotes'), f = fm?.feet?.find(y => y.from.some(z => z.key === key)); return f && footDelete(f); },
+    footEdit: (id, key) => { const fm = scene.marks.find(x => x.role === 'footnotes'), f = fm?.feet?.find(y => y.from.some(z => z.key === key)); if (f) editFoot(fm, f); },
     show: (id, edge, on, at = id) => { const m = marked(id); return m && setField([m], edge, on, scoped(m), at); },
     showHere: (id, edge, on, at = id) => { const m = marked(id); return m && setField([m], edge, on, { own: true }, at); },
     // In every box that has it, as more get it too: a note at the entry wherever it is (dendra.md, Fields); a choice
@@ -3231,9 +3364,12 @@ function mount(el) {
     over(cx, cy) {
       const p = cx == null ? null : graph.clientToLocal(cx, cy), m = p && [...scene.marks].reverse().find(b => b.type === 'box' && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
       if ((m?.id ?? null) !== dropOn) { dropOn = m?.id ?? null; paintFields(); }
+      // Those it would go to lit: what the pen reaches; or else the one box it's over, where the pen doesn't reach that.
+      const s = scopeNow(canvas), many = s.own ? null : s.marks;
+      cue(cx == null ? null : m && !many?.has(m.id) ? [m.id] : many ? [...many] : m ? [m.id] : null);
       return m ?? null;
     },
-    drop(edge) { const m = marked(dropOn); dropOn = null; paintFields(); return m && setField([m], edge, true, scoped(m)); },
+    drop(edge) { const m = marked(dropOn); dropOn = null; cue(null); paintFields(); return m && setField([m], edge, true, scoped(m)); },
     clip: (edge, text) => { clip = { items: [], text, field: edge }; },
   };
   // A box inserted between two (App.interposing): set square over the lower, midway under the upper; where that hasn't the
@@ -3263,14 +3399,14 @@ function mount(el) {
   // What a change pending keeps where it stands, and what it places itself, over any place entered.
   function holdsFor(base) { const h = holdsOf(base), at = App.pending.peek()?.placing?.(); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
-    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
+    scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, reach, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
     insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, tidyable, tidyEvery, tidiedEvery, zoom, put, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
     table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), link: id => hand.setLink(id), pastePicture: f => hand.pastePicture(f), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
     // What's being typed part by part takes a look (Bold, a color, a size) in place of the mark it's in. → whether it did.
     richSet: (label, v) => !!richEdit?.set(label, v),
-    fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); },
+    fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); }, footnote: id => footnote(id ? marked(id) : undefined),
     // Relate…: from the one box selected, a line drawn to the next box clicked, as its menu begins one.
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },

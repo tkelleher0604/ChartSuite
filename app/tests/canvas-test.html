@@ -147,6 +147,10 @@ async function run() {
   const ownPart = () => txt($('[data-fb="own"]')), like = () => txt($('[data-fb="like"]'));
   const chip = () => txt($('[data-fb="scope"] [aria-pressed="true"]'));
   const dulled = () => $$('.dc .x6-cell.dc-dull').map(e => e.getAttribute('data-cell-id'));
+  // (The pen goes by itself: these are of a pen put at the title, which sticks. Its own checks are after them: see The pen.)
+  const toTitle = () => { FormatBar.pen.level.value = { own: true }; }, penHome = FormatBar.pen.home;
+  FormatBar.pen.home = () => { const had = penHome(); toTitle(); return had; };
+  toTitle();
   Shell.select(['northpine']); await tick(120);
   check('one box selected, a format goes to “This box”, with all like it beside it', chip() === 'This box' && ownPart() === 'This box' && /^All \d+ \S/.test(like()),`${ownPart()} | ${like()}`);
   check('… and nothing on the chart is dulled', !dulled().length, dulled().join());
@@ -207,12 +211,13 @@ async function run() {
   const now = fills();
   check('a fill with one box selected fills that box alone', now.northpine === '#fff2cc' && pcs.filter(id => id !== 'northpine').every(id => now[id] === was[id]) && pcs.length === 4, JSON.stringify(now));
   $('[data-fb="like"]').click(); await tick(120);
-  check('choosing all like it presses it, and cues the group: the other boxes dulled', chip() === 'All 4 portfolio companies' && pcs.every(id => !dulled().includes(id)) && dulled().includes('fund'), `${chip()}; ${dulled().length} dulled`);
+  check('choosing all like it presses it, and what it reaches has a thin outline, the others untouched', chip() === 'All 4 portfolio companies' && $$('.dc-marks path.dc-reach').length === 4 && !dulled().length, `${chip()}; ${$$('.dc-marks path.dc-reach').length} outlined, ${dulled().length} dulled`);
   FormatBar.apply('Fill', '#e2f0d9'); await tick(120);
   check('… and a fill then goes to every box it reaches but the one entered for itself', pcs.filter(id => id !== 'northpine').every(id => fills()[id] === '#e2f0d9'), JSON.stringify(fills()));
   const kept = txt($$('.toast').at(-1)), np = App.notes.peek().nameOf(App.state.peek(), 'northpine'), groupSaid = Time.describe(App.wb.changes().at(-1));
   const green = FormatBar.colorName('#e2f0d9');
-  check('… which says at once, by the group, that the one keeps its own', kept.startsWith(`Set the fill of Portfolio companies to ${green}; ${np} keeps its own`), kept);
+  // (The first change of a session to reach more than one box says what it reached, with Undo and Just this box.)
+  check('… which says at once what it reached, and that the one keeps its own, with Undo and Just this box', kept.startsWith(`Filled all 4 portfolio companies; ${np} keeps its own`) && /Just this box/.test(kept) && /Undo/.test(kept), kept);
   check('… and History names the change by the group, as the Key does, with the color by its name', groupSaid === `Set the fill of Portfolio companies to ${green} in ${main.name}`, groupSaid);
   // Each look is said with what it's given: a switch by what it makes, none as taken off, a color and a shape by name.
   const stamp = { who: 'Dana Jordan', when: new Date().toISOString(), chart: App.chart.peek() }, npBox = { id: 'northpine', kind: 'Entity' };
@@ -241,9 +246,10 @@ async function run() {
   ctrlShiftA(); await tick(100);
   const toOwn = chip();
   ctrlShiftA(); await tick(100);
-  check('Ctrl+Shift+A goes from all like it to the selection and back', toOwn === 'This box' && chip() === 'All 4 portfolio companies' && !!dulled().length, `${toOwn}, then ${chip()}`);
+  check('Ctrl+Shift+A goes from all like it to the selection and back', toOwn === 'This box' && chip() === 'All 4 portfolio companies' && !!$$('.dc-marks path.dc-reach').length, `${toOwn}, then ${chip()}`);
+  toTitle();
   Shell.select(['halvard']); await tick(120);
-  check('another selection is formatted as itself again, and nothing is dulled', chip() === 'This box' && !dulled().length, chip());
+  check('a pen put at the title stays there as another box is clicked, and nothing is dulled', chip() === 'This box' && !dulled().length, chip());
   // A group of a box's own, chosen from the ▾ and given a fill, becomes a Styles row, keyed: every Cayman box green.
   const feeder = drawnBoxes.find(b => { const e = entryOf(b, 'Jurisdiction'); return e && rs[e].choice === 'Cayman Islands'; });
   Shell.select([feeder.id]); await tick(120);
@@ -280,6 +286,7 @@ async function run() {
   putAfter?.click(); await tick(200);
   check('… which, taken, reaches every mark of it, as one more change', peachIs() === lps.length && App.wb.changes().length === n1 + 2 && orderOf() !== orderWas, `${peachIs()} of ${lps.length}`);
   Shell.parts.peek().undo.undo(); await tick(120); Shell.parts.peek().undo.undo(); await tick(120);
+  toTitle();
   Shell.select(['halvard']); await tick(120);
 
   // ---- Live preview: a swatch or an option pointed at is drawn, and leaving ends it ----
@@ -406,6 +413,7 @@ async function run() {
     ['#AFABAB', 'Light Gray, Background 2, Darker 25%'], ['#44546A', 'Blue-Gray, Text 2'], ['#D6DCE5', 'Blue-Gray, Text 2, Lighter 80%'], ['#FFFF00', 'Yellow'], ['#92D050', 'Light Green'], ['#123456', null]];
   const bad = names.filter(([c, n]) => FormatBar.colorName(c) !== n);
   check('FormatBar.colorName gives PowerPoint’s name for a theme color, and null for a custom one', !bad.length, bad.map(([c]) => `${c}: ${FormatBar.colorName(c)}`).join('; '));
+  toTitle();
   Shell.select(['halvard']); await tick(120);
   $('[data-fb="fill"]').click(); await tick(120);
   const swatches = $$('.float .palette > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
@@ -431,7 +439,7 @@ async function run() {
   check('every swatch has one hairline, drawn on the menu, that sets off even those nearest the menu’s colour, in light and in dark', edges.every(e => e.ok), JSON.stringify(edges));
   const hex = $('.float .palette .hex > input');
   hex.focus(); hex.value = '1F5FBF'; hex.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(80);
-  check('a color typed by its hex in More colors is drawn as it’s typed, and changes nothing', fillOf('halvard') === '#1f5fbf' && App.scene.peek().byId.get('halvard').settings.Fill.value !== '#1f5fbf', fillOf('halvard'));
+  check('a color typed by its hex in More colors is drawn as it’s typed, and changes nothing', fillOf('halvard') === '#1f5fbf' && App.scene.peek().byId.get('halvard').settings.Fill.value !== '#1f5fbf', `${fillOf('halvard')} ${chip()} ${JSON.stringify(FormatBar.pen.level.peek())} ${JSON.stringify(App.notes.peek().resolve('Fill', Tree.treeOf(App.state.peek(), 'halvard'), sc().view)?.note?.pattern ?? null)}`);
   hex.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(150);
   check('… and Enter makes it, and closes the palette', App.scene.peek().byId.get('halvard').settings.Fill.value === '#1f5fbf' && !$('.float .palette'), App.scene.peek().byId.get('halvard').settings.Fill.value);
   Shell.select(['northpine']); await tick(120);
@@ -851,7 +859,7 @@ async function run() {
     && sc() !== App.scene.peek());
   await closeMenus(); await tick(80);
   check('… until the popover closes', sc() === App.scene.peek());
-  { Shell.select(['fund']); await tick(120);
+  { toTitle(); Shell.select(['fund']); await tick(120);
     $('[data-fb="outline"]').click(); await tick(150);
     const boxSubs = $$('.float .palette .menu-item.sub').map(txt);
     await closeMenus();
@@ -2491,7 +2499,7 @@ async function format() {
   // What differs from its style: a line's own arrow, a box's own weight; the ribbon says so rather than tick one.
   await show(stE);
   const boxE = () => sc().byId.get('fund');
-  Shell.select(['blocker']); await tick(200);
+  FormatBar.pen.level.value = { own: true }; Shell.select(['blocker']); await tick(200);
   FormatBar.apply('Weight', 3); await tick(400);
   Shell.select([]); await tick(150);
   const corpG = Scene.groupsOf(App.notes.peek(), stE.id).find(g => g.caption === 'Corporation');
@@ -2500,7 +2508,7 @@ async function format() {
   check('Select what differs selects and lists the one-offs on the view', Shell.selection.peek().includes('blocker') && $$('.float .menu-item').some(e => /Weight 3 pt/.test(txt(e))), $$('.float .menu-item').map(txt).join(' | '));
   await closeMenus();
   check('… Find has it', !!acts().find(a => a.id === 'look.differs')?.names.includes('One-offs'));
-  Shell.select(['blocker']); await tick(200);
+  FormatBar.pen.level.value = { own: true }; Shell.select(['blocker']); await tick(200);
   check('… and the box’s panel says it under This box, with Reset', $$('.insp .row.src .k').some(k => txt(k) === 'This box') && !!$('.insp .reset'), $$('.insp .row.src .k').map(txt).join());
   Shell.parts.peek().undo.undo(); await tick(300);
   Shell.select([]); await tick(150);
@@ -2629,16 +2637,13 @@ async function format() {
   check('with nothing selected, the ribbon’s font and size aim at All text, the rest off', barOn() && !$('[data-fb="size"]').disabled && !!$('[data-fb="all"]') && txt($('[data-fb="all"]')) === 'All text' && $('[data-fb="bold"]').disabled && $('[data-fb="fill"]').disabled);
   const scopeAt0 = $('[data-fb="scope"]').getBoundingClientRect(), fontAt0 = $('[data-fb="font"]').getBoundingClientRect();
   cap('Funds').click(); await tick(150);
-  check('a Styles row clicked aims the ribbon at it, what it reaches lit, the rest dulled', barOn() && /^All 5 funds/.test(likeSays()) && dull() > 0 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
+  check('a Styles row clicked moves the pen there: what it reaches outlined, nothing else touched', barOn() && /^All 5 funds/.test(likeSays()) && dull() === 0 && $$('.dc-marks path.dc-reach').length === 5 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
   check('… the bar’s controls where they were', Math.abs($('[data-fb="scope"]').getBoundingClientRect().left - scopeAt0.left) < 0.5 && Math.abs($('[data-fb="scope"]').getBoundingClientRect().width - scopeAt0.width) < 0.5 && Math.abs($('[data-fb="font"]').getBoundingClientRect().left - fontAt0.left) < 0.5);
   const fundBox = () => sc().byId.get('feeder');
   $('[data-fb="fill"]').click(); await tick(120);
   const hexIn = $('.float .palette .hex > input');
   hexIn.value = '1F3864'; hexIn.dispatchEvent(new Event('input', { bubbles: true })); hexIn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(400);
   check('… a fill given goes to the row', fundBox().settings.Fill.value === '#1f3864' && !Shell.selection.peek().length);
-  check('… and the cue goes, so the change can be seen', dull() === 0, dull());
-  $('[data-fb="scope"]').dispatchEvent(new PointerEvent('pointerenter', { bubbles: false })); await tick(120);
-  check('… a pointer on the scope list bringing it back', dull() > 0, dull());
   // Ink on a dark fill: what has no color of its own is white, what's given one keeps it.
   check('a text with no color of its own is drawn white on a fill too dark for ink', fundBox().texts.every(it => it.look.Color === '#ffffff'), fundBox().texts.map(it => it.look.Color).join());
   // Text color at a group means every field it shows, as a shape's in PowerPoint.
@@ -2893,6 +2898,106 @@ async function format() {
   await closeMenus();
   Shell.parts.peek().undo.undo(); await tick(200);
   Shell.select([]); await tick(150);
+
+  // ---- The pen (dendra.md, The pen): one scope, a location in the schema, in the panel's gutter ----
+  { const P = FormatBar.pen, onTop = () => txt($('[data-fb="scope"] [aria-pressed="true"]')), outlined = () => $$('.dc-marks path.dc-reach').length, dulls = () => $$('.dc .x6-cell.dc-dull').length;
+  const here = () => $$('.insp .pen.here'), rowHere = () => here()[0]?.closest('.row, .sect, .ih-at, .path'), labelOf = el => txt(el?.querySelector?.('.lbl, .k') ?? el);
+  P.home(); Shell.select([]); await tick(150);
+  Shell.select(['feeder']); await tick(200);
+  check('a box clicked: the pen goes by itself to the Styles row that fills it, one pen, in that row’s gutter', onTop() === 'All 5 funds' && here().length === 1 && /Vehicle Type/.test(labelOf(rowHere())), `${onTop()} ${here().length} ${labelOf(rowHere())}`);
+  check('… what’s in reach has a thin outline, and nothing’s dulled', outlined() === 5 && dulls() === 0, `${outlined()} ${dulls()}`);
+  const rowPen = name => $$('.insp .ent > .row').find(r => txt(r.querySelector('.lbl')) === name)?.querySelector('.pen');
+  const titlePen = () => $('.insp .ih-at > .pen'), kindPen = () => $('.insp .path > .pen');
+  rowPen('Entity Type').dispatchEvent(new PointerEvent('pointerenter')); await tick(120);
+  check('pointing at a row’s pen says what it would reach, lights it, and dulls the rest', rowPen('Entity Type').dataset.tip === 'All 5 limited partnerships' && dulls() > 0, `${rowPen('Entity Type').dataset.tip} ${dulls()}`);
+  rowPen('Entity Type').dispatchEvent(new PointerEvent('pointerleave')); await tick(120);
+  check('… and leaving it, nothing’s dulled', dulls() === 0);
+  titlePen().click(); titlePen().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  check('a click on the title’s pen moves it there: this box', onTop() === 'This box' && titlePen().classList.contains('here') && outlined() === 0 && here().length === 1, onTop());
+  Shell.select(['fund']); await tick(200);
+  check('… and it sticks as another box is clicked', onTop() === 'This box' && titlePen().classList.contains('here'), onTop());
+  rowPen('Entity Type').click(); rowPen('Entity Type').dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  Shell.select(['blocker']); await tick(200);
+  check('put at Entity Type, it goes to each box’s Entity Type', onTop() === 'All 5 corporations' && /Entity Type/.test(labelOf(rowHere())), `${onTop()} ${labelOf(rowHere())}`);
+  Shell.select(['inv_us']); await tick(200);
+  check('… a box with no such place has it go by itself', !!onTop() && here().length <= 1, onTop());
+  Shell.select(['blocker']); await tick(200);
+  check('… and it comes back at the next that has', onTop() === 'All 5 corporations', onTop());
+  kindPen().click(); kindPen().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  check('at the kind in the eyebrow: every one of the kind', /^All \d+ entities$/.test(onTop()) && kindPen().classList.contains('here'), onTop());
+  Shell.select([]); await tick(150);
+  cv().root.focus(); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(150);
+  check('Esc with nothing selected brings it home', P.level.peek() === null, JSON.stringify(P.level.peek()));
+  Shell.select(['feeder']); await tick(200);
+  check('… and it goes by itself again', onTop() === 'All 5 funds', onTop());
+  // A row whose answer a Styles row says wider: a click there, the row; a second, the one answer.
+  const vt = () => rowPen('Vehicle Type');
+  vt().dispatchEvent(new PointerEvent('pointerenter')); await tick(100);
+  const nextSays = vt().dataset.tip;
+  vt().click(); vt().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  check('a second click on a row with two places goes to its one answer', /feeder fund/i.test(onTop()) && /feeder fund/i.test(nextSays), `${nextSays} → ${onTop()}`);
+  // The pen is the scope: what goes to the scope goes there, for a value row every box that has it.
+  P.home(); await tick(100);
+  rowPen('EIN').click(); rowPen('EIN').dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
+  const withEin = FormatBar.scope();
+  check('at a value: every box that has that entry, said so', /^All \d+ with EIN$/.test(onTop()) && withEin.marks.size > 5 && [...withEin.marks].every(id => sc().byId.get(id).type === 'box'), onTop());
+  const changesAt = App.wb.changes().length;
+  FormatBar.apply('Fill', '#fce4d6'); await tick(300);
+  check('… a fill lands on those boxes, one change', [...withEin.marks].every(id => sc().byId.get(id).settings.Fill.value === '#fce4d6' || Tree.idsIn(sc().byId.get(id).settings.Fill.note?.pattern ?? {}).size || sc().byId.get(id).settings.Fill.note?.pattern?.out) && App.wb.changes().length === changesAt + 1 && sc().byId.get('feeder').settings.Fill.value !== undefined);
+  FormatBar.apply('Bold', true); await tick(300);
+  check('… and Bold every text of those boxes, not just the EIN', [...withEin.marks].every(id => sc().byId.get(id).texts.every(it => it.blank || it.look.Bold)), [...withEin.marks].slice(0, 2).map(id => sc().byId.get(id).texts.map(it => `${it.text}:${it.look.Bold}`).join()).join(' / '));
+  Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200);
+  // Fields by the pen: the eye says for whom, and shows it there.
+  P.home(); Shell.select([]); await tick(100); Shell.select(['feeder']); await tick(200);
+  const eye = () => $$('.insp .ent > .row').find(r => txt(r.querySelector('.lbl')) === 'EIN')?.querySelector('.onchart');
+  eye().dispatchEvent(new PointerEvent('pointerenter')); await tick(60);
+  check('the eye says for whom', eye().dataset.tip === 'Show in all 5 funds', eye().dataset.tip);
+  eye().click(); eye().dispatchEvent(new PointerEvent('pointerleave')); await tick(300);
+  const einsShown = ids => ids.filter(id => sc().byId.get(id).texts.some(it => it.blank?.edge === 'EIN' || /^\d\d-\d{7}$/.test(it.text ?? ''))).length;
+  check('… and shows it at the pen', einsShown([...FormatBar.scope().marks]) === 5, einsShown([...FormatBar.scope().marks]));
+  Shell.parts.peek().undo.undo(); await tick(200);
+  // A row carried over the chart: what the pen reaches lit, and dropped on one of those, it goes to all of them; on another, that one.
+  cv().fields.over(1, 1); const fm = sc().byId.get('feeder'), onBox = cv().graph.localToClient(fm.x + fm.w / 2, fm.y + fm.h / 2);
+  cv().fields.over(onBox.x, onBox.y); await tick(80);
+  check('a row carried over a box the pen reaches lights all it reaches', $$('.dc-marks path.dc-cue').length === 5 && dulls() > 0, `${$$('.dc-marks path.dc-cue').length}`);
+  cv().fields.drop('EIN'); await tick(300);
+  check('… dropped there, it shows at the pen', einsShown([...FormatBar.scope().marks]) === 5 && dulls() === 0);
+  Shell.parts.peek().undo.undo(); await tick(200);
+  const hm = sc().byId.get('halvard'), onOther = cv().graph.localToClient(hm.x + hm.w / 2, hm.y + hm.h / 2);
+  cv().fields.over(onOther.x, onOther.y); await tick(80);
+  check('… over one it doesn’t reach, that one alone is lit', $$('.dc-marks path.dc-cue').length === 1, `${$$('.dc-marks path.dc-cue').length}`);
+  cv().fields.drop('EIN'); await tick(300);
+  check('… and it goes to that one', einsShown(['halvard']) === 1 && einsShown([...FormatBar.scope().marks]) === 0);
+  Shell.parts.peek().undo.undo(); await tick(200);
+  // Free text at the pen, `{Entry}` reading each box's own.
+  cv().fields.addText('feeder', 'In {Jurisdiction}'); await tick(300);
+  const inJ = id => sc().byId.get(id).texts.find(it => it.free)?.text;
+  check('a free text from the panel goes to what the pen reaches, each box reading its own', inJ('feeder') === 'In Cayman Islands' && [...FormatBar.scope().marks].some(id => /^In Delaware/.test(inJ(id) ?? '')) && $$('.toast').some(t => /Added text to all 5 funds/.test(txt(t))), `${inJ('feeder')} ${txt($$('.toast').at(-1))}`);
+  check('… and its page says it, as it was typed, a click from typing over', $$('.insp .foot-row').some(r => /In \{Jurisdiction\}/.test(txt(r))), $$('.insp .foot-row').map(txt).join());
+  cv().fields.dropText('feeder'); await tick(300);
+  check('… and deleted there, it goes from all the pen reaches', !inJ('feeder') && ![...FormatBar.scope().marks].some(id => inJ(id)));
+  Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200);
+  // Footnotes: at the pen, a marker on each, one line for one text, numbered in reading order.
+  P.level.value = { own: true }; Shell.select(['feeder']); await tick(200);
+  cv().fields.addFoot('feeder', 'Offshore only'); await tick(300);
+  const foots = () => sc().marks.find(m => m.role === 'footnotes'), mk = id => sc().byId.get(id).texts.flatMap(it => it.lines ?? []).flatMap(l => l.spans ?? []).filter(s => s.foot).map(s => s.text).join();
+  check('a footnote at the title: that box has a superscript marker, and the page a line of it', mk('feeder') === '1' && !mk('fund') && foots()?.texts[0].lines.length === 1 && foots().texts[0].lines[0].spans[0].base === 'up' && /Offshore only/.test(foots().texts[0].text), `${mk('feeder')} ${foots()?.texts[0].text}`);
+  P.level.value = { kind: true }; await tick(150);
+  cv().fields.addFoot('feeder', 'An entity'); await tick(300);
+  const numbered = sc().marks.filter(m => m.type === 'box' && m.feet?.some(f => f.text === 'An entity'));
+  check('at the kind, one number for one text, however many carry it', numbered.length > 5 && new Set(numbered.map(m => m.feet.find(f => f.text === 'An entity').n)).size === 1 && foots().texts[0].text.split('\n').length === 2, `${numbered.length} ${foots()?.texts[0].text}`);
+  const topFirst = [...sc().marks.filter(m => m.type === 'box' && m.feet?.length)].sort((a, b) => a.y - b.y)[0];
+  check('… numbered in reading order: the first it reads carries 1', topFirst.feet.some(f => f.n === 1), JSON.stringify(topFirst.feet));
+  const onSheet = foots(), page = sc().page, ms = page.margins;
+  check('… placed at the foot of the page, within its margins', onSheet.y + onSheet.h <= page.h - ms.bottom + 20 && onSheet.x >= ms.left - 16, JSON.stringify({ y: onSheet.y, h: onSheet.h, H: page.h }));
+  const taken = () => { const m = foots(); return !m || (m.feet ?? []).length; };
+  const f2 = foots().feet.find(f => f.text === 'An entity');
+  cv().fields.footDelete('feeder', f2.from[0].key); await tick(300);
+  check('deleting one takes it from all that carry it, and the rest number afresh', taken() === 1 && mk('feeder') === '1', `${taken()} ${mk('feeder')}`);
+  cv().fields.footDelete('feeder', foots().feet[0].from[0].key); await tick(300);
+  check('… with none left, the page has no footnotes drawn, and no marker', !foots() && !mk('feeder'));
+  for (let i = 0; i < 4; i++) { Shell.parts.peek().undo.undo(); await tick(150); }
+  P.home(); Shell.select([]); await tick(150); }
   // ---- A table: Insert's grid, typed in as a table's typed; the master; a freeform's points; effects ----
   const ofTable = () => sc().marks.find(m => m.geometry === 'table');
   $('[data-fb="insert"]').click(); await tick(150);
