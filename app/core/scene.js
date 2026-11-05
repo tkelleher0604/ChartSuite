@@ -1094,7 +1094,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
       if (r.role || r.geometry === 'legend') continue;
       if (r.rest) said.set(r.id, editing.fields.filter(it => !names.has(Tree.norm(state[it.id]?.edge ?? ''))).map(it => it.text).join('\n'));
       else if (r.geometry === 'table') said.set(r.id, reads.table(r, editing.record));
-      else if (r.text) said.set(r.id, readWords(r.text, editing.record, reads));
+      else if (r.text) said.set(r.id, /^\s*=/.test(r.text) ? reads.formula(r.text, editing.record) : cleaned(r.text.replace(TOKEN, (_, l) => { const q = reads(editing.record, l), it = !l.includes('|') && editing.fields.find(x => x.id === q.id); return it ? it.text : q.text; })));
       // (Drawn since it began too: as it will be, a part.)
       if (r.part || wb.made(r.shape) > editing.design.value.begun) { const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))); onPage[i] = { ...r, format: partFormat(editing, { p: r, item }, kept) }; }
     }

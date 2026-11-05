@@ -321,8 +321,9 @@ function saveToHouse(d) {
 function items(ms, ro) {
   if (editing.peek()) return [];
   const can = makeable(ms), one = ms.length === 1 && ms[0].type === 'box' ? ms[0] : null, overs = !!one?.design?.overs.length;
-  return [...(can ? [{ label: 'Make a design…', disabled: ro, run: () => make(ms) }] : []),
-    ...(one ? [{ label: 'Edit design', disabled: ro, run: () => edit(one) }, ...(overs ? [{ label: 'Reset to design', disabled: ro, run: () => reset(one) }] : []), ...(one.design ? [{ label: 'Save to house style…', run: () => saveToHouse(one.design.value) }] : [])] : [])];
+  // (Where there's more than editing it, one row, so the box's menu fits the window it opens in.)
+  const rows = one ? [{ label: 'Edit design', disabled: ro, run: () => edit(one) }, ...(overs ? [{ label: 'Reset to design', disabled: ro, run: () => reset(one) }] : []), ...(one.design ? [{ label: 'Save to house style…', run: () => saveToHouse(one.design.value) }] : [])] : [];
+  return [...(can ? [{ label: 'Make a design…', disabled: ro, run: () => make(ms) }] : []), ...(rows.length > 1 ? [{ label: 'Design', items: rows }] : rows)];
 }
 // A row of Styles or the Key double-clicked, by its outputs: the design of the first box it reaches.
 function editRow(g) {
