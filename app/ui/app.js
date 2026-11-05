@@ -423,7 +423,9 @@ const App = (() => {
     cancellation: ['Cancel', 'Cancelled'], redemption: ['Redeem', 'Redeemed'], merger: ['Merge', 'Merged'], incorporation: ['Incorporate', 'Incorporated'],
     organization: ['Organize', 'Organized'], registration: ['Register', 'Registered'], commencement: ['Commence', 'Commenced'], closing: ['Close', 'Closed'],
     start: ['Start', 'Started'], end: ['End', 'Ended'], paid: ['Pay', 'Paid'], filed: ['File', 'Filed'] };
-  const actOf = label => ACTS[Tree.norm(label ?? '').replace(/\s+(date|day)$/, '').split(/\s+/).at(-1)] ?? null;
+  // (A chart's own Start or End note can say its verb: { verb, done }, a template's word for its own act.)
+  const actSaid = label => { const n = [...notes.peek().notes('Start'), ...notes.peek().notes('End')].find(x => x.value?.verb && Tree.same(x.pattern.args?.[0]?.edge ?? '', label ?? '')); return n ? [n.value.verb, n.value.done ?? n.value.verb] : null; };
+  const actOf = label => actSaid(label) ?? ACTS[Tree.norm(label ?? '').replace(/\s+(date|day)$/, '').split(/\s+/).at(-1)] ?? null;
   // What deleting records is called, as its menus, Find and its bar's button name it: for what it records. Where it asks
   // the day they end, End, or the act their end entry records (Dissolve, for an entity's Dissolution Date); where it
   // asks none, Delete.
@@ -1176,9 +1178,19 @@ const App = (() => {
   }
   // Inserting one between (dendra.md, Time): a stake that a record of the kinds can stand in the middle of. A relation's
   // amount is a percentage of what it holds, so the new one's 100% of that, the old holder's, says the same.
+  // In a chart that says no figures, any relation that ranks its boxes takes one between: a manager's manager.
   function interposable(rid, recs = entered.peek()) {
     const tr = recs[rid] && transferable(rid, recs);
-    return !!tr?.amount && recs[tr.amount].field === 'percent' && takers(rid, '').kinds.some(k => fitsBetween(rid, recs, tr, { kind: k }));
+    if (!tr) return false;
+    const figured = Object.values(schema.peek()).some(s => s.args?.length === 1 && s.out?.field === 'percent' && s.args[0].loc.args);
+    const ranks = () => { const a = notes.peek().value('Above', Tree.bare(Tree.treeOf(recs, rid)), Shell.view.peek()); return a !== 'none' && a !== 'level'; };
+    return (tr.amount ? recs[tr.amount].field === 'percent' : !figured && ranks()) && takers(rid, '').kinds.some(k => fitsBetween(rid, recs, tr, { kind: k }));
+  }
+  // The word for it, by the kind that would stand between them: Insert an entity between…
+  function interposeWord(rid, recs = entered.peek()) {
+    const tr = recs[rid] && transferable(rid, recs), k = tr && (takers(rid, '').kinds.filter(x => fitsBetween(rid, recs, tr, { kind: x })).find(x => Tree.same(x, recs[Tree.objectOf(recs, tr.rest[0].at)]?.kind ?? '')) ?? takers(rid, '').kinds.find(x => fitsBetween(rid, recs, tr, { kind: x })));
+    const word = k ? lowered(k) : 'one';
+    return `Insert ${k ? (/^[aeiou]/i.test(word) ? 'an ' : 'a ') : ''}${word} between…`;
   }
   function interpose(tx, rid, to, d, o = {}) {
     const at = o.at ?? book.peek().asOf(chart.peek(), d), r = at[rid], tr = transferable(rid, at), amt = at[tr.amount], entries = Tree.index(at).entries.get(rid) ?? [];
@@ -1186,7 +1198,7 @@ const App = (() => {
     const up = tx.add('record', { args: [{ edge: tr.first.edge, at: tr.first.at }, { edge: tr.rest[0].edge, at: mid }], ...('choice' in r ? { choice: r.choice } : { tag: true }) }, o.up ?? undefined);
     const start = startOf(tx.asOf(d)[up], tx.asOf(d));
     if (start) tx.add('record', { at: up, edge: start, field: 'date', value: d }, o.keepUp?.(start));
-    for (const x of entries) if (at[x].field === amt.field && at[x].value === amt.value) tx.add('record', { at: up, edge: at[x].edge, field: at[x].field, value: 1 }, o.keepUp?.(at[x].edge));
+    if (amt) for (const x of entries) if (at[x].field === amt.field && at[x].value === amt.value) tx.add('record', { at: up, edge: at[x].edge, field: at[x].field, value: 1 }, o.keepUp?.(at[x].edge));
     return { up, mid };
   }
   // Insert an entity between…: begun as a transfer is, asking whom (a new one named as it's typed, or one the chart has that
@@ -1591,10 +1603,8 @@ const App = (() => {
   // afresh. Its chart draws what it records: each relation of two sides no formula gives, of any kind or option
   // at its sides, though the chart it's begun from left it out (Structure, Membership); what that one rules out
   // (not an owner) stays out. `style`, a house style chosen, a look to begin in instead of the first chart view's.
-  function startChart(wb, style) {
-    const c = Log.newId(), names = new Set(wb.charts().map(x => Tree.norm(x.name))), from = chart.peek(), src = book.peek();
-    let name = 'Untitled', i = 2;
-    while (names.has(Tree.norm(name))) name = `Untitled ${i++}`;
+  function startChart(wb, style, named) {
+    const c = Log.newId(), from = chart.peek(), src = book.peek(), name = freeName(wb, named);
     const tx = wb.edit({ chart: c, who: who() }), kept = new Map();
     tx.add('chart', { name }, c);
     const vs = from ? views.peek().filter(v => !v.look) : [], like = vs.find(v => v.layout === 'chart')?.id;
@@ -1619,6 +1629,9 @@ const App = (() => {
       look = style ?? Notes.houseLook(src.rows(from), like);
       for (const r of src.rows(from)) if ('note' in r && r.view !== like && (!r.view || kept.has(r.view)) && [...Tree.idsIn(r.pattern)].every(id => kept.has(id)) && !(['As Of', 'Changes', 'Plan', 'Scale', 'Page', ...Notes.ROOT].includes(r.label) && r.pattern.id === like) && r.label !== 'Footer')
         tx.note(r.label, moved(r.pattern), r.label === 'Name' && r.pattern.id === like ? 'Structure' : r.value, { view: kept.get(r.view), param: r.param });
+      // And its master, as it stands (dendra.md, The page): furniture every page of it has, which names no record.
+      const master = typeof Scene === 'undefined' ? [] : src.rows(from).filter(r => 'shape' in r && r.view === Scene.MASTER), fresh = new Map(master.map(r => [r.shape, Log.newId()])), to = x => fresh.get(x) ?? x;
+      for (const { id: _, shape: s, ...x } of master) tx.add('shape', { ...x, ...(x.ends && { ends: x.ends.map(to) }), ...(x.members && { members: x.members.map(to) }) }, fresh.get(s));
     }
     const first = kept.get(like) ?? tx.add('record', { kind: 'View' });
     if (look) Notes.takeLook(tx, [], first, look, { begun: true, has: p => !given(p) && (!style || hasPattern(src.schema(from), src.notes(from), p)) });
@@ -1627,8 +1640,26 @@ const App = (() => {
     page(tx, first, name, look);
     return tx.commit();
   }
+  // A name no chart of the workbook has: what's asked, or Untitled, a number after it where it's taken.
+  function freeName(wb, named) {
+    const names = new Set(wb.charts().map(x => Tree.norm(x.name))), base = Tree.clean(named ?? '') || 'Untitled';
+    let name = base, i = 2;
+    while (names.has(Tree.norm(name))) name = `${base} ${i++}`;
+    return name;
+  }
+  // A new chart from a template (dendra.md, Workbook), in a workbook, as one change, and from a house style chosen, its look over the template's.
+  function chartFrom(wb, t, style, named) {
+    const c = Log.newId(), tx = wb.edit({ chart: c, who: who() }), name = freeName(wb, named);
+    tx.add('chart', { name }, c);
+    const ids = Templates.begin(tx, t, name), specs = Tree.schema(t.rows.filter(r => 'tree' in r).map(r => r.tree)), index = Notes.index([]);
+    if (style) {
+      const v = t.rows.find(r => 'record' in r && !t.rows.some(n => n.label === 'Layout' && n.pattern.id === r.record))?.record, first = v && ids.get(v);
+      if (first) Notes.takeLook(tx, tx.added(), first, style, { begun: true, has: p => hasPattern(specs, index, p) });
+    }
+    return tx.commit();
+  }
   // Whether a chart has what a pattern reaches, by its specifications: a house style's styles of what it hasn't don't come.
-  const hasPattern = (S, N, p) => Scene.isChange(p) || N.fitting(S, p.out && 'tag' in p.out ? Tree.bare(p) : p).length > 0;
+  const hasPattern =(S, N, p) => Scene.isChange(p) || N.fitting(S, p.out && 'tag' in p.out ? Tree.bare(p) : p).length > 0;
   // A chart's page, begun as every page of the sample is: its title, the chart's name, under it the day it's as
   // of, and its Key, which the page sets at the sheet's size and places, as it does every page's; in `look`, where
   // it's begun in one.
@@ -1673,13 +1704,25 @@ const App = (() => {
     const wb = shown.peek(), v = lastView.get(id) ?? viewsIn(wb.asOf(id, day.peek()), wb.notes(id))[0]?.id;
     if (v) preactSignals.batch(() => { Shell.select([]); Shell.show(v); });
   }
-  // A new chart is named as it begins, in the title bar. `style`, a house style chosen to begin it in.
+  // A new chart like the one shown is named as it begins, in the title bar. `style`, a house style chosen to begin it in.
   function newChart(style) {
     if (readOnly.peek()) return refuse();
     const c = startChart(book.peek(), style?.notes ? style : null);
     if (typeof c === 'string') return Shell.toast(c);
     open(c.chart);
     Shell.nameChart();
+  }
+  // What the New chart gallery begins (dendra.md, Workbook): `template` a template's id, or null for like the chart shown; `style`, a
+  // house style's look; `name`, what it's called, or else it's named in the title bar as it opens; `workbook`, in a workbook of its
+  // own, this one kept. One change, in History as any is.
+  function begin({ template = null, style = null, name = '', workbook = false } = {}) {
+    if (!workbook && readOnly.peek()) return refuse();
+    const t = template && Templates.of(template), make = wb => t ? chartFrom(wb, t, style, name) : startChart(wb, style, name);
+    const opening = c => { if (typeof c === 'string') { Shell.toast(c); return null; } if (!Tree.clean(name)) Shell.nameChart(); return c; };
+    if (!workbook) { const c = make(book.peek()); if (typeof c !== 'string') open(c.chart); return opening(c); }
+    const wb = Log.open([]), c = make(wb);
+    if (typeof c === 'string') return Shell.toast(c);
+    return opened(Store.open({ id: Log.newId(), sample: wb })).then(() => { if (chart.peek() === c.chart) opening(c); return c; });
   }
   // A copy of the chart shown, as one change: every row it has, each item under a new id and what refers to it
   // following (a record's place and sides, a note's pattern and view, a shape's view, ends and members), so the copy
@@ -1720,7 +1763,6 @@ const App = (() => {
     open(next.chart);
     Shell.toast(Time.describe(c), { undo: () => { reverse(c.id); open(id); } });
   }
-  const blank = () => { const wb = Log.open([]), c = startChart(wb); if (typeof c === 'string') return Shell.toast(c); return opened(Store.open({ id: Log.newId(), sample: wb })).then(() => { if (chart.peek() === c.chart) Shell.nameChart(); }); };
   // Renaming the chart, as one change: its name, and each page's title that says its name still (one changed by
   // hand keeps what it says), so its exports are named as it is. A workbook kept in this browser is named by its first
   // chart (Store), and the chart menu's list of them says so at once.
@@ -1750,9 +1792,8 @@ const App = (() => {
     rename,
     menu: () => {
       const all = (version.value, book.value.charts()), here = Store.where()?.id, others = books.value.filter(b => b.id !== here);
-      const styles = typeof FormatBar === 'undefined' ? [] : FormatBar.houseStyles();
-      return [styles.length ? { label: 'New chart', disabled: readOnly.value, items: [{ label: 'In the house look', run: () => newChart() }, '-', ...styles.map(s => ({ label: `In ${s.name}`, run: () => newChart(s.look) }))] } : { label: 'New chart', disabled: readOnly.value, run: () => newChart() },
-        { label: 'New workbook', run: blank }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
+      return [{ label: 'New chart', keys: '$mod+Shift+KeyN', disabled: readOnly.value, run: () => Gallery.open() },
+        { label: 'New workbook', run: () => Gallery.open({ workbook: true }) }, { label: 'Duplicate chart', disabled: readOnly.value, run: duplicateChart },
         { label: 'Delete chart', danger: true, disabled: readOnly.value || all.length < 2, tip: all.length < 2 ? 'It’s this workbook’s only chart' : null, run: deleteChart }, '-',
         { label: 'Charts', items: all.map(c => ({ label: c.name, checked: c.chart === chart.value, run: () => c.chart !== chart.peek() && open(c.chart) })) },
         { label: 'Workbooks', items: [
@@ -1797,6 +1838,8 @@ const App = (() => {
     const drawn = drawnPage.value, kept = drawn && seenIn(drawn.view);
     return kept?.size ? Scene.of(shown.value, chart.value, drawn.view, day.value, { state: state.value, computed: result.value, seen: kept }) : drawn;
   });
+  // What's worked out of a scene and the records, kept with the scene while they stand: a scene outlasts a change, as a redline's is the one its change, made, draws.
+  const ofScene = (kept, sc, make) => { const st = state.peek(), was = kept.get(sc); if (was?.st === st) return was.it; const it = make(); kept.set(sc, { st, it }); return it; };
   // What the look shows of the page: how many of its boxes, and any it hides otherwise. → { kept, of, more } or null.
   function shownOf(sc = scene.value, p = drawnPage.value) {
     if (!sc || !p || sc === p) return null;
@@ -1981,13 +2024,13 @@ const App = (() => {
   Shell.register('action', { id: 'mode.viewing', name: 'Viewing', names: ['Read only', 'Read-only', 'View only', 'Lock'], run: () => setViewing(true) });
   Shell.register('action', { id: 'mode.editing', name: 'Editing', names: ['Edit', 'Unlock'], run: () => setViewing(false) });
   Shell.register('action', { id: 'mode.opens', get name() { return opensViewing.peek() ? 'Open this chart in Editing' : 'Open this chart in Viewing'; }, run: () => setOpensViewing(!opensViewing.peek()) });
-  Shell.register('action', { id: 'chart.new', name: 'New chart', run: () => newChart() });
-  Shell.register('action', { id: 'file.new', name: 'New workbook', run: blank });
+  Shell.register('action', { id: 'chart.new', name: 'New chart', get names() { return ['Template', 'Templates', 'Gallery', ...(typeof Templates === 'undefined' ? [] : Templates.list().map(t => t.name))]; }, keys: '$mod+Shift+KeyN', enabled: () => !readOnly.peek(), why: () => whyNot(), run: () => Gallery.open() });
+  Shell.register('action', { id: 'file.new', name: 'New workbook', run: () => Gallery.open({ workbook: true }) });
 
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs,
-    mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, interposable, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, blank, showMade, newChart, hasPattern,
+    mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken,
   };
 })();

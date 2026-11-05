@@ -126,7 +126,9 @@ function slots(at, all) {
   // What a check that says something here reads of this record, where it has none, is an empty row: what's missing can be seen, and typed.
   const known = [...errors, ...blanks, ...unsure, ...untested], R = App.computed.value, read = own ? App.definitions.value.filter(d => d.type === 'tag' && !d.edges && (R.rows[d.id] ?? []).some(x => x.at === at) && N().check({ args: [{ edge: d.name, loc: tree(at) }] }))
     .flatMap(d => Formulas.readsAt(R, d.id)).filter((e, i, l) => l.findIndex(x => T.same(x, e)) === i && !entryNamed(at, e) && !known.some(x => T.same(x.edge, e)) && specsAt(tree(at), e).length && !App.definitions.value.some(d => T.same(d.name, e))).map(e => slot(e, { at, open: true })) : [];
-  const given = [...known, ...read], asked = offered.value.filter(o => o.at === at && !entryNamed(at, o.edge) && !given.some(x => T.same(x.edge, o.edge))).map(o => slot(o.edge, { at, open: true, made: true }));
+  // And what its box on the page shown shows blank, to type into there (dendra.md, Fields), is an empty row here.
+  const shownBlank = own && !all ? (App.scene.value?.byId.get(at)?.texts ?? []).filter(it => it.blank).map(it => it.blank.edge).filter(e => !known.some(x => T.same(x.edge, e)) && !read.some(x => T.same(x.edge, e))).map(e => slot(e, { at, open: true })) : [];
+  const given = [...known, ...read, ...shownBlank], asked = offered.value.filter(o => o.at === at && !entryNamed(at, o.edge) && !given.some(x => T.same(x.edge, o.edge))).map(o => slot(o.edge, { at, open: true, made: true }));
   const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...given, ...asked].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
   // What's blank that others of its kind have stands empty too, so what's missing can be seen and typed; or says it isn't ours.
   const apart = own && !all ? App.blanksApart.value.filter(b => b.id === at && !b.list && ![...given, ...asked].some(x => T.same(x.edge, b.edge))).map(b => slot(b.edge, { open: true, apart: true })) : [];
@@ -667,8 +669,8 @@ function addItems(at, anchor) {
 function addNamed(at, q) {
   const name = T.clean(q), t = tree(at), have = specsAt(t, name).length || entryNamed(at, name);
   if (!name || have) return [];
-  return ['-', { label: `New yes-or-no: ${name}`, asked: true, run: () => makeTag(at, name) }, { label: `Check: ${name}`, asked: true, run: () => makeTag(at, name, true) },
-    { label: `New value: ${name}`, asked: true, run: () => { draft.value = { at, type: 'field', edge: name, datatype: null }; } }, { label: `New choice: ${name}`, asked: true, run: () => { draft.value = { at, type: 'choice', edge: name, options: [] }; } }];
+  return ['-', { label: `New value: ${name}`, asked: true, run: () => { draft.value = { at, type: 'field', edge: name, datatype: null }; } }, { label: `New choice: ${name}`, asked: true, run: () => { draft.value = { at, type: 'choice', edge: name, options: [] }; } },
+    { label: `New yes-or-no: ${name}`, asked: true, run: () => makeTag(at, name) }, { label: `Check: ${name}`, asked: true, run: () => makeTag(at, name, true) }];
 }
 // The lists of relatives a record's kind can have, by their names (Owners, General Partners, Holdings), as its sections
 // name them once it has some: each the relations of the schema, entered not worked out, of two sides, one of which the
@@ -708,8 +710,15 @@ function whoFor(id, l, q) {
   out.sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label));
   // The kinds a new one can be, in one order, as Insert offers them, the one its name says first.
   const named = T.clean(q ?? ''), kinds = App.newKinds([...new Map(l.ways.filter(w => w.sl.loc.kind).map(w => [T.norm(w.sl.loc.kind), w])).values()], named, w => w.sl.loc.kind);
-  if (named && kinds.length && !out.some(o => T.same(o.label, named))) out.push('-', ...kinds.map(w => ({ label: `New ${w.sl.loc.kind}: ${named}`, run: () => joinTo(id, null, w, null, { kind: w.sl.loc.kind, name: named }) })));
+  // (Of a box stood side by side with another, one new under them is of the two first: a child of the couple. Named alone, it's the next row.)
+  const pairs = (w, kind) => matesOf(id).filter(x => T.narrower(tree(x), w.sm.loc) && N().value('Above', T.bare(w.s), Shell.view.peek()) !== 'level').map(x => ({ label: `New ${kind}: ${named}, with ${nameOf(x)}`, run: () => joinTo(id, null, w, null, { kind, name: named, also: x }) }));
+  if (named && kinds.length && !out.some(o => T.same(o.label, named))) out.push('-', ...kinds.flatMap(w => [...pairs(w, w.sl.loc.kind), { label: `New ${w.sl.loc.kind}: ${named}`, run: () => joinTo(id, null, w, null, { kind: w.sl.loc.kind, name: named }) }]));
   return out;
+}
+// What a relation that keeps its two on one rank joins a box to on the page shown: its spouses.
+function matesOf(id) {
+  const r = recs(), view = Shell.view.peek();
+  return (T.index(r).relations.get(id) ?? []).filter(x => r[x].args?.length === 2 && N().value('Above', T.bare(tree(x)), view) === 'level').map(x => r[x].args.find(a => a.at !== id)?.at).filter(Boolean);
 }
 // Relates a record to another as a list's side, or to a new one (`fresh`, { kind, name }) made with it: a role to choose
 // opens the two-box panel; any other is a change pending, as one ticked there is (App.relating), redlined and asked in
@@ -736,9 +745,9 @@ function joinTo(id, b, w, lb, fresh = null) {
     return select([id, b]);
   }
   // The new one, related as it's made. What it asks is asked of a stand-in of its kind.
-  const what = `${N().name(w.s)}: ${first ? `${here} → ${fresh.name}` : `${fresh.name} → ${here}`}`;
-  const made = tx => { const n = make(tx), r = tx.add('record', enterAt(tx, rec(n))); kept = App.keepOff(tx, [n]); return r; };
-  App.relating(rec('§new'), { what, source: `list ${id}`, needs: [id], make: made, ...told, say: c => (offOf() ? saying() : Time.describe(c)) }, standIn);
+  const both = fresh.also ? `${here} and ${rowName(fresh.also)}` : here, what = `${N().name(w.s)}: ${first ? `${both} → ${fresh.name}` : `${fresh.name} → ${both}`}`;
+  const made = tx => { const n = make(tx), r = tx.add('record', enterAt(tx, rec(n))); if (fresh.also) tx.add('record', enterAt(tx, { args: [{ edge: w.sm.edge, at: fresh.also }, { edge: w.sl.edge, at: n }], tag: true })); kept = App.keepOff(tx, [n]); return r; };
+  App.relating(rec('§new'), { what, source: `list ${id}`, needs: [id, ...(fresh.also ? [fresh.also] : [])], make: made, ...told, say: c => (offOf() ? saying() : Time.describe(c)) }, standIn);
 }
 // A role asked in its bar: "Elena Vasquez is a [ … ] of GP III", its list open at once, picked, the keys go on to the day.
 function RoleFill({ p }) {
@@ -1338,7 +1347,7 @@ function Look({ id }) {
 function Head({ path = [], title, more, span, pen, penKind, children }) {
   const said = path.length && !(path.length === 1 && T.same(path[0].label, title));
   return html`<header class="ih">
-    ${said ? html`<nav class="path">${penKind}${path.map(p => p.menu ? html`<button class="lk dd kind" aria-haspopup="menu" aria-label=${`Kind: ${p.label}`} onClick=${e => menu(e.currentTarget, p.menu())}>${p.label}</button>` : p.go ? html`<button class="lk" data-tip=${p.tip ?? null} onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
+    ${said ? html`<nav class="path">${penKind}${path.map(p => p.menu ? html`<button class="lk dd kind" aria-haspopup="menu" aria-label=${`Kind: ${p.label}`} onClick=${e => menu(e.currentTarget, p.menu(), p.named && !App.readOnly.peek() ? { search: true, more: p.named } : {})}>${p.label}</button>` : p.go ? html`<button class="lk" data-tip=${p.tip ?? null} onClick=${p.go}>${p.label}</button>` : html`<span>${p.label}</span>`)}</nav>` : null}
     ${more ? html`<button class="btn icon more" aria-label="More" data-tip="More" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, more(), { placement: 'bottom-end' })}>${icon('more')}</button>` : null}
     ${pen ? html`<div class="ih-at">${pen}${children ?? html`<h2 class="ih-title">${title}</h2>`}</div>` : children ?? html`<h2 class="ih-title">${title}</h2>`}${span}</header>`;
 }
@@ -1381,14 +1390,14 @@ function moreOf(id, o = {}) {
     chart && (r.kind || r.args) ? [drawn ? { label: 'Hide in this view', disabled: stillHere, run: () => showHere([id], v, false) }
       : hiddenHere(id, v.id) ? { label: 'Show in this view', disabled: stillHere, run: () => showHere([id], v) } : null].filter(Boolean) : [],
     [...(App.transferable(id) ? [{ label: 'Transfer…', disabled: still, run: () => App.transferring(id) }] : []),
-      ...(App.interposable(id) ? [{ label: 'Insert an entity between…', disabled: still, run: () => App.interposing(id) }] : []),
+      ...(App.interposable(id) ? [{ label: App.interposeWord(id), disabled: still, run: () => App.interposing(id) }] : []),
       ...(App.endsOf(id).some(e => e.rel) ? [{ label: 'Merge into…', disabled: still, run: () => App.merging(id) }] : []),
       { label: `${verb}…`, danger: true, disabled: still, run: () => remove(id, asked) },
       // What the word for an act hides, offered plainly: a mistake is taken back as never held.
       ...(App.endOf(id) !== false ? [{ label: 'Delete as a mistake…', danger: true, disabled: still, run: () => { remove(id, asked); App.neverHeld(); } }] : [])],
   ];
   // (A relation's own page, where it's named and its sides are, a click from any record of it: what renaming it starts from.)
-  if (r.args) sections[0].push({ label: 'The relation', run: () => select([general(N().relationPattern(tree(id)))]) });
+  if (r.args) sections[0].push({ label: 'The relation', run: () => select([general(N().relationPattern(tree(id)))]) }, ...(stillHere ? [] : [{ label: `Rename ${N().name(tree(id))}…`, run: () => renameAt(N().relationPattern(tree(id))) }]));
   return sections.filter(s => s.length).flatMap((s, i) => i ? ['-', ...s] : s);
 }
 // The breadcrumb's kind opens its table, at the record's row, where the chart has one, or else says the kind in general;
@@ -1405,9 +1414,11 @@ function kindChoices(id) {
   const S = App.schema.value, n = N(), rows = App.shown.value.rows(App.chart.value).filter(r => 'record' in r), raw = {};
   for (const r of rows) if (!raw[r.record] || (r.since ?? '') >= (raw[r.record].since ?? '')) raw[r.record] = r;
   const doc = k => Object.values(S).some(s => s.out?.field === 'document' && s.args?.length === 1 && T.same(s.args[0].loc.kind ?? '', k));
+  // (Nor what every page of the chart keeps off it, which a box made it wouldn't be.)
+  const pages = App.views.value.filter(v => v.layout === 'chart'), off = k => pages.length > 0 && pages.every(v => n.value('Shown', { kind: k }, v.id) === false);
   const worked = new Set(App.definitions.value.filter(d => d.edges).flatMap(d => d.covers));
-  if (doc(raw[id].kind) || T.same(raw[id].kind, 'Tax Year')) return [];
-  const kinds = [...new Set(Object.values(S).filter(s => !s.args && s.kind && !T.isView(s)).map(s => s.kind))].filter(k => !doc(k) && !T.same(k, 'Tax Year'));
+  if (doc(raw[id].kind) || off(raw[id].kind)) return [];
+  const kinds = [...new Set(Object.values(S).filter(s => !s.args && s.kind && !T.isView(s)).map(s => s.kind))].filter(k => !doc(k) && !off(k));
   // The relations it's a side of, itself, entered, each as a specification with its side at the kind.
   const rels = Object.values(raw).filter(r => r.args?.some(a => a.at === id)).map(r => ({ r, t: T.treeOf(raw, r.record) })).filter(x => x.t && !worked.has(T.paramKey(x.t)));
   const fits = (x, k) => { const p = { ...(x.t.out && { out: 'value' in x.t.out ? { field: x.t.out.field } : x.t.out }), args: x.t.args.map(a => ({ edge: a.edge, loc: a.loc.id === id ? { kind: k } : T.specOf(a.loc) })) }; return n.fitting(S, p).length > 0; };
@@ -1419,13 +1430,30 @@ function kindMenu(id) {
   const r = recs()[id], choices = App.readOnly.peek() ? [] : kindChoices(id), choose = k => App.change(tx => tx.rekind(id, k), { dated: false, say: c => `${Time.describe(c)}${lacks() ? `; it has no ${lacks()}` : ''}`,
     go: () => (lacks() ? [`${lacks()}…`, () => { aim.value = `${id}|${lacks()}`; select([id]); }] : null) });
   return [...choices.map(({ kind, why }) => ({ label: kind, checked: T.same(kind, r.kind), disabled: !!why, tip: why, detail: why ? 'Not with its relations' : null, run: () => !T.same(kind, r.kind) && choose(kind) })),
-    ...(choices.length ? ['-'] : []), { label: `What ${article(r.kind)} ${lower(r.kind)} is`, run: () => select([general({ kind: r.kind })]) }, { label: `Open in ${T.plural(r.kind)}`, run: () => kindTable(id) }];
+    ...(choices.length ? ['-'] : []), ...(App.readOnly.peek() ? [] : [{ label: `Rename ${r.kind}…`, run: () => renameAt({ kind: r.kind }) }]),
+    { label: `What ${article(r.kind)} ${lower(r.kind)} is`, run: () => select([general({ kind: r.kind })]) }, { label: `Open in ${T.plural(r.kind)}`, run: () => kindTable(id) }];
+}
+// A kind's or a relation's page, its name selected to type over.
+function renameAt(p) {
+  select([general(p)]);
+  Shell.showPanel?.();
+  setTimeout(() => { const el = document.querySelector('.insp .ih input, .insp .ih textarea, .insp .ih [contenteditable]'); el?.focus(); el?.select?.(); }, 80);
+}
+// A name typed in the kind's menu that it hasn't got: this record made a new kind of that name, or the kind renamed, every record of it with it.
+function kindNamed(id, q) {
+  const r = recs()[id], name = T.clean(q), there = Object.values(App.schema.value).some(s => !s.args && s.kind && T.same(s.kind, name));
+  if (!name || there) return [];
+  const anew = { label: `New kind: ${name}`, asked: true, run: () => App.change(tx => tx.rekind(id, name), { dated: false, say: c => Time.describe(c) }) };
+  const renamed = { label: `Rename ${r.kind} to ${name}`, asked: true, run: () => App.change(tx => tx.rename({ kind: r.kind }, r.kind, name), { dated: false }) };
+  // (Of the only one of its kind, saying what the kind's called comes first.)
+  return ['-', ...((T.index(recs()).kinds.get(T.norm(r.kind)) ?? []).length < 2 ? [renamed, anew] : [anew, renamed])];
 }
 function alike(id) {
   const r = recs()[id], sc = App.scene.peek(), ids = !sc ? [] : Object.keys(recs()).filter(x => recs()[x].at && T.same(recs()[x].edge, r.edge) && T.same(recs()[x].choice ?? '', r.choice) && sc.byId.get(recs()[x].at)?.type === 'box').map(x => recs()[x].at);
   if (ids.length) select([...new Set(ids)]); else select([id]);
 }
 // Add: what a record (at `at`), or a panel's own `items`, can have that it hasn't; `also`, another quiet action beside it.
+const renameOfLine = id => renameAt(N().relationPattern(tree(id)));
 const AddRow = ({ at, items = anchor => addItems(at, anchor), also = null }) => App.readOnly.value ? null
   : html`<div class="row addrow"><div class="k wide"><button class="btn ghost add-entry" onClick=${e => menu(e.currentTarget, items(e.currentTarget), { search: true, more: at ? q => addNamed(at, q) : null })}>${icon('plus')}Add</button>${also}</div></div>`;
 
@@ -1456,7 +1484,7 @@ function RecordView({ id }) {
   // The pen on a box's or a line's page: at its title, this one alone; at its kind or relation, every one of it.
   const penTitle = (r.kind || r.args) ? html`<${Pen} w=${{ own: true }} row="title" host=${id} />` : null, penKind = (r.kind || r.args) ? html`<${Pen} w=${{ kind: true }} row="kind" host=${id} />` : null;
   const head = r.kind
-    ? html`<${Head} pen=${penTitle} penKind=${penKind} more=${() => moreOf(id)} span=${span} path=${[{ label: r.kind, menu: () => kindMenu(id) }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
+    ? html`<${Head} pen=${penTitle} penKind=${penKind} more=${() => moreOf(id)} span=${span} path=${[{ label: r.kind, menu: () => kindMenu(id), named: q => kindNamed(id, q) }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
         <${Field} r=${recs()[nameId]} id=${nameId} datatype="text" ph="Name" title held=${held ? held.value : null} put=${(out, o) => (out || out === false) && put(nameId, { at: id, edge: 'Name' }, out, o)}
           preview=${out => out && putChange(nameId, { at: id, edge: 'Name' }, out)} /></${Head}>`
     : html`<${Head} title=${name} span=${span} pen=${penTitle} penKind=${penKind} more=${r.args ? () => moreOf(id) : null} path=${r.args ? (App.scene.value?.byId.has(id) ? [{ label: 'Relation', go: () => select([general(N().relationPattern(tree(id)))]), tip: `Open ${name}` }] : []) : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
@@ -1944,12 +1972,18 @@ function RelateView({ a, b }) {
     const f = naming.value = { ...form, [k]: v }, [name, ra, rb] = [f.name, f.ra, f.rb].map(T.clean);
     if (!name || !ra || !rb || T.same(ra, rb)) { if (App.pending.peek()?.relate === ours && ours) App.discard({ quiet: true }); return; }
     const p = { args: [{ edge: ra, loc: {} }, { edge: rb, loc: {} }] }, rec = { args: [{ edge: ra, at: a }, { edge: rb, at: b }], tag: true };
+    // (How they stand: `stands`, which side's on top, or level or neither. As it's asked, the role of the box over the other, where one is, else the first typed.)
+    const above = f.stands ?? (ya > yb && upright ? rb : ra), standing = ['level', 'none'].includes(above) ? above : T.same(above, rb) ? rb : null;
     const was = App.pending.peek()?.relate?.key === 'new' && App.pending.peek().relate.a === a && App.pending.peek().relate.b === b ? App.pending.peek() : null;
     App.stage({ verb: 'Add', what: `${name}: ${n.placed(r, null, rec.args).map(s => s.join + s.text).join('')}`, source: `relate ${a} ${b}`, relate: { a, b, key: 'new', out: { tag: true } },
       asks: 'from', day: was ? was.day : App.begins(), needs: [a, b], say: c => Time.describe(c),
       // (Its lists go by their roles, plural, as any list's name is: Holders, Funds.)
       // (And drawn on the page it's made on, a line and a row in its Styles, as what it's drawn to say.)
-      make: tx => { tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb }); const view = Shell.view.peek(); if (view) tx.note('Shown', p, true, { view }); },
+      // (And in the Key, as what a line says; the page's first relation that ranks its boxes says no more on each of its lines, as what it's a chart of, nor one of two side by side.)
+      make: tx => { const view = Shell.view.peek(), lined = standing === 'level' ? false : App.scene.peek()?.marks.some(m => m.type === 'line' && m.ranks && !m.level), out = { out: { tag: true }, ...p };
+        tx.add('record', rec); tx.note('Name', p, name); tx.note('Order', p, 1, { param: ra }); tx.note('Order', p, 2, { param: rb }); tx.note('Name', p, T.plural(ra), { param: ra }); tx.note('Name', p, T.plural(rb), { param: rb });
+        if (standing) tx.note('Above', p, standing);
+        if (view && App.scene.peek()) { tx.note('Shown', out, true, { view }); tx.note('Caption', out, name, { view }); if (!lined) tx.note('Format', out, 'none', { view }); } },
       done: () => { naming.value = null; fresh.value = { a, b, key: [ra, rb, a, b].join('|').toLowerCase() }; } });
   };
   // Enter goes on to the next it asks, until it's all given, and then makes it.
@@ -1959,6 +1993,10 @@ function RelateView({ a, b }) {
   };
   const inp = (k, label, first) => html`<input class=${'cell' + (first ? '' : ' role')} placeholder=${first ? 'New relation' : 'New role'} aria-label=${label} value=${form[k]} spellcheck=${false} autocomplete="off"
     onInput=${e => type(k, e.target.value)} ref=${first ? el => el && !el.dataset.on && (el.dataset.on = 1, el.focus()) : null} />`;
+  // How the two will stand, once there are two roles to say it of.
+  const standsOf = () => { const [ra, rb] = [form.ra, form.rb].map(T.clean); if (!ra || !rb || T.same(ra, rb)) return null;
+    const now = form.stands ?? (ya > yb && upright ? rb : ra), said = s => s === 'level' ? 'Side by side' : s === 'none' ? 'Neither on top' : `${s} on top`;
+    return html`<span class="side">Stands</span><button type="button" class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, [ra, rb, 'level', 'none'].map(s => ({ label: said(s), checked: T.same(s, now), run: () => type('stands', s) })))}><span>${said(now)}</span></button>`; };
   // A role another relation has is said as it's written: a formula reading it would read both.
   const sharedRole = k => { const v = T.clean(form?.[k] ?? ''), of = v && App.relations.value.filter(x => !T.same(x.name, form.name) && x.edges?.some(e => T.same(e, v))).map(x => x.name); return of?.length ? html`<span class="role-shared">${v} is a side of ${of.join(' and ')} too.</span>` : null; };
   // What someone entered first, then what a formula gives, and last what's ruled out; each by name, then the
@@ -1973,7 +2011,8 @@ function RelateView({ a, b }) {
   const upright = !!ma && !!mb && Math.abs(ya + ma.h / 2 - yb - mb.h / 2) > (ma.h + mb.h) / 4;
   const onTop = x => { const p = T.bare(x.s), above = n.value('Above', p, view) ?? n.edges(p)[0]; return T.same(above ?? '', x.ea) === (ya < yb); };
   const dashed = x => (n.resolve('Dash', x.s, view)?.value ?? n.resolve('Dash', T.bare(x.s), view)?.value ?? 'solid') !== 'solid';
-  const fits = x => !ma || !mb ? 0 : upright ? (!onTop(x) ? 2 : dashed(x) ? 1 : 0) : dashed(x) ? 0 : 1;
+  const levelled = x => n.value('Above', T.bare(x.s), view) === 'level';
+  const fits = x => !ma || !mb ? 0 : levelled(x) ? (upright ? 3 : 0) : upright ? (!onTop(x) ? 2 : dashed(x) ? 1 : 0) : dashed(x) ? 0 : 1;
   const says = (id, edge) => T.norm(nameOf(id)).split(/[\s,.()]+/).includes(T.norm(edge));
   const named = x => says(a, x.ea) || says(b, x.eb) ? 0 : 1;
   const filled = x => dashed(x) && Object.keys(r).some(id => r[id].args?.some(s => s.at === x.lb && T.same(s.edge, x.eb)) && !fx(id) && T.same(nameOf(id), x.name)) ? 1 : 0;
@@ -1994,7 +2033,7 @@ function RelateView({ a, b }) {
     if (guessing !== `${a}|${b}`) return;
     guessing = null;
     const x = could[0], slot = x && slotOf(x);
-    if (slot && upright && !dashed(x) && 'tag' in x.s.out) relate(x, slot, { tag: true });
+    if (slot && upright && !dashed(x) && !levelled(x) && 'tag' in x.s.out) relate(x, slot, { tag: true });
   }, [a, b]);
   return html`<div class="insp" data-tour="pair">
     <header class="ih"><h2 class="ih-title">${name(a)} <span class="and">and</span> ${name(b)}</h2></header>
@@ -2003,7 +2042,7 @@ function RelateView({ a, b }) {
     ${still ? null : !adding && !draft && !form && !none.current ? html`<div class="relate">${ghost('Add a relation', () => setAdding(true))}</div>` : html`<div class="relate">
       ${could.map(openRow)}
       ${form ? html`<div class=${'rr new' + (ours ? ' adding' : '')} onKeyDown=${formKeys}><span class="ctl"><span class=${'tag' + (ours ? ' yes' : '')} /></span><span class="form">
-          ${inp('name', 'Name', true)}<span class="side">${side(a, true)}</span>${inp('ra', `${nameOf(a)}’s role`)}${sharedRole('ra')}<span class="side">${side(b, true)}</span>${inp('rb', `${nameOf(b)}’s role`)}${sharedRole('rb')}</span>
+          ${inp('name', 'Name', true)}<span class="side">${side(a, true)}</span>${inp('ra', `${nameOf(a)}’s role`)}${sharedRole('ra')}<span class="side">${side(b, true)}</span>${inp('rb', `${nameOf(b)}’s role`)}${sharedRole('rb')}${standsOf()}</span>
           </div>`
         : ghost('New relation', () => { if (draft) App.discard(); naming.value = { a, b, name: '', ra: '', rb: '' }; })}
     </div>`}
@@ -2165,7 +2204,9 @@ function GeneralView({ p, style }) {
   // (A selection names what its page is of, so a page renamed goes with its new name.)
   const setName = to => {
     if (!to || to === name) return;
-    const made = App.change(tx => kind ? tx.rename(p, p.kind, to) : rel ? tx.note('Name', p, to) : tx.rename(loose(p), p.args[0].edge, to));
+    // (A caption that said its name, in the Key and Styles, says the new one: one typed otherwise stays.)
+    const said = n.notes('Caption').filter(c => T.same(String(c.value), name) && T.key(c.pattern.out ? T.bare(c.pattern) : c.pattern) === T.key(p));
+    const made = App.change(tx => { kind ? tx.rename(p, p.kind, to) : rel ? tx.note('Name', p, to) : tx.rename(loose(p), p.args[0].edge, to); if (kind || rel) for (const c of said) tx.note('Caption', kind ? { ...c.pattern, kind: to } : c.pattern, to, { view: c.view }); });
     if (made && !rel) select([general(kind ? { ...p, kind: to } : { ...p, args: [{ ...p.args[0], edge: to }] })]);
   };
   const flag = (label, q, v) => App.change(tx => tx.note(label, q, v));
@@ -2201,6 +2242,10 @@ function GeneralView({ p, style }) {
       ${rel ? n.edges(p).map(e => html`<div class="row" key=${'r' + e}><div class="k">Role</div><div class="v ctl"><${Field} r=${{ field: 'text', value: e }} datatype="text" label=${`Role ${e}`} put=${out => out && renameRole(e, out.value)} /></div></div>
         <div class="row" key=${'l' + e}><div class="k">${e} list</div><div class="v ctl"><${Field} r=${{ field: 'text', value: n.listName(p, e) }} datatype="text"
         label=${`${e} list`} put=${out => App.change(tx => tx.note('Name', p, out?.value === e ? undefined : out?.value, { param: e }))} /></div></div>`) : null}
+      ${rel && !def && specs.every(s => s.args.length === 2) ? (() => { const es = n.edges(p), now = n.value('Above', p, v) ?? es[0], said = s => s === 'level' ? 'Side by side' : s === 'none' ? 'Neither on top' : `${s} on top`, setIt = s => App.change(tx => tx.note('Above', p, s, { view: v ?? undefined }), { dated: false, say: `Said how ${name} stands: ${said(s).toLowerCase()}` });
+        return html`<div class="row" key="stands"><div class="k">Stands</div><div class="v ctl">${still ? said(now) : html`<button class="sel dd" aria-haspopup="menu" aria-label="How they stand" onClick=${e => menu(e.currentTarget, [...es, 'level', 'none'].map(s => ({ label: said(s), checked: T.same(s, now), run: () => !T.same(s, now) && setIt(s) })))}><span>${said(now)}</span></button>`}</div></div>`; })() : null}
+      ${kind && below.some(s => s.out?.field === 'date' || s.out?.field === 'number') ? (() => { const by = n.across(p.kind), said = by ?? 'As they were made', take = e => App.change(tx => tx.note('Order', p, e ? { by: e } : undefined), { dated: false, say: e ? `Stood each ${lower(p.kind)} in the order of ${e}` : `Stood each ${lower(p.kind)} as they were made` });
+        return html`<div class="row" key="across"><div class="k">Across, in order of</div><div class="v ctl">${still ? said : html`<button class="sel dd" aria-haspopup="menu" aria-label="Across, in order of" onClick=${e => menu(e.currentTarget, [{ label: 'As they were made', checked: !by, run: () => by && take(null) }, ...below.filter(s => s.out?.field === 'date' || s.out?.field === 'number').map(s => ({ label: s.args[0].edge, checked: T.same(by ?? '', s.args[0].edge), run: () => !T.same(by ?? '', s.args[0].edge) && take(s.args[0].edge) }))])}><span>${said}</span></button>`}</div></div>`; })() : null}
       ${kind || rel || (type === 'tag' && def && !n.required(p)) ? null : checkRow('A blank needs filling in', n.required(p), on => flag('Required', p, on))}
       ${type === 'tag' ? checkRow('A no needs attention', n.value('Check', p) === true, on => flag('Check', p, on)) : null}
       ${kind || rel || def || writing || (dated && (n.isStart(dp) || n.isEnd(dp))) ? null : checkRow('Changes over time', dated ? n.changing(p) : !n.fixed(p), on => flag('Fixed', p, dated ? (on ? false : undefined) : (on ? undefined : true)))}
@@ -2344,14 +2389,17 @@ function addToList(id, list) {
   select([id]);
   if (l) setTimeout(() => { const at = document.querySelector('.insp .addrow .add-entry'); if (at) addTo(at, id, l); }, 120);
 }
-// What a box's right-click adds to it, where it's clicked (`at`): each list of a relation with a percentage at it, the
-// stakes a structure chart is made of, by the word for one of it (Add owner…, Add holding…), its first side's first.
+// What a box's right-click adds to it, where it's clicked (`at`), by the word for one of it, its first side's first: each list of a
+// relation with a percentage at it, the stakes a structure chart is made of (Add owner…, Add holding…); or, in a chart with none, of each
+// relation this page draws that ranks its boxes (Add manager…, Add report…).
 function addsOf(id) {
   const stake = w => Object.values(App.schema.value).some(s => s.args?.length === 1 && s.out?.field === 'percent' && T.narrower(w.s, s.args[0].loc));
-  return listsOf(id).filter(l => l.ways.some(stake)).sort((a, b) => a.ways[0].s.args.indexOf(a.ways[0].sl) - b.ways[0].s.args.indexOf(b.ways[0].sl))
+  const view = Shell.view.peek(), drawn = w => N().value('Shown', w.s, view) === true && N().value('Above', T.bare(w.s), view) !== 'none';
+  const lists = listsOf(id), some = lists.filter(l => l.ways.some(stake));
+  return (some.length ? some : lists.filter(l => l.ways.some(drawn))).sort((a, b) => a.ways[0].s.args.indexOf(a.ways[0].sl) - b.ways[0].s.args.indexOf(b.ways[0].sl))
     .map(l => ({ label: `Add ${one(l.name).toLowerCase()}…`, run: at => addTo(at, id, l) }));
 }
-Shell.register('inspector', { addTo: addToList, adds: addsOf, ending: rid => remove(rid, { auto: true }), ask: into => { Shell.showPanel?.(); aim.value = 'merged'; select([into]); }, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
+Shell.register('inspector', { addTo: addToList, adds: addsOf, renameLine: renameOfLine, ending: rid => remove(rid, { auto: true }), ask: into => { Shell.showPanel?.(); aim.value = 'merged'; select([into]); }, mount(el) { host = el; render(html`<${Inspector} />`, el); return () => render(null, el); } });
 Shell.register('attention', { items: () => attention.value, within: days => App.needsWithin(days).filter(a => a.kind === 'soon').map(attending),
   apart: () => App.blanksApart.value.map(b => ({ ...attending({ kind: 'blank', id: b.id, edge: b.edge }), ...(b.list && { go: () => { aim.value = 'list:' + b.edge; select([b.id]); } }), apart: b.ours ? 'optional' : 'ours', list: !!b.list, say: () => App.sayNotOurs(b.id, b.edge, b.ours) })) });
 // What the panel's ⋯ changes, for Find, of the one record selected: Transfer… (by the words a sale goes by) and Delete…,
@@ -2363,16 +2411,16 @@ const notAsked = (can, what) => () => !App.canAsk() ? App.whyNot() : !theOne() ?
 const WHAT_IF = ['What if', 'Scenario', 'Preview', 'Hypothetical'];
 Shell.register('action', { id: 'record.transfer', name: 'Transfer…', names: ['Sell', 'Sale', 'Assign', 'Transfer ownership', ...WHAT_IF],
   enabled: () => App.canAsk() && !!theOne() && !!App.transferable(theOne()), run: () => App.transferring(theOne()),
-  why: notAsked('Only a relation of two sides transfers', 'an ownership or another relation') });
-Shell.register('action', { id: 'record.interpose', name: 'Insert an entity between…', names: ['Insert', 'Interpose', 'Holdco', ...WHAT_IF],
+  why: notAsked('Only a relation of two sides transfers', 'a relation') });
+Shell.register('action', { id: 'record.interpose', get name() { return theOne() && App.interposable(theOne()) ? App.interposeWord(theOne()) : 'Insert one between…'; }, names: ['Insert', 'Insert between', 'Interpose', 'Holdco', ...WHAT_IF],
   enabled: () => App.canAsk() && !!theOne() && !!App.interposable(theOne()), run: () => App.interposing(theOne()),
-  why: notAsked('Only an ownership takes one between', 'an ownership') });
+  why: notAsked('Only a relation with a percentage takes one between', 'a line with a percentage') });
 // What a formula gives, overridden by saying so, as the reason in the formula bar offers it.
 const computedTag = () => { const id = theOne(); return id && fx(id) && 'tag' in recs()[id] ? id : null; };
 Shell.register('action', { id: 'record.override', name: 'Override…', names: ['Rule out', 'Attest', 'Override', 'Waive', 'Waiver', 'Exception', 'Type over'],
   enabled: () => !App.readOnly.peek() && !!computedTag(), run: () => App.overriding(computedTag()), why: notNow('Only what a formula gives is overridden', 'what a formula gives') });
 Shell.register('action', { id: 'record.merge', name: 'Merge into…', names: ['Merger', 'Merged into', 'Merge', ...WHAT_IF],
-  enabled: () => App.canAsk() && !!theOne() && App.endsOf(theOne()).some(e => e.rel), run: () => App.merging(theOne()), why: notAsked('Only what can merge merges', 'an entity') });
+  enabled: () => App.canAsk() && !!theOne() && App.endsOf(theOne()).some(e => e.rel), run: () => App.merging(theOne()), why: notAsked('Only what can merge merges', 'a box') });
 Shell.register('action', { id: 'record.delete', get name() { return `${theOne() ? App.deleteVerb([theOne()]) : 'Delete'}…`; }, names: ['Delete', 'Remove', 'Dissolve', 'End', 'Sell', 'Sale', ...WHAT_IF],
   enabled: () => App.canAsk() && !!theOne() && App.scene.peek()?.byId.get(theOne())?.change !== 'Gone', run: () => remove(theOne(), { auto: true }), why: notAsked('', 'what to delete') });
 // The list of the rules, from the chart's menu and Find: what checks something first, then every other, then the relations entered,
@@ -2387,13 +2435,16 @@ function rulesList(anchor = { x: 40, y: 44 }) {
   const part = (head, xs) => xs.length ? [{ head }, ...xs.sort(by)] : [];
   // Every value typed over a rule, on the one list: whose, what the rule says, why and who said so.
   const R = App.computed.peek(), overs = Object.keys(R.covered).filter(x => !R.covered[x].agrees && recs()[x]).map(x => { const o = App.overOf(x), r = recs()[x]; return { label: `${r.args ? segment(x) : `${r.edge} · ${bound(N().whereOf(recs(), r))}`}`, detail: `${T.outputText(r)}; the rule ${ruleSays(x)}`, tip: [`${T.outputText(r)}; the rule ${ruleSays(x)}`, o?.why].filter(Boolean).join(' · '), names: ['Typed over', 'Override', 'Overrides', 'Waiver', 'Exception', o?.why ?? ''], run: () => { select([r.args ? x : objectOf(x)]); emit('why-open', x); } }; });
-  menu(anchor, [...(App.readOnly.peek() ? [] : [...newRules(), '-']), ...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations), ...part('Typed over', overs)], { search: true });
+  const listed = [...part('Checks', checks.map(x => item(x.pattern, 'Check'))), ...part('Rules', rest.map(x => item(x.pattern, of(x)))), ...part('Relations', relations), ...part('Typed over', overs)];
+  menu(anchor, [...(App.readOnly.peek() ? [] : [...newRules(), ...(listed.length ? ['-'] : [])]), ...listed], { search: true });
 }
 // A rule begun from the list: of what, then named in that kind's panel, as Add begins one there. A check goes on to its rule; a value's is what's typed after =.
 const NEW_RULES = [['New check', 'check', ['Check', 'Add a check', 'Test', 'Compliance']], ['New rule', 'field', ['Rule', 'Add a rule', 'Formula', 'New formula', 'Definition', 'Calculation']]];
 function newRules() {
   const kinds = [...T.index(recs()).kinds].map(([, ids]) => ids.filter(x => !T.isView(recs()[x]))).filter(ids => ids.length);
   const at = ids => { const here = Shell.selection.peek().map(x => recs()[x] && objectOf(x)).find(x => x && ids.includes(x)); return here ?? ids[0]; };
+  // (With no box yet, a rule has nothing to be begun at: said, not a list with nothing in it.)
+  if (!kinds.length) return NEW_RULES.map(([label, , names]) => ({ label: `${label}…`, names, disabled: true, tip: 'Add a box first: a rule is of a kind of box' }));
   return NEW_RULES.map(([label, type, names]) => ({ label: `${label}…`, names, items: kinds.map(ids => ({ label: recs()[ids[0]].kind, run: () => { const x = at(ids); Shell.showPanel?.(); select([x]); setTimeout(() => { draft.value = { at: x, type }; }); } })) }));
 }
 Shell.register('action', { id: 'rules', name: 'Rules', names: ['Checks', 'Check', 'Definitions', 'Formulas', 'List of rules', 'Relations', 'Overrides', 'Typed over', 'Waivers', 'New rule', 'New check', 'Add a rule'], menu: 'chart', order: 11, run: () => setTimeout(() => rulesList()) });
@@ -2434,7 +2485,7 @@ Shell.register('find', { items: q => {
     ...(App.readOnly.peek() ? [] : inside.flatMap(at => unentered(at).filter(s => !('tag' in s.out)).map(s => ({ ...label(s.args[0].edge), run: () => { if (slots(at).some(x => !x.id && T.same(x.edge, s.args[0].edge))) { aim.value = `${at}|${s.args[0].edge}`; select([o]); return; } select([o]); draft.value = { at, type: 'field' in s.out ? 'field' : 'choice', edge: s.args[0].edge, ...kindAt(tree(at), s.args[0].edge) }; } }))))];
 } });
 // Add to each of the selected record's lists, by the word for one of it ("Add owner"), as its + does: Find opens its search.
-const one = w => w.replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
+const one = w => w.replace(/(child)ren$/i, '$1').replace(/(p)eople$/i, '$1erson').replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
 Shell.register('find', { items: () => {
   const id = theOne();
   if (!id || App.readOnly.peek() || !(recs()[id].kind || recs()[id].args)) return [];

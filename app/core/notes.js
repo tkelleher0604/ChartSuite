@@ -200,7 +200,9 @@ function index(rows) {
     description: t => value('Description', t),
     // Where an entry sits among its location's entries, by the Order at its label: read without its output, as an
     // Order at an option (Main Fund) orders the options instead (optionOrder).
-    order: t => value('Order', t.out ? bare(t) : t),
+    order: t => { const v = value('Order', t.out ? bare(t) : t); return typeof v === 'object' ? undefined : v; },
+    // At a kind, which of its entries its boxes stand across in the order of, among what's beside them: siblings by Born.
+    across: kind => value('Order', { kind })?.by ?? null,
     // Where an option sits in its list: the Order noted at it in no view, or at it where its entry is specified;
     // none, and the list goes on by name.
     optionOrder,
@@ -219,8 +221,9 @@ function index(rows) {
     // A Check note on a definition: one ruled out is a check failed. On an entry typed by hand: its "no" needs attention.
     check: t => value('Check', t) === true && !!resolve('Formula', t),
     heeds: t => value('Check', t) === true && !resolve('Formula', t),
-    isStart: t => value('Start', t) === true,
-    isEnd: t => value('End', t) === true,
+    // (Its value `true`, or the verb for the act where a word of its entry doesn't say it: { verb, done }.)
+    isStart: t => { const v = value('Start', t); return v === true || !!v?.verb; },
+    isEnd: t => { const v = value('End', t); return v === true || !!v?.verb; },
     shown: (t, view) => value('Shown', t, view),
     position: (t, view) => value('Position', t, view),
     caption: (t, view) => value('Caption', t, view),

@@ -277,7 +277,7 @@ async function historyChecks(ours, fund) {
   check('… and the rest of History', (App.reverse(ours[3].id), App.restore('gp_agent'), N() === v0));
   $('.titlebar .chartmenu').click(); await tick(60);
   check('The chart menu says it too', [...$$('.float .menu-seg button')].find(x => x.getAttribute('aria-pressed') === 'true' && /Editing|Viewing/.test(x.textContent))?.textContent === 'Viewing', $$('.float .menu-seg')[0]?.textContent);
-  check('… and New chart waits', item('New chart')?.getAttribute('aria-disabled') === 'true');
+  check('… and New chart waits', [...$$('.float .menu-item')].find(x => x.querySelector('.label')?.textContent.trim() === 'New chart')?.getAttribute('aria-disabled') === 'true');
   Shell.closeAll(); await tick(40);
   // A table's columns, for the session.
   const own = views().find(v => v.name === 'Ownership')?.id ?? views().find(v => v.layout === 'table').id, wasView = Shell.view.peek();
@@ -2076,8 +2076,8 @@ async function run() {
 
   // ---- A new chart: made, not an edit to undo ----
   const C0 = C(), charts0 = App.wb.charts().length;
-  Shell.parts.peek().action.find(a => a.id === 'chart.new').run(); await tick(200);
-  const C1 = C(), name1 = App.wb.charts().find(c => c.chart === C1)?.name;
+  App.newChart(); await tick(200);
+  const C1 = C(), name1 =App.wb.charts().find(c => c.chart === C1)?.name;
   check('New chart makes a chart, and shows it', C1 !== C0 && App.wb.charts().length === charts0 + 1 && name1 === 'Untitled');
   check('… with nothing to undo', !Shell.parts.peek().undo.canUndo());
   undo(); await tick(100);
