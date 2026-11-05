@@ -171,6 +171,7 @@ i.req { display: inline-block; width: 5px; height: 5px; margin-left: 6px; border
 :where(.cell):hover:not(:focus, :disabled) { border-color: var(--rule); }
 /* With its row under the pointer, a value says it can be typed over, and a blank one, by a hairline across its column, that there's room to. */
 .insp .row:hover > .v .cell:not(:focus, :disabled) { border-color: var(--rule-2); }
+.insp .row:hover > .v .hug:has(> .cell:placeholder-shown:not(:focus, :disabled)) { flex: 1; }
 .insp .row:hover > .v .cell:placeholder-shown:not(:focus, :disabled) { width: calc(100% + 14px); }
 .cell:focus { background: var(--surface); }
 .cell:disabled { color: inherit; background: transparent; }

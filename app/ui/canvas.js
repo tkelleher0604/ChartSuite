@@ -2664,8 +2664,8 @@ function mount(el) {
     { label: 'Select all', keys: '$mod+KeyA', run: () => sel.reset(graph.getCells().filter(selectable)) }, '-',
     { label: 'Tidy', disabled: still(), run: tidy },
     { label: 'Page setup…', disabled: still(), run: () => Export.setup() },
-    { label: 'Edit master', checked: App.mastering.peek(), run: () => { App.mastering.value = !App.mastering.peek(); } },
-    ...(App.mastering.peek() ? [] : [{ label: 'Leave the master off', checked: !App.hasMaster(viewOf()), disabled: still(), run: () => App.pageMaster(viewOf(), !App.hasMaster(viewOf())) }]),
+    { label: 'Edit master', ...(App.mastering.peek() && { checked: true }), run: () => { App.mastering.value = !App.mastering.peek(); } },
+    ...(App.mastering.peek() ? [] : [{ label: 'Leave the master off', ...(!App.hasMaster(viewOf()) && { checked: true }), disabled: still(), run: () => App.pageMaster(viewOf(), !App.hasMaster(viewOf())) }]),
     { label: 'More', items: [{ label: 'Selection pane', keys: 'Alt+F10', run: () => hand.pane(true) }, { label: 'Zoom to fit', keys: 'Shift+Digit1', run: () => zoom('fit') }, '-', { label: 'Filter…', disabled: !App.canAsk(), run: () => filter(pageAt.x ? pageAt : null) },
       ...(App.shownOf() ? [{ label: 'Show all', run: () => App.showAll(viewOf()) }] : []), '-', aidsRow()] },
   ];
