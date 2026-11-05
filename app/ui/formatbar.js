@@ -365,7 +365,8 @@ function byItself(c, s, forBox = false) {
   if (!bound.length || bound.length < s.marks.length || s.scopes.length < 2) return s.scopes.some(x => x.own) ? { own: true } : null;
   if (bound.length > 1) return s.narrowest && s.narrowest.marks.size === new Set(bound.map(m => m.merged ?? m.id)).size ? { group: s.narrowest.key } : { own: true };
   const m = bound[0], st = App.state.peek(), mine = n => n?.view === sc.view && Tree.idsIn(n.pattern).size > 0;
-  const f = forBox ? null : fieldOf(c);
+  // (A part of a design is the box's, as its design is; a field in the part the rest go in is a field still.)
+  const f = forBox ? null : (x => x?.it.of || (x?.it.part && !x.it.rested) ? null : x)(fieldOf(c));
   if (f) {
     const n = f.it.shownBy ?? null;
     if (n && Tree.idsIn(n.pattern).size) return { own: true };
@@ -381,6 +382,11 @@ function byItself(c, s, forBox = false) {
     if (g) return locOf(c, s, g);
   }
   return { kind: true };
+}
+// What's of a box rather than of the field picked in it (a design, another field shown, a free text, a footnote) goes where the pen stands for the box: where it would by itself with no field picked, unless a hand has put it somewhere.
+function boxScope(c, s) {
+  const l = !level.peek() && fieldOf(c) ? byItself(c, s, true) : null;
+  return (l && place(c, s, l)) ?? scopeOf(s.scopes);
 }
 // Moved by a hand: a scope, or a location.
 function penTo(c, s, g) { level.value = locOf(c, s, g); if (!g?.own && g?.key) liked.value = g.key; }
@@ -480,8 +486,15 @@ const listed = xs => xs.length < 3 ? xs.join(' and ') : `${xs.slice(0, -1).join(
 // the view, and a free shape's own format; for a style, a note at each of its outputs in the view. With a field of a
 // box selected (a text in it, clicked), a text property is that field's, as a text selected in a PowerPoint shape is
 // formatted: at the field's own pattern, at the scope (the canvas's styleField).
+// A part of a design picked, where what's given goes to the part: all but a text's look given to a field in the part the rest go in, which is that field's.
+function partPicked(c, label) {
+  const f = label === 'Design' || label === 'Format' ? null : fieldOf(c);
+  return f && (f.it.of || (f.it.part && !(f.it.rested && TEXT_LABELS.has(label)))) ? f : null;
+}
 function write(tx, c, label, value) {
-  const { marks, scopes } = scopesOf(c), scope = scopeOf(scopes);
+  // (A design, and a part of one, are the box's: where the pen stands for the box, whatever's picked in it.)
+  const s = scopesOf(c), { marks, scopes } = s, part = partPicked(c, label);
+  const scope = label === 'Design' || part ? boxScope(c, s) : scopeOf(scopes);
   if (!scope) return;
   if (scope.root) return tx.note(label, viewSelf(c.scene()), value);
   // (A cell of a table picked: that cell's, kept with the words it's written at.)
@@ -493,8 +506,7 @@ function write(tx, c, label, value) {
   // (Everything else's words are All text's: a box's look is its own.)
   if (scope.rest && TEXT_LABELS.has(label)) return tx.note(label, viewSelf(c.scene()), value);
   // A part of a design selected takes whatever's given it (dendra.md, Group designs); and a shape given at a design's own pattern is said over the design.
-  const part = label !== 'Design' && label !== 'Format' ? fieldOf(c) : null;
-  if (part && (part.it.of || (part.it.part && !(part.it.rested && TEXT_LABELS.has(label))))) return c.styleField(tx, part, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
+  if (part) return c.styleField(tx, part, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
   if ((label === 'Shape' || label === 'Corner') && Designs.atPen(tx, c.scene(), scope, marks, label, value)) return;
   const f = TEXT_LABELS.has(label) && label !== 'Format' ? fieldOf(c) : null;
   if (f) return c.styleField(tx, f, label, value, scope.outputs ? { outputs: scope.outputs } : { own: true });
@@ -558,12 +570,13 @@ function apply(label, value) {
   // A change for a group says at once what of it keeps its own, which the scope's menu then offers to clear; and
   // where a later style gives some of it otherwise, says which still decides, and offers to put this one after it,
   // the rows holding their order till that's asked. All text says what no longer takes it, with a way to make it do so.
-  const scope = scopeOf(scopesOf(c).scopes), kept = keeping(c, scope, [label]), first = firstFor(c, scope, label, value), under = scope.root ? narrower(c.scene(), label, value) : null;
+  // (What's said of a part of a design is said over the design: no style decides it, and nothing keeps its own from it.)
+  const part = partPicked(c, label), scope = label === 'Design' || part ? boxScope(c, scopesOf(c)) : scopeOf(scopesOf(c).scopes), kept = part ? [] : keeping(c, scope, [label]), first = part ? {} : firstFor(c, scope, label, value), under = scope.root ? narrower(c.scene(), label, value) : null;
   const says = [kept.length && `${keepers(kept)} ${kept.length > 1 ? 'keep their' : 'keeps its'} own`, first.say, under?.say].filter(Boolean);
   // (A text property goes to every field, so to more notes than one: said as the one act it is.)
   const inView = `${Time.looked(label, value, scope.caption)} in ${scope.root ? lookTaker(c.scene().view) : App.notes.peek().nameOf(App.state.peek(), c.scene().view)}`, oneAct = TEXT_LABELS.has(label) && (!!scope.outputs || !!scope.root) && !fieldOf(c);
   // (What's selected of a design, or a design given, is said so; History can't read it from what it's written as.)
-  const ofDesign = label === 'Design' ? Time.looked(label, value, scope.own ? scopesOf(c).marks.map(m => App.notes.peek().nameOf(App.state.peek(), m.record)).join(', ') : lowerFirst(allOf(scope, scope.marks?.size ?? 0))) : (() => { const f = fieldOf(c); return f && (f.it.of || (f.it.part && !f.it.rested)) ? `${Time.looked(label, value, 'a part of the design')}` : null; })();
+  const ofDesign = label === 'Design' ? Time.looked(label, value, scope.own ? scopesOf(c).marks.map(m => App.notes.peek().nameOf(App.state.peek(), m.record)).join(', ') : lowerFirst(allOf(scope, scope.marks?.size ?? 0))) : part ? Time.looked(label, value, 'a part of the design') : null;
   // (The footer's the chart's, on every page.)
   const marks = scopesOf(c).marks, ofFoot = !!marks.length && marks.every(isFoot) && Time.looked(label, value, 'the footer');
   // (A free shape's look is its row's, which History can't read words from: said as it's done.)
@@ -1929,7 +1942,7 @@ const typing = () => !!document.activeElement?.closest?.('input, textarea, [cont
 function describe(forBox = false) {
   const c = Canvas.active.peek();
   if (!c?.scene()) return null;
-  const s = scopesOf(c), sc = forBox && !level.peek() && fieldOf(c) ? place(c, s, byItself(c, s, true)) ?? scopeOf(s.scopes) : scopeOf(s.scopes);
+  const s = scopesOf(c), sc = forBox ? boxScope(c, s) : scopeOf(s.scopes);
   if (!sc || sc.root) return null;
   const by = c.scene().byId, ids = sc.own ? s.marks.map(m => m.id) : [...sc.marks ?? []], records = [...new Set(ids.map(id => by.get(id)?.record).filter(Boolean))];
   const base = { label: named(c, sc), view: c.scene().view, records };

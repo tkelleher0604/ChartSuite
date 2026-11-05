@@ -2918,6 +2918,23 @@ async function designing(st) {
   check('the format bar’s scope is this box, so only it took it', sc().marks.filter(m => m.parts?.length).length === 1);
   undo(); await tick(400);
   check('Undo takes it back whole, at the size it was', !box('northpine').parts && Math.abs(box('northpine').w - w0) < 0.6 && changes() === was + 2);
+  // A name picked: a design is the box's, and goes where the pen stands for the box, never to every name; a part picked, what's given goes to the part, there too.
+  Shell.select([]); await tick(100); cv().zoom('fit'); Shell.select(['fund']); await tick(200);
+  const pressName = async m => { const it = m.texts.find(x => x.name) ?? m.texts[0], t = it.look, c0 = cv().graph.localToGraph(m.x + it.lines[0].x - (t.Align === 'center' ? 0 : -it.lines[0].w / 2), m.y + it.lines[0].y - t.Size * Scene.PT * 0.5), r0 = cv().root.getBoundingClientRect(), cx = r0.left + c0.x, cy = r0.top + c0.y, el = document.elementFromPoint(cx, cy);
+    for (const k of ['mousedown', 'mouseup', 'click']) el?.dispatchEvent(new MouseEvent(k, { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, buttons: k === 'mousedown' ? 1 : 0, view: window })); await tick(150); };
+  await pressName(box('fund'));
+  const forBox = FormatBar.scope(true), forName = FormatBar.scope();
+  check('a name picked, the box’s scope isn’t the name’s', !!cv().field() && Tree.same(App.state.peek()[cv().field().it.id].edge, 'Name') && !forName.own && forBox.caption !== forName.caption, `${forBox.caption} / ${forName.caption}`);
+  FormatBar.apply('Design', header); await tick(400);
+  const gaveTo = sc().marks.filter(m => m.parts?.length).map(m => m.id);
+  check('… and a design given then goes there, not to every name', gaveTo.includes('fund') && (forBox.own ? gaveTo.length === 1 : gaveTo.length === forBox.marks.size) && !App.notes.peek().notes('Design').some(n => Tree.same(n.pattern.args?.[0]?.edge ?? '', 'Name')), `${gaveTo.length}; ${forBox.caption}`);
+  Shell.select([]); await tick(100); Shell.select(['fund']); await tick(200);
+  await pressName(box('fund'));
+  check('… its part picked, the pen stands for the box', !!cv().field()?.it.part && FormatBar.scope().caption === forBox.caption, `${cv().field()?.it.part} ${FormatBar.scope().caption}`);
+  FormatBar.apply('Fill', '#ffeeaa'); await tick(400);
+  check('… and a look given goes to that part, there, said over the design and said so', box('fund').parts.some(p => p.look.Fill === '#ffeeaa') && box('fund').design.overs.length === 1 && /part of the design/.test(txt($$('.toast').at(-1))) && !/decides/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  undo(); await tick(250); undo(); await tick(300);
+  Shell.select([]); await tick(120);
   // What's said over it, and Reset.
   const t = () => Tree.treeOf(App.state.peek(), 'northpine');
   App.change(tx => tx.note('Design', t(), header, { view: st.id }), { dated: false }); await tick(300);

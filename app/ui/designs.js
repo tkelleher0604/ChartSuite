@@ -29,7 +29,7 @@ function forRecord(d, m) {
 // Plain takes a design away: the note's gone; or, where a wider one would still decide, says so narrower.
 function valueOf(d, m) {
   if (d.id !== 'plain') return forRecord(d, m);
-  const sc = canvas().scene(), s = FormatBar.scope(), wide = (s?.outputs ?? []).length ? s.outputs : m ? [treeOf(m.record)] : [], N = App.notes.peek();
+  const sc = canvas().scene(), s = FormatBar.scope(true), wide = (s?.outputs ?? []).length ? s.outputs : m ? [treeOf(m.record)] : [], N = App.notes.peek();
   const here = new Set(wide.map(p => Tree.key(p)));
   return N.notes('Design').some(n => n.view === sc.view && !here.has(Tree.key(n.pattern)) && Scene.wholeDesign(n.value) && wide.some(p => Tree.narrower(p, n.pattern))) ? { id: 'plain', name: 'Plain', base: {}, parts: [] } : undefined;
 }
@@ -39,7 +39,7 @@ function boxNow() {
   if (!sc) return null;
   const m = c.selected().find(x => x.type === 'box');
   if (m) return m;
-  const s = FormatBar.scope();
+  const s = FormatBar.scope(true);
   return [...s?.marks ?? []].map(id => sc.byId.get(id)).find(x => x?.type === 'box') ?? null;
 }
 const lineNow = () => { const c = canvas(), s = c?.selected() ?? []; return s.length && s.every(m => m.type === 'line') ? s[0] : null; };
@@ -208,7 +208,7 @@ function edit(m, given) {
   if (!c || !m || editing.peek()) return;
   if (App.readOnly.peek()) return Shell.toast(App.whyNot());
   if (App.pending.peek()) return Shell.toast('Make or discard the change pending first');
-  const sc = c.scene(), v = sc.view, N = App.notes.peek(), pen = given || !m.design ? FormatBar.scope() : null, patterns = m.design && !given ? [m.design.note.pattern] : patternsAt(m, pen);
+  const sc = c.scene(), v = sc.view, N = App.notes.peek(), pen = given || !m.design ? FormatBar.scope(true) : null, patterns = m.design && !given ? [m.design.note.pattern] : patternsAt(m, pen);
   // (Editing what's there, the design and not what's said over it; or one from the gallery; or, for a box with none, its fields in one part to begin from.)
   const { over: _, ...there } = m.design?.note.value ?? {};
   const d = given ?? (m.design ? there : { id: Log.newId(), name: 'New design', w: round(m.w), h: round(m.h), base: { Shape: m.shape }, parts: [{ id: Log.newId(), rest: true, geometry: 'text', x: 0, y: 0, w: 1, h: 1, format: { Align: 'center', Valign: 'middle' } }] });

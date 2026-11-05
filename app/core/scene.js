@@ -1586,11 +1586,11 @@ function numberFeet(marks, foots, shape, row, s, state) {
   const u = 1 / s, numbers = new Map(), at = m => m.type === 'line' ? m.labelAt ?? { x: m.x ?? 0, y: m.y ?? 0 } : m, read = marks.filter(m => foots.has(m.id) && (m.type !== 'line' || (m.labelAt && !m.merged)));
   read.sort((a, b) => Math.round(at(a).y * s / 12) - Math.round(at(b).y * s / 12) || at(a).x - at(b).x);
   for (const m of read) {
-    const fs = [...foots.get(m.id).values()].filter(f => f.text), by = new Map();
-    for (const f of fs) { if (!numbers.has(f.text)) numbers.set(f.text, { n: numbers.size + 1, text: f.text, from: [] }); numbers.get(f.text).from.push(f); (by.get(f.field ?? '') ?? by.set(f.field ?? '', []).get(f.field ?? '')).push(numbers.get(f.text).n); }
+    // (By the text each goes on, so what goes on one line is one marker, its numbers together.)
+    const fs = [...foots.get(m.id).values()].filter(f => f.text), by = new Map(), onto = field => (field && m.texts?.find(x => x.lines?.length && same(x.blank?.edge ?? state[x.id]?.edge ?? '', field))) || m.texts?.find(x => x.lines?.length && !x.was);
+    for (const f of fs) { if (!numbers.has(f.text)) numbers.set(f.text, { n: numbers.size + 1, text: f.text, from: [] }); numbers.get(f.text).from.push(f); const it = onto(f.field); (by.get(it) ?? by.set(it, []).get(it)).push(numbers.get(f.text).n); }
     m.feet = fs.map(f => ({ n: numbers.get(f.text).n, text: f.text, key: f.param }));
-    for (const [field, ns] of by) {
-      const it = (field && m.texts?.find(x => x.lines?.length && same(x.blank?.edge ?? state[x.id]?.edge ?? '', field))) || m.texts?.find(x => x.lines?.length && !x.was);
+    for (const [it, ns] of by) {
       if (!it?.lines?.[0]) continue;
       const look = spanLook(it.look, { Base: 'up' }, u), text = ns.sort((a, b) => a - b).join(',');
       // (A field in a part of a design: the box's copy says where it is, and the part's own is what's drawn.)
