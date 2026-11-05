@@ -1050,7 +1050,8 @@ const Shell = (() => {
   // A rule that can't be worked out is apart from who fails what a rule says, each rule counted once however many records it can't say of; and what's typed
   // over a rule is kept in the open, a decision and not a problem.
   const KINDS = [['broken', n => n === 1 ? '1 rule broken' : `${n} rules broken`, ['Broken rule', 'Doesn’t work'], 'What it gives can’t be relied on'], ['overdue', n => `${n} overdue`, ['Paid', 'Filed']], ['error', n => n === 1 ? '1 error' : `${n} errors`, []],
-    ['soon', n => `${n} due soon`, ['Paid', 'Filed'], 'Due within 30 days'], ['blank', n => `${n} blank`, []], ['overrides', n => `${n} typed over`, ['Override', 'Overrides', 'Waiver', 'Waivers', 'Exception'], 'What’s typed over what a rule says']];
+    ['cant', n => `${n} can’t say`, ['Can’t say', 'Cannot say', 'Unanswered', 'Not answered'], 'A check with no answer, for want of a value'],
+    ['soon', n => `${n} due soon`, ['Paid', 'Filed'], 'Due within 30 days'], ['blank', n => `${n} blank`, []], ['off', n => `${n} off this page`, ['Off the page', 'Not on this page', 'Hidden owner', 'Missing owner'], 'Who holds a box here and isn’t drawn here'], ['overrides', n => `${n} typed over`, ['Override', 'Overrides', 'Waiver', 'Waivers', 'Exception'], 'What’s typed over what a rule says']];
   const counted_ = (k, items) => { const of = items.filter(it => it.kind === k); return k === 'broken' ? new Set(of.map(it => it.error?.def ?? it.id)).size : of.length; };
   const worst = it => KINDS.findIndex(([k]) => k === it.kind);
   const needs = () => many('attention').flatMap(a => a.items());
@@ -1074,13 +1075,13 @@ const Shell = (() => {
     if (!o) closeOpen = layer(shutList);
     opened.value = { tab: kind, within: o?.within ?? 30, q: '', apart: kind === 'blank' };
   }
-  const SAY = { broken: 'Rule broken', overdue: 'Overdue', error: 'Error', soon: 'Due soon', blank: 'Blank', overrides: 'Typed over' };
+  const SAY = { broken: 'Rule broken', overdue: 'Overdue', error: 'Error', cant: 'Can’t say', soon: 'Due soon', blank: 'Blank', off: 'Off this page', overrides: 'Typed over' };
   function openRows({ tab, within, q }) {
     const say = part('needs'), st = App.state.peek(), dated = it => st[it.id]?.value ?? '', atts = many('attention');
     const rowOf = it => {
       const w = say?.(it) ?? { what: '', where: '', figure: '' };
       let why = '';
-      if (it.kind === 'overrides') why = App.overOf?.(it.id)?.why ?? ''; else if (it.error?.rule) why = it.error.error.msg ?? ''; else if (it.kind !== 'blank' && !it.error) { try { why = FormulaBar.because(it.id) || App.enteredBy?.(it.id)?.note || ''; } catch {} } else if (it.error) why = it.error.error.msg ?? '';
+      if (it.kind === 'overrides') why = App.overOf?.(it.id)?.why ?? ''; else if (it.kind === 'cant') why = FormulaBar.blankSaid(it.error); else if (it.error?.rule) why = it.error.error.msg ?? ''; else if (it.kind !== 'blank' && it.kind !== 'off' && !it.error) { try { why = FormulaBar.because(it.id) || App.enteredBy?.(it.id)?.note || ''; } catch {} } else if (it.error) why = it.error.error.msg ?? '';
       return { it, w, kind: it.kind, on: it.kind === 'blank' ? App.responsible?.(it.id)?.name ?? '' : App.responsible?.(it.id)?.name ?? '', why };
     };
     const soon = within === 30 ? needs().filter(it => it.kind === 'soon') : atts.flatMap(a => a.within?.(within) ?? []);
@@ -1097,7 +1098,7 @@ const Shell = (() => {
     const lines = openLines(o), text = [OPEN_HEAD, ...lines].map(l => l.map(x => String(x ?? '').replace(/\s+/g, ' ')).join('\t')).join('\n');
     try { await navigator.clipboard.writeText(text); toast(`Copied ${lines.length} ${lines.length === 1 ? 'row' : 'rows'}`); } catch { toast('This browser didn’t allow the copy'); }
   }
-  const OPEN_MARK = { 'Rule broken': 'fail', Overdue: 'overdue', Error: 'fail', 'Due soon': 'soon', Blank: 'soon', 'Typed over': 'over' };
+  const OPEN_MARK = { 'Rule broken': 'fail', Overdue: 'overdue', Error: 'fail', 'Can’t say': 'soon', 'Due soon': 'soon', Blank: 'soon', 'Off this page': 'soon', 'Typed over': 'over' };
   async function sheetOpen(o) {
     const lines = openLines(o), name = chartName.peek() ?? 'Chart', asOf = App.asOfWords().line;
     await Table.plainFile({ name: `${name} - What's open`, sheet: 'What’s open', title: `${asOf} · ${name}: what’s open: ${tally.peek().map(c => c.say(c.n)).join(', ') || 'nothing'}`, head: OPEN_HEAD, rows: lines, widths: [16, 34, 34, 16, 22, 70], wrap: [1, 2, 5], marks: lines.map(l => ({ 0: OPEN_MARK[l[0]] ?? 'wrap' })) });
@@ -1122,7 +1123,8 @@ const Shell = (() => {
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goFromList(r.it); }
           else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); (e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling)?.focus?.(); } }}>
         <span class="c what">${label ?? r.w.what}</span><span class="c where">${r.w.where}</span><span class="c fig">${r.w.figure}</span><span class="c who">${r.on}</span><span class="c why" data-tip=${r.why || null}>${r.why}</span>
-        ${r.it.say && !App.readOnly.value ? html`<button type="button" class="lk ours" onClick=${e => { e.stopPropagation(); r.it.say(); }}>${r.it.apart === 'ours' ? 'Ours after all…' : 'Not ours…'}</button>` : null}</div>`;
+        ${r.it.say && !App.readOnly.value ? html`<button type="button" class="lk ours" onClick=${e => { e.stopPropagation(); r.it.say(); }}>${r.it.apart === 'ours' ? 'Ours after all…' : 'Not ours…'}</button>` : null}
+        ${r.it.show && !App.readOnly.value ? html`<button type="button" class="lk ours" onClick=${e => { e.stopPropagation(); r.it.show(); }}>Show</button>` : null}</div>`;
     // What's one problem lists as one.
     const grouped = xs => { const heads = new Map(); for (const x of xs) { const k = x.w.who ? `${x.w.what}|${x.w.who}` : `${x.w.what}|${x.w.where}|${x.it.id}`; if (!heads.has(k)) heads.set(k, []); heads.get(k).push(x); }
       return [...heads.values()].flatMap(g => g.length < 2 ? g.map(x => row(x)) : [html`<div class="ol-head">${g[0].w.what} · ${g[0].w.who} (${g.length})</div>`, ...g.map(x => row(x, ''))]); };
@@ -1160,7 +1162,7 @@ const Shell = (() => {
   // After the next frame is drawn, as Preact runs an effect; or in 100 ms, where none is.
   const afterPaint = f => { let raf = 0; const t = setTimeout(done, 100); function done() { clearTimeout(t); cancelAnimationFrame(raf); setTimeout(f); } raf = requestAnimationFrame(done); };
   function Status() {
-    useLayoutEffect(() => effect(() => { if (part('workbook')) { App.version.value; App.chart.value; } time.value; recount(); }), []);
+    useLayoutEffect(() => effect(() => { if (part('workbook')) { App.version.value; App.chart.value; } view.value; time.value; recount(); }), []);
     // The counts are announced as they change; how the workbook is kept, which ages by the minute, isn't.
     return html`<div class="status">
       ${many('status').map(s => s.render())}
@@ -1266,7 +1268,8 @@ const Shell = (() => {
     view, selection, time, show, select, at, back, forward, general, pattern, ready, launched,
     register, on, emit, keys, keyLabel, layer, drag, menu, popover, closeAll, dialog, Pick, confirm, toast, find, icon, iconMarkup, store, nameChart, firstBox, roved, land, enter, keyed: () => keyed, usingKeys,
     widen, narrow, wide, gliding, showPanel, theme, setTheme, html, h, signal, computed, effect, parts: reg,
-    problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n) })), listProblems: kind => listOf(kind),
+    // (And of what fails or can't say, which, by name, the rarest first: fourteen missing documents don't hide the one limit broken.)
+    problems: () => counts().map(c => ({ kind: c.k, said: c.say(c.n), which: c.k === 'error' || c.k === 'cant' ? (() => { const say = part('needs'), m = new Map(); for (const it of needs()) if (it.kind === c.k) { const w = say?.(it)?.what; if (w) m.set(w, (m.get(w) ?? 0) + 1); } return [...m].sort((a, b) => a[1] - b[1]).map(([w]) => w); })() : [] })), listProblems: kind => listOf(kind),
     aside: c => { aside.value = c; },
   };
 })();

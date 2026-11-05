@@ -1699,8 +1699,11 @@ const Table = (() => {
           const other = new Map(keys.map((k, i) => [norm(k.edge), has(k.edge, p.key[i])]));
           const args = keys.map((k, i) => ({ edge: k.edge, at: sideAt(k.edge, p.key[i], other) }));
           if (args.some(a => !a.at)) { p.cells.forEach(([c, raw]) => leave(p, c, raw)); continue; }
-          const own = p.cells.find(([c]) => c.key === '$out');
-          row = put({ args, ...(own ? value(own[0].type, clean(own[1])) ?? { tag: true } : { tag: true }) });
+          // (One record at two sides is said, where the relation doesn't allow it; and one whose record is a choice says which.)
+          if (!App.notes.peek().value('Itself', m.rows) && args.length === 2 && new Set(args.map(a => Tree.objectOf({ ...st, ...records }, a.at))).size < 2) { refused(`${p.key[0]} can’t be its own ${keys[0].edge}`); p.cells.forEach(([c, raw]) => leave(p, c, raw)); continue; }
+          const own = p.cells.find(([c]) => c.key === '$out'), is = own && value(own[0].type, clean(own[1])), asks = m.cols.find(c => c.key === '$out' && c.type !== 'tag');
+          if (asks && !is) { refused(`Say its ${asks.title}${asks.options?.length ? `: ${asks.options.join(' or ')}` : ''}`); p.cells.forEach(([c, raw]) => leave(p, c, raw)); continue; }
+          row = put({ args, ...(is ?? { tag: true }) });
           x.rows.push(row);
         }
       }
@@ -2386,6 +2389,7 @@ const Table = (() => {
       ${m.ended?.length ? html`<span class="tout ended" role="status"><span>${l.ended ? `With ${m.ended.length} ended` : `${m.ended.length} ended left out`}</span><button type="button" class="lk" data-tip=${m.ended.slice(0, 6).map(e => `${e.name}, ${Tree.formatDate(e.day, 'short')}`).join('; ')} onClick=${() => { setLook(view, { ended: l.ended ? undefined : true }); drewFrom = null; refresh(); }}>${l.ended ? 'Leave out' : 'Include'}</button></span>` : null}
       ${out ? html`<span class="tout" role="status"><b>${rowName(sel)}</b> is filtered out<span class="sep">·</span><button type="button" class="lk" onClick=${() => { clearFilters(); setTimeout(() => track(sel)); }}>Clear filters</button></span>` : null}
       ${m.later?.length ? html`<span class="tout later" role="status">${m.later.length} ${m.later.length === 1 ? 'starts' : 'start'} later:${' '}<button type="button" class="lk" onClick=${() => Shell.at({ asOf: m.later[0].day })}><b>${m.later[0].name}</b>, ${Tree.formatDate(m.later[0].day, 'short')}</button>${m.later.length > 1 ? ` and ${m.later.length - 1} more` : ''}</span>` : null}
+      ${m.rows === 'date' ? App.untracked.value.filter(x => x.who.length).map(x => html`<span class="tout untracked" role="status" key=${x.name}>${x.name} not tracked:${' '}<button type="button" class="lk" onClick=${() => App.sayUntracked(x)}><b>${rowName(x.who[0])}</b>${x.who.length > 1 ? ` and ${x.who.length - 1} more` : ''}</button></span>`) : null}
       <span class="tcount">${m.rows?.args && App.definitions.value.some(d => d.edges && App.broken.value.reach.has(d.id) && Tree.same(d.name, App.notes.value.name(m.rows))) ? html`<span class="no">Can’t be relied on</span> · ` : null}${showing !== total ? `${showing} of ${count(total, m.noun)}` : count(total, m.noun)}</span>
     </div>`;
   }
@@ -2570,7 +2574,13 @@ const Table = (() => {
     const m = current, sides = m.cols.filter(c => c.type === 'edge'), picked = {}, st = App.state.peek();
     const say = o => typeof o === 'string' ? saidOf(st, o) : clean(o.name);
     const next = i => {
-      if (i === sides.length) return addRelation(m, sides, picked);
+      if (i === sides.length) {
+        // (A relation whose record is a choice, a Position, asks which: it's no yes-or-no.)
+        const out = m.cols.find(c => c.key === '$out' && c.type === 'choice');
+        if (!out) return addRelation(m, sides, picked);
+        choosing.value = { picked: sides.map(c => say(picked[c.edge])), next: out.title };
+        return Shell.menu(anchor, [{ head: out.title }, ...out.options.map(o => ({ label: o, run: () => addRelation(m, sides, picked, { choice: o }) }))], { placement: 'top-start', onClose: () => { choosing.value = null; } });
+      }
       choosing.value = { picked: sides.slice(0, i).map(c => say(picked[c.edge])), next: sides[i].title };
       pickSide(anchor, m, sides[i], o => { picked[sides[i].edge] = o; next(i + 1); }, new Map(sides.filter(c => typeof picked[c.edge] === 'string').map(c => [norm(c.edge), picked[c.edge]])));
     };
@@ -2581,16 +2591,18 @@ const Table = (() => {
     const st = App.state.peek(), N = App.notes.peek(), rel = onRelation(m, c.edge), first = rel ? null : kindAt(m, c.edge, other), kinds = rel ? [] : [first, ...sideKindNames(m, c.edge).filter(k => !same(k, first))];
     const all = rel ? sideRecords(m, c.edge).map(x => ({ ...x, short: x.name })) : [...sideKinds(m, c.edge)].flatMap(k => Tree.index(st).kinds.get(k) ?? []).map(id => ({ id, name: N.nameOf(st, id), short: N.shortOf(st, id) }))
       .sort((a, b) => a.name.localeCompare(b.name));
+    // (What's on another of its sides isn't offered: a company doesn't own itself, unless the relation says it can.)
+    const taken = N.value('Itself', m.rows) || m.cols.filter(x => x.type === 'edge').length !== 2 ? new Set() : new Set(other.values());
     Shell.menu(anchor, q => {
       // Found as typed, or as people write it ("Partners III LP"); a new one offered only where none reads alike, and where
       // the name isn't of a record the side doesn't take, which is said instead.
-      const t = norm(q), l = loose(q), hit = all.filter(x => !t || norm(x.name).includes(t) || norm(x.short).includes(t) || (l && loose(x.name).includes(l)));
+      const t = norm(q), l = loose(q), hit = all.filter(x => !taken.has(x.id) && (!t || norm(x.name).includes(t) || norm(x.short).includes(t) || (l && loose(x.name).includes(l))));
       const wrong = q && l && !hit.length ? otherKind(m, c.edge, q) : null;
       return [{ head: c.title }, ...hit.slice(0, 60).map(x => ({ label: x.name, run: () => done(x.id) })), ...(wrong ? [{ label: wrong }] : []),
         ...(!wrong && q && l && !all.some(x => loose(x.name) === l || loose(x.short) === l) ? kinds.map(kind => ({ label: `New ${kind}: ${q}`, run: () => done({ name: q, kind }) })) : [])];
     }, { search: true, placement: 'top-start', onClose: () => { choosing.value = null; } });
   }
-  function addRelation(m, sides, picked) {
+  function addRelation(m, sides, picked, out = { tag: true }) {
     const st = App.state.peek(), N = App.notes.peek(), records = {}, made = [];
     const at = (c, o) => {
       if (typeof o !== 'string') { const id = Log.newId(); records[id] = { kind: o.kind }; records[Log.newId()] = { at: id, edge: 'Name', field: 'text', value: clean(o.name) }; made.push(id); o = id; }
@@ -2599,7 +2611,7 @@ const Table = (() => {
     const args = sides.map(c => ({ edge: c.edge, at: at(c, picked[c.edge]) }));
     if (args.some(a => !a.at)) return Shell.toast(`Couldn’t add the ${m.noun}`);
     const rel = Log.newId();
-    records[rel] = { args, tag: true };
+    records[rel] = { args, ...out };
     const recs = { ...st, ...records }, asks = App.asksDay(records[rel], recs), entered = App.entered.peek();
     App.stage({ verb: 'Add', what: `${N.nameOf(recs, rel)}: ${N.placed(recs, rel).map(s => s.join + s.text).join('')}`, source: 'row ' + m.view,
       ...(asks && { asks: 'from', day: App.begins(), auto: true }), needs: args.map(a => a.at).filter(id => id in entered),

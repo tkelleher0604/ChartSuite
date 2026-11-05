@@ -757,6 +757,16 @@ const App = (() => {
     }
     return out;
   });
+  // What this chart says it doesn't track (dendra.md, Notes: Not Tracked): each in its words, what Find knows it by, and, where a rule says of whom (`of`), who.
+  const untracked = computed(() => {
+    const st = state.value, list = notes.value.value('Not Tracked', { kind: 'View' });
+    return (Array.isArray(list) ? list : []).map(x => ({ ...x, names: x.names ?? [], who: x.of ? Object.keys(st).filter(id => st[id].edge && st[id].value && Tree.same(st[id].edge, x.of) && st[st[id].at]?.kind).map(id => st[id].at) : [] }));
+  });
+  function sayUntracked(x) {
+    const go = id => { Shell.closeAll?.(); Shell.select([id]); };
+    Shell.dialog({ title: `Not tracked: ${x.name}`, width: 460, body: close => html`<div class="untracked-says"><p>${x.about}</p>${x.who.length ? html`<p>${x.who.map((id, i) => html`${i ? ', ' : ''}<button type="button" class="lk" onClick=${() => { close(false); go(id); }}>${notes.peek().shortOf(state.peek(), id)}</button>`)}</p>` : null}</div>`,
+      actions: [{ label: 'Close', value: false, primary: true }] });
+  }
   // What a record was called before a day: each version of its Name that ended by then, the latest first, and the day it did.
   // (A slip corrected leaves no version, so what's here was truly its name.)
   function formerNames(id, d = day.peek(), recs = state.peek()) {
@@ -2131,7 +2141,7 @@ const App = (() => {
   return {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs,
-    mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, isDated, deleteLabel, mistakeLabel, bookName, lineNamed, nameLine, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
+    untracked, sayUntracked, mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, valueAt, KIND, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, isDated, deleteLabel, mistakeLabel, bookName, lineNamed, nameLine, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
     enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken, sandbox, sandboxBegun, unsandbox,
   };
 })();

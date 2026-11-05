@@ -1366,7 +1366,7 @@ async function run() {
   $$('.cols .colrow').find(r => r.textContent.trim() === 'Percentages In Range')?.querySelector('input').click(); await tick(250); Shell.closeAll(); await tick();
   check('A percentage out of range fails its check: a red ✗ in that row’s cell, and only there', checkCells().filter(e => e.querySelector('.tag.no')).length === 1
     && rowOf(usRow).getCells().find(c => c.getColumn().getDefinition().title === 'Percentages In Range').getElement().querySelector('.tag.no'), checkCells().map(e => e.innerHTML).join(' | '));
-  check('… counted as an error in the status bar, with Fund III’s ownership no longer adding up', errorsNow() === e0 + 2 && new RegExp(`${e0 + 2} errors`).test($('.status .counts')?.textContent), `${e0} → ${errorsNow()}: ${$('.status .counts')?.textContent}`);
+  check('… counted as an error in the status bar, with Fund III’s ownership no longer adding up, and its benefit plan share past the 25% test by the same figure', errorsNow() === e0 + 3 && new RegExp(`${e0 + 3} errors`).test($('.status .counts')?.textContent), `${e0} → ${errorsNow()}: ${$('.status .counts')?.textContent}`);
   // Where they are: the row a check fails at has its number red, the check's words on it; grouped by what's owned, each
   // group's header sums its percentages under their column, and Fund III's, a record Ownership Adds Up fails at, is red.
   {
@@ -1377,7 +1377,7 @@ async function run() {
     const fund3 = $$('.grid .tabulator-group').find(g => g.querySelector('.gname').textContent === 'Calder Ridge Capital Partners III, L.P.'), sum = fund3?.querySelector('.gsum');
     const pctCol = column('Percentage').getElement().getBoundingClientRect(), at = sum?.getBoundingClientRect();
     check('… grouped, a group’s header sums each column of numbers under it, as Excel’s subtotal does', sum?.textContent === '6,498.4%' && Math.abs(at.left - pctCol.left) < 2 && Math.abs(at.width - pctCol.width) < 2, `${sum?.textContent} ${at?.left}/${pctCol.left}`);
-    check('… and a group that’s a record a check fails at is red, beside its sum, the check’s words on it', fund3.querySelector('.gname').classList.contains('no') && sum.classList.contains('no') && fund3.querySelector('.gname').dataset.tip === 'Ownership Adds Up', fund3?.innerHTML);
+    check('… and a group that’s a record a check fails at is red, beside its sum, the check’s words on it', fund3.querySelector('.gname').classList.contains('no') && sum.classList.contains('no') && fund3.querySelector('.gname').dataset.tip.split(', ').includes('Ownership Adds Up'), fund3?.innerHTML);
     $$('.tbar .btn').find(b => b.textContent === 'Grouped by Owned').click(); await tick(); item('None').click(); await tick(300);
   }
   let asked = null;

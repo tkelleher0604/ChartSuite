@@ -440,11 +440,11 @@ function depend(S, kind, name, key) {
 
 // What a name gives where nothing has it: an empty list for a list the schema has somewhere, nothing for any
 // other name the schema has somewhere, and an error for a name it doesn't have at all. `at`, the record it was looked
-// for at, for what a row can't say for want of it (see cantSay).
-function missing(S, name, at) {
+// for at, and `link`, the relation it was reached by, for what a row can't say for want of it (see cantSay).
+function missing(S, name, at, link) {
   const n = normal(name);
   if (S.P.known.lists.has(n)) return [];
-  if (S.P.known.values.has(n)) { S.blanks?.push({ name, at }); return null; }
+  if (S.P.known.values.has(n)) { S.blanks?.push({ name, at, link }); return null; }
   return err('#NAME?', `Nothing is called ${name}${name.endsWith(".") ? "" : "."}`);
 }
 // A record pointed at by its name (dendra.md, Definitions: a record by its name): an object by any Name or Short Name it has had, on
@@ -575,7 +575,7 @@ function lookupOn(S, v, name, n = normal(name)) {
     const hit = ownLookup(S, id, n, name);
     if (hit) return hit.v;
   }
-  return missing(S, name, v.id);
+  return missing(S, name, v.id, v.link);
 }
 
 // A name on its own: a LET name; in a relation's formula, one of its arguments, as an object; in an entry's
@@ -715,6 +715,24 @@ function compare(S, op, a, b) {
 // Dates are calendar days: made on this computer's calendar and read back as ISO days, and counted as days since 1970.
 const dayOf = v => Date.UTC(...v.iso.split('-').map((x, i) => Number(x) - (i === 1 ? 1 : 0))) / 864e5;
 const fromDay = n => ({ t: 'date', iso: Tree.isoOf(new Date(1970, 0, 1 + n)) });
+// The US federal holiday kept on a day (ISO), by its name, or null: the legal public holidays of 5 U.S.C. § 6103(a), one by a date falling on a Saturday kept the
+// Friday before and on a Sunday the Monday after, as § 6103(b) has it and EDGAR's calendar closes (so a January 1 on a Saturday is kept the December 31 before). A
+// day closed by an order of its own, as a day of mourning, isn't known here.
+const NTH_MONDAY = (y, m, n) => { const first = new Date(Date.UTC(y, m, 1)).getUTCDay(); return 1 + ((8 - first) % 7) + (n - 1) * 7; };
+function usHoliday(iso) {
+  const [y, m, d] = iso.split('-').map(Number), lastMonday = mo => { const end = new Date(Date.UTC(y, mo + 1, 0)); return end.getUTCDate() - ((end.getUTCDay() + 6) % 7); };
+  if (m === 1 && y >= 1986 && d === NTH_MONDAY(y, 0, 3)) return 'Martin Luther King, Jr.’s Birthday';
+  if (m === 2 && d === NTH_MONDAY(y, 1, 3)) return 'Washington’s Birthday';
+  if (m === 5 && d === lastMonday(4)) return 'Memorial Day';
+  if (m === 9 && d === NTH_MONDAY(y, 8, 1)) return 'Labor Day';
+  if (m === 10 && d === NTH_MONDAY(y, 9, 2)) return 'Columbus Day';
+  if (m === 11) { const first = new Date(Date.UTC(y, 10, 1)).getUTCDay(); if (d === 1 + ((11 - first) % 7) + 21) return 'Thanksgiving Day'; }
+  const kept = (yr, mo, da) => { const w = new Date(Date.UTC(yr, mo - 1, da)), wd = w.getUTCDay(); w.setUTCDate(da + (wd === 6 ? -1 : wd === 0 ? 1 : 0)); return w.toISOString().slice(0, 10); };
+  // (Its own date's year and the next's: a New Year's Day kept the day before it.)
+  for (const yr of [y, y + 1]) for (const [mo, da, name, from] of [[1, 1, 'New Year’s Day'], [6, 19, 'Juneteenth National Independence Day', 2021], [7, 4, 'Independence Day'], [11, 11, 'Veterans Day'], [12, 25, 'Christmas Day']])
+    if (yr >= (from ?? 0) && kept(yr, mo, da) === iso) return name;
+  return null;
+}
 
 // ---- Working out expressions ----
 // A context `c` holds the state S, `def`, `self` (a relation's arguments by edge, as objects, or an entry's
@@ -1025,22 +1043,25 @@ const FUNCTIONS = {
   // As in Excel: the date some months on, kept within the month it lands in; and the last day of that month.
   EDATE(a, c) { return monthsOn(a, c, 'EDATE', false); },
   EOMONTH(a, c) { return monthsOn(a, c, 'EOMONTH', true); },
-  // As in Excel, without holidays: the date some working days (Monday to Friday) after a date, or before it
-  // for a negative count. WORKDAY(d - 1, 1) is the first working day on or after d.
+  // As in Excel: the date some working days (Monday to Friday) after a date, or before it for a negative count. WORKDAY(d - 1, 1) is the
+  // first working day on or after d. Where a deadline's rule says business day, a third argument, "US", steps over US federal holidays too (usHoliday).
   WORKDAY(a, c) {
-    const bad = arity('WORKDAY', a, 2);
+    const bad = arity('WORKDAY', a, 2, 3);
     if (bad) return bad;
     const d = scalar(c.S, ev(a[0].x, c));
     if (isErr(d) || d === null) return d;
     if (!dated(d)) return err('#VALUE!', 'WORKDAY takes a date first.');
     const n = toNumber(c.S, ev(a[1].x, c));
     if (isErr(n)) return n;
+    const cal = a[2] ? scalar(c.S, ev(a[2].x, c)) : null;
+    if (isErr(cal)) return cal;
+    if (a[2] && cal !== 'US') return err('#VALUE!', 'WORKDAY’s third is "US", for US federal holidays.');
     const step = n < 0 ? -1 : 1;
     let day = dayOf(d);
     for (let left = Math.abs(Math.trunc(n)); left > 0;) {
       day += step;
       const weekday = new Date(day * 864e5).getUTCDay();
-      if (weekday !== 0 && weekday !== 6) left--;
+      if (weekday !== 0 && weekday !== 6 && !(cal && usHoliday(fromDay(day).iso))) left--;
     }
     return fromDay(day);
   },
@@ -2355,22 +2376,50 @@ function rowGives(S, t, ri) {
 }
 // `#N/A`, with what it wants: each name read blank, and the record it was read at. `blanks` keeps those a hand could fill in.
 function needs(reads, S) {
-  const xs = [...new Map(reads.map(r => [normal(r.name), r.name])).values()], e = err('#N/A', `Needs ${xs.length < 2 ? xs[0] : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`}.`);
-  e.blanks = [...new Map(reads.filter(r => S && fillable(S, r)).map(r => { const at = homeOf(S, r); return [`${normal(r.name)}|${at}`, { name: r.name, at }]; })).values()];
+  const want = S ? reads.flatMap(r => wanted(S, r)) : [], said = want.length ? want : reads;
+  const xs = [...new Map(said.map(r => [normal(r.name), r.name])).values()], e = err('#N/A', `Needs ${xs.length < 2 ? xs[0] : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`}.`);
+  e.blanks = [...new Map(want.map(r => { const at = homeOf(S, r); return [`${normal(r.name)}|${at}`, { name: r.name, at }]; })).values()];
   return e;
 }
-// Whether a name read blank at a record is one a person could type there: no definition gives it, as what a rule gives is its own to say
-// nothing of, and the schema has it at that record or up from it.
-function fillable(S, r) {
+// What a name read blank at a record wants filled in: itself, where it's one a person could type there, as the schema has it at that record or up from it. What a
+// definition gives is its own to say nothing of where its conditions skip the record (no count for what's no 3(c)(1) fund); but where they hold and what it
+// works out comes to nothing (no one's in the fund), it's no answer of "doesn't apply": it wants what it read that's blank, or else itself, typed.
+function wanted(S, r, depth = 0) {
   const P = S.P;
   P.given ??= new Set(P.defs.flatMap(d => d.error ? [] : [...namesProvided(d, P.reg)]));
-  return !P.given.has(normal(r.name)) && !!homeOf(S, r);
+  const at = homeOf(S, r);
+  if (!at) return [];
+  if (!P.given.has(normal(r.name))) return [r];
+  P.valued ??= new Map(P.defs.filter(d => !d.error && !d.isRelation && d.type !== 'tag').map(d => [normal(d.name), d]));
+  const d = P.valued.get(normal(r.name));
+  if (!d || depth > 3) return [];
+  const c = { S, def: d, self: { loc: at }, at: recOf(at), lets: null }, was = S.blanks, reads = S.blanks = [];
+  let applies = false;
+  try { for (const row of d.rows) if (row.ast && comesToNothing(row.ast, c)) applies = true; } finally { S.blanks = was; }
+  if (!applies) return [];
+  const deeper = reads.filter(x => normal(x.name) !== normal(r.name)).flatMap(x => wanted(S, x, depth + 1));
+  return deeper.length ? deeper : [{ name: r.name, at }];
+}
+// Whether a row's conditions hold at what it's at and what it gives there is nothing.
+function comesToNothing(n, c) {
+  if (isCall(n, 'IF') && n.args.length >= 2 && n.args.length <= 3) {
+    const g = truth(c.S, safeEv(n.args[0].x, c));
+    if (isErr(g)) return false;
+    return g ? comesToNothing(n.args[1].x, c) : !!n.args[2] && comesToNothing(n.args[2].x, c);
+  }
+  if (isCall(n, 'LET') && n.args.length % 2 === 1 && n.args.length >= 3) {
+    let lets = c.lets;
+    for (let i = 0; i < n.args.length - 1; i += 2) { const v = safeEv(n.args[i + 1].x, { ...c, lets }); if (isErr(v)) return false; lets = { n: normal(n.args[i].x.name ?? ''), v, up: lets }; }
+    return comesToNothing(n.args.at(-1).x, { ...c, lets });
+  }
+  const v = safeEv(n, c);
+  return !isErr(v) && isNothing(scalar(c.S, v));
 }
 // Where a name read blank would be typed: the nearest up from where it was read that the schema has it at. (With no schema, where it was read.)
-function homeOf(S, { name, at }) {
+function homeOf(S, { name, at, link }) {
   if (!S.P.schema) return at;
   const locs = specified(S.P.schema, name);
-  for (let id = at, n = 0; id && S.recs[id] && n < 16; id = S.recs[id].at, n++) {
+  for (const from of [at, link]) for (let id = from, n = 0; id && S.recs[id] && n < 16; id = S.recs[id].at, n++) {
     const r = S.recs[id];
     if (locs.some(l => isObject(r) ? !l.args && (l.kind === undefined || same(l.kind, r.kind)) : r.args ? !!l.args && l.args.length === r.args.length && l.args.every(a => r.args.some(b => same(a.edge, b.edge))) : l.args?.length === 1 && same(l.args[0].edge, r.edge ?? ''))) return id;
   }
@@ -2380,7 +2429,7 @@ function homeOf(S, { name, at }) {
 // conditions skip the record, or `{ cant: [{ name, at }] }`. A comparison of order with what's read blank can't be told, wherever it stands;
 // an equality can't be told where it's the test, and where it's a condition (`guard`) a blank is what it says it is, for a rule that asks only
 // of Main Funds doesn't apply to what isn't known to be one. No beats it under AND, yes under OR, as a blank can't undo what's decided. What's
-// read and comes to nothing isn't blank unless it's a value a hand could enter: a list with nothing in it has nothing to want.
+// read and comes to nothing isn't blank unless it's a value a hand could enter, or what a rule that applies gave nothing of (see wanted): a list with nothing in it has nothing to want.
 const cantOf = (a, b) => a?.cant && b?.cant ? { cant: [...a.cant, ...b.cant] } : a?.cant ? a : b?.cant ? b : null;
 function cantSay(n, c, guard = false) {
   const S = c.S, test = x => cantSay(x, c, guard);
@@ -2398,7 +2447,7 @@ function cantSay(n, c, guard = false) {
     if (isErr(v)) return v;
     const order = n.k === 'cmp' && n.op !== '=' && n.op !== '<>';
     if (order || !guard) {
-      const blank = X => X.blanks.length && isNothing(n.k === 'in' && X === B ? null : scalar(S, X.v)) ? X.blanks.filter(r => fillable(S, r)) : [];
+      const blank = X => X.blanks.length && isNothing(n.k === 'in' && X === B ? null : scalar(S, X.v)) ? X.blanks.flatMap(r => wanted(S, r)) : [];
       const named = [...blank(A), ...(n.k === 'cmp' ? blank(B) : [])];
       if (named.length) return { cant: named };
     }
@@ -3962,7 +4011,8 @@ function requiredAt(N, t, edge) {
   return m.get(edge) ?? m.set(edge, N.required({ args: [{ edge, loc: t }] })).get(edge);
 }
 // Whether what a Required note's `when` asks holds at a record or up from it (dendra.md, Notes): a yes-or-no, or a choice among those it `is`.
-function holdsUp(recs, id, { when, is }) {
+function holdsUp(recs, id, { when, is, also }) {
+  if (also && !holdsUp(recs, id, also)) return false;
   for (let x = id, n = 0; x && recs[x] && n < 16; x = recs[x].at, n++) { const e = Tree.entryAt(recs, x, when); if (e) return is ? is.some(o => same(o, recs[e].choice ?? '')) : recs[e].tag === true; }
   return false;
 }
@@ -4001,6 +4051,8 @@ function attention(R, N, day, within = 30) {
     const wants = e.error.blanks?.length ? e.error.blanks : [{ name: e.error.msg.replace(/^Needs |\.$/g, ''), at: e.at ?? e.args?.[0]?.at }];
     for (const b of wants) { const k = `${b.at}|${normal(b.name)}`; if (said.has(k)) { items.find(a => a.kind === 'blank' && a.id === b.at && same(a.edge, b.name)).by ??= e; continue; } said.add(k); items.push({ kind: 'blank', id: b.at, edge: b.name, by: e }); }
   }
+  // A check that can't answer is counted too, apart from the blank it wants: one unanswered isn't one held, nor only a field left empty (dendra.md, Definitions: Can't say).
+  if (checks) { const asking = new Set(N.notes('Formula').filter(n => !n.view && N.value('Check', n.pattern) === true).map(n => n.note)); for (const e of R.errors) if (e.error.code === '#N/A' && asking.has(e.def)) items.push({ kind: 'cant', id: e.id, error: e }); }
   // A rule in error that nothing shows at a record (a quoted value nothing reached) is one of its own: the rule's.
   for (const b of broken(R).roots) if (!R.errors.some(e => e.def === b.def)) { const id = `rule:${b.def}`; items.push({ kind: 'broken', id, error: { def: b.def, id, rule: true, error: err(b.code, b.problems[0]) } }); }
   for (const [id, c] of Object.entries(R.covered)) if (!c.agrees && recs[id]) items.push({ kind: 'overrides', id });
@@ -4118,7 +4170,7 @@ function silence(N, S, recs, at, edge) {
 
 return {
   computeState, ground, evaluateRow, diff, check, suggest, evaluateAt, text, attention, pay, renameName, computedId, splitFormula, tidyArrow,
-  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS), silence, broken, asDrawn, sideObjects, coverage, readsAt,
+  tokenize, nameText, KEYWORDS, isError: isErr, FUNCTION_NAMES: Object.keys(FUNCTIONS), silence, broken, asDrawn, sideObjects, coverage, readsAt, usHoliday,
 };
 
 })();

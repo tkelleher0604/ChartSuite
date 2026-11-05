@@ -977,7 +977,7 @@ const Time = (() => {
   // ---- What a change did to the status: the status bar's counts just before it and just after, the log replayed as
   // History's past view replays it, as of the day it was made, so its words say what was so then, and don't change with the day
   // shown or the clock; worked out while nothing else is happening, a rule's change first, or at once for an entry opened ----
-  const worked = signal(0), effects = new Map(), SAID = { broken: 'rules broken', overdue: 'overdue', error: 'errors', soon: 'due soon', blank: 'blank', overrides: 'typed over' };
+  const worked = signal(0), effects = new Map(), SAID = { broken: 'rules broken', overdue: 'overdue', error: 'errors', cant: 'can’t say', soon: 'due soon', blank: 'blank', overrides: 'typed over' };
   const replays = new Map();
   function replay(n, day) {
     const key = `${App.chart.peek()}|${n}|${day}|${ever.peek().changes.length}`;
