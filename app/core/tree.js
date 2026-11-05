@@ -284,7 +284,7 @@ const outputText = r => isField(r) ? format(r.field, r.value) : isChoice(r) ? r.
 // What's coming, beside the value it'll replace: "55% from Feb 1, 2027". A date that's the day it comes from, as a filing's is, says that day once.
 const comingText = r => { const day = formatDate(r.since, 'short'); return r.field !== 'date' ? `${outputText(r)} from ${day}` : r.value === r.since ? `next ${day}` : `${formatDate(r.value, 'short')} from ${day}`; };
 // A word's plural: Entities, Taxes, Statuses, Addresses, Analyses; one already plural (ERISA Plan Assets, Cayman Islands) is itself.
-const plural = w => /[^aeiou]y$/i.test(w) ? w.slice(0, -1) + 'ies' : /sis$/i.test(w) ? w.slice(0, -2) + 'es' : /[^su]s$/i.test(w) ? w : /(s|x|z|ch|sh)$/i.test(w) ? w + 'es' : w + 's';
+const plural = w => /(^|\s)child$/i.test(w) ? w + 'ren' : /(^|\s)person$/i.test(w) ? w.replace(/erson$/i, 'eople') : /[^aeiou]y$/i.test(w) ? w.slice(0, -1) + 'ies' : /sis$/i.test(w) ? w.slice(0, -2) + 'es' : /[^su]s$/i.test(w) ? w : /(s|x|z|ch|sh)$/i.test(w) ? w + 'es' : w + 's';
 
 // ---- Links: what a document's address points at, from the address alone ----
 

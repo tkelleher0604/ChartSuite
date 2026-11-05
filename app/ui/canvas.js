@@ -54,7 +54,7 @@ const lowered = s => String(s).replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase()
 const viewName = id => App.views.peek().find(v => v.id === id)?.name ?? 'this view';
 
 // The kinds a box can be added as here: the chart's, less those the view hides, the most drawn first; in a
-// chart with none yet, an Entity.
+// chart with none yet, a Box.
 function kinds(scene = App.scene.peek()) {
   // (The master holds no records, only what every page draws.)
   if (scene?.view === Scene.MASTER) return [];
@@ -63,7 +63,7 @@ function kinds(scene = App.scene.peek()) {
   const all = new Set([...count.keys(), ...Object.values(App.schema.peek()).filter(s => !s.args && s.kind && !Tree.isView(s)).map(s => s.kind)]);
   const ks = [...all].filter(k => count.has(k) || !scene || N.value('Shown', { kind: k }, scene.view) !== false)
     .sort((a, b) => (count.get(b) ?? 0) - (count.get(a) ?? 0) || a.localeCompare(b));
-  return ks.length ? ks : ['Entity'];
+  return ks.length ? ks : ['Box'];
 }
 // The kind last added, while it can be; or the most drawn.
 const lastKind = () => { const ks = kinds(), k = Shell.store.get('kind'); return ks.includes(k) ? k : ks[0]; };
@@ -71,15 +71,13 @@ const lastKind = () => { const ks = kinds(), k = Shell.store.get('kind'); return
 // ---- Groups and the scope (dendra.md, Fields) ----
 // What each style reaches in a scene, by its output: the marks a record of it is in or at.
 const reached = new WeakMap();
-function reachOf(sc) {
-  let by = reached.get(sc);
-  if (by) return by;
-  reached.set(sc, by = new Map());
+const reachOf = sc => App.ofScene(reached, sc, () => {
+  const by = new Map();
   for (const m of sc.marks) if ((m.type === 'box' || m.type === 'line') && !m.revealed)
     for (const r of Scene.reach(App.shown.peek(), App.chart.peek(), sc.view, sc, m.id, App.state.peek()))
       (by.get(Tree.key(r.output)) ?? by.set(Tree.key(r.output), { output: r.output, marks: new Set() }).get(Tree.key(r.output))).marks.add(m.id);
   return by;
-}
+});
 // The groups a mark is in, as the Key and Styles call them (Scene.groupsOf), each with the marks it reaches, the
 // fewest first; or, where no style reaches it, its kind's, or its relation's: every box of its kind, every line alike.
 function groupsAt(sc, m) {
@@ -1467,7 +1465,7 @@ function mount(el) {
     if (!selectAll) range.collapse(false);
     s.removeAllRanges(); s.addRange(range);
     let done = false;
-    const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box);
+    const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box, () => finish(true));
     const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys, runs); else escaped?.(); };
     // (Going to the format bar's palette, it stays open, what's selected kept, till a press anywhere else.)
     const outside = e => { if (!e.target.closest?.('.dc-edit, .fb, .float')) finish(true); };
@@ -1484,7 +1482,7 @@ function mount(el) {
       // (In a shape's words, a tab, as PowerPoint's: the next stop.)
       else if (e.key === 'Tab' && multiline && !e.shiftKey) { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
     });
-    ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); finish(true); });
+    ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); if (kind && e.relatedTarget?.closest?.('.dc-kinds')) return; finish(true); });
     return ed;
   }
   // A new line at the caret, as text, so a run's places stay in its characters. (At the very end, a second, which keeping the words takes off, as a last line break draws nothing to type on.)
@@ -1569,7 +1567,8 @@ function mount(el) {
   // A new box's kind, chosen beside its name as it's typed: "Entity ▾" at the name's right, its placeholder "New entity".
   // A click opens the kinds, the one it is ticked; Tab and Shift+Tab step through them. The keys stay in the name all the
   // while, so Enter makes the box and Esc makes nothing, wherever the pointer went.
-  function kindChooser(ed, { kinds: ks, kind, pick }) {
+  function kindChooser(ed, { kinds: known, kind, pick }, leave) {
+    const ks = [...known];
     let at = Math.max(0, ks.indexOf(kind)), pane = null;
     const chip = document.createElement('button'), label = document.createElement('span');
     chip.type = 'button';
@@ -1580,7 +1579,9 @@ function mount(el) {
     over.appendChild(chip);
     const keep = e => e.preventDefault();
     const set = i => { at = (i + ks.length) % ks.length; label.textContent = ks[at]; ed.dataset.ph = `New ${lowered(ks[at])}`; chip.setAttribute('aria-label', `Kind: ${ks[at]}`); pick(ks[at]); };
-    const shut = () => { pane?.remove(); pane = null; chip.setAttribute('aria-expanded', 'false'); };
+    const shut = () => { const was = pane; pane = null; was?.remove(); chip.setAttribute('aria-expanded', 'false'); };
+    // (The keys back in the name, after what's been typed of it.)
+    const toName = () => { ed.focus(); const r = document.createRange(), s = getSelection(); r.selectNodeContents(ed); r.collapse(false); s.removeAllRanges(); s.addRange(r); };
     const open = () => {
       pane = document.createElement('div');
       pane.className = 'menu dc-kinds';
@@ -1592,14 +1593,30 @@ function mount(el) {
         o.setAttribute('aria-selected', String(i === at));
         o.innerHTML = `<span class="check">${i === at ? Shell.iconMarkup('check') : ''}</span><span class="label"></span>`;
         o.lastChild.textContent = k;
-        o.addEventListener('pointerdown', e => { keep(e); set(i); shut(); });
+        o.addEventListener('pointerdown', e => { keep(e); const away = pane.contains(document.activeElement); set(i); shut(); if (away) toName(); });
         return o;
       }));
+      // A kind of a new name, typed under them: the keys go to it for as long as that takes, and back to the name.
+      const typed = document.createElement('input');
+      Object.assign(typed, { className: 'dc-newkind', placeholder: 'New kind', spellcheck: false, autocomplete: 'off' });
+      typed.setAttribute('aria-label', 'New kind');
+      typed.addEventListener('keydown', e => {
+        e.stopPropagation();
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          const name = Tree.clean(typed.value), had = ks.findIndex(k => Tree.same(k, name));
+          if (name) { if (had < 0) ks.push(name); set(had < 0 ? ks.length - 1 : had); }
+          shut(); toName();
+        } else if (e.key === 'Escape') { e.preventDefault(); shut(); toName(); }
+      });
+      typed.addEventListener('blur', e => { if (pane && e.relatedTarget !== ed) leave(); });
+      pane.append(typed);
+      pane.addEventListener('pointerdown', e => { if (e.target !== typed) keep(e); });
       over.appendChild(pane);
       Object.assign(pane.style, { left: `${chip.offsetLeft}px`, top: `${chip.offsetTop + chip.offsetHeight + 4}px` });
       chip.setAttribute('aria-expanded', 'true');
     };
-    chip.addEventListener('pointerdown', e => { keep(e); if (e.button === 0) pane ? shut() : open(); });
+    chip.addEventListener('pointerdown', e => { keep(e); if (e.button === 0) { if (pane) { const away = pane.contains(document.activeElement); shut(); if (away) toName(); } else open(); } });
     set(at);
     // At the name's right, level with it; or at its left, where the right runs off the view.
     const x = ed.offsetLeft + ed.offsetWidth + 6;
@@ -2314,9 +2331,10 @@ function mount(el) {
       ...(one?.type === 'box' && !ro ? addsOf(one) : []),
       // What's between it and another box: asked for, a tick in the two's panel relates them; Viewing, it reads what's there, and makes nothing.
       ...(one?.type === 'box' ? [{ label: ro ? 'With…' : 'Relate…', run: () => relating(one, undefined, null, ro) }] : []),
-      // A relation recorded, as its panel's ⋯ has it: given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
+      // A relation recorded, as its panel's ⋯ has it: renamed where it's seen; given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
+      ...(one?.type === 'line' && !ro ? [{ label: `Rename ${App.notes.peek().nameOf(App.state.peek(), one.record)}…`, run: () => Shell.parts.peek().inspector?.renameLine?.(one.record) }] : []),
       ...(one?.type === 'line' && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
-      ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: 'Insert an entity between…', disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
+      ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: App.interposeWord(one.record), disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
       // A company's own: merged into another, and each stake in it, sold or ended from the company, not only from its thin line. (One row, so the menu fits the window it opens in.)
       ...(one?.type === 'box' ? (deals => deals.length ? [{ label: 'Transactions', items: deals }] : [])([...(App.endsOf(one.record).some(e => e.rel) ? [{ label: 'Merge into…', disabled: !App.canAsk(), run: () => App.merging(one.record) }] : []), ...stakeItems(one)]) : []),
       ...(one?.type === 'box' || one?.type === 'line' ? ['-'] : []),
@@ -3532,7 +3550,7 @@ const here = () => !!active.value && active.value.root.clientWidth > 0;
 // What the keys do on a chart, for the list of them: said beside keyMap, so a key changed there is changed here.
 Shell.register('keys', { head: 'On a chart', rows: [['Tab', 'Next box, in reading order'], ['Shift+Tab', 'Box before'], ['Arrows', 'Nudge what’s selected'], ['$mod+Arrows', 'Nudge it finely'], ['Shift+Arrows', 'Size it about its middle'], ['$mod+Shift+Arrows', 'Size it finely'], ['Alt+ArrowLeft', 'Turn it left, where it can turn'], ['Alt+ArrowRight', 'Turn it right, where it can turn'], ['F4', 'Do the last thing again'], ['Alt+F10', 'The Selection pane'], ['Alt+Shift+KeyL', 'Align left'], ['Alt+Shift+KeyE', 'Align center'], ['Alt+Shift+KeyR', 'Align right'], ['Alt+Shift+KeyT', 'Align top'], ['Alt+Shift+KeyM', 'Align middle'], ['Alt+Shift+KeyB', 'Align bottom'], ['Enter', 'Type in its name; on a field, in that'], ['F2', 'Type in its name'], ['A letter', 'Type over its name'], ['Enter, then Esc', 'Select the field, to format it alone'], ['Delete', 'Delete or end what’s selected, or clear a field'],
   ['$mod+KeyA', 'Select everything'], ['$mod+Shift+Space', 'Select all like this'], ['$mod+KeyC', 'Copy'], ['$mod+KeyX', 'Cut'], ['$mod+KeyV', 'Paste'], ['$mod+KeyD', 'Duplicate'], ['$mod+KeyG', 'Group'], ['$mod+Shift+KeyG', 'Ungroup'], ['$mod+]', 'Bring forward'], ['$mod+[', 'Send backward'], ['$mod+Shift+]', 'Bring to front'], ['$mod+Shift+[', 'Send to back'],
-  ['Shift+F10', 'Add owner, Add holding, Relate… and the rest of a box’s menu'], ['Enter', 'While relating: take the box the keys are on'], ['A letter', 'While relating: a new box, named as it’s typed']] });
+  ['Shift+F10', 'What a box adds, Relate… and the rest of its menu'], ['Enter', 'While relating: take the box the keys are on'], ['A letter', 'While relating: a new box, named as it’s typed']] });
 Shell.register('action', { id: 'chart.tidy', name: 'Tidy', enabled: here, run: call('tidy') });
 Shell.register('action', { id: 'chart.fit', name: 'Zoom to fit', keys: 'Shift+Digit1', enabled: here, run: () => call('zoom')('fit') });
 // The zoom's, and the walk's, wherever the keys are on a chart shown: a look, writing nothing.

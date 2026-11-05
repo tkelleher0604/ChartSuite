@@ -21,6 +21,12 @@
 <script src="../core/shapes.js"></script>
 <script src="../core/scene.js"></script>
 <script src="../sample/calder-ridge.js"></script>
+<script src="../core/templates.js"></script>
+<script src="../templates/blank.js"></script>
+<script src="../templates/org-chart.js"></script>
+<script src="../templates/family-tree.js"></script>
+<script src="../templates/company.js"></script>
+<script src="../templates/fund-structure.js"></script>
 <script>
 // Checks of the scene (scene.js) and the layout (layout.js) on the sample: which note decides a setting,
 // what's drawn, the legend, frames, positions entered and laid out, how long it takes, and that what a scene
@@ -1598,8 +1604,70 @@ function groupDesigns() {
   check('a design’s parts are what the log says, drawn from nothing the same', twice === JSON.stringify(s1.byId.get(llcs[0].id).parts.map(p => [p.x, p.y, p.w, p.h])), twice);
 }
 
+// Charts about anything (dendra.md, The layout): an org chart and a family tree from their templates, as the layout draws them.
+function aboutAnything() {
+  const DAY2 = '2037-03-01';
+  const chart = (id, make) => {
+    const t = Templates.of(id), wb = Log.open({ dendra: 1, changes: [] }), c = 'c1', tx = wb.edit({ chart: c, who: WHO });
+    tx.add('chart', { name: t.name }, c);
+    const ids = Templates.begin(tx, t, t.name), v = t.rows.find(r => 'record' in r).record;
+    if (typeof tx.commit() === 'string') throw new Error(`begin ${id}`);
+    const t2 = wb.edit({ chart: c, who: WHO }), made = make(t2);
+    const m = t2.commit();
+    if (typeof m === 'string') throw new Error(m);
+    const N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, DAY2), N.definitions(S), { relations: N.relations(S) });
+    return { made, R, s: Scene.of(wb, c, ids.get(v), DAY2, { state: R.records, computed: R }) };
+  };
+  for (const t of Templates.list()) {
+    const { s, R } = chart(t.id, tx => Templates.exampleOf(tx, t));
+    check(`${t.name}: its example draws, with no fault, no rule broken`, s.marks.some(m => m.type === 'box') && !s.marks.some(m => m.blocked) && !Object.values(R.broken ?? {}).length && !(R.errors ?? []).some(e => e.error?.code && e.error.code !== '#N/A'), j((R.errors ?? []).slice(0, 2)));
+  }
+  const person = (tx, name, more = {}) => { const id = tx.add('record', { kind: 'Person' }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }); for (const [edge, value] of Object.entries(more)) tx.add('record', { at: id, edge, field: 'date', value }); return id; };
+  // Forty people.
+  const org = chart('org-chart', tx => {
+    const reports = (a, b) => tx.add('record', { args: [{ edge: 'Manager', at: a }, { edge: 'Report', at: b }], tag: true }), ceo = person(tx, 'Chief'), mids = [], leaves = [];
+    for (let i = 0; i < 4; i++) { const v = person(tx, `Vice President ${i}`); reports(ceo, v); for (let j = 0; j < 3; j++) { const m = person(tx, `Director ${i} ${j}`); reports(v, m); mids.push(m); for (let k = 0; k < 2; k++) { const l = person(tx, `Analyst ${i} ${j} ${k}`); reports(m, l); leaves.push(l); } } }
+    return { ceo, mids, leaves };
+  });
+  const O = org.s, at = id => O.byId.get(id), { ceo, mids, leaves } = org.made;
+  check('an org chart of 40 draws its people, each row level', O.marks.filter(m => m.type === 'box').length > 40 && new Set(mids.map(id => at(id).y)).size === 1, O.marks.filter(m => m.type === 'box').length);
+  check('… too wide for its page, its last rows hang: one column under each manager', mids.every((m, i) => { const ks = leaves.slice(i * 2, i * 2 + 2); return new Set(ks.map(k => at(k).x)).size === 1 && at(ks[1]).y > at(ks[0]).y + at(ks[0]).h - 1; }), j(leaves.slice(0, 2).map(k => [at(k).x, at(k).y])));
+  check('… and the page is the larger for it', O.page.scale > 0.5, O.page.scale);
+  const lineTo = (s, a, b) => s.marks.find(m => m.type === 'line' && m.from === a && m.to === b);
+  check('… a line down a spine into each one’s side', leaves.slice(0, 2).every(l => { const p = lineTo(O, mids[0], l)?.points, b = at(l); return p && Math.abs(p.at(-1)[0] - b.x) < 1 && Math.abs(p.at(-1)[1] - (b.y + b.h / 2)) < 1 && p.at(-2)[0] < b.x; }), j(lineTo(O, mids[0], leaves[0])?.points));
+  check('… a manager over what they run: the head over the middle of who reports to them', Math.abs(at(ceo).x + at(ceo).w / 2 - (at(mids[1]).x + at(mids[10]).x + at(mids[10]).w) / 2) < 200, at(ceo).x);
+  check('… and no line through a box', !O.marks.some(m => m.type === 'line' && (m.blocked || m.astray)));
+  // Two children: their parent over the middle of them.
+  const two = chart('org-chart', tx => { const reports = (a, b) => tx.add('record', { args: [{ edge: 'Manager', at: a }, { edge: 'Report', at: b }], tag: true }), a = person(tx, 'Ana'), b = person(tx, 'Sam'), c = person(tx, 'Lee'); reports(a, b); reports(a, c); return [a, b, c]; });
+  const [t0, t1, t2] = two.made.map(id => two.s.byId.get(id));
+  check('a manager of two stands over the middle of them', Math.abs(t0.x + t0.w / 2 - (t1.x + t2.x + t2.w) / 2) < 2, j([t0.x, t1.x, t2.x]));
+  // A family, an in-law's parents among it.
+  const fam = chart('family-tree', tx => {
+    const married = (a, b) => tx.add('record', { args: [{ edge: 'Spouse', at: a }, { edge: 'Partner', at: b }], tag: true }), parents = (a, b, ...kids) => { for (const k of kids) for (const p of [a, b]) tx.add('record', { args: [{ edge: 'Parent', at: p }, { edge: 'Child', at: k }], tag: true }); };
+    const g1 = person(tx, 'Walter', { Born: '1920' }), g2 = person(tx, 'Edith', { Born: '1924' }), a = person(tx, 'James', { Born: '1952' }), b = person(tx, 'Robert', { Born: '1948' }), c = person(tx, 'Susan', { Born: '1950' });
+    const inlaw = person(tx, 'Karin', { Born: '1951' }), ip1 = person(tx, 'Oskar'), ip2 = person(tx, 'Maja'), k1 = person(tx, 'Emma', { Born: '1975' }), k2 = person(tx, 'Lucas', { Born: '1978' });
+    married(g1, g2); parents(g1, g2, a, b, c); married(b, inlaw); married(ip1, ip2); parents(ip1, ip2, inlaw); parents(b, inlaw, k1, k2);
+    return { g1, g2, a, b, c, inlaw, ip1, ip2, k1, k2 };
+  });
+  const F = fam.s, f = id => F.byId.get(id), { g1, g2, a, b, c, inlaw, ip1, ip2, k1, k2 } = fam.made;
+  const between2 = (p, q) => Math.max(p.x - q.x - q.w, q.x - p.x - p.w);
+  check('spouses stand side by side on one rank', f(g1).y === f(g2).y && f(b).y === f(inlaw).y && between2(f(g1), f(g2)) > 0 && between2(f(g1), f(g2)) < 200 && between2(f(b), f(inlaw)) > 0 && between2(f(b), f(inlaw)) < 200, j([f(g1).x, f(g1).w, f(g2).x]));
+  check('generations align: children a row under their parents, an in-law’s parents a row over the in-law, whatever else stands over them', f(ip1).y === f(g1).y && f(a).y === f(inlaw).y && f(k1).y > f(inlaw).y, j([f(ip1).y, f(g1).y]));
+  const [p1, p2] = [lineTo(F, b, k1)?.points, lineTo(F, inlaw, k1)?.points], gapMid = (Math.max(f(b).x, f(inlaw).x) + Math.min(f(b).x + f(b).w, f(inlaw).x + f(inlaw).w)) / 2;
+  check('one line comes down from the pair to each child: each parent’s from its own side, along the line between them, down its middle', p1 && p2 && Math.abs(p1[1][0] - gapMid) < 6 && Math.abs(p2[1][0] - gapMid) < 6 && j(p1.slice(1)) === j(p2.slice(1)), j([p1, p2]));
+  check('… which ends on the child’s top', Math.abs(p1.at(-1)[1] - f(k1).y) < 1);
+  check('… and the children of the pair stand under its middle', Math.abs((f(k1).x + f(k2).x + f(k2).w) / 2 - gapMid) < 24, j([gapMid, f(k1).x, f(k2).x]));
+  const married = F.marks.find(m => m.type === 'line' && [m.from, m.to].includes(g1) && [m.from, m.to].includes(g2));
+  check('the two are joined by a level line', married && married.points.every(q => Math.abs(q[1] - married.points[0][1]) < 1), j(married?.points));
+  check('siblings stand eldest first where no line’s crossed for it: Born, whatever order they were made in', f(k1).x < f(k2).x && f(c).x < f(a).x, j([f(b).x, f(c).x, f(a).x]));
+  const none = chart('blank', tx => { const x = tx.add('record', { kind: 'Box' }); tx.add('record', { at: x, edge: 'Name', field: 'text', value: 'One' }); return x; });
+  check('Blank’s one box draws, and a chart with no relation has no line', none.s.byId.get(none.made)?.type === 'box' && !none.s.marks.some(m => m.type === 'line'));
+  check('a Start or End that says its verb is still a start or an end', Notes.index([{ note: 'n', label: 'End', pattern: { out: { field: 'date' }, args: [{ edge: 'Left', loc: {} }] }, value: { verb: 'Leave', done: 'Left' } }]).isEnd({ out: { field: 'date' }, args: [{ edge: 'Left', loc: { kind: 'Person' } }] }));
+  check('… plurals of a person and a child are said right', Tree.plural('Person') === 'People' && Tree.plural('Child') === 'Children' && Tree.plural('Entity') === 'Entities');
+}
+
 if (location.search.includes('fresh')) window.drawFresh = json => drawAll(Log.open(json))[1];
-else Promise.resolve().then(run).then(drawnAgain).then(freeDrawing).then(groupDesigns)
+else Promise.resolve().then(run).then(drawnAgain).then(freeDrawing).then(groupDesigns).then(aboutAnything)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

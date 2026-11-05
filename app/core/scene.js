@@ -1076,6 +1076,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     const r = state[l.record], t = tree(l.record), text = lineText(r, l.settings.Format.value, N.name(t)), keyed = isTag(r) && r.tag && text && keyedBy(l);
     [l.from, l.to] = endsOf(l.record, l.ends);
     l.ranks = l.settings.Above.value !== 'none';
+    l.level = l.settings.Above.value === 'level';
     const own = { id: l.record, type: 'text', settings: l.settings, look: { ...look(l.settings), Align: 'left' },
       text: keyed ? captioned.get(key(keyed.pattern)) : text, computed: l.computed };
     l.texts = l.revealed ? [] : withWas(l, [own, ...l.texts, ...freeText(l)].filter(it => it.text));
@@ -1230,7 +1231,9 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const furniture = furnished.reduce((h, m) => h + m.h, 0);
   const { left: ML, right: MR, top: MT, bottom: MB } = sheet.margins;
   const footRoom = onPage.filter(r => r.role === 'footnotes' && placedBy(r)).reduce((h, r) => h + freeShape({ ...r, w: sheet.w - ML - MR + 2 * INSET }, said.get(r.id)).h, 0);
-  const room = { w: sheet.w - ML - MR, h: sheet.h - MT - MB - (furniture && furniture - INSET - PAD + 32) - footRoom };
+  // (`plain`: none of the lines it draws is of a relation that says a figure, as a structure chart's say a percentage: see Layout's hanging.)
+  const figures = Object.values(wb.schema(chart)).filter(s => s.args?.length === 1 && s.out?.field === 'percent' && s.args[0].loc.args).map(s => Tree.bare(s.args[0].loc));
+  const room = { w: sheet.w - ML - MR, h: sheet.h - MT - MB - (furniture && furniture - INSET - PAD + 32) - footRoom, plain: !lines.some(l => figures.some(p => Tree.narrower(tree(l.record), p))) };
   const keyRow = onPage.find(r => r.geometry === 'legend' && placedBy(r));
   if (keyRow) {
     const k = freeShape(keyRow, '');
@@ -1284,10 +1287,14 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     }
     return bs;
   }
+  // The order boxes are given to the layout in, which it keeps among what's beside each other where it can: the order they were made in, those of a kind whose
+  // Order says one of its entries (Born) taking their turns in the order of that, earliest first.
+  const acrossBy = new Map(), acrossOf = new Map(boxes.map(b => { const k = state[b.record]?.kind ?? ''; if (!acrossBy.has(k)) acrossBy.set(k, N.across(k)); const by = acrossBy.get(k), e = by && Tree.entryAt(state, b.record, by); return [b.id, e ? state[e].value ?? null : null]; }));
+  const inTurn = bs => { const valued = bs.filter(b => acrossOf.get(b.id) != null); if (valued.length < 2) return bs; valued.sort((a, b) => (acrossOf.get(a.id) < acrossOf.get(b.id) ? -1 : acrossOf.get(a.id) > acrossOf.get(b.id) ? 1 : 0)); let i = 0; return bs.map(b => acrossOf.get(b.id) != null ? valued[i++] : b); };
   // What the layout reads: the boxes, the lines that rank them, and the frames.
   const ranked = bs => ({
-    boxes: bs.map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null, order: tidiedAs.get(b.id)?.order ?? null, around: !!tidiedAs.get(b.id)?.around })),
-    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
+    boxes: inTurn(bs).map(b => ({ id: b.id, w: b.w, h: b.h, shape: b.shape, class: classOf.get(b.id) ?? null, order: tidiedAs.get(b.id)?.order ?? null, around: !!tidiedAs.get(b.id)?.around })),
+    links: lines.filter(l => l.ranks).map(l => ({ from: l.from, to: l.to, trunk: l.trunk, names: !!l.label?.shared, level: l.level, room: roomFor.get(`${l.from}|${l.to}`) ?? 0 })),
     clusters: [...frames.values()].map(f => ({ id: f.id, parent: f.parent, members: f.members, top: f.label + 10 })),
   });
   function* lay(squeeze, grow, ceil, whole = false) {
@@ -1712,7 +1719,9 @@ function push(boxes, frames, links = []) {
         if ((x0 >= b.x + b.w || b.x >= x1) && !down) continue;
         const fb = chain.get(b.id) ?? [];
         const room = fb.filter(f => !fc.includes(f)).reduce((sum, f) => sum + below(f), 0) + fc.filter(f => !fb.includes(f)).reduce((sum, f) => sum + above(f), 0);
-        d = Math.max(d, b.y + b.h + room + (!room && ups.has(c.id) ? 40 : 16) - c.y);
+        // (Boxes one above another of one parent, in one column, hang: see Layout's hanging.)
+        const hangs = Math.abs(b.x - c.x) < 1 && !room && !joined.has(`${b.id}>${c.id}`) && (ups.get(c.id) ?? []).some(l => joined.has(`${l.from}>${b.id}`));
+        d = Math.max(d, b.y + b.h + room + (hangs ? 10 : !room && ups.has(c.id) ? 40 : 16) - c.y);
       }
     }
     if (d > 0.5) for (const c of rank) if (!c.exact) c.y += d;
@@ -1730,7 +1739,8 @@ function clearTops(boxes, links, given) {
     const ins = into.get(c.id).filter(l => by.has(l.from) && by.get(l.from).y + by.get(l.from).h <= c.y);
     if (!ins.length) continue;
     const top = Math.max(...ins.map(l => by.get(l.from).y + by.get(l.from).h)) + 8, own = new Set([c.id, ...ins.map(l => l.from)]);
-    const over = boxes.filter(g => g.y < c.y && g.y + g.h > top && g.x < c.x + c.w && g.x + g.w > c.x && !own.has(g.id));
+    // (Of one parent, in one column, it hangs: see Layout's hanging.)
+    const over = boxes.filter(g => g.y < c.y && g.y + g.h > top && g.x < c.x + c.w && g.x + g.w > c.x && !own.has(g.id) && !(Math.abs(g.x - c.x) < 1 && (into.get(g.id) ?? []).some(m => ins.some(l => l.from === m.from))));
     if (!over.length) continue;
     const need = ins.slice(1).reduce((n, l) => n + (l.label ? l.label.w + 20 : 14), 12), left = Math.min(...over.map(g => g.x)) - 8, right = Math.max(...over.map(g => g.x + g.w)) + 8;
     if (Math.max(left - c.x, c.x + c.w - right) >= need) continue;
@@ -1869,7 +1879,7 @@ function reflow(scene, rects) {
 // is left behind. Lines may land on frames (Layout.route says when), and keep clear of frames' captions. Where
 // boxes `stand` where they were put, no gap deepens for a lane to keep out of a box's shade.
 function routes(boxes, lines, frames = new Map(), stand = true, aside = [], under = []) {
-  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, bend: l.bend, label: l.label, arrow: l.settings?.Arrow?.value }));
+  const copies = lines.map(l => ({ id: l.id, from: l.from, to: l.to, trunk: l.trunk, straight: l.straight, bend: l.bend, label: l.label, arrow: l.settings?.Arrow?.value, level: l.level }));
   const fs = [...frames.values()].map(f => ({ id: f.id, x: f.x, y: f.y, w: f.w, h: f.h, members: inFrame(frames, f), depth: depthOf(frames, f) }));
   Layout.route(new Map(boxes.map(b => [b.id, b])), copies, { frames: fs, avoid: [...captions(frames), ...under], stand, aside });
   return copies.map(c => ({ points: c.points, labelAt: c.labelAt, down: c.down, landed: c.landed, around: c.around, astray: c.astray, strained: c.strained, blocked: c.blocked, crowded: c.crowded,

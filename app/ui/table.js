@@ -422,7 +422,8 @@ const Table = (() => {
       grec = new Map(firsts.map(r => [r._g, recOf(r)]));
     }
 
-    const noun = (isDatatype ? Tree.DATATYPES[rows] : isKind ? rows.kind : N.name(rows)).toLowerCase();
+    // (A relation named as what's said of it, Reports To, is no noun: its rows are lines.)
+    const noun = (isDatatype ? Tree.DATATYPES[rows] : isKind ? rows.kind : /\s(to|of|in|for|with|by|from|at|on)$/i.test(N.name(rows)) ? 'Line' : N.name(rows)).toLowerCase();
     const m = { view, rows, isKind, isDatatype, base, cols, byField: new Map(cols.map(c => [field(c), c])), data, groups, named, grec, fails, later, noun,
       ended: endedHere.map(e => ({ id: e.id, day: e.day, name: isKind ? N.nameOf(e.then, e.id) : Time.whose(e.then, e.id, N) })) };
     entitle(m);
@@ -1737,7 +1738,7 @@ const Table = (() => {
     const beside = ([d]) => rest.some(e => other.get(norm(e))) && rest.every(e => !other.get(norm(e)) || sideOf(d, e) === other.get(norm(e))), alone = ([, o]) => !elsewhere.has(o);
     const like = [mine.filter(x => beside(x) && alone(x)), mine.filter(beside), mine.filter(alone), mine].find(l => l.length) ?? [], n = new Map();
     for (const [, o] of like) n.set(st[o].kind, (n.get(st[o].kind) ?? 0) + 1);
-    return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? sideKindNames(m, edge)[0] ?? 'Entity';
+    return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? sideKindNames(m, edge)[0] ?? 'Box';
   }
 
   // ---- A paste or a deletion: a change pending (App.stage), redlined in the grid, with the window's bar saying what

@@ -394,8 +394,16 @@ function svg(scene, { pdf = false, frame = scene.page.sheet } = {}) {
     + `<rect x="${n(x)}" y="${n(y)}" width="${n(fw)}" height="${n(fh)}" fill="#ffffff"/>${reading(scene.marks).map(m => markSvg(m, pdf)).join('')}</svg>`;
 }
 
+// A scene's boxes and lines, furniture aside, as a small drawing of what it is: the New chart gallery's cards.
+function sketch(scene) {
+  const ms = reading(scene.marks).filter(m => m.type === 'box' || m.type === 'line'), boxes = ms.filter(m => m.type === 'box');
+  if (!boxes.length) return '';
+  const pad = 2, x = Math.min(...boxes.map(b => b.x)) - pad, y = Math.min(...boxes.map(b => b.y)) - pad, w = Math.max(...boxes.map(b => b.x + b.w)) + pad - x, h = Math.max(...boxes.map(b => b.y + b.h)) + pad - y;
+  at = scene.page.scale ?? 1;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${n(x)} ${n(y)} ${n(w)} ${n(h)}" preserveAspectRatio="xMidYMid meet">${ms.map(m => markSvg(m, false)).join('')}</svg>`;
+}
 // A page's title, as its title shape says it; else its view's name.
-const titleOf = s => s.marks.find(m => m.role === 'title')?.texts.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim() || s.name || '';
+const titleOf =s => s.marks.find(m => m.role === 'title')?.texts.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim() || s.name || '';
 // A PDF text string: as it is where it's Latin-1, else UTF-16 and marked so, as a title with a curly quote needs.
 const pdfText = s => /^[\x20-\x7e\xa0-\xff]*$/.test(s) ? s : `\xfe\xff${Array.from({ length: s.length }, (_, i) => String.fromCharCode(s.charCodeAt(i) >> 8, s.charCodeAt(i) & 255)).join('')}`;
 // A PDF of `scenes`, in `fonts` (see fontsOf).
@@ -1018,7 +1026,7 @@ function calendar(R, N, chart, name, from = Log.today()) {
   return blob;
 }
 
-const api = { write, svg, calendar, onFile: null };
+const api = { write, svg, sketch, calendar, onFile: null };
 
 // ---- In the window: the Export dialog ----
 
@@ -1181,6 +1189,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const [format, setFormat] = useState(choice.format), [ids, setIds] = useState(choice.views), [paper, setPaper] = useState(choice.paper);
     const [all, setAll] = useState(choice.all), [full, setFull] = useState(null), [fits, setFits] = useState(0);
     const drawn = format === 'pptx' || format === 'pdf', table = format.startsWith('x') ? others[+format.slice(1)] : null;
+    // (A chart with no date to put on one offers no calendar.)
+    const dated = useMemo(() => dates(App.computed.peek(), App.notes.peek(), App.day.peek()).length > 0, []);
     const scenes = useMemo(() => drawn ? views(paper) : [], [drawn, paper, fits]);
     const chosen = scenes.filter(s => ids.includes(s.view));
     Object.assign(choice, { format, views: ids, paper, all, scenes: chosen });
@@ -1196,7 +1206,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const open = Shell.problems().filter(c => c.kind !== 'soon'), broke = FormulaBar.brokenSaid();
     return html`<div class="ex">
       <div class="ex-pick">
-        <${Shell.Pick} label="Format" value=${format} onPick=${v => { setFull(null); setFormat(v); }} options=${[...FORMATS.filter(([f]) => here || f === 'ics').map(([f, name]) => [f, name]), ...others.map((x, i) => [`x${i}`, x.name])]} />
+        <${Shell.Pick} label="Format" value=${format} onPick=${v => { setFull(null); setFormat(v); }} options=${[...FORMATS.filter(([f]) => f === 'ics' ? format === 'ics' || dated : here).map(([f, name]) => [f, name]), ...others.map((x, i) => [`x${i}`, x.name])]} />
         ${drawn ? html`<${Shell.Pick} label="Page size" value=${paper} onPick=${v => { setFull(null); setPaper(v); }} options=${[...differ ? [[OWN, 'Each view’s page']] : [], ...Object.entries(PAPERS)]} />` : null}
         ${table?.says ? html`<div class="menu-seg ex-rows" role="group" aria-label="Rows">${[[false, 'As shown'], [true, 'Every row']].map(([v, label]) => html`
           <button type="button" aria-pressed=${all === v} onClick=${() => setAll(v)}>${label}</button>`)}</div>` : null}
