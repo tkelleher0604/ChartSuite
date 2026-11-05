@@ -352,7 +352,7 @@ const partsNow = (sc, e) => sc.marks.filter(q => q.type === 'shape' && q.geometr
 // (A frame's margin, as it prints, however the page is scaled; and what words take in a frame: their lines, the margins over and under them.)
 const margin = (sc, i, by) => (i != null ? i * Scene.PT : by) / (sc.page.scale || 1);
 const tallIn = (sc, read, look, w, inset) => Math.ceil(Scene.measure(read || 'M', look) / Math.max(1, w - margin(sc, inset?.l, 9.6) - margin(sc, inset?.r, 9.6))) * Scene.lineHeight(look) + margin(sc, inset?.t, 4.8) + margin(sc, inset?.b, 4.8);
-// New words on a box being edited, so they fit: in the column the other fields stand in, or else the box's, aligned with them; in the free band they were dropped at, or else its largest; where none holds them, the box grows to, under the last words; and any frame they'd stand in stops above them, so what's in it pushes them down as it runs on. On tx. → the new part's id.
+// New words on a box being edited, so they fit: in the column the other fields stand in, or else the box's, aligned with them; in the free band they were dropped at where that holds them, or else under the last words, the box growing as far as they need; and any frame they'd stand in stops above them, so what's in it pushes them down as it runs on. On tx. → the new part's id.
 function addPart(tx, sc, e, b, at, text) {
   const shown = App.shown.peek(), chart = App.chart.peek(), rowOf = id => shown.item(chart, id).at(-1), parts = partsNow(sc, e), rest = parts.find(q => rowOf(q.id)?.rest), col = rest ?? b, inCol = p => p.x < col.x + col.w && p.x + p.w > col.x;
   // (What words take, as far as the margin under them, a frame being no shorter than that.)
@@ -363,7 +363,7 @@ function addPart(tx, sc, e, b, at, text) {
   if (b.y + b.h > from) gaps.push([from, b.y + b.h]);
   // (Its height by what it reads at this box, at the size the page gives what's beside a name.)
   const read = text ? Scene.readWords(text, e.record, Scene.reader(App.state.peek(), App.notes.peek(), App.computed.peek(), App.day.peek())) : '', need = tallIn(sc, read, { ...Scene.DEFAULTS.text, Size: 8 }, col.w, inset), y0 = at?.y;
-  const fit = gaps.filter(([u, v]) => v - u >= need), band = (y0 != null && fit.find(([u, v]) => y0 >= u && y0 <= v)) || fit.sort((m, n) => (n[1] - n[0]) - (m[1] - m[0]))[0] || [from, from + need];
+  const band = (y0 != null && gaps.find(([u, v]) => v - u >= need && y0 >= u && y0 <= v)) || [from, Math.max(from + need, b.y + b.h)];
   if (band[1] > b.y + b.h) { const v = App.notes.peek().resolve('Position', treeOf(e.record), e.view)?.value; if (v) tx.note('Position', treeOf(e.record), { ...v, h: round(b.h + band[1] - (b.y + b.h)) }, { view: e.view }); }
   for (const p of parts) { const r = rowOf(p.id); if (r?.geometry === 'text' && inCol(p) && p.y < band[0] && p.y + p.h > band[0]) tx.update(p.id, { h: round(band[0] - p.y) }); }
   return tx.add('shape', { view: e.view, geometry: 'text', part: Log.newId(), x: round(col.x), y: round(band[0]), w: round(col.w), h: round(Math.max(need, band[1] - band[0])), text, format: { Align: rest?.look.Align ?? 'center', Valign: 'top', ...(inset && { Inset: inset }) } });
