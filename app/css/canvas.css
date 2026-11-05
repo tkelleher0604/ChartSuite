@@ -140,6 +140,25 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
    its name is typed, and its kind beside it, chosen there. */
 .dc-edit { position: absolute; z-index: 3; box-sizing: border-box; outline: 1px solid var(--accent); background: #fff; white-space: pre-wrap; overflow-wrap: break-word; cursor: text; }
 .dc-edit.grow { white-space: pre; overflow-wrap: normal; }
+.dc-edit-marks { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.dc-edit-marks > span { position: absolute; white-space: pre; }
+[data-link] { cursor: pointer; }
+.dc-linkmark { fill: none; stroke: var(--accent); stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+/* A gradient's stops, and a color among the chart's or typed. */
+.stops { width: 320px; }
+.stopbar { position: relative; height: 18px; margin: 4px 8px 12px; border: 1px solid var(--rule-2); border-radius: 2px; cursor: copy; }
+.stopbar .stop { position: absolute; top: 12px; width: 12px; height: 14px; margin-left: -6px; padding: 0; border: 1px solid var(--ink-3); border-radius: 2px; cursor: ew-resize; }
+.stopbar .stop.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.stops .row { display: flex; gap: 6px; padding: 6px 8px 2px; }
+.colorrow { display: flex; align-items: center; gap: 6px; }
+.colorrow .chips { display: inline-flex; gap: 3px; margin-left: auto; }
+.colorrow .chips button { width: 14px; height: 14px; padding: 0; border: 1px solid var(--rule-2); border-radius: 2px; cursor: pointer; }
+.colorrow .chips button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.colorrow .hex input { width: 66px; }
+.pop:has(> .linkform) { padding: 10px; }
+.linkform { display: grid; gap: 6px; min-width: 300px; }
+.linkform .row { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 8px; }
+.linkform .acts { display: flex; justify-content: flex-end; gap: 6px; padding-top: 4px; }
 .dc-edit.new:empty::before { content: attr(data-ph); color: #8a8f8a; font-weight: 400; }
 .dc-kind { position: absolute; z-index: 4; height: 26px; padding: 0 8px 0 10px; gap: 6px; font: var(--t12); background-color: var(--surface); }
 .dc-kinds { position: absolute; z-index: 5; min-width: 160px; }
@@ -390,7 +409,21 @@ text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-seri
 .fonts > button.menu-item { margin-top: 4px; border-top: 1px solid var(--rule); }
 /* A table on the page: the cell picked; the rule between two columns, to drag; Insert's grid of rows and columns. */
 .dc-tcell { fill: none; stroke: var(--accent); vector-effect: non-scaling-stroke; pointer-events: none; }
+.dc-tcell.range { fill: var(--accent); fill-opacity: 0.12; }
+.dc-tbox { cursor: cell; }
 .dc-tcol { cursor: col-resize; }
+/* The table's grip and edges, to move it by; its styles' gallery. */
+.dc-tmove { cursor: move; pointer-events: all; }
+.dc-tgrip rect { fill: var(--surface); stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.dc-tgrip path { fill: none; stroke: var(--accent); stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.pop:has(> .tstyles) { padding: 8px; }
+.tstyles .tcolors { display: flex; gap: 6px; padding: 0 0 8px; }
+.tstyles .tcolors button { width: 18px; height: 18px; padding: 0; border: 1px solid var(--rule-2); border-radius: 50%; cursor: pointer; }
+.tstyles .tcolors button.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tstyles .ttiles { display: grid; grid-template-columns: repeat(4, 62px); gap: 4px; }
+.tstyles .ttiles button { width: 62px; height: 44px; padding: 3px; display: grid; place-items: center; background: #fff; border: 1px solid var(--rule-2); border-radius: 2px; cursor: pointer; }
+.tstyles .ttiles button:hover, .tstyles .ttiles button:focus-visible { border-color: var(--accent); }
+.tstyles .ttiles button.on { outline: 2px solid var(--accent); outline-offset: -1px; }
 .pop:has(> .iconpick) { padding: 6px; }
 /* (A whole number of rows, so none is cut at its foot; what's found past them scrolls a row at a time.) */
 .iconpick { width: 324px; }

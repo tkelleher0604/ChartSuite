@@ -319,10 +319,48 @@ function merge(kind, shapes) {
   const one = shapes.slice(1).reduce((a, b) => clip(a, b, OPS[kind]), shapes[0]);
   return one.length ? [one] : [];
 }
-// Rings in page points as Points in a frame round them. → { x, y, w, h, Points }
+// A ring of many short steps as the few curves and lines it is, so what merge flattened comes back as curves, as PowerPoint's does (dendra.md, Points): its corners and its long straight edges stay as they are, and what runs between them is fitted, within `tol`, by Schneider's method, one cubic for as much as one will do. → nodes, each [x, y], or with its handles [x, y, inX, inY, outX, outY]
+function curvesOf(ring, tol = 0.45) {
+  const n = ring.length;
+  if (n < 5) return ring.map(p => [...p]);
+  const at = i => ring[((i % n) + n) % n], sub = (a, b) => [a[0] - b[0], a[1] - b[1]], len = v => Math.hypot(v[0], v[1]), unit = v => { const L = len(v) || 1; return [v[0] / L, v[1] / L]; };
+  const edge = i => len(sub(at(i + 1), at(i))), sorted = ring.map((_, i) => edge(i)).sort((a, b) => a - b), long = Math.max(sorted[Math.floor(n / 2)] * 4, tol * 8), straight = i => edge(i) > long;
+  // Where a fit must stop: a corner, or either end of a long straight edge.
+  const stop = i => { const a = unit(sub(at(i), at(i - 1))), b = unit(sub(at(i + 1), at(i))), turn = Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1]))); return turn > Math.PI * 35 / 180 || straight(i) || straight(i - 1); };
+  const stops = ring.map((_, i) => i).filter(stop);
+  const bez = (c, t) => { const u = 1 - t, w = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t]; return [0, 1].map(k => w[0] * c[0][k] + w[1] * c[1][k] + w[2] * c[2][k] + w[3] * c[3][k]); };
+  function fit(pts, t1, t2) {
+    if (pts.length === 2) { const d = len(sub(pts[1], pts[0])) / 3; return [[pts[0], [pts[0][0] + t1[0] * d, pts[0][1] + t1[1] * d], [pts[1][0] + t2[0] * d, pts[1][1] + t2[1] * d], pts[1]]]; }
+    const us = [0]; for (let i = 1; i < pts.length; i++) us.push(us[i - 1] + len(sub(pts[i], pts[i - 1])));
+    const total = us.at(-1) || 1, u = us.map(v => v / total), last = pts.length - 1;
+    let c11 = 0, c12 = 0, c22 = 0, x1 = 0, x2 = 0;
+    for (let i = 0; i <= last; i++) {
+      const t = u[i], r = 1 - t, b0 = r * r * r, b1 = 3 * r * r * t, b2 = 3 * r * t * t, b3 = t * t * t, A1 = [t1[0] * b1, t1[1] * b1], A2 = [t2[0] * b2, t2[1] * b2], tmp = [pts[i][0] - pts[0][0] * (b0 + b1) - pts[last][0] * (b2 + b3), pts[i][1] - pts[0][1] * (b0 + b1) - pts[last][1] * (b2 + b3)];
+      c11 += A1[0] * A1[0] + A1[1] * A1[1]; c12 += A1[0] * A2[0] + A1[1] * A2[1]; c22 += A2[0] * A2[0] + A2[1] * A2[1]; x1 += A1[0] * tmp[0] + A1[1] * tmp[1]; x2 += A2[0] * tmp[0] + A2[1] * tmp[1];
+    }
+    const det = c11 * c22 - c12 * c12, chord = len(sub(pts[last], pts[0]));
+    let a1 = Math.abs(det) > 1e-9 ? (x1 * c22 - x2 * c12) / det : chord / 3, a2 = Math.abs(det) > 1e-9 ? (c11 * x2 - c12 * x1) / det : chord / 3;
+    if (a1 < chord * 1e-3 || a2 < chord * 1e-3 || a1 > chord * 3 || a2 > chord * 3) a1 = a2 = chord / 3;
+    const c = [pts[0], [pts[0][0] + t1[0] * a1, pts[0][1] + t1[1] * a1], [pts[last][0] + t2[0] * a2, pts[last][1] + t2[1] * a2], pts[last]];
+    let worst = 0, at2 = 1;
+    for (let i = 1; i < last; i++) { const e = len(sub(bez(c, u[i]), pts[i])); if (e > worst) { worst = e; at2 = i; } }
+    if (worst <= tol) return [c];
+    const mid = unit(sub(pts[at2 - 1], pts[at2 + 1]));
+    return [...fit(pts.slice(0, at2 + 1), t1, mid), ...fit(pts.slice(at2), [-mid[0], -mid[1]], t2)];
+  }
+  // Fits a run of the ring from i to j, going forward, its ends' tangents as it leaves and arrives. → its segments
+  const run = (i, j) => { const pts = []; for (let k = i; k !== j || !pts.length; k = (k + 1) % n) { pts.push(at(k)); if (pts.length > n) break; } pts.push(at(j)); return pts; };
+  const tangents = pts => [unit(sub(pts[1], pts[0])), unit(sub(pts.at(-2), pts.at(-1)))];
+  const segs = [];
+  if (!stops.length) { const pts = [...ring, ring[0]], mid = unit(sub(ring[1], ring[n - 1])); segs.push(...fit(pts, mid, [-mid[0], -mid[1]])); }
+  else stops.forEach((s, k) => { const e = stops[(k + 1) % stops.length], pts = run(s, e); if (pts.length === 2 || (s + 1) % n === e) segs.push([pts[0], pts[1]]); else { const [t1, t2] = tangents(pts); segs.push(...fit(pts, t1, t2)); } });
+  // Each segment's start a node, what's curved its out-handle and the next node's in-handle.
+  return segs.map((sg, i) => { const before = segs[(i - 1 + segs.length) % segs.length], p = sg[0], o = sg.length === 4 ? sg[1] : null, h = before.length === 4 ? before[2] : null; return o || h ? [p[0], p[1], h?.[0] ?? null, h?.[1] ?? null, o?.[0] ?? null, o?.[1] ?? null] : [p[0], p[1]]; });
+}
+// Rings in page points as Points in a frame round them, as curves where they're curved. → { x, y, w, h, Points }
 function framed(rings) {
-  const all = rings.flat(), x = Math.min(...all.map(p => p[0])), y = Math.min(...all.map(p => p[1])), w = Math.max(...all.map(p => p[0])) - x || 1, h = Math.max(...all.map(p => p[1])) - y || 1;
-  return { x, y, w, h, Points: { paths: rings.map(r => ({ closed: true, nodes: r.map(p => [+((p[0] - x) / w).toFixed(5), +((p[1] - y) / h).toFixed(5)]) })) } };
+  const all = rings.flat(), x = Math.min(...all.map(p => p[0])), y = Math.min(...all.map(p => p[1])), w = Math.max(...all.map(p => p[0])) - x || 1, h = Math.max(...all.map(p => p[1])) - y || 1, share = (v, i) => v == null ? null : +((v - (i % 2 ? y : x)) / (i % 2 ? h : w)).toFixed(5);
+  return { x, y, w, h, Points: { paths: rings.map(r => ({ closed: true, nodes: curvesOf(r).map(q => q.map(share)) })) } };
 }
 
 // ---- Pattern fills (dendra.md, Free shapes): PowerPoint's own, by the names its files have, each drawn as a tile: [prst, name, tile's side, its strokes, their width] ----
@@ -354,9 +392,9 @@ function effectDef(id, s, u) {
   let shape = 'SourceGraphic';
   if (soft > 0) { parts.push(`<feMorphology in="SourceAlpha" operator="erode" radius="${f(soft / 2)}" result="se"/><feGaussianBlur in="se" stdDeviation="${f(soft / 2)}" result="sm"/><feComposite in="SourceGraphic" in2="sm" operator="in" result="soft"/>`); shape = 'soft'; }
   if (b) {
-    // (How soft its edge, how deep, how bright its shine: PowerPoint's presets differ by these, so each draws as itself, near enough to choose by. Its flat middle keeps the fill's true color: the lights are set so it takes neither shade nor shine.)
-    const w = Math.max(0.5, (b.w ?? 6) * u), [edge, depth, shine, tight] = BEVELS[b.type] ?? BEVELS.circle, flat = shine * Math.cos(20 * Math.PI / 180) ** tight;
-    parts.push(`<feGaussianBlur in="SourceAlpha" stdDeviation="${f(w * edge)}" result="bb"/><feDiffuseLighting in="bb" surfaceScale="${f(w * depth)}" diffuseConstant="1.22" lighting-color="#ffffff" result="bd"><feDistantLight azimuth="235" elevation="55"/></feDiffuseLighting><feBlend in="${shape}" in2="bd" mode="multiply" result="bm"/><feSpecularLighting in="bb" surfaceScale="${f(w * depth)}" specularConstant="${shine}" specularExponent="${tight}" lighting-color="#ffffff" result="bs"><feDistantLight azimuth="235" elevation="50"/></feSpecularLighting><feComposite in="bs" in2="bm" operator="arithmetic" k1="0" k2="1" k3="1" k4="${f(-flat)}" result="ba"/><feComposite in="ba" in2="${shape}" operator="in" result="bev"/>`);
+    // (How soft its edge, how deep, how bright its shine: PowerPoint's presets differ by these, so each draws as itself, near enough to choose by, as wide and as tall as it's said. Its flat middle keeps the fill's true color: the lights are set so it takes neither shade nor shine.)
+    const w = Math.max(0.5, (b.w ?? 6) * u), tall = Math.max(0.5, (b.h ?? b.w ?? 6) * u), [edge, depth, shine, tight] = BEVELS[b.type] ?? BEVELS.circle, flat = shine * Math.cos(20 * Math.PI / 180) ** tight;
+    parts.push(`<feGaussianBlur in="SourceAlpha" stdDeviation="${f(w * edge)}" result="bb"/><feDiffuseLighting in="bb" surfaceScale="${f(tall * depth)}" diffuseConstant="1.22" lighting-color="#ffffff" result="bd"><feDistantLight azimuth="235" elevation="55"/></feDiffuseLighting><feBlend in="${shape}" in2="bd" mode="multiply" result="bm"/><feSpecularLighting in="bb" surfaceScale="${f(tall * depth)}" specularConstant="${shine}" specularExponent="${tight}" lighting-color="#ffffff" result="bs"><feDistantLight azimuth="235" elevation="50"/></feSpecularLighting><feComposite in="bs" in2="bm" operator="arithmetic" k1="0" k2="1" k3="1" k4="${f(-flat)}" result="ba"/><feComposite in="ba" in2="${shape}" operator="in" result="bev"/>`);
     shape = 'bev';
   }
   if (i) {

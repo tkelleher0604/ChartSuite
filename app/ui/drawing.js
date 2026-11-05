@@ -10,8 +10,8 @@ const { signal, effect } = preactSignals;
 const { useState } = preactHooks;
 const round = v => Math.round(v * 2) / 2;
 const lowered = s => String(s).replace(/\b[A-Z](?=[a-z])/g, c => c.toLowerCase());
-// What a line's end can be glued to: a box, or a free shape that has an outline (not a line, a group, the Key or the page's own texts).
-const gluable = m => !!m && !m.revealed && !m.master && (m.type === 'box' || (m.type === 'shape' && !['line', 'group', 'legend', 'table'].includes(m.geometry) && !m.role));
+// What a line's end can be glued to: a box, or a free shape that has an outline, a table too (not a line, a group, the Key or the page's own texts).
+const gluable = m => !!m && !m.revealed && !m.master && (m.type === 'box' || (m.type === 'shape' && !['line', 'group', 'legend'].includes(m.geometry) && !m.role));
 // What a shape that's only a line of its own takes as it's drawn: no fill.
 const opening = g => (Shapes.OPEN.has(g) ? { Fill: 'none' } : {});
 // What a free shape's Set as default is of: a line, a text box or a shape.
@@ -464,84 +464,225 @@ function attach(x) {
     input.click();
   }
   // ---- A table on the page: a cell picked and typed in, as Excel's and PowerPoint's; a row or column added or taken away; a rule dragged ----
+  // A cell picked, and with Shift, a drag or Ctrl+A, a range of them: `r`, `c` where it began, `r2`, `c2` where it's got to, each as drawn. What's joined comes whole.
   let cellNow = null;
   const tableOfRow = id => x.rowOf(id)?.table;
   const blank = n => Array.from({ length: n }, () => ({ text: '' }));
-  const putTable = (id, table, say, more = {}) => App.change(tx => tx.update(id, { table, ...more }), { dated: false, keep: false, say });
+  const putTable = (id, table, say, more = {}) => App.change(tx => { tx.update(id, { table, ...more }); if (say) tx.says(say); }, { dated: false, keep: false, say });
   const cellAt = t => { const v = t?.closest?.('[data-tcell]')?.getAttribute('data-tcell'); return v ? v.split(',').map(Number) : null; };
+  // The cell a point falls in, as drawn, a joined one by its first row and column; held to the table, for a drag that's left it.
+  function cellOver(m, p) {
+    const px = Math.max(0, Math.min(m.w - 0.01, p.x - m.x)), py = Math.max(0, Math.min(m.h - 0.01, p.y - m.y));
+    for (const r of m.table.rows) for (const k of r.cells) if (!k.covered && px >= k.x && px < k.x + k.w && py >= r.y && py < r.y + k.h) return [r.i, k.c];
+    return null;
+  }
+  // The range as rows and columns, grown till nothing joined is cut by it.
+  function rangeOf(m, at = cellNow) {
+    if (!at || at.id !== m.id) return null;
+    let r0 = Math.min(at.r, at.r2 ?? at.r), r1 = Math.max(at.r, at.r2 ?? at.r), c0 = Math.min(at.c, at.c2 ?? at.c), c1 = Math.max(at.c, at.c2 ?? at.c);
+    for (let again = true; again;) {
+      again = false;
+      for (const r of m.table.rows) for (const k of r.cells) {
+        if (k.covered) continue;
+        const b = r.i + (k.down ?? 1) - 1, e = k.c + (k.across ?? 1) - 1;
+        if (r.i <= r1 && b >= r0 && k.c <= c1 && e >= c0 && (r.i < r0 || b > r1 || k.c < c0 || e > c1)) { r0 = Math.min(r0, r.i); r1 = Math.max(r1, b); c0 = Math.min(c0, k.c); c1 = Math.max(c1, e); again = true; }
+      }
+    }
+    return { r0, r1, c0, c1 };
+  }
+  // The cells of the range, as drawn, what's joined under another left out. → [{ r, k }]
+  const inRange = (m, g = rangeOf(m)) => !g ? [] : m.table.rows.filter(r => r.i >= g.r0 && r.i <= g.r1).flatMap(r => r.cells.filter(k => !k.covered && k.c >= g.c0 && k.c <= g.c1).map(k => ({ r, k })));
   function paintCell() {
     marks.querySelectorAll('.dc-tcell').forEach(n => n.remove());
     if (!cellNow) return;
-    const m = scene().byId.get(cellNow.id), r = m?.table?.rows[cellNow.r], k = r?.cells[cellNow.c];
-    if (!k || !sel.getSelectedCells().some(c => c.id === cellNow.id)) { cellNow = null; Canvas.fieldPicked.value = null; return; }
-    svg('rect', { class: 'dc-tcell', x: m.x + k.x, y: m.y + r.y, width: k.w, height: r.h, 'stroke-width': 2 / zoom() });
+    const m = scene().byId.get(cellNow.id), g = m?.table && rangeOf(m), a = g && m.table.rows[g.r0], b = g && m.table.rows[g.r1];
+    if (!a || !b || !sel.getSelectedCells().some(c => c.id === cellNow.id)) { cellNow = null; Canvas.fieldPicked.value = null; return; }
+    const last = m.table.rows[g.r1], w = m.table.xs[g.c1] + m.table.cols[g.c1] - m.table.xs[g.c0], bottom = Math.max(...inRange(m, g).map(({ r, k }) => r.y + k.h), last.y);
+    svg('rect', { class: `dc-tcell${inRange(m, g).length > 1 ? ' range' : ''}`, x: m.x + m.table.xs[g.c0], y: m.y + a.y, width: w, height: bottom - a.y, 'stroke-width': 2 / zoom() });
   }
   function pickCell(id, r, c) { cellNow = { id, r, c }; paintCell(); Canvas.fieldPicked.value = `${id}|${r},${c}`; }
+  // As far as (r, c) from where it began.
+  function reach(id, r, c) { if (cellNow?.id !== id) return pickCell(id, r, c); cellNow = { ...cellNow, r2: r, c2: c }; paintCell(); Canvas.fieldPicked.value = `${id}|${cellNow.r},${cellNow.c}|${r},${c}`; }
+  const rangeIsOne = m => inRange(m).length <= 1;
   // Keeps what's typed, as a table's cell, at what it was written at: a row a list repeats is one row's words, read for each.
-  function setCell(id, src, c, text) {
-    const t = tableOfRow(id);
-    if ((t.rows[src]?.cells?.[c]?.text ?? '') === text) return true;
-    return putTable(id, { ...t, rows: t.rows.map((r, i) => i !== src ? r : { ...r, cells: r.cells.map((k, j) => j === c ? { ...k, text } : k) }) });
+  function setCell(id, src, c, text, runs) {
+    const t = tableOfRow(id), was = t.rows[src]?.cells?.[c];
+    if ((was?.text ?? '') === text && JSON.stringify(was?.runs ?? []) === JSON.stringify(runs ?? was?.runs ?? [])) return true;
+    return putTable(id, { ...t, rows: t.rows.map((r, i) => i !== src ? r : { ...r, cells: r.cells.map((k, j) => { if (j !== c) return k; const { runs: _, ...rest } = k; return { ...rest, text, ...(runs?.length && { runs }) }; }) }) });
+  }
+  // What a cell can read, offered by `{` and on its right-click: a row a list repeats, what the list's relatives say and what's at the relation; else the record the table reads.
+  function fieldsAt(m, src) {
+    const t = tableOfRow(m.id), each = t?.rows[src]?.each;
+    if (each) { const st = App.state.peek(), l = Scene.listsAt(st, App.notes.peek(), each.of).find(q => Tree.same(q.name, each.list)); return !l ? [] : [...new Set([l.edge, ...l.items.flatMap(it => (Tree.index(st).entries.get(it.rid) ?? []).map(e => st[e].edge))])]; }
+    return t?.of ? x.wordsOf({ record: t.of }) : [];
   }
   function editCell(m, target, typed) {
     if (x.still()) return;
     const at = cellAt(target) ?? (cellNow?.id === m.id ? [cellNow.r, cellNow.c] : [0, 0]), r = m.table.rows[at[0]], k = r?.cells[at[1]];
-    if (!k) return;
+    if (!k || k.covered) return;
     pickCell(m.id, at[0], at[1]);
-    const raw = tableOfRow(m.id)?.rows[r.src]?.cells?.[at[1]]?.text ?? '';
-    x.openEditor({ look: k.it.look, text: raw, lines: [] }, { x: m.x + k.x, y: m.y + r.y, w: k.w, h: r.h }, typed ?? raw, (text, keys) => {
-      setCell(m.id, r.src, at[1], text);
+    const said = tableOfRow(m.id)?.rows[r.src]?.cells?.[at[1]], raw = said?.text ?? '';
+    x.openEditor({ look: k.it.look, text: raw, lines: [] }, { x: m.x + k.x, y: m.y + r.y, w: k.w, h: k.h }, typed ?? raw, (text, keys, runs) => {
+      setCell(m.id, r.src, at[1], text, runs);
       // Enter goes on down its column, as Excel's does.
-      if (keys) setTimeout(() => { const n = scene().byId.get(m.id); if (n?.table?.rows[at[0] + 1]) { pickCell(m.id, at[0] + 1, at[1]); editCell(n); } });
-    }, { selectAll: typed === undefined, kept: true, tab: d => stepCell(m.id, at, d) });
+      if (keys) setTimeout(() => { const n = scene().byId.get(m.id), down = at[0] + (k.down ?? 1); if (n?.table?.rows[down]) { const q = n.table.rows[down].cells[at[1]]; if (!q.covered) { pickCell(m.id, down, at[1]); editCell(n); } } });
+    }, { selectAll: typed === undefined, kept: true, tab: d => stepCell(m.id, at, d), complete: fieldsAt(m, r.src), rich: { runs: typed !== undefined ? [] : said?.runs ?? [] } });
   }
-  // Tab goes on to the next cell, and past the last adds a row, as PowerPoint's does; Shift+Tab the one before.
+  // Tab goes on to the next cell, what's joined being one, and past the last adds a row, as PowerPoint's does; Shift+Tab the one before.
   function stepCell(id, [r, c], d) {
     let n = scene().byId.get(id);
     if (!n) return;
-    const cols = n.table.cols.length, at = r * cols + c + d;
-    if (at < 0) return;
-    if (at >= n.table.rows.length * cols) {
-      const t = tableOfRow(id), src = n.table.rows.at(-1).src;
-      if (!putTable(id, { ...t, rows: [...t.rows.slice(0, src + 1), { cells: blank(cols) }, ...t.rows.slice(src + 1)] }, 'Added a row', { h: round(n.h + n.h / n.table.rows.length) })) return;
-      return setTimeout(() => { const q = scene().byId.get(id); if (q) { pickCell(id, r + 1, 0); editCell(q); } });
+    const cols = n.table.cols.length;
+    for (let at = r * cols + c + d; at >= 0 && at < n.table.rows.length * cols; at += d) {
+      const q = n.table.rows[Math.floor(at / cols)].cells[at % cols];
+      if (q.covered) continue;
+      pickCell(id, Math.floor(at / cols), at % cols);
+      return editCell(n);
     }
-    pickCell(id, Math.floor(at / cols), at % cols);
-    editCell(n);
+    if (d < 0) return;
+    const t = tableOfRow(id), src = n.table.rows.at(-1).src, rows = n.table.rows.length;
+    if (!putTable(id, { ...t, rows: [...t.rows.slice(0, src + 1), { cells: blank(cols) }, ...t.rows.slice(src + 1)] }, 'Added a row', { h: round(n.h + n.h / rows) })) return;
+    return setTimeout(() => { const q = scene().byId.get(id); if (q) { pickCell(id, rows, 0); editCell(q); } });
+  }
+  // A row taken in or out at `i`: what's joined across it longer or shorter, and what stood in the row going out, its words and its join, handed to the next.
+  const rowsWithNew = (t, i) => ({ ...t, rows: [...t.rows.slice(0, i), { cells: blank(t.cols.length) }, ...t.rows.slice(i)].map((r, y) => y >= i ? r : { ...r, cells: r.cells.map(k => (k.down ?? 1) > 1 && y + k.down > i ? { ...k, down: k.down + 1 } : k) }) });
+  const colsWithNew = (t, i, share) => ({ ...t, cols: [...t.cols.slice(0, i), share, ...t.cols.slice(i)], rows: t.rows.map(r => ({ ...r, cells: [...r.cells.slice(0, i).map((k, j) => (k.across ?? 1) > 1 && j + k.across > i ? { ...k, across: k.across + 1 } : k), { text: '' }, ...r.cells.slice(i)] })) });
+  function rowsLess(t, i) {
+    const gone = t.rows[i], next = t.rows[i + 1];
+    return { ...t, rows: t.rows.map((r, y) => y === i + 1 ? { ...r, cells: r.cells.map((k, j) => (gone.cells[j]?.down ?? 1) > 1 ? { ...gone.cells[j], down: gone.cells[j].down - 1 } : k) } : y < i ? { ...r, cells: r.cells.map(k => (k.down ?? 1) > 1 && y + k.down > i ? { ...k, down: k.down - 1 } : k) } : r).filter((_, y) => y !== i) };
+  }
+  function colsLess(t, i) {
+    return { ...t, cols: t.cols.filter((_, j) => j !== i), rows: t.rows.map(r => ({ ...r, cells: r.cells.map((k, j) => j === i + 1 && (r.cells[i]?.across ?? 1) > 1 ? { ...r.cells[i], across: r.cells[i].across - 1 } : j < i && (k.across ?? 1) > 1 && j + k.across > i ? { ...k, across: k.across - 1 } : k).filter((_, j) => j !== i) })) };
   }
   function rowInto(m, below) {
-    const t = tableOfRow(m.id), i = (m.table.rows[cellNow?.id === m.id ? cellNow.r : 0] ?? m.table.rows[0]).src + (below ? 1 : 0);
-    putTable(m.id, { ...t, rows: [...t.rows.slice(0, i), { cells: blank(m.table.cols.length) }, ...t.rows.slice(i)] }, 'Added a row', { h: round(m.h + m.h / m.table.rows.length) });
+    const t = tableOfRow(m.id), at = cellNow?.id === m.id ? rangeOf(m) : null, i = (m.table.rows[at ? (below ? at.r1 : at.r0) : 0] ?? m.table.rows[0]).src + (below ? 1 : 0);
+    putTable(m.id, rowsWithNew(t, i), 'Added a row', { h: round(m.h + m.h / m.table.rows.length) });
   }
   function columnInto(m, right) {
-    const t = tableOfRow(m.id), i = (cellNow?.id === m.id ? cellNow.c : 0) + (right ? 1 : 0), cols = t.cols, avg = cols.reduce((a, b) => a + b, 0) / cols.length;
-    putTable(m.id, { ...t, cols: [...cols.slice(0, i), avg, ...cols.slice(i)], rows: t.rows.map(r => ({ ...r, cells: [...r.cells.slice(0, i), { text: '' }, ...r.cells.slice(i)] })) }, 'Added a column');
+    const t = tableOfRow(m.id), at = cellNow?.id === m.id ? rangeOf(m) : null, i = (at ? (right ? at.c1 : at.c0) : 0) + (right ? 1 : 0), cols = t.cols;
+    putTable(m.id, colsWithNew(t, i, cols.reduce((a, b) => a + b, 0) / cols.length), 'Added a column');
   }
   function rowOut(m) {
-    const t = tableOfRow(m.id), src = m.table.rows[cellNow?.id === m.id ? cellNow.r : 0]?.src ?? 0;
-    if (t.rows.length < 2) return App.change(tx => tx.remove(m.id), { dated: false, say: 'Deleted the table' });
+    const t = tableOfRow(m.id), g = (cellNow?.id === m.id ? rangeOf(m) : null) ?? { r0: 0, r1: 0 }, srcs = [...new Set(m.table.rows.filter(r => r.i >= g.r0 && r.i <= g.r1).map(r => r.src))].sort((a, b) => b - a);
+    if (t.rows.length <= srcs.length) return App.change(tx => tx.remove(m.id), { dated: false, say: 'Deleted the table' });
     cellNow = null;
-    putTable(m.id, { ...t, rows: t.rows.filter((_, i) => i !== src) }, 'Deleted a row', { h: round(m.h * (m.table.rows.length - 1) / m.table.rows.length) });
+    putTable(m.id, srcs.reduce(rowsLess, t), srcs.length > 1 ? `Deleted ${srcs.length} rows` : 'Deleted a row', { h: round(m.h * (m.table.rows.length - srcs.length) / m.table.rows.length) });
   }
   function columnOut(m) {
-    const t = tableOfRow(m.id), c = cellNow?.id === m.id ? cellNow.c : 0;
-    if (t.cols.length < 2) return App.change(tx => tx.remove(m.id), { dated: false, say: 'Deleted the table' });
+    const t = tableOfRow(m.id), g = (cellNow?.id === m.id ? rangeOf(m) : null) ?? { c0: 0, c1: 0 }, n = g.c1 - g.c0 + 1;
+    if (t.cols.length <= n) return App.change(tx => tx.remove(m.id), { dated: false, say: 'Deleted the table' });
     cellNow = null;
-    putTable(m.id, { ...t, cols: t.cols.filter((_, i) => i !== c), rows: t.rows.map(r => ({ ...r, cells: r.cells.filter((_, i) => i !== c) })) }, 'Deleted a column');
+    putTable(m.id, Array.from({ length: n }, (_, j) => g.c1 - j).reduce(colsLess, t), n > 1 ? `Deleted ${n} columns` : 'Deleted a column');
   }
-  // The right-click's: what it does to the cell the pointer was on, its rows and its columns; a heading row and bands, as PowerPoint's table options.
+  // What's selected of the table joined as one: its words, each cell's in reading order, in the first; as PowerPoint's Merge Cells. A row a list repeats is joined across, never down.
+  function mergeCells(m) {
+    const g = rangeOf(m), t = tableOfRow(m.id);
+    if (!g || rangeIsOne(m)) return;
+    const shown = m.table.rows.filter(r => r.i >= g.r0 && r.i <= g.r1), srcs = shown.map(r => r.src);
+    if (srcs.length > 1 && (new Set(srcs).size < srcs.length || srcs.some(s => t.rows[s]?.each))) return Shell.toast('A row a list repeats joins across, not down', { ms: 3000 });
+    const first = srcs[0], words = srcs.flatMap(s => t.rows[s].cells.slice(g.c0, g.c1 + 1).map(k => k.text)).filter(w => String(w ?? '').trim()).join(' ');
+    cellNow = { id: m.id, r: g.r0, c: g.c0 };
+    putTable(m.id, { ...t, rows: t.rows.map((r, y) => !srcs.includes(y) ? r : { ...r, cells: r.cells.map((k, j) => {
+      if (j < g.c0 || j > g.c1) return k;
+      const { across: _a, down: _d, runs: _r, ...rest } = k;
+      return y === first && j === g.c0 ? { ...rest, text: words, ...(g.c1 > g.c0 && { across: g.c1 - g.c0 + 1 }), ...(srcs.length > 1 && { down: srcs.length }) } : { text: '' };
+    }) }) }, `Merged ${inRange(m, g).length} cells`);
+  }
+  // A cell joined comes apart, its words in its first; one that isn't is cut in two, its column or row made in two for it, the rest of that column or row staying whole as one cell over the two, as PowerPoint's Split Cells.
+  function unmerge(m) {
+    const t = tableOfRow(m.id), cells = inRange(m).filter(({ k }) => k.across || k.down);
+    if (!cells.length) return;
+    putTable(m.id, { ...t, rows: t.rows.map((r, y) => ({ ...r, cells: r.cells.map((k, j) => { if (!cells.some(q => q.r.src === y && q.k.c === j)) return k; const { across: _a, down: _d, ...rest } = k; return rest; }) })) }, cells.length > 1 ? `Split ${cells.length} cells` : 'Split the cell');
+  }
+  function splitAcross(m) {
+    const at = cellNow?.id === m.id ? cellNow : null, r = at && m.table.rows[at.r], k = r?.cells[at.c];
+    if (!k) return;
+    const t = tableOfRow(m.id), end = k.c + (k.across ?? 1), after = colsWithNew(t, end, t.cols[end - 1] / 2);
+    // (What's in its column, in the rows but this one, runs over the new one too.)
+    const rows = after.rows.map((row, y) => { if (y >= r.src && y < r.src + (k.down ?? 1)) return row; const headAt = row.cells.findIndex((q, j) => j < end && j + (q.across ?? 1) >= end); return headAt < 0 || (row.cells[headAt].across ?? 1) > 1 && headAt + row.cells[headAt].across > end ? row : { ...row, cells: row.cells.map((q, j) => j === headAt ? { ...q, across: (q.across ?? 1) + 1 } : q) }; });
+    putTable(m.id, { ...after, cols: after.cols.map((w, j) => j === end - 1 ? w / 2 : w), rows }, 'Split the cell into two columns');
+  }
+  function splitDown(m) {
+    const at = cellNow?.id === m.id ? cellNow : null, r = at && m.table.rows[at.r], k = r?.cells[at.c], t = tableOfRow(m.id);
+    if (!k) return;
+    if (t.rows[r.src]?.each) return Shell.toast('A row a list repeats joins across, not down', { ms: 3000 });
+    const end = r.src + (k.down ?? 1), after = rowsWithNew(t, end), last = end - 1;
+    // (What's beside it, in the row it was in, runs over the new one too; and it's in the columns it was.)
+    const rows = after.rows.map((row, y) => { if (y !== last && !(y < last && row.cells.some((q, j) => y + (q.down ?? 1) > last))) return row; return { ...row, cells: row.cells.map((q, j) => j >= k.c && j < k.c + (k.across ?? 1) ? q : y + (q.down ?? 1) === last + 1 ? { ...q, down: (q.down ?? 1) + 1 } : q) }; });
+    putTable(m.id, { ...after, rows }, 'Split the cell into two rows', { h: round(m.h + m.h / m.table.rows.length) });
+  }
+  // A blank table told to read a record shows it: a row for each of what it has, what it's called and what it says.
+  function readsFrom(id, of) {
+    const m = scene().byId.get(id), t = tableOfRow(id), st = App.state.peek(), N = App.notes.peek();
+    if (!of) return putTable(id, { ...t, of: undefined }, 'The table reads nothing now');
+    const name = N.nameOf(st, of), blankNow = t.rows.every(r => r.cells.every(k => !String(k.text ?? '').trim())), said = (Tree.index(st).entries.get(of) ?? []).map(e => st[e].edge), list = [...new Set(said)];
+    if (!blankNow || t.cols.length < 2 || !list.length) return putTable(id, { ...t, of }, `Made the table read ${name}`);
+    const rows = [...(t.header === false ? [] : [{ cells: t.cols.map((_, j) => ({ text: j === 0 ? name : '' })) }]), ...list.map(e => ({ cells: t.cols.map((_, j) => ({ text: j === 0 ? e : j === 1 ? `{${e}}` : '' })) }))], table = { ...t, of, rows }, h = round(m.h * rows.length / m.table.rows.length), s = scene();
+    // (It's as much taller as what it now says, so it's placed again, clear of what's drawn, as it was inserted; where the page has no room, it stays, and that's said.)
+    const tall = Scene.shapeOf({ ...x.rowOf(id), table, h, text: Scene.reader(st, N, App.computed.peek(), App.day.peek()).table({ table }, of) }, s).h, p = x.freeSpot({ page: s.page, marks: s.marks.filter(k => k !== m) }, m.w, tall, { x: m.x + m.w / 2, y: m.y + tall / 2 });
+    putTable(id, table, `Made the table read ${name}`, { h, ...(p && { x: round(p.x), y: round(p.y) }) });
+    if (!p) Shell.toast('The page has no free room: the table is over what’s drawn', { ms: 3500 });
+  }
+  // A table's look, as PowerPoint's Table Styles: what its heading, rules and bands are, from the chart's colors.
+  const HAIR = '#a6a6a6';
+  const TABLE_STYLES = [['Hairlines', a => ({ Fill: 'none', Outline: HAIR, rules: 'across', banded: false, headRule: a })], ['Heading in color', a => ({ Fill: a, Outline: HAIR, rules: 'across', banded: false })], ['Soft heading', a => ({ Fill: Shapes.shaded(a, 0.2, 0.8), Outline: HAIR, rules: 'across', banded: false })],
+    ['Bands', a => ({ Fill: a, Outline: 'none', rules: 'none', banded: true })], ['Soft bands', a => ({ Fill: Shapes.shaded(a, 0.2, 0.8), Outline: 'none', rules: 'none', banded: true })], ['Grid', a => ({ Fill: 'none', Outline: HAIR, rules: 'grid', banded: false, headRule: a })], ['Grid in color', a => ({ Fill: a, Outline: a, rules: 'grid', banded: false })], ['Plain', a => ({ Fill: 'none', Outline: 'none', rules: 'none', banded: false })]];
+  // The chart's own colors a table's style can take: its palette's accents, or what it draws in.
+  function tableAccents() {
+    const p = FormatBar.paletteOf?.(), own = p ? p.colors.slice(4, 8) : FormatBar.chartAccents?.() ?? [];
+    return (own.length ? own : ['#1f3a5f', '#44546a']).slice(0, 4);
+  }
+  function giveStyle(id, name, accent) {
+    const row = x.rowOf(id), o = TABLE_STYLES.find(s => s[0] === name)?.[1](accent);
+    if (!row || !o) return;
+    const { Fill, Outline, rules, banded, headRule } = o, { headRule: _, ...t } = row.table;
+    App.change(tx => tx.update(id, { table: { ...t, rules, banded, ...(headRule && { headRule }) }, format: { ...row.format, Fill, Outline } }), { dated: false, keep: false, say: `Gave the table the style ${name}` });
+  }
+  // What a style's look draws, small: a heading, rules and bands, as the gallery of designs draws what's real.
+  function styleTile(o, accent) {
+    const W = 54, H = 36, n = 4, rh = H / n, head = o.Fill !== 'none' ? o.Fill : null, band = o.banded ? (head ? Shapes.shaded(head, 0.1, 0.9) : '#f2f2f2') : null, line = o.Outline !== 'none' ? o.Outline : null;
+    const inked = head && Scene.tooDark?.({ Fill: head }) ? '#ffffff' : '#44505c';
+    return html`<svg viewBox="0 0 ${W} ${H}" width=${W} height=${H} aria-hidden="true">
+      ${head ? html`<rect width=${W} height=${rh} fill=${head} />` : null}
+      ${band ? [1, 3].map(i => html`<rect y=${i * rh} width=${W} height=${rh} fill=${band} />`) : null}
+      ${line ? [0, 1, 2, 3, 4].filter(i => !head || i > 1 || line === o.Fill).map(i => html`<path d="M0,${i * rh - (i === 4 ? 0.5 : 0)} H${W}" stroke=${line} stroke-width="0.75" />`) : null}
+      ${line && o.rules === 'grid' ? [0, 1, 2, 3].map(i => html`<path d="M${i * W / 3 - (i === 3 ? 0.5 : 0) + (i ? 0 : 0.5)},0 V${H}" stroke=${line} stroke-width="0.75" />`) : null}
+      ${o.headRule ? html`<path d="M0,${rh} H${W}" stroke=${o.headRule} stroke-width="1.5" />` : null}
+      ${[0, 1, 2, 3].map(i => [0, 1, 2].map(j => html`<rect x=${4 + j * W / 3} y=${i * rh + rh / 2 - 1.25} width=${W / 3 - 8} height="2.5" rx="1" fill=${i === 0 ? (head ? inked : '#44505c') : '#b5bcc4'} />`))}
+    </svg>`;
+  }
+  // The gallery: a color, then each style drawn in it, at the pointer, drawn on the chart as it's pointed at.
+  function StyleGallery({ id, close }) {
+    const accents = tableAccents(), [a, setA] = useState(x.rowOf(id)?.table?.headRule ?? (x.rowOf(id)?.format?.Fill && x.rowOf(id).format.Fill !== 'none' ? x.rowOf(id).format.Fill : accents[0]));
+    const row = x.rowOf(id), now = o => (row?.table?.rules ?? 'across') === o.rules && (row?.table?.banded !== false) === o.banded && (row?.format?.Fill ?? 'none') === o.Fill;
+    return html`<div class="tstyles" role="group" aria-label="Table style">
+      <div class="tcolors" role="group" aria-label="Color">${accents.map(c => html`<button type="button" class=${c === a ? 'on' : ''} aria-label=${FormatBar.colorName?.(c) ?? c} aria-pressed=${c === a} style=${`background:${c}`} onClick=${() => setA(c)} />`)}</div>
+      <div class="ttiles" data-grid=":scope > button">${TABLE_STYLES.map(([name, make]) => { const o = make(a); return html`<button type="button" class=${now(o) ? 'on' : ''} aria-label=${name} data-tip=${name} aria-pressed=${now(o)} onClick=${() => { close?.(); giveStyle(id, name, a); }}>${styleTile(o, a)}</button>`; })}</div>
+    </div>`;
+  }
+  const under = m => { const p = graph.localToClient(m.x, m.y + m.h); return { x: p.x, y: p.y }; };
+  const styleGallery = (at, id) => Shell.popover(at, close => html`<${StyleGallery} id=${id} close=${close} />`, { placement: 'bottom-start' });
+  // The right-click's: what it does to the cell the pointer was on, its rows and its columns; the cells selected joined or apart; a heading row and bands, as PowerPoint's table options; its style; and where it reads from, with what's there to read.
   function tableItems(m, ro) {
-    const t = tableOfRow(m.id) ?? {};
+    const t = tableOfRow(m.id) ?? {}, g = cellNow?.id === m.id ? rangeOf(m) : null, picked = !!g, many = picked && !rangeIsOne(m), joined = picked && inRange(m).some(({ k }) => k.across || k.down), cellK = picked && m.table.rows[cellNow.r]?.cells[cellNow.c], src = picked ? m.table.rows[cellNow.r]?.src : null;
+    const fields = picked ? fieldsAt(m, src) : [], st = App.state.peek(), N = App.notes.peek(), boxes = scene().marks.filter(b => b.type === 'box').map(b => b.record), rowsN = g ? g.r1 - g.r0 + 1 : 1, colsN = g ? g.c1 - g.c0 + 1 : 1;
+    const putField = e => { const said = t.rows[src]?.cells?.[cellNow.c], was = String(said?.text ?? ''); setCell(m.id, src, cellNow.c, `${was}${was && !/\s$/.test(was) ? ' ' : ''}{${e}}`); };
     return [{ label: 'Edit cell', keys: 'Enter', disabled: ro, run: () => editCell(m) },
+      ...(fields.length ? [{ label: 'Field', disabled: ro, items: fields.map(e => ({ label: e, run: () => putField(e) })) }] : []),
       { label: 'Insert', disabled: ro, items: [{ label: 'Row above', run: () => rowInto(m, false) }, { label: 'Row below', run: () => rowInto(m, true) }, { label: 'Column left', run: () => columnInto(m, false) }, { label: 'Column right', run: () => columnInto(m, true) }] },
-      { label: 'Delete', disabled: ro, items: [{ label: 'This row', run: () => rowOut(m) }, { label: 'This column', run: () => columnOut(m) }] },
+      { label: 'Delete rows or columns', disabled: ro, items: [{ label: rowsN > 1 ? `These ${rowsN} rows` : 'This row', run: () => rowOut(m) }, { label: colsN > 1 ? `These ${colsN} columns` : 'This column', run: () => columnOut(m) }] },
+      { label: 'Merge cells', disabled: ro || !many, run: () => mergeCells(m) },
+      { label: 'Split cell', disabled: ro || !picked, items: [...(joined ? [{ label: 'Unmerge', run: () => unmerge(m) }, '-'] : []), { label: 'Into two columns', disabled: many, run: () => splitAcross(m) }, { label: 'Into two rows', disabled: many, run: () => splitDown(m) }] },
+      '-',
+      { label: 'Table style…', disabled: ro, run: () => styleGallery(under(m), m.id) },
       { label: 'Heading row', checked: t.header !== false, disabled: ro, run: () => putTable(m.id, { ...t, header: t.header === false }, t.header === false ? 'Gave the table a heading row' : 'Took the heading row off') },
       { label: 'Banded rows', checked: t.banded !== false, disabled: ro, run: () => putTable(m.id, { ...t, banded: t.banded === false }, t.banded === false ? 'Banded the table' : 'Took the bands off') },
+      ...(boxes.length ? [{ label: 'Reads', disabled: ro, items: [{ label: 'Nothing', checked: !t.of, run: () => readsFrom(m.id, null) }, '-', ...boxes.map(b => ({ label: N.nameOf(st, b), checked: t.of === b, run: () => readsFrom(m.id, b) }))] }] : []),
       '-'];
   }
-  // A table drawn in free room, its first cell open to type in; with `of` a record and `list` one of its lists, one that reads that list, live: a heading, a row for each relative, and where it holds figures, a total.
+  // A table drawn in free room, its first cell open to type in, in hairlines and the chart's first color; with `of` a record and `list` one of its lists, one that reads that list, live: a heading, a row for each relative, and where it holds figures, a total.
   function newTable(rows, cols, o = {}) {
-    const s = x.scale(), row = o.list ? capTable(o.of, o.list) : { cols: Array(cols).fill(1), rows: Array.from({ length: rows }, () => ({ cells: blank(cols) })), header: true, banded: true };
+    const s = x.scale(), row = o.list ? capTable(o.of, o.list) : { cols: Array(cols).fill(1), rows: Array.from({ length: rows }, () => ({ cells: blank(cols) })), header: true, banded: false, rules: 'across', headRule: tableAccents()[0] };
     if (!row) return null;
     const n = row.rows.length + (o.list ? Math.max(0, (Scene.listsAt(App.state.peek(), App.notes.peek(), o.of).find(l => l.name === o.list)?.items.length ?? 1) - 1) : 0), w = round((o.list ? row.cols.reduce((a, b) => a + b, 0) : Math.max(120 + (row.cols.length - 1) * 90, 240)) / s), h = round(n * 26 / s);
     const id = x.insert('table', { w, h, table: row });
@@ -557,7 +698,7 @@ function attach(x) {
     const rows = [{ cells: heads.map(text => ({ text })) }, { each: { of, list }, cells: tokens.map(text => ({ text })) }, ...(figures.length ? [{ cells: heads.map((e, i) => ({ text: !i ? 'Total' : figures.includes(e) ? '=SUM(ABOVE)' : '' })) }] : [])];
     // (Each column as wide as its heading's longest word, so none breaks in two; the first, of names, twice the rest.)
     const fit = h => Math.ceil(Math.max(...h.split(/\s+/).map(w => Scene.measure(w, { Bold: true, Size: 10 }))) + 21);
-    return { of, cols: heads.map((h, i) => Math.max(i ? 75 : 150, fit(h))), rows, header: true, banded: true };
+    return { of, cols: heads.map((h, i) => Math.max(i ? 75 : 150, fit(h))), rows, header: true, banded: false, rules: 'across', headRule: tableAccents()[0] };
   }
   // A rule between two columns, dragged: what one gains the other gives, one change.
   x.gEl.addEventListener('mousedown', e => {
@@ -566,7 +707,8 @@ function attach(x) {
     const id = e.target.closest('[data-cell-id]')?.getAttribute('data-cell-id'), m = id && scene().byId.get(id);
     if (m?.geometry !== 'table') return;
     e.stopPropagation(); e.preventDefault();
-    const i = +at.getAttribute('data-tcol'), t = m.table, x0 = local(e).x, ghost = svg('path', { class: 'dc-draft', d: `M${m.x + t.xs[i + 1]},${m.y} V${m.y + m.h}` }), lo = t.xs[i] + 12 / x.scale(), hi = t.xs[i + 1] + t.cols[i + 1] - 12 / x.scale();
+    // (No narrower either side than its longest word, so words stay apart: Scene's tableOf.)
+    const i = +at.getAttribute('data-tcol'), t = m.table, x0 = local(e).x, ghost = svg('path', { class: 'dc-draft', d: `M${m.x + t.xs[i + 1]},${m.y} V${m.y + m.h}` }), lo = t.xs[i] + Math.max(t.least?.[i] ?? 0, 12 / x.scale()), hi = t.xs[i + 1] + t.cols[i + 1] - Math.max(t.least?.[i + 1] ?? 0, 12 / x.scale());
     let at0 = t.xs[i + 1];
     const move = ev => { at0 = Math.max(lo, Math.min(hi, t.xs[i + 1] + local(ev).x - x0)); ghost.setAttribute('d', `M${m.x + at0},${m.y} V${m.y + m.h}`); };
     const up = () => {
@@ -578,25 +720,91 @@ function attach(x) {
     };
     addEventListener('mousemove', move, true); addEventListener('mouseup', up, true);
   }, true);
-  // A click on a table selected picks the cell under it; the pointer's right-click too.
-  graph.on('node:mousedown', ({ e, node }) => { const m = scene().byId.get(node.id), at = m?.geometry === 'table' && sel.isSelected(node) && cellAt(e.target); if (at) pickCell(node.id, at[0], at[1]); });
-  x.gEl.addEventListener('contextmenu', e => { const at = cellAt(e.target), id = at && e.target.closest('[data-cell-id]')?.getAttribute('data-cell-id'); if (id) setTimeout(() => pickCell(id, at[0], at[1])); }, true);
-  // The keys, a cell picked: the arrows go from cell to cell, Enter or a letter types in it, Delete clears it, Esc goes back to the table.
+  // A press in a table picks the cell under it, the first selecting the table; a drag from there, or Shift, goes as far as the cell it gets to, as Excel's does. (It's by its grip or its edge that a table's moved: see paintGrip.)
+  function pressCell(e, m) {
+    const at = cellAt(e.target) ?? (e.target.closest?.('[data-link]') ? cellOver(m, local(e)) : null);
+    if (!at || e.button !== 0) return;
+    if (e.shiftKey && cellNow?.id === m.id) reach(m.id, at[0], at[1]); else pickCell(m.id, at[0], at[1]);
+    const move = ev => { const q = scene().byId.get(m.id), g = q?.table && cellOver(q, local(ev)); if (g && (g[0] !== (cellNow?.r2 ?? cellNow?.r) || g[1] !== (cellNow?.c2 ?? cellNow?.c))) reach(m.id, g[0], g[1]); };
+    const up = () => { removeEventListener('mousemove', move, true); removeEventListener('mouseup', up, true); };
+    addEventListener('mousemove', move, true); addEventListener('mouseup', up, true);
+  }
+  graph.on('node:mousedown', ({ e, node }) => { const m = scene().byId.get(node.id); if (m?.geometry === 'table' && sel.isSelected(node) && !e.shiftKey && !e.ctrlKey && !e.metaKey) pressCell(e, m); });
+  // (With Shift, a table selected isn't taken off the selection: it's the cells that go on.)
+  x.gEl.addEventListener('mousedown', e => { if (!e.shiftKey || !cellNow || e.button !== 0) return; const id = e.target.closest?.('[data-tcell]') && e.target.closest('[data-cell-id]')?.getAttribute('data-cell-id'), m = id === cellNow.id && scene().byId.get(id); if (!m?.table) return; e.preventDefault(); e.stopPropagation(); pressCell(e, m); }, true);
+  // The pointer's right-click picks the cell under it, unless that's among those picked.
+  x.gEl.addEventListener('contextmenu', e => { const at = cellAt(e.target), id = at && e.target.closest('[data-cell-id]')?.getAttribute('data-cell-id'), m = id && scene().byId.get(id), g = m && rangeOf(m); if (id && !(g && at[0] >= g.r0 && at[0] <= g.r1 && at[1] >= g.c0 && at[1] <= g.c1)) { cellNow = { id, r: at[0], c: at[1] }; Canvas.fieldPicked.value = `${id}|${at[0]},${at[1]}`; setTimeout(paintCell); } }, true);
+  // The keys, a cell picked: the arrows go from cell to cell, what's joined being one, and with Shift, a range, Ctrl+A the whole table, again everything; Enter or a letter types in it, Delete clears what's picked, Esc goes back to the table.
   root.addEventListener('keydown', e => {
     if (!cellNow || e.target.closest?.('.dc-edit')) return;
     const m = scene().byId.get(cellNow.id);
     if (!m?.table) return;
     const step = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
-    if (step && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); const r = cellNow.r + step[0], c = cellNow.c + step[1]; if (m.table.rows[r]?.cells[c]) pickCell(m.id, r, c); return; }
+    if (step && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault(); e.stopPropagation();
+      const from = e.shiftKey ? [cellNow.r2 ?? cellNow.r, cellNow.c2 ?? cellNow.c] : [cellNow.r, cellNow.c], here = m.table.rows[from[0]]?.cells[from[1]], r = from[0] + (step[0] > 0 ? here?.down ?? 1 : step[0]), c = from[1] + (step[1] > 0 ? here?.across ?? 1 : step[1]), q = m.table.rows[r]?.cells[c];
+      if (!q) return;
+      const head = q.covered ? (rc => rc)(cellOver(m, { x: m.x + q.x + 0.5, y: m.y + m.table.rows[r].y + 0.5 })) : [r, c];
+      if (e.shiftKey) reach(m.id, head[0], head[1]); else pickCell(m.id, head[0], head[1]);
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && !e.shiftKey) { const g = rangeOf(m); if (g.r0 === 0 && g.c0 === 0 && g.r1 === m.table.rows.length - 1 && g.c1 === m.table.cols.length - 1) { cellNow = null; Canvas.fieldPicked.value = null; paintCell(); return; } e.preventDefault(); e.stopPropagation(); cellNow = { id: m.id, r: 0, c: 0, r2: m.table.rows.length - 1, c2: m.table.cols.length - 1 }; paintCell(); Canvas.fieldPicked.value = `${m.id}|all`; return; }
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cellNow = null; Canvas.fieldPicked.value = null; paintCell(); return; }
     if (x.still()) return;
-    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); setCell(m.id, m.table.rows[cellNow.r].src, cellNow.c, ''); return; }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault(); e.stopPropagation();
+      const t = tableOfRow(m.id), on = inRange(m), n = on.filter(({ r, k }) => String(t.rows[r.src]?.cells?.[k.c]?.text ?? '')).length;
+      if (n) putTable(m.id, { ...t, rows: t.rows.map((r, y) => ({ ...r, cells: r.cells.map((k, j) => { if (!on.some(q => q.r.src === y && q.k.c === j)) return k; const { runs: _, ...rest } = k; return { ...rest, text: '' }; }) })) }, n > 1 ? `Cleared ${n} cells` : 'Cleared a cell');
+      return;
+    }
     if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); e.stopPropagation(); editCell(m); return; }
     if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); editCell(m, null, e.key); }
   }, true);
+  // The clipboard, a cell picked: cells go out as a spreadsheet takes them, tabs and lines, and what comes in fills from the cell picked, as far as it goes, the table growing for it, as Excel's and PowerPoint's.
+  const cellsText = () => { const m = cellNow && scene().byId.get(cellNow.id), g = m?.table && rangeOf(m); return !g ? null : m.table.rows.filter(r => r.i >= g.r0 && r.i <= g.r1).map(r => r.cells.filter(k => k.c >= g.c0 && k.c <= g.c1).map(k => k.it.text).join('\t')).join('\n'); };
+  const cellsClip = e => {
+    if (!cellNow || !root.contains(document.activeElement) || document.activeElement.closest?.('.dc-edit')) return;
+    const m = scene().byId.get(cellNow.id), t = tableOfRow(cellNow.id);
+    if (!m?.table || !t) return;
+    if (e.type === 'paste') {
+      const said = e.clipboardData?.getData('text/plain');
+      if (!said || x.still()) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      const lines = said.replace(/\r/g, '').replace(/\n$/, '').split('\n').map(l => l.split('\t')), r0 = m.table.rows[cellNow.r].src, c0 = cellNow.c, wide = Math.max(t.cols.length, c0 + Math.max(...lines.map(l => l.length))), avg = t.cols.reduce((a, b) => a + b, 0) / t.cols.length;
+      let next = t; while (next.cols.length < wide) next = colsWithNew(next, next.cols.length, avg);
+      while (next.rows.length < r0 + lines.length) next = rowsWithNew(next, next.rows.length);
+      next = { ...next, rows: next.rows.map((r, y) => y < r0 || y >= r0 + lines.length ? r : { ...r, cells: r.cells.map((k, j) => { const w = lines[y - r0][j - c0]; if (j < c0 || w === undefined) return k; const { runs: _, ...rest } = k; return { ...rest, text: w }; }) }) };
+      const added = next.rows.length - t.rows.length;
+      return putTable(m.id, next, `Pasted ${lines.flat().length === 1 ? 'a cell' : `${lines.flat().length} cells`}`, added ? { h: round(m.h * next.rows.length / t.rows.length) } : {});
+    }
+    e.preventDefault(); e.stopImmediatePropagation();
+    e.clipboardData?.setData('text/plain', cellsText());
+    if (e.type === 'cut' && !x.still()) { const on = inRange(m); putTable(m.id, { ...t, rows: t.rows.map((r, y) => ({ ...r, cells: r.cells.map((k, j) => { if (!on.some(q => q.r.src === y && q.k.c === j)) return k; const { runs: _, ...rest } = k; return { ...rest, text: '' }; }) })) }, on.length > 1 ? `Cut ${on.length} cells` : 'Cut a cell'); }
+  };
+  ['copy', 'cut', 'paste'].forEach(n => document.addEventListener(n, cellsClip, true));
+  // A table selected, its grip over its corner and its edges to take it by, moved as a whole, as PowerPoint's by its border; a press in it is for its cells.
+  function paintGrip() {
+    marks.querySelectorAll('.dc-tmove').forEach(n => n.remove());
+    const cs = sel.getSelectedCells(), m = cs.length === 1 && !x.still() ? scene().byId.get(cs[0].id) : null;
+    if (m?.geometry !== 'table' || m.locked) return;
+    const z = zoom(), s = 14 / z, at = { x: m.x - s - 3 / z, y: m.y - s - 3 / z }, take = el => { el.addEventListener('mousedown', e => e.stopPropagation()); el.addEventListener('pointerdown', e => moveTable(e, m)); return el; };
+    for (const [ax, ay, w, h] of [[m.x, m.y - 3 / z, m.w, 6 / z], [m.x, m.y + m.h - 3 / z, m.w, 6 / z], [m.x - 3 / z, m.y, 6 / z, m.h], [m.x + m.w - 3 / z, m.y, 6 / z, m.h]]) take(svg('rect', { class: 'dc-tmove edge', x: ax, y: ay, width: w, height: h, fill: 'transparent' }));
+    const g = take(svg('g', { class: 'dc-tmove dc-tgrip', transform: `translate(${at.x} ${at.y}) scale(${s / 14})` }));
+    svg('rect', { width: 14, height: 14, rx: 2 }, g);
+    svg('path', { d: 'M7 2.5v9M2.5 7h9M7 2.5 5.5 4M7 2.5 8.5 4M7 11.5 5.5 10M7 11.5 8.5 10M2.5 7 4 5.5M2.5 7 4 8.5M11.5 7 10 5.5M11.5 7 10 8.5' }, g);
+  }
+  function moveTable(e, m) {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const cell = graph.getCellById(m.id), s = local(e);
+    let dx = 0, dy = 0, moved = false;
+    const go = ev => { const p = local(ev), q = held({ x: m.x + p.x - s.x, y: m.y + p.y - s.y }); dx = q.x - m.x; dy = q.y - m.y; if (!moved && Math.hypot(dx, dy) * zoom() < 3) return; moved = true; cell?.setPosition(m.x + dx, m.y + dy); followLines(new Map([[m.id, { x: m.x + dx, y: m.y + dy, w: m.w, h: m.h }]])); marks.querySelectorAll('.dc-tmove, .dc-tcell').forEach(n => n.setAttribute('visibility', 'hidden')); };
+    const up = () => { removeEventListener('pointermove', go, true); removeEventListener('pointerup', up, true); if (!moved) return paintGrip(); x.moveTo(new Map([[m.id, { x: m.x + dx, y: m.y + dy, w: m.w, h: m.h }]])); };
+    addEventListener('pointermove', go, true); addEventListener('pointerup', up, true);
+  }
 
   // Painted with the selection, a line's ends, a picture's crop handles and a group's turning handle.
-  function paint() { paintEnds(); paintCrop(); paintTurn(); paintCell(); paintPoints(); paintPins(); }
+  function paint() { paintEnds(); paintCrop(); paintTurn(); paintCell(); paintGrip(); paintPoints(); paintPins(); paintLinks(); }
   // A group's handle over it, dragged: it turns as a free shape's does, by degrees, Shift by 15; the shapes go round its middle as one.
   function paintTurn() {
     marks.querySelectorAll('.dc-turn').forEach(n => n.remove());
@@ -848,28 +1056,38 @@ function attach(x) {
     for (const p of N.notes('Pinned')) if (p.view === sc.view && p.value === true && p.pattern.id) { const m = sc.marks.find(q => q.type === 'box' && q.record === p.pattern.id); if (m) svg('path', { class: 'dc-pin', transform: `translate(${m.x + m.w - 7 / z} ${m.y - 7 / z}) scale(${0.5 / z})`, d: 'M12 17v5M9 10.76V6h6v4.76l2 3.24H7zM8 2h8', 'stroke-width': 2 }); }
   }
 
-  // ---- A link on a shape, as PowerPoint's: a web address, or a page of this chart; Ctrl+click follows it ----
-  async function setLink(id) {
+  // ---- A link, as PowerPoint's: on a shape or on words as they're typed, a web address, or a page of this chart; Ctrl+click follows it, and it says where ----
+  function LinkForm({ now, put, close }) {
+    const pages = App.views.peek().filter(v => v.layout === 'chart'), [url, setUrl] = useState(now?.url ?? ''), [view, setView] = useState(now?.view ?? '');
+    const done = () => { const u = url.trim(); close(); put(view ? { view } : u ? { url: /^[a-z]+:/i.test(u) ? u : `https://${u}` } : undefined); };
+    return html`<form class="linkform" onSubmit=${e => { e.preventDefault(); done(); }}>
+      <label class="row"><span class="k">Address</span><input class="cell" type="text" autofocus value=${url} aria-label="Address" spellcheck="false" placeholder="https://" onInput=${e => setUrl(e.currentTarget.value)} onKeyDown=${e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); done(); } else if (e.key === 'Escape') { e.preventDefault(); close(); } }} /></label>
+      <label class="row"><span class="k">Or a page</span><${Shell.Pick} label="Page" value=${view} onPick=${setView} options=${[['', 'None'], ...pages.map(v => [v.id, v.name])]} /></label>
+      <div class="acts">${now ? html`<button type="button" class="btn" onClick=${() => { close(); put(undefined); }}>Remove link</button>` : null}<button type="submit" class="btn primary">OK</button></div></form>`;
+  }
+  const askLink = (at, now, put) => Shell.popover(at, close => html`<${LinkForm} now=${now} put=${put} close=${close} />`, { placement: 'bottom-start' });
+  function setLink(id) {
     const m = id ? scene().byId.get(id) : x.selectedNow()[0];
     if (!m || m.type !== 'shape') return Shell.toast('Select a shape first', { ms: 2500 });
-    const row = x.rowOf(m.id), pages = App.views.peek().filter(v => v.layout === 'chart'), now = { url: row.link?.url ?? '', view: row.link?.view ?? '' };
-    const go = await Shell.dialog({ title: 'Link', width: 420, body: () => html`<div class="ex palette-def">
-      <label class="row"><span class="k">Address</span><input class="cell" type="text" autofocus value=${now.url} aria-label="Address" spellcheck="false" placeholder="https://" onInput=${e => { now.url = e.currentTarget.value.trim(); }} /></label>
-      <label class="row"><span class="k">Or a page</span><${Shell.Pick} label="Page" value=${now.view} onPick=${v => { now.view = v; }} options=${[['', 'None'], ...pages.map(v => [v.id, v.name])]} /></label></div>`,
-      actions: [...(row.link ? [{ label: 'Take it off', value: 'off' }] : []), { label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }] });
-    if (!go) return;
-    const link = go === 'off' ? undefined : now.view ? { view: now.view } : now.url ? { url: /^[a-z]+:/i.test(now.url) ? now.url : `https://${now.url}` } : undefined;
-    App.change(tx => tx.update(m.id, { link }), { dated: false, keep: false, say: link ? `Linked ${x.called(m)}` : `Took the link off ${x.called(m)}` });
+    const row = x.rowOf(m.id), p = graph.localToClient(m.x, m.y + m.h);
+    askLink({ x: p.x, y: p.y }, row.link ?? null, link => App.change(tx => tx.update(m.id, { link }), { dated: false, keep: false, say: link ? `Linked ${x.called(m)} to ${link.url ?? App.views.peek().find(v => v.id === link.view)?.name}` : `Took the link off ${x.called(m)}` }));
   }
+  const linkAt = (e, m) => { const w = e.target.closest?.('[data-link]'); return w ? JSON.parse(w.getAttribute('data-link')) : m?.link ?? null; };
+  const saidOfLink = l => `Ctrl+click: ${l.url ?? App.views.peek().find(v => v.id === l.view)?.name ?? ''}`;
   x.gEl.addEventListener('click', e => {
     if (!(e.ctrlKey || e.metaKey)) return;
-    const id = e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id'), m = id && scene().byId.get(id), l = m?.link;
+    const id = e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id'), l = linkAt(e, id && scene().byId.get(id));
     if (!l) return;
     e.preventDefault(); e.stopPropagation();
     if (l.view) Shell.show(l.view); else window.open(l.url, '_blank', 'noopener');
   }, true);
-  graph.on('node:mouseenter', ({ node }) => { const l = scene().byId.get(node.id)?.link; if (l) root.title = `Ctrl+click: ${l.url ?? App.views.peek().find(v => v.id === l.view)?.name ?? ''}`; });
-  graph.on('node:mouseleave', () => { root.title = ''; });
+  x.gEl.addEventListener('mouseover', e => { const id = e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id'), l = linkAt(e, id && scene().byId.get(id)); root.title = l ? saidOfLink(l) : ''; });
+  // A shape with a link shows it, never printed; words with one read as one.
+  function paintLinks() {
+    marks.querySelectorAll('.dc-linkmark').forEach(n => n.remove());
+    const z = zoom();
+    for (const m of scene().marks) if (m.link && m.type === 'shape' && !m.master) svg('path', { class: 'dc-linkmark', transform: `translate(${m.x + m.w + 2 / z} ${m.y - 12 / z}) scale(${0.45 / z})`, d: 'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.8 1.8M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.8-1.8', 'stroke-width': 2 });
+  }
 
   // A box's alt text: what a reader's told of it in the deck, as a free shape's is; a note at its own tree, so it can be said of a group too.
   async function boxAlt(m) {
@@ -986,8 +1204,8 @@ function attach(x) {
       </div></div>`;
   }
 
-  return { editPoints, endPoints, merge, mergeable, alongLine, lineAmong, shapeItems, pastePicture, setLink, editCell, tableItems, newTable, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook, reorder,
-    destroy() { stopMaster(); render(null, masterEl); removeEventListener('pointermove', altMove, true); removeEventListener('keyup', altUp, true); removeEventListener('pointermove', heldKeys, true); removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
+  return { editPoints, endPoints, merge, mergeable, alongLine, lineAmong, shapeItems, pastePicture, setLink, askLink, editCell, cellsText, tableItems, newTable, readsFrom, styleGallery, StyleGallery, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), cellsPicked: id => { const m = id && scene().byId.get(id); return m?.table ? inRange(m) : []; }, arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook, reorder,
+    destroy() { ['copy', 'cut', 'paste'].forEach(n => document.removeEventListener(n, cellsClip, true)); stopMaster(); render(null, masterEl); removeEventListener('pointermove', altMove, true); removeEventListener('keyup', altUp, true); removeEventListener('pointermove', heldKeys, true); removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
 }
 return { attach };
 })();

@@ -124,7 +124,7 @@ async function run() {
     const missing = boxes(main).filter(b => { const sp = shapeOf(b); return !sp || tags(sp, 'a:prstGeom')[0]?.getAttribute('prst') !== PRESET[b.shape]; });
     check('every box is a shape of its preset geometry, holding its texts as paragraphs', !missing.length, missing.map(b => b.id).join(', '));
     const fund = shapeOf(main.byId.get('fund')), run = tags(fund, 'a:rPr')[0], latin = tags(fund, 'a:latin')[0];
-    check('a text keeps its font, weight and color, at the size it has on the slide, 1 pt at least', latin.getAttribute('typeface') === 'Arial' && run.getAttribute('sz') === String(Math.max(100, Math.round(1000 * k))) && run.getAttribute('b') === '1'
+    check('a text keeps its font, by the theme where it says none of its own, its weight and color, at the size it has on the slide, 1 pt at least', latin.getAttribute('typeface') === '+mn-lt' && run.getAttribute('sz') === String(Math.max(100, Math.round(1000 * k))) && run.getAttribute('b') === '1'
       && colorIn(run) === 'FFFFFF', run.outerHTML.slice(0, 120));
     const xf = tags(fund, 'a:xfrm')[0], off = tags(xf, 'a:off')[0], ext = tags(xf, 'a:ext')[0], f = main.byId.get('fund'), ox = (W - main.page.w * k) / 2, oy = (H - main.page.h * k) / 2;
     check('a box sits where the scene places it, its page on the middle of its slide', Math.abs(+off.getAttribute('x') - (ox + f.x * k) * EMU) < 2 && Math.abs(+off.getAttribute('y') - (oy + f.y * k) * EMU) < 2
@@ -179,7 +179,8 @@ async function run() {
     const numbered = all.map(d => [...tags(d, 'p:cNvPr')].map(c => +c.getAttribute('id')));
     check('every shape’s number is its own, rising in the order of the shape tree, as PowerPoint numbers what it’s given', numbered.every(ids => ids.every((id, i) => !i || id > ids[i - 1])),
       numbered.map(ids => `${ids.length} shapes, ${ids[0]}–${ids.at(-1)}`).join(' | '));
-    const sizes = [...new Set(tags(doc, 'a:rPr').map(r => +r.getAttribute('sz')))];
+    // (A placeholder's run says no size, taking it from the master.)
+    const sizes = [...new Set(tags(doc, 'a:rPr').map(r => +r.getAttribute('sz')))].filter(Boolean);
     check('every size in the deck is a whole or half point, and none under 1 pt, which PowerPoint won’t open, however small the chart is drawn', sizes.every(z => z % 50 === 0 && z >= 100)
       && k * 10 < 1, `${sizes.join(' ')} at ${k}`);
     const prsts = new Set(cxns.map(c => tags(c, 'a:prstGeom')[0].getAttribute('prst')));
@@ -258,7 +259,7 @@ async function run() {
     const def = lsp && tags(lsp, 'a:defRPr')[0], first = tags(heads[0][0], 'a:rPr')[0];
     check('… on PowerPoint’s Title Only layout, its title placeholder where the first slide’s title is, in its look', !tags(layout, 'parsererror').length
       && tags(layout, 'p:cSld')[0].getAttribute('name') === 'Title Only' && tags(lsp, 'p:ph')[0].getAttribute('type') === 'title' && j(rect(lsp)) === j(rect(heads[0][0]))
-      && def.getAttribute('sz') === first.getAttribute('sz') && def.getAttribute('b') !== '1' && tags(def, 'a:latin')[0].getAttribute('typeface') === 'Georgia'
+      && def.getAttribute('sz') === first.getAttribute('sz') && def.getAttribute('b') !== '1' && tags(def, 'a:latin')[0].getAttribute('typeface') === '+mj-lt'
       && j(textOf(lsp)) === j(['Click to edit Master title style']), lsp && lsp.outerHTML.slice(0, 160));
     const app = xml(await zip.file('docProps/app.xml').async('string')), parts = tags(app, 'vt:lpstr').map(e => said(e.textContent));
     check('its properties are PowerPoint’s: no subject and no PptxGenJS, its fonts, its slides’ titles, its words, widescreen', !tags(app, 'parsererror').length
@@ -347,16 +348,16 @@ async function run() {
     const docs = await Promise.all(slides.map((_, i) => zip.file(`ppt/slides/slide${i + 1}.xml`).async('string').then(xml)));
     const named = (d, n) => tags(d, 'p:sp').find(sp => sp.getElementsByTagName('p:cNvPr')[0].getAttribute('name') === n && tags(sp, 'a:rPr').length);
     const sz = sp => sp && +tags(sp, 'a:rPr')[0].getAttribute('sz');
-    const sizes = [...new Set(docs.flatMap(d => tags(d, 'a:rPr').map(r => +r.getAttribute('sz'))))].sort((a, b) => a - b);
+    const sizes = [...new Set(docs.flatMap(d => tags(d, 'a:rPr').map(r => +r.getAttribute('sz'))))].filter(Boolean).sort((a, b) => a - b), dtSize = +/type="dt"[^]*?<a:defRPr sz="(\d+)"/.exec(await zip.file('ppt/slideMasters/slideMaster1.xml').async('string'))?.[1];
     check('every size in the sample’s deck is a whole or half point; its title, date and Key 20, 10 and 8 pt on every slide', sizes.every(z => z % 50 === 0)
-      && docs.every(d => sz(named(d, 'Title')) === 2000 && sz(named(d, 'Date')) === 1000 && sz(named(d, 'Key')) === 800), sizes.join(' '));
+      && docs.every(d => sz(named(d, 'Title')) === 2000 && (sz(named(d, 'Date')) || dtSize) === 1000 && sz(named(d, 'Key')) === 800), `${sizes.join(' ')}; date ${dtSize}`);
     // A line the scene breaks where another crosses it is one connector all the same, glued where it starts and
     // where it ends, so it moves with its boxes as one line, and solid: PowerPoint draws a crossing as two solid
     // lines, and a hop of its own would slide off the crossing once a box is moved. No line has a gradient.
     const hex = c => c.slice(1).toUpperCase(), look = m => Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
     const said = slides.flatMap((s, i) => s.marks.filter(m => m.type === 'line' && m.runs).map(l => {
       const idOf = b => tags(docs[i], 'p:sp').find(sp => nameOf(sp) === s.byId.get(b).texts[0].text)?.getElementsByTagName('p:cNvPr')[0].getAttribute('id');
-      const cs = tags(docs[i], 'p:cxnSp').filter(c => tags(c, 'a:stCxn')[0]?.getAttribute('id') === idOf(l.from) && tags(c, 'a:endCxn')[0]?.getAttribute('id') === idOf(l.to) && !nameOf(c).startsWith('Gap: '));
+      const cs = tags(docs[i], 'p:cxnSp').filter(c => tags(c, 'a:stCxn')[0]?.getAttribute('id') === idOf(l.from) && tags(c, 'a:endCxn')[0]?.getAttribute('id') === idOf(l.to) && !nameOf(c).startsWith('Crossing'));
       return { slide: i + 1, id: l.id, ok: cs.length === 1 && solid(cs[0], hex(look(l).Outline)) };
     }));
     const lns = docs.flatMap(d => tags(d, 'a:ln')), unglued = docs.flatMap(d => tags(d, 'p:cxnSp')).filter(c => !tags(c, 'a:stCxn').length !== !tags(c, 'a:endCxn').length);
@@ -415,17 +416,17 @@ async function run() {
   {
     const s = { ...Scene.of(sample, C, views[0], DAY, { state: R2.records, computed: R2 }), name: 'S' };
     const d = xml(await (await JSZip.loadAsync(await Export.write('pptx', [s], 'S'))).file('ppt/slides/slide1.xml').async('string'));
-    const all = [...d.getElementsByTagName('*')].filter(e => e.nodeName === 'p:cxnSp'), casing = all.filter(e => nameOf(e).startsWith('Gap: ')), glued = c => [tags(c, 'a:stCxn')[0]?.getAttribute('id'), tags(c, 'a:endCxn')[0]?.getAttribute('id')];
+    const all = [...d.getElementsByTagName('*')].filter(e => e.nodeName === 'p:cxnSp'), casing = all.filter(e => nameOf(e).startsWith('Crossing')), glued = c => [tags(c, 'a:stCxn')[0]?.getAttribute('id'), tags(c, 'a:endCxn')[0]?.getAttribute('id')];
     const gaps = s.marks.filter(m => m.type === 'line' && m.runs).reduce((n, l) => n + l.runs.length - 1, 0);
     check('a line that breaks another has a casing in the deck: a white connector, wider, glued to the same two boxes, and there’s no loose patch', gaps > 0 && casing.length > 0 && casing.every(c => colorIn(c) === 'FFFFFF' && glued(c).every(Boolean)) && !tags(d, 'p:sp').some(p => nameOf(p) === 'Crossing'), `${casing.length} for ${gaps} breaks`);
     // (Over what it breaks where that order allows: lines that cross each other both ways round can't all be.)
-    check('… written under its line and over what it breaks', casing.every(c => { const i = all.indexOf(c), line = all.findIndex(o => !nameOf(o).startsWith('Gap: ') && j(glued(o)) === j(glued(c))); return line > i; }) && casing.some(c => all.indexOf(c) > all.findIndex(o => !nameOf(o).startsWith('Gap: '))), casing.map(c => { const i = all.indexOf(c); return `${i}/${all.findIndex(o => !nameOf(o).startsWith('Gap: ') && j(glued(o)) === j(glued(c)))} ${nameOf(c)}`; }).join('; '));
+    check('… written under its line and over what it breaks', casing.every(c => { const i = all.indexOf(c), line = all.findIndex(o => !nameOf(o).startsWith('Crossing') && j(glued(o)) === j(glued(c))); return line > i; }) && casing.some(c => all.indexOf(c) > all.findIndex(o => !nameOf(o).startsWith('Crossing'))), casing.map(c => { const i = all.indexOf(c); return `${i}/${all.findIndex(o => !nameOf(o).startsWith('Crossing') && j(glued(o)) === j(glued(c)))} ${nameOf(c)}`; }).join('; '));
     // Over a shape filled behind the lines, where white would show, a line crosses plainly.
     const w = Log.open(SAMPLE), tx = w.edit({ chart: C, who: WHO }); tx.add('shape', { view: views[0], geometry: 'rect', x: 0, y: 0, w: 2000, h: 1200, format: { Fill: '#ffeecc', Layer: -1 } });
     if (typeof tx.commit() === 'string') throw new Error('no shape');
     const Nw = w.notes(C), Rw = Formulas.computeState(w.asOf(C, DAY), Nw.definitions(w.schema(C)), { relations: Nw.relations(w.schema(C)) }), sw = { ...Scene.of(w, C, views[0], DAY, { state: Rw.records, computed: Rw }), name: 'S' };
     const d2 = xml(await (await JSZip.loadAsync(await Export.write('pptx', [sw], 'S'))).file('ppt/slides/slide1.xml').async('string'));
-    check('… and over a shape filled behind the lines, where white would show, it has none', !tags(d2, 'p:cxnSp').some(c => nameOf(c).startsWith('Gap: ')));
+    check('… and over a shape filled behind the lines, where white would show, it has none', !tags(d2, 'p:cxnSp').some(c => nameOf(c).startsWith('Crossing')));
     // A box's text: wrapped by PowerPoint, to the scene's lines, where it can; a triangle's by the scene's breaks.
     const shapeNamed = n => tags(d, 'p:sp').find(p => nameOf(p) === n), blocker = shapeNamed(s.byId.get('blocker').texts[0].text), fund = shapeNamed(s.byId.get('fund').texts[0].text);
     check('a box’s text wraps in PowerPoint, one paragraph for each line typed, no line break in it; a triangle’s keeps the scene’s breaks', tags(blocker, 'a:bodyPr')[0].getAttribute('wrap') === 'square' && !tags(blocker, 'a:br').length && tags(blocker, 'a:t')[0].textContent === s.byId.get('blocker').texts[0].text
@@ -565,7 +566,7 @@ async function run() {
     const onSlide = phOf(slide1, 'sldNum'), footSlide = phOf(slide1, 'ftr');
     check('… a slide’s number a field, so a slide moved renumbers', onSlide?.getElementsByTagName('a:fld')[0]?.getAttribute('type') === 'slidenum' && textOf(onSlide)[0] === '1', new XMLSerializer().serializeToString(onSlide ?? slide1).slice(0, 300));
     check('… and its footer in the master’s look, where it is: no font of its own', !!footSlide && !tags(footSlide, 'a:latin').length && !tags(footSlide, 'a:off').length && textOf(footSlide)[0] === 'Privileged and confidential' && phOf(slide1, 'ftr').getElementsByTagName('p:ph')[0].getAttribute('idx') === phOf(layout, 'ftr').getElementsByTagName('p:ph')[0].getAttribute('idx'), new XMLSerializer().serializeToString(footSlide ?? slide1).slice(0, 400));
-    check('… and no slide’s master says footers are off', /<p:hf sldNum="1" hdr="0" ftr="1" dt="0"\/>/.test(await two.file('ppt/slideMasters/slideMaster1.xml').async('string')));
+    check('… and no slide’s master says footers are off', /<p:hf sldNum="1" hdr="0" ftr="1" dt="1"\/>/.test(await two.file('ppt/slideMasters/slideMaster1.xml').async('string')));
     // What's amiss with a page is said: a free shape over a box on a paper where it now stands on one.
     const says = Scene.says({ ...slide, marks: slide.marks.map(m => m.id === logo ? { ...m, x: slide.byId.get('fund').x, y: slide.byId.get('fund').y } : m) }, null, null);
     check('a shape over a box is said', says.some(t => t.endsWith(`overlaps ${slide.byId.get('fund').texts[0].text}`)), j(says));
@@ -814,13 +815,13 @@ async function run() {
     const wz = await JSZip.loadAsync(new Uint8Array(await whole.blob.arrayBuffer())), charts = A.views.peek().filter(v => v.layout === 'chart');
     const sceneOf = v => G('Scene').of(A.shown.peek(), A.chart.peek(), v.id, A.day.peek(), { state: A.state.peek(), computed: A.computed.peek() }), short = id => N.shortOf(st, id);
     const described = async i => [...tags(xml(await wz.file(`ppt/slides/slide${i + 1}.xml`).async('string')), 'p:spTree')[0].children]
-      .map(el => el.getElementsByTagName('p:cNvPr')[0]).filter(c => c?.getAttribute('descr')).map(c => [c.getAttribute('name'), c.getAttribute('descr')]);
+      .flatMap(el => [...el.getElementsByTagName('p:cNvPr')]).filter(c => c?.getAttribute('descr')).map(c => [c.getAttribute('name'), c.getAttribute('descr')]);
     // Every line between two boxes a connector glued to both, so it follows a box the partner moves in PowerPoint.
     const glue = [];
     for (const [i, v] of charts.entries()) {
       const x = await wz.file(`ppt/slides/slide${i + 1}.xml`).async('string'), drawn = sceneOf(v).marks.filter(m => m.type === 'line' && !m.merged).length;
       // (Less the casings of lines that break others, glued as their lines are.)
-      glue.push([drawn, (x.match(/<a:stCxn id="\d+" idx="\d+"\/><a:endCxn id="\d+" idx="\d+"\/>/g) ?? []).length - (x.match(/name="Gap: /g) ?? []).length]);
+      glue.push([drawn, (x.match(/<a:stCxn id="\d+" idx="\d+"\/><a:endCxn id="\d+" idx="\d+"\/>/g) ?? []).length - (x.match(/name="Crossing"/g) ?? []).length]);
     }
     check('in the deck every line between two boxes is a connector glued to both, so it follows a box moved in PowerPoint', glue.every(([d, g]) => d > 0 && d === g), JSON.stringify(glue));
     const act = charts.findIndex(v => sceneOf(v).marks.some(m => m.type === 'line' && m.landed)), s2 = act >= 0 && sceneOf(charts[act]), on = act >= 0 ? await described(act) : [];
@@ -1149,7 +1150,23 @@ async function moreThanPowerPoint() {
   check('the deck’s well-formed, and every part of it', !tags(d, 'parsererror').length && !tags(xml(master), 'parsererror').length && !tags(xml(rels), 'parsererror').length, tags(d, 'parsererror')[0]?.textContent);
   check('the master is the slide master’s own: its words and its picture there, none of it on the slide', /CONFIDENTIAL/.test(master) && /<p:pic>/.test(master) && /relationships\/image/.test(mrels) && !/CONFIDENTIAL/.test(slide));
   check('… a slide that leaves it off says so, and the one that has it doesn’t', /<p:sld [^>]*showMasterSp="0"/.test(slide2) && !/showMasterSp/.test(slide));
-  check('theme fonts are the file’s, and what says one says it by reference', /<a:majorFont>\s*<a:latin typeface="Georgia"/.test(theme) && /<a:minorFont>\s*<a:latin typeface="Calibri"/.test(theme) && /typeface="\+mj-lt"/.test(slide), theme.slice(theme.indexOf('majorFont'), theme.indexOf('majorFont') + 60));
+  check('theme fonts are the file’s, and what says none of its own says one by reference, its title and its master’s words', /<a:majorFont>\s*<a:latin typeface="Georgia"/.test(theme) && /<a:minorFont>\s*<a:latin typeface="Calibri"/.test(theme) && /typeface="\+mj-lt"/.test(slide) && /typeface="\+mn-lt"/.test(master), theme.slice(theme.indexOf('majorFont'), theme.indexOf('majorFont') + 60));
+  // A table joined and ruled; a word's link; the date and its placeholders; a gradient's three stops; a bevel's depth; a crossing's casing in its group (dendra.md, A table on the page; Links; The master).
+  edit(tx => {
+    tx.add('shape', { view, geometry: 'table', x: 500, y: 1000, w: 300, h: 60, name: 'Joined', table: { cols: [1, 1, 1], rules: 'grid', header: true, banded: false, rows: [{ cells: [{ text: 'Whole', across: 3 }, { text: '' }, { text: '' }] }, { cells: [{ text: 'Down', down: 2 }, { text: 'Longestwordhere' }, { text: 'c' }] }, { cells: [{ text: '' }, { text: 'd' }, { text: 'e' }] }] } });
+    tx.add('shape', { view, geometry: 'text', x: 60, y: 1100, w: 200, h: 24, name: 'Worded', text: 'See the terms', runs: [{ from: 8, to: 13, Link: { url: 'https://example.com/terms' } }] });
+    tx.add('shape', { view, geometry: 'rect', x: 300, y: 1100, w: 90, h: 40, name: 'Three stops', format: { Gradient: { angle: 45, stops: [[0, '#102030'], [40, '#ff0000'], [100, '#ffffff']] }, Bevel: { type: 'circle', w: 4, h: 5, depth: 12, material: 'metal' } } });
+    tx.note('Footer', { kind: 'View' }, { text: 'Privileged', number: true, date: true });
+  });
+  const R2 = worked(), s3 = { ...Scene.of(wb, C, view, DAY, { state: R2.records, computed: R2 }), name: 'More' }, zip2 = await JSZip.loadAsync(await Export.write('pptx', [s3], 'More', { N: wb.notes(C), R: R2 })), text2 = f => zip2.file(f).async('string'), slide3 = await text2('ppt/slides/slide1.xml'), rels3 = await text2('ppt/slides/_rels/slide1.xml.rels'), master3 = await text2('ppt/slideMasters/slideMaster1.xml'), d3 = xml(slide3), named3 = n => [...tags(d3, 'p:sp')].find(x => tags(x, 'p:cNvPr')[0]?.getAttribute('name') === n);
+  const joined = s3.marks.find(m => m.name === 'Joined');
+  check('a table’s joins: what’s covered isn’t drawn, a word never narrower than its column, its rules each edge once', joined.table.rows[0].cells[0].across === 3 && joined.table.rows[1].cells[0].down === 2 && joined.table.rows[2].cells[0].covered && joined.table.cols[1] >= Scene.measure('Longestwordhere', joined.table.rows[1].cells[1].it.look) && joined.table.rows[1].cells[1].it.lines.length === 1 && new Set(joined.table.rules.split(' M')).size === joined.table.rules.split(' M').length, JSON.stringify(joined.table.cols));
+  { const frame = [...tags(d3, 'p:graphicFrame')].find(x => tags(x, 'p:cNvPr')[0].getAttribute('name') === 'Joined'), cs = tags(frame, 'a:tc'); check('… in a deck, PowerPoint’s own: gridSpan and hMerge, rowSpan and vMerge, in No Style, No Grid with its rules said', cs[0].getAttribute('gridSpan') === '3' && cs[1].getAttribute('hMerge') === '1' && cs[3].getAttribute('rowSpan') === '2' && cs[6].getAttribute('vMerge') === '1' && tags(frame, 'a:tableStyleId')[0].textContent === '{2D5ABB26-0587-4C30-8999-92F81FD0307C}' && !!tags(tags(cs[4], 'a:lnL')[0], 'a:solidFill').length, frame.outerHTML.slice(0, 200)); }
+  { const run = [...tags(named3('Worded'), 'a:r')].find(r => /terms/.test(r.textContent)), id = tags(run, 'a:hlinkClick')[0]?.getAttribute('r:id'); check('a word’s link is a hyperlink on that run alone', new RegExp(`Id="${id}"[^>]*Target="https://example.com/terms"`).test(rels3) && !tags([...tags(named3('Worded'), 'a:r')][0], 'a:hlinkClick').length, run?.outerHTML); }
+  { const fx3 = named3('Three stops'); check('a gradient holds its stops, a bevel its depth and material', tags(fx3, 'a:gs').length === 3 && tags(fx3, 'a:gs')[1].getAttribute('pos') === '40000' && tags(fx3, 'a:sp3d')[0].getAttribute('extrusionH') === String(12 * 12700) && tags(fx3, 'a:sp3d')[0].getAttribute('prstMaterial') === 'metal'); }
+  check('the date is a mark of its own, and the deck’s date, footer and number PowerPoint’s placeholders, on the master and the slide', s3.marks.some(m => m.role === 'day') && /type="dt"/.test(master3) && /type="ftr"/.test(master3) && /type="sldNum"/.test(master3) && /<p:ph type="dt"/.test(slide3) && /dt="1"/.test(master3), master3.slice(0, 100));
+  check('a crossing’s casing is in its line’s group, not loose on the slide', ![...tags(d3, 'p:spTree')[0].children].some(n => /^(Gap|Crossing)/.test(tags(n, 'p:cNvPr')[0]?.getAttribute('name') ?? '')) && !/name="Gap:/.test(slide3));
+  { const ring = (cx) => Array.from({ length: 64 }, (_, i) => [cx + 40 * Math.cos(i / 64 * 2 * Math.PI), 40 + 30 * Math.sin(i / 64 * 2 * Math.PI)]), [one] = Shapes.merge('union', [[ring(40)], [ring(80)]]), f = Shapes.framed(one), nodes = f.Points.paths[0].nodes; check('what merge flattens comes back as a few curves, not a hundred points, within a hair of where it was', nodes.length < 16 && nodes.some(q => q[4] != null) && Math.abs(Shapes.flatten(f.Points, f.w, f.h)[0].ring.length) > 8, `${one[0].length} became ${nodes.length}`); }
   const tbl = tags(d, 'a:tbl')[0];
   check('a table is PowerPoint’s own, in a frame, its alt text its description', !!tbl && tags(tbl, 'a:tr').length === 3 && tags(tbl, 'a:gridCol').length === 2 && tags(tags(d, 'p:graphicFrame')[0], 'p:cNvPr')[0].getAttribute('descr') === 'Who owns Halvard' && /Blocker/.test(tags(tags(tbl, 'a:tr')[1], 'a:t')[0].textContent), tbl?.outerHTML.slice(0, 200));
   const free = named('Free'), fx = named('Effects'), kids = n => [...n.children].map(c => c.tagName);

@@ -368,7 +368,7 @@ async function run() {
     await show(v40);
     const frame = sc().marks.find(m => m.type === 'frame');
     Shell.select([frame.id]); await tick(120);
-    check('a frame selected shows its caption’s font and size', txt($('[data-fb="font"]')) === frame.caption.look.Font && +$('[data-fb="size"]').value > 0, `${txt($('[data-fb="font"]'))} ${$('[data-fb="size"]').value}`);
+    check('a frame selected shows its caption’s font and size', txt($('[data-fb="font"]')) === Scene.fontName(frame.caption.look.Font) && +$('[data-fb="size"]').value > 0, `${txt($('[data-fb="font"]'))} ${$('[data-fb="size"]').value}`);
     Shell.select([]); await show(main);
   } else check('a view with frames', false);
 
@@ -436,7 +436,7 @@ async function run() {
   $('[data-fb="fill"]').click(); await tick(120);
   const ownFirst = $$('.float .palette > .own > button'), fillRows = $$('.float .palette > .more > .menu-item').map(txt);
   check('a color’s menu leads with the chart’s own, large, what it’s painted in among them, then its rows; none of Office’s grid till asked', ownFirst.length > 2 && ownFirst[0].getBoundingClientRect().width >= 36 && ownFirst[0].getBoundingClientRect().top < $('.float .palette > .more').getBoundingClientRect().top && !$('.float .palette.grid')
-    && fillRows.join('|').startsWith('More colors#|Eyedropper|') && /^Set this chart.s colors/.test(fillRows[2]) && fillRows[3] === 'Gradient' && fillRows[4] === 'Pattern' && fillRows[5] === 'Picture…' && fillRows[6] === 'Texture' && fillRows[7] === 'Take the picture off' && /^Transparency ?\d*%$/.test(fillRows[8]) && fillRows[9] === 'No fill' && !$('input[type="color"]'), `${ownFirst.length} | ${fillRows}`);
+    && fillRows.join('|').startsWith('More colors#|Eyedropper|') && /^Set this chart.s colors/.test(fillRows[2]) && fillRows[3] === 'Gradient' && fillRows[4] === 'Gradient options' && fillRows[5] === 'Pattern' && fillRows[6] === 'Picture…' && fillRows[7] === 'Texture' && fillRows[8] === 'Take the picture off' && /^Transparency ?\d*%$/.test(fillRows[9]) && fillRows[10] === 'No fill' && !$('input[type="color"]'), `${ownFirst.length} | ${fillRows}`);
   await moreColors();
   const swatches = $$('.float .palette.grid > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
   check('a swatch is named so on hover', tips.join() === 'White,Black,Light Gray', tips.join(' | '));
@@ -885,7 +885,7 @@ async function run() {
   $$('.float .palette .menu-item.sub').find(b => txt(b) === 'Weight')?.click(); await tick(150);
   const lineWeight = +Scene.toSlide(sc().page, sc().byId.get(line.id).settings.Weight.value).toFixed(2), checkedW = $$('.float .menu-item[aria-checked="true"]').map(txt);
   check('Outline offers its palette, then Weight ▸, Dashes ▸, Arrows ▸ and Route ▸ for a line, then No outline; Weight ▸ checks the weight the line has, and the popover stays open beside it',
-    subs.join() === 'More colors,Weight,Dashes,Compound,Gradient,Arrows,Route' && outlineRows.at(-1) === 'No outline' && checkedW.includes(`${lineWeight} pt`) && !!$('.float .palette'), `${outlineRows.join(' | ')}; ${checkedW}`);
+    subs.join() === 'More colors,Weight,Dashes,Compound,Gradient,Gradient options,Arrows,Route' && outlineRows.at(-1) === 'No outline' && checkedW.includes(`${lineWeight} pt`) && !!$('.float .palette'), `${outlineRows.join(' | ')}; ${checkedW}`);
   $$('.float .menu-item').find(e => txt(e) === '3 pt')?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120);
   check('… and a weight pointed at in it is drawn on the line, changing nothing', Math.abs(Scene.toSlide(sc().page, sc().byId.get(line.id).settings.Weight.value) - 3) < 0.01
     && sc() !== App.scene.peek());
@@ -895,7 +895,7 @@ async function run() {
     $('[data-fb="outline"]').click(); await tick(150);
     const boxSubs = $$('.float .palette .menu-item.sub:not(:disabled)').map(txt), allSubs = $$('.float .palette .menu-item.sub').map(txt);
     await closeMenus();
-    check('a box’s Outline has the same rows, in the same places, Arrows ▸ and Route ▸ grey, and the Line and Arrowheads buttons are gone', boxSubs.join() === 'More colors,Weight,Dashes,Compound,Gradient' && allSubs.join() === 'More colors,Weight,Dashes,Compound,Gradient,Arrows,Route,Frame' && !$('[data-fb="line"]') && !$('[data-fb="arrow"]'), boxSubs.join()); }
+    check('a box’s Outline has the same rows, in the same places, Arrows ▸ and Route ▸ grey, and the Line and Arrowheads buttons are gone', boxSubs.join() === 'More colors,Weight,Dashes,Compound,Gradient,Gradient options' && allSubs.join() === 'More colors,Weight,Dashes,Compound,Gradient,Gradient options,Arrows,Route,Frame' && !$('[data-fb="line"]') && !$('[data-fb="arrow"]'), boxSubs.join()); }
 
   // ---- Fonts: found as typed, each in its own face, the chart's own first, then by class; one not on this computer
   // greyed and said so; any font on it taken by its name ----
@@ -903,13 +903,13 @@ async function run() {
   Shell.select(['halvard']); await tick(120); cv().root.focus();
   $('[data-fb="font"]').click(); await tick(150);
   const fontHeads = $$('.float .fonts .menu-head').map(txt), faces = $$('.float .fonts .menu-item .label'), away = $$('.float .fonts .menu-item.away');
-  check('the font menu opens on its field, then the theme fonts, This chart, then Sans serif, Serif and Monospace, each name in its own face', document.activeElement === $('.float .fonts .find')
-    && fontHeads.join() === 'Theme fonts,This chart,Sans serif,Serif,Monospace' && faces.length >= 40 && faces.filter(f => !/…$/.test(txt(f))).every(f => f.style.fontFamily.includes(txt(f).split(' · ').at(-1).split(' ')[0])), fontHeads.join());
+  check('the font menu opens on its field, then the theme fonts, any others this chart has, then Sans serif, Serif and Monospace, each name in its own face', document.activeElement === $('.float .fonts .find')
+    && fontHeads.join() === 'Theme fonts,Sans serif,Serif,Monospace' && faces.length >= 40 && faces.filter(f => !/…$/.test(txt(f))).every(f => f.style.fontFamily.includes(txt(f).split(' · ').at(-1).split(' ')[0])), fontHeads.join());
   check('… a font not on this computer greyed and said so on hover', away.every(e => e.dataset.tip === 'Not on this computer') && $$('.float .fonts .menu-item:not(.away)').every(e => !e.dataset.tip), `${away.length} away`);
   const findFont = async q => { const f = $('.float .fonts .find'); f.value = q; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(150); };
   await findFont('gara');
   check('… typing finds a font by its name, and draws the selection in it, changing nothing', $$('.float .fonts .list .menu-item').map(txt).join() === 'Garamond'
-    && sc().byId.get('halvard').texts[0].look.Font === 'Garamond' && lookOf('halvard').Font === 'Arial', $$('.float .fonts .list .menu-item').map(txt).join());
+    && sc().byId.get('halvard').texts[0].look.Font === 'Garamond' && lookOf('halvard').Font === 'Body', $$('.float .fonts .list .menu-item').map(txt).join());
   $('.float .fonts .find').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await tick(200);
   check('… and Enter sets it', lookOf('halvard').Font === 'Garamond' && !$('.float .fonts'), lookOf('halvard').Font);
   Shell.parts.peek().undo.undo(); await tick(150);
@@ -2483,7 +2483,7 @@ async function format() {
   // A narrower note keeps its own, said, with a way to make it all that font.
   App.change(tx => tx.note('Font', { args: [{ edge: 'Name', loc: {} }] }, 'Garamond', { view: stE.id }), { dated: false }); await tick(300);
   FormatBar.apply('Font', 'Verdana'); await tick(500);
-  check('… what a narrower note gives keeps it, and it’s said, with a way to make it all that font', sc().byId.get('fund').texts[0].look.Font === 'Garamond' && /Names and title keep their own font/.test(txt($('.toasts'))) && $$('.toast button').some(b => /^Make it all Verdana/.test(txt(b))), txt($('.toasts')));
+  check('… what a narrower note gives keeps it, and it’s said, with a way to make it all that font', sc().byId.get('fund').texts[0].look.Font === 'Garamond' && /Names keep their own font/.test(txt($('.toasts'))) && $$('.toast button').some(b => /^Make it all Verdana/.test(txt(b))), txt($('.toasts')));
   $$('.toast button').find(b => /^Make it all/.test(txt(b)))?.click(); await tick(400);
   check('… which, taken, leaves it all that font', sc().byId.get('fund').texts[0].look.Font === 'Verdana');
   for (let i = 0; i < 3; i++) { Shell.parts.peek().undo.undo(); await tick(300); }
@@ -3363,10 +3363,68 @@ async function designing(st) {
   check('… Esc goes back to the table, whole', !cv().cell() && cv().keys().length === 1);
   key('Delete'); await tick(250);
   check('Delete then takes the table away', !ofTable());
+  // ---- A table's range, its joins and its style; a link on words; the master's placeholders; theme fonts ----
+  $('[data-fb="insert"]').click(); await tick(150);
+  $$('.float .insert .menu-item').find(b => txt(b) === 'Table').click(); await tick(200);
+  $$('.float .tablepick .grid button')[10].click(); await tick(400);
+  for (const w of ['Holder', 'Stake', 'Note', 'Fund', '82%']) await typeIn(w);
+  { const ed = $('.dc-edit'); ed.textContent = 'Held'; ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(150); }
+  cv().root.focus();
+  const tid = ofTable().id, tcell = (r, c) => $(`[data-cell-id="${tid}"] [data-tcell="${r},${c}"]`), byHand = async (el, type, o = {}) => { const b = el.getBoundingClientRect(), xy = { clientX: b.left + b.width / 2, clientY: b.top + b.height / 2, bubbles: true, cancelable: true, view: window, ...o }; el.dispatchEvent(new MouseEvent(type, xy)); await tick(60); };
+  check('a table comes in hairlines, no heading fill, with a grip and edges to move it by', ofTable().table.ruled === 'across' && !!ofTable().table.headRule && ofTable().table.rows[1].cells[0].fill === 'none' && !!$('.dc-marks .dc-tgrip') && $$('.dc-marks .dc-tmove.edge').length === 4);
+  key('ArrowUp'); await tick(60); key('ArrowLeft'); key('ArrowLeft'); await tick(60);
+  key('ArrowRight', { shiftKey: true }); await tick(80);
+  check('Shift and an arrow select a range, and the bar says so', txt($('[data-fb="own"]')) === 'These 2 cells' && cv().cellsPicked(tid).length === 2, txt($('[data-fb="own"]') ?? {}));
+  FormatBar.apply('Size', 14); await tick(200);
+  check('… a look goes to the range and says so', ofTable().table.rows[0].cells[0].it.look.Size !== ofTable().table.rows[1].cells[0].it.look.Size && ofTable().table.rows[0].cells[1].it.look.Size === ofTable().table.rows[0].cells[0].it.look.Size && /these 2 cells/.test(Time.describe(App.wb.changes().at(-1))), Time.describe(App.wb.changes().at(-1)));
+  { const dt = new DataTransfer(); cv().root.focus(); document.dispatchEvent(new ClipboardEvent('copy', { clipboardData: dt, bubbles: true, cancelable: true })); check('… it copies as a spreadsheet takes it', dt.getData('text/plain') === 'Holder\tStake', JSON.stringify(dt.getData('text/plain')));
+    const dp = new DataTransfer(); dp.setData('text/plain', 'A\tB\nC\tD\nE\tF'); document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dp, bubbles: true, cancelable: true })); await tick(200);
+    check('… and what’s pasted fills from the cell picked, the table growing for it', ofTable().table.rows.length === 3 && ofTable().table.rows[2].cells[1].it.text === 'F', ofTable().table.rows.map(r => r.cells.map(k => k.it.text)).join('|')); Shell.parts.peek().undo.undo(); await tick(200); }
+  await byHand(tcell(1, 2), 'contextmenu'); await tick(150);
+  check('the right-click says which it deletes, the table’s last, and picks the cell under it', $$('.float .menu-item').some(b => txt(b).startsWith('Delete rows or columns')) && $$('.float .menu-item').some(b => txt(b).startsWith('Delete table')) && !$$('.float .menu-item').some(b => txt(b) === 'Delete') && txt($('[data-fb="own"]')) === 'This cell', $$('.float .menu-item').map(txt).join());
+  dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(100);
+  key('a', { ctrlKey: true, code: 'KeyA' }); await tick(80);
+  check('Ctrl+A in a table is the table’s cells, not the page’s shapes', txt($('[data-fb="own"]')) === 'These 6 cells' && cv().keys().length === 1, txt($('[data-fb="own"]') ?? {}));
+  await byHand(tcell(0, 1), 'contextmenu'); await tick(150);
+  { const row = $$('.float .menu-item').find(b => txt(b).startsWith('Merge cells')); row.click(); await tick(200); }
+  check('Merge cells joins them, their words in the first, what they covered gone', ofTable().table.rows[0].cells[0].across === 3 && ofTable().table.rows[0].cells[0].down === 2 && ofTable().table.rows[1].cells[2].covered && /Holder Stake Note Fund 82% Held/.test(ofTable().table.rows[0].cells[0].it.text), ofTable().table.rows[0].cells[0].it.text);
+  App.change(tx => { const r = App.shown.peek().item(App.chart.peek(), tid).at(-1); tx.update(tid, { table: { ...r.table, rows: r.table.rows.map(q => ({ cells: q.cells.map(k => { const { across, down, ...o } = k; return o; }) })) } }); }, { dated: false }); await tick(150);
+  $('[data-fb="design"]').click(); await tick(150);
+  check('the Design control on a table is its styles, each drawn, in the chart’s colors', $$('.float .tstyles .ttiles button svg').length === 8 && $$('.float .tstyles .tcolors button').length >= 1);
+  $$('.float .tstyles .ttiles button')[1].click(); await tick(200);
+  check('… a style gives its heading the color, words white on it', /^#/.test(ofTable().table.rows[0].cells[0].fill) && ofTable().table.rows[0].cells[0].it.look.Color === '#ffffff' && ofTable().table.rows[1].cells[0].fill === 'none');
+  cv().readsFrom(tid, 'halvard'); await tick(200);
+  check('a table told to read a record reads it, not typed over what’s there', App.shown.peek().item(App.chart.peek(), tid).at(-1).table.of === 'halvard');
+  { const t = App.shown.peek().item(App.chart.peek(), tid).at(-1).table; App.change(tx => tx.update(tid, { table: { ...t, of: undefined, rows: t.rows.map(r => ({ cells: r.cells.map(() => ({ text: '' })) })) } }), { dated: false }); await tick(150);
+    cv().readsFrom(tid, 'halvard'); await tick(250);
+    const m = ofTable(), over = sc().marks.filter(k => k.type === 'box' && m.x < k.x + k.w && m.x + m.w > k.x && m.y < k.y + k.h && m.y + m.h > k.y);
+    check('… one that’s blank shows it, a row for each of what it has, placed clear of what’s drawn, or saying it can’t be', m.table.rows.length > 2 && (!over.length || $$('.toast').some(e => /no free room/.test(txt(e)))), `${m.table.rows.length} rows, over ${over.map(k => k.id).join()}`); }
+  cv().edit(tid); await tick(100);
+  { const ed = $('.dc-edit'); ed.textContent = '{'; getSelection().selectAllChildren(ed); getSelection().collapseToEnd(); ed.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(80); const kin = Scene.readable(App.state.peek(), App.notes.peek(), App.schema.peek(), 'halvard').find(l => l.of)?.label; check('… and a cell offers what’s there as { is typed, as a box’s words do: its entries, then what’s over it', $$('.dc-complete .menu-item').some(o => txt(o) === 'Name') && !!kin && $$('.dc-complete .menu-item').some(o => txt(o) === kin), `${kin}: ${$$('.dc-complete .menu-item').map(txt).join()}`); ed.textContent = 'Plain'; ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(100); }
+  // A word's link, as it's typed.
+  cv().root.focus(); key('Escape'); key('Delete'); await tick(200);
+  const lid = cv().insert('text', { x: 40, y: 40, w: 200, h: 40, text: 'Read the terms' }); await tick(250);
+  cv().edit(lid); await tick(150);
+  { const ed = $('.dc-edit'); ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true })); await tick(150);
+    check('Ctrl+K while typing asks for a link, Find staying shut', !!$('.float .linkform') && !$('.findpal'));
+    const f = $('.float .linkform input'); f.value = 'example.com/t'; f.dispatchEvent(new InputEvent('input', { bubbles: true })); await tick(40); $('.float .linkform button[type=submit]').click(); await tick(150);
+    ed.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true })); await tick(200); }
+  { const r = App.shown.peek().item(App.chart.peek(), lid).at(-1), m = sc().byId.get(lid), sp = m.texts[0].lines[0].spans?.find(s => s.look.Link); check('… on the word, an address, and it reads as a link', r.runs?.[0]?.Link?.url === 'https://example.com/t' && sp?.look.Underline && sp.look.Color === Scene.LINK, JSON.stringify(r.runs)); }
+  cv().root.focus(); key('Delete'); await tick(200);
+  // Theme fonts reach what says no font of its own.
+  App.change(tx => tx.note('Theme Fonts', { kind: 'View' }, { heading: 'Garamond', body: 'Verdana' }), { dated: false }); await tick(250);
+  { const pages = App.views.peek().filter(v => v.layout === 'chart').map(v => Scene.of(App.shown.peek(), App.chart.peek(), v.id, App.day.peek(), { state: App.state.peek(), computed: App.computed.peek() })), says = pages.flatMap(p => [p.marks.find(m => m.role === 'title')?.texts[0]?.look.Font, ...p.marks.filter(m => m.type === 'box').map(b => b.texts[0]?.look.Font)]);
+    check('Heading and Body move the title and the boxes, what says no font of its own or All text saying one', says.includes('Heading') && says.includes('Body') && Scene.fontName('Heading') === 'Garamond' && Scene.fontName('Body') === 'Verdana', [...new Set(says)].join()); }
+  App.change(tx => tx.note('Theme Fonts', { kind: 'View' }, undefined), { dated: false }); await tick(200);
   const shownBefore = App.scene.peek().view;
   App.mastering.value = true; await tick(300);
   check('Edit master shows its page alone, with a bar that says so', sc().view === Scene.MASTER && !sc().marks.some(m => m.type === 'box') && txt($('.dc-masterbar')).startsWith('Master'), sc().view);
   check('… and has nothing of a kind to add', Canvas.kinds().length === 0);
+  $('[data-fb="insert"]').click(); await tick(150);
+  check('… Insert there offers its footer, date and page number', ['Footer', 'Date', 'Page number'].every(w => $$('.float .insert .menu-item').some(b => txt(b) === w)), $$('.float .insert .menu-item').map(txt).join());
+  $$('.float .insert .menu-item').find(b => txt(b) === 'Date').click(); await tick(250);
+  check('… the date a mark of its own at the foot, on the master as on a page', sc().marks.some(m => m.role === 'day'), sc().marks.map(m => m.role).join());
+  Shell.parts.peek().undo.undo(); await tick(250);
   cv().insert('text', { x: 500, y: 300, text: 'Confidential' }); await tick(300);
   Shell.select([]); await tick(150);
   $('.dc-masterbar button').click(); await tick(400);

@@ -103,7 +103,7 @@ Templates.register({
     onFile('Governing Agreement on File', 'Whether the agreement that governs the entity is on file, executed, filed or final: a corporation’s bylaws, an LLC’s operating agreement, a limited partnership’s agreement.',
       `= IF([Ours to Track] <> FALSE, LET(wanted, IF(@ = "Limited Partnership", {"Limited Partnership Agreement"}, IF(@ = "Limited Liability Company", {"Operating Agreement"}, {"Bylaws"})), ${held}))`);
 
-    t.page('structure', 'Structure', 1, { title: { format: { Font: 'Georgia', Bold: false, Color: '#1f3a5f' } }, date: { format: { Size: 10, Color: '#5f6b78' } }, key: { format: { Outline: 'none' } } });
+    t.page('structure', 'Structure', 1, { title: { format: { Bold: false, Color: '#1f3a5f' } }, date: { format: { Size: 10, Color: '#5f6b78' } }, key: { format: { Outline: 'none' } } });
     t.note('Shown', { kind: 'Document' }, false, { view: 'structure' });
     t.note('Shown', { kind: 'Tax Year' }, false, { view: 'structure' });
     t.shown('structure', field('Name'));

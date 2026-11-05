@@ -500,7 +500,7 @@ function saveToHouse(d) {
     body: () => html`<${Which} />` }).then(async ok => {
     if (!ok) return;
     const was = houses.find(s => s.id === to);
-    const named = was?.name ?? (Tree.clean(name) || 'House designs'), look = was ? { ...was.look, designs: [...(was.look.designs ?? []).filter(x => x.id !== plain.id), plain] } : { notes: [], order: [], furniture: {}, designs: [plain] };
+    const named = was?.name ?? (Tree.clean(name) || 'House designs'), whole = Notes.houseLook(App.shown.peek().rows(App.chart.peek()), Shell.view.peek()), look = was ? { ...was.look, designs: [...(was.look.designs ?? []).filter(x => x.id !== plain.id), plain] } : { notes: [], order: [], furniture: {}, designs: [plain], ...(whole.theme && { theme: whole.theme }), ...(whole.master && { master: whole.master }) };
     await Store.keepHouseStyle({ id: was?.id ?? Log.newId(), name: named, look });
     Shell.parts.peek().formatbar?.relist?.();
     Shell.toast(`Saved ${d.name} to the house style ${named}`);
