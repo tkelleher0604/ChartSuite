@@ -79,8 +79,11 @@
 .dc-hl.deep { --w: 1px; --o: .5; }
 .dc-row, .dc-group { --hue: var(--accent); --w: 1px; --o: 1; }
 .dc-cue { --hue: var(--accent); --w: 1.5px; --o: 1; }
-/* What's in reach of the pen, at rest: a thin outline, others untouched. */
+/* What's selected, one thin rule, on its own edge. */
+.dc-group.dc-shaped { --w: 1.5px; }
+/* What's in reach of the pen, at rest: a faint tint, in the same accent, its edge a shade stronger so it shows on a dark fill; others untouched. A line in reach, the accent over its own stroke. */
 .dc-reach { --hue: var(--accent); --w: 1px; --o: .75; }
+path.dc-reach { fill: var(--accent) !important; fill-opacity: .07; stroke-width: 3px !important; stroke-opacity: .22; }
 .dc-sel { --hue: var(--accent); --w: 2px; --o: 1; }
 path:is(.dc-hl, .dc-row, .dc-group, .dc-cue, .dc-reach), .x6-edge:is(.dc-hl, .dc-row, .dc-sel, .dc-cue, .dc-reach) > path + path {
   fill: none; stroke: var(--hue); stroke-width: var(--w) !important; stroke-opacity: var(--o); stroke-linejoin: round; vector-effect: non-scaling-stroke; }
@@ -143,36 +146,32 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .slot:has(> .host > .fb[hidden]) { display: none; }
 .fb { display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 8px 0 7px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .fb > .sep { width: 1px; height: 16px; margin: 0 8px; background: var(--rule); flex: none; }
-.fb .btn { height: 28px; padding: 0 8px; border-color: transparent; background: transparent; flex: none; }
-.fb .btn:hover:not(:disabled) { border-color: transparent; }
-.fb .btn.icon { width: 28px; }
-/* The scope: two parts, the selection and all like it, the one a change goes to pressed in the accent, and the
-   ▾ that chooses the group joined to its part. It keeps one width, selected or not, so nothing after it in the bar moves
-   as what it names changes; a name too long for it is cut short, and shown whole on hover. */
-/* The scope takes what the bar has left, up to its most: every other control is of one width, whatever's selected, so nothing moves and nothing goes off the bar. */
-.fb .scope { display: inline-flex; flex: 1 1 0; min-width: 96px; max-width: 360px; height: 28px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); overflow: hidden; }
-.fb .scope.off { border-color: var(--rule); }
+/* One button on the bar, whatever it does: a 16 px glyph or a word, in the ink; the caret, if it opens something, close beside it; a wash under the pointer, the press's while what it opened
+   is open, the selection's tint where it's on; no edge. An edge is for where you type: the size. */
+.fb .btn { height: 28px; padding: 0 6px; gap: 4px; border: 0; background: transparent; color: var(--ink); flex: none; }
+.fb .btn.icon { width: 28px; color: var(--ink); }
+.fb .btn[aria-pressed="true"] { background-color: var(--selected); background-image: none; color: var(--accent-ink); }
+/* The scope: two parts, the selection and all like it, the one a change goes to on in the selection's tint, the caret that chooses the group joined to its part. It keeps one width, selected or not, so
+   nothing after it in the bar moves as what it names changes; a name too long for it is cut short, and shown whole on hover. It takes what the bar has left, up to its most, before the font's list. */
+.fb .scope { display: inline-flex; flex: 1 1 0; min-width: 96px; max-width: 360px; height: 28px; border-radius: var(--r); overflow: hidden; }
 .fb .scope.off > button { color: var(--off); }
-.fb .scope > button { height: 26px; padding: 0 10px; border: 0; background: transparent; color: var(--ink-2); display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; cursor: default; }
+.fb .scope > button { height: 28px; padding: 0 8px; border: 0; background: transparent; color: var(--ink-2); display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; cursor: default; }
 .fb .scope > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fb .scope > [data-fb="own"] { flex: none; }
 .fb .scope > :only-child { flex: 1 1 auto; }
 .fb .scope > [data-fb="like"] { flex: 1 1 auto; min-width: 0; }
-.fb .scope > * + * { border-left: 1px solid var(--edge); }
 .fb .scope > button:hover { background-image: linear-gradient(var(--hover), var(--hover)); color: var(--ink); }
 .fb .scope > button[aria-pressed="true"] { background-color: var(--selected); color: var(--accent-ink); font-weight: 500; }
 /* With nothing selected, it's a dropdown like any: All text, or a Styles row aimed at from its list. */
-.fb .scope > button.root { justify-content: space-between; gap: 8px; color: var(--ink); }
-.fb .scope > .more { flex: none; width: 22px; padding: 0; justify-content: center; }
+.fb .scope > button.root { justify-content: flex-start; gap: 4px; color: var(--ink); }
+.fb .scope > .more { flex: none; width: 20px; padding: 0; justify-content: center; }
 .fb .scope > .more::after { content: ""; width: 10px; height: 6px; background: var(--chev) no-repeat center; }
-.fb .scope > [aria-pressed="true"] + .more { background-color: var(--selected); border-left-color: transparent; }
-/* The font and its size are fields, as Office's are: the font's name, which its menu finds as it's typed; the size,
-   typed into, with its list. A toggle pressed (Bold) is filled in the selection's tint. */
-.fb .font, .fb .combo { height: 28px; border: 1px solid var(--edge); background: var(--surface); }
-.fb .font { width: 148px; justify-content: space-between; padding: 0 6px 0 8px; }
+.fb .scope > [aria-pressed="true"] + .more { background-color: var(--selected); }
+.fb .scope > button[data-open] { background-image: linear-gradient(var(--press), var(--press)); }
+/* The font's name, a button as any is, which holds its width so nothing beside it moves; its menu finds as it's typed. The size is typed into, with its list. */
+.fb .font { width: 148px; justify-content: space-between; }
 .fb .font > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.fb .font:hover:not(:disabled, [aria-disabled="true"]) { border-color: var(--edge); }
-.fb .combo { display: inline-flex; align-items: center; border-radius: var(--r); flex: none; margin-left: 4px; }
+.fb .combo { display: inline-flex; align-items: center; height: 28px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); flex: none; }
 .fb .combo:hover:not(.off), .fb .combo:focus-within { border-color: var(--edge); }
 .fb .combo > input { width: 40px; height: 26px; padding: 0 0 0 8px; border: 0; background: transparent; font-variant-numeric: tabular-nums; }
 .fb .combo > input:focus { outline: none; }
@@ -180,36 +179,36 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .fb .combo > .dd:hover:not(:disabled) { background: var(--hover); }
 .fb .combo.off { color: var(--off); border-color: var(--rule); }
 .fb .combo.off > .dd { opacity: .6; }
-.fb .btn[aria-pressed="true"] { background-color: var(--selected); background-image: none; color: var(--accent-ink); }
-.fb .btn.icon { color: var(--ink); }
-.fb .arrange { gap: 6px; }
+/* Arrange says itself in a word, as Insert does, and by its glyph only where there's no room for the word. */
+.fb .arrange > svg { display: none; }
 /* Where the bar is narrower than its full width, Align, Order, Group and Tidy are one Arrange menu. */
 .slot.formatbar > .host { container-type: inline-size; }
 .fb .narrow { display: none; }
 @container (max-width: 1560px) { .fb .wide { display: none; } .fb .narrow { display: inline-flex; } .fb > .sep { margin: 0 6px; } .fb .font { width: 104px; } }
 /* (Where the scope has no room to say what's alike but a letter or two, it says All, and what on hover.) */
 @container (max-width: 1310px) { .fb > .sep { margin: 0 5px; } .fb .font { width: 92px; } .fb .scope > [data-fb="own"] + [data-fb="like"] > span { display: none; } .fb .scope > [data-fb="own"] + [data-fb="like"]::before { content: "All"; } }
-@container (max-width: 1230px) { .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb .arrange > span { display: none; } }
+@container (max-width: 1230px) { .fb > .sep { margin: 0 4px; } .fb .font { width: 92px; } .fb [data-fb="grow"], .fb [data-fb="shrink"], .fb .arrange > span { display: none; } .fb .arrange > svg { display: block; } }
 @container (max-width: 1010px) { .fb > .sep { margin: 0 2px; } .fb .font { width: 72px; } .fb [data-fb="underline"], .fb [data-fb="strike"], .fb [data-fb="paragraph"] { display: none; } }
 @container (max-width: 880px) { .fb [data-fb="painter"], .fb [data-fb="clear"], .fb [data-fb="shape"] { display: none; } .fb .font { width: 56px; } }
 /* A color's bar under its glyph: the paint bucket's, the pen's; the A's is its own baseline, in the color. */
-.fb .well { display: inline-grid; grid-template-rows: 15px 4px; justify-items: center; width: 18px; height: 20px; }
+.fb .well { display: inline-grid; grid-template-rows: 15px 4px; justify-items: center; width: 16px; height: 20px; }
 .fb .well > svg { width: 15px; height: 15px; }
 .fb .well > i { align-self: end; width: 16px; height: 3.5px; border-radius: 1px; box-shadow: inset 0 0 0 .5px rgb(0 0 0 / .3); }
-.fb .well.a { grid-template-rows: 20px; }
-.fb .well.a > svg { width: 20px; height: 20px; }
+.fb .well.a { grid-template-rows: 20px; width: 18px; }
+.fb .well.a > svg { width: 18px; height: 20px; }
 .fb .well.a .edge { stroke: var(--rule-2); stroke-width: 5; stroke-linecap: butt; }
 /* In dark a dark color's bar stands on a plate that shows it, as on a light ground it needs none; the swatches beside it have theirs in the page's white, dimmed there (inspector.css). */
 :root[data-theme="dark"] .fb .well > i { box-shadow: 0 0 0 1px var(--ink-3); }
 :root[data-theme="dark"] .fb .well.a .edge { stroke: var(--ink-2); stroke-width: 6; }
-.fb .glyph { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; }
+.fb .glyph { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.fb .glyph.fx { fill: var(--paper); }
+.fb .glyph.fx .shade { fill: currentColor; stroke: none; opacity: .4; }
 /* Tidy says what it tidies in room kept for that, so nothing beside it moves (where the bar is short, by the count alone, the rest on hover); the zoom is of one width, at the bar's end, and stays there however little room the bar has. */
-.fb [data-fb="tidy"] { display: inline-block; width: 110px; line-height: 26px; text-align: left; overflow: hidden; white-space: nowrap; }
+.fb [data-fb="tidy"] { display: inline-block; width: 110px; line-height: 28px; text-align: left; overflow: hidden; white-space: nowrap; }
 @container (max-width: 1560px) { .fb [data-fb="tidy"] { width: 64px; } }
 .fb [data-fb="group"] { width: 76px; }
-.fb .zoom { margin-left: auto; width: 62px; justify-content: flex-end; position: sticky; right: 0; background-color: var(--paper); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.fb .zoom { margin-left: auto; width: 62px; justify-content: flex-end; position: sticky; right: 0; background-color: var(--paper); font-variant-numeric: tabular-nums; }
 .fb .btn:disabled, .fb .btn[aria-disabled="true"] { color: var(--off); }
-.fb .btn:disabled.font, .fb .btn[aria-disabled="true"].font { border-color: var(--rule); }
 /* The painter armed: the brush, everywhere on the chart. */
 .dc.painting, .dc.painting * { cursor: var(--brush) !important; }
 .dc.dropping, .dc.dropping * { cursor: var(--dropper) !important; }
@@ -242,42 +241,40 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* (Its chevron at the row's end, as every submenu's is, and what's typed just before it.) */
 .menu-item.withfield > .sub.menu-item::after { position: absolute; right: 8px; top: calc(50% - 5px); }
 .menu-item.withfield > .amount { margin-right: 24px; }
-/* The shadow: which way it's thrown, then what it is, each typed. */
-.shadow { display: grid; gap: 2px; }
-.shadow > .k { color: var(--ink-3); font: var(--t12); margin-bottom: 4px; }
-.shadow > .throw { display: grid; grid-template-columns: repeat(3, 40px); gap: 2px; margin-bottom: 4px; }
-.shadow > .throw > button { height: 30px; padding: 0; border: 0; border-radius: var(--r); background: transparent; color: var(--ink-2); display: grid; place-items: center; }
-.shadow > .throw > button:hover { background: var(--hover); }
-.shadow > .throw > button[aria-pressed="true"] { background: var(--selected); color: var(--accent-ink); }
-.shadow > .menu-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; padding: 0 4px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; border-radius: var(--r); }
-.shadow > .menu-item:is(:hover, :focus-within) { background: var(--hover); }
+/* Effects: the shadow, which way it's thrown, each a tile of what's selected; what it is, each typed, beside it; then the rest. */
+.picker.effects { display: block; width: 256px; }
+.pop:has(> .picker.effects) { padding: 4px; }
+.shadow > .menu-head { padding-top: 4px; }
+.shadow > .throw { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 0 4px 4px; }
+.shadow > .menu-item { justify-content: space-between; }
+.shadow.options { width: 200px; }
 .shadow .hex { display: flex; align-items: center; gap: 4px; color: var(--ink-3); }
 .shadow .hex > input { width: 64px; height: 22px; padding: 0 4px; font: var(--t12); font-variant-numeric: tabular-nums; text-transform: uppercase; }
-.glyph.sh { width: 22px; height: 18px; fill: var(--surface); stroke: currentColor; }
+.picker.effects .menu-sep { margin: 4px -4px; }
 /* A submenu's glyph: a line's weight, dash, arrowheads, a frame. */
 .menu-item > .glyph:has(svg.ln) { width: 40px; }
 svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: visible; }
-.glyph.sh .shade { fill: currentColor; stroke: none; opacity: .45; }
 
-/* The palette and the pickers in the format bar's popovers: PowerPoint's theme colors, its first row apart
-   from the tints and shades under it, as PowerPoint sets it, then its standard colors and the chart's own; and
-   under them, rows as a menu's: No fill, and More colors with its hex. Each swatch has a hairline drawn on the
-   menu, not on its own colour, so White on a light menu and the near-blacks on a dark one keep their edges. */
-.palette { display: grid; grid-template-columns: repeat(10, 20px); gap: 4px; }
-.palette > :nth-child(-n + 10) { margin-bottom: 4px; }
-.palette > i { grid-column: 1 / -1; height: 4px; }
-/* (Room kept for the colors used of late, so nothing moves as they come: said as slots, not left as a gap.) */
-.palette > .room { width: 20px; height: 20px; border: 1px dashed var(--rule-2); border-radius: 3px; }
-.palette > button { width: 20px; height: 20px; padding: 0; border: 1px solid var(--rule-2); border-radius: 3px; background-clip: padding-box; cursor: default; }
+/* A color's menu and the pickers in the format bar's popovers: the chart's own colors, large; and under them, rows as a menu's: More colors, whose flyout is PowerPoint's whole palette, its
+   first row apart from the tints and shades under it, as PowerPoint sets it, then its standard colors; its hex; No fill. Each swatch has a hairline drawn on the menu, not on its own colour, so White on a
+   light menu and the near-blacks on a dark one keep their edges. */
+.palette { width: 216px; }
+/* (Two rows' room from the start, so nothing under them moves as the chart's colors come.) */
+.palette > .own { display: grid; grid-template-columns: repeat(5, 40px); grid-auto-rows: 28px; align-content: start; gap: 4px; min-height: 60px; }
+.palette > .own.set { min-height: 92px; }
+.palette > .own > button { width: 40px; height: 28px; }
+.palette.grid { display: grid; grid-template-columns: repeat(10, 20px); gap: 4px; width: auto; }
+.palette.grid > :nth-child(-n + 10) { margin-bottom: 4px; }
+.palette.grid > i { grid-column: 1 / -1; height: 4px; }
+.palette.grid > button { width: 20px; height: 20px; }
+.palette :is(.own, .grid) > button, .palette.grid > button { padding: 0; border: 1px solid var(--rule-2); border-radius: 3px; background-clip: padding-box; cursor: default; }
 /* The color it has wears a tick in what reads on it; the keys' ring goes round whichever they're on, a dark ring and a light one, so it shows on any swatch. */
-.palette > button[aria-pressed="true"] { position: relative; }
-.palette > button[aria-pressed="true"]::after { content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000); }
-.palette > button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 2px var(--surface); z-index: 1; }
-.palette > .more { grid-column: 1 / -1; display: grid; margin: 4px -8px -8px; padding-top: 4px; border-top: 1px solid var(--rule); }
-.palette .menu-item { border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; }
+.palette button[style][aria-pressed="true"] { position: relative; }
+.palette button[style][aria-pressed="true"]::after { content: ""; position: absolute; left: calc(50% - 3px); top: calc(50% - 7px); width: 5px; height: 10px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000); }
+.palette button[style]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 2px var(--surface); z-index: 1; }
+.palette > .more { display: grid; margin: 8px -8px -8px; padding-top: 4px; border-top: 1px solid var(--rule); }
 .palette .menu-sep { margin: 4px 0; }
-.palette .menu-item.sub { width: 100%; }
-.palette .menu-item:is(:hover, :focus-visible, :focus-within) { background: var(--hover); outline: none; }
+.palette .withfield > .hex { margin-right: 24px; position: relative; z-index: 1; }
 .palette .hex { display: flex; align-items: center; gap: 4px; color: var(--ink-3); }
 .palette .hex > input { width: 72px; height: 22px; padding: 0 6px; font: var(--t12); font-variant-numeric: tabular-nums; text-transform: uppercase; }
 .palette .hex > input[aria-invalid] { border-color: var(--no); }
@@ -295,12 +292,11 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 .picker.shape > .menu-item.slider { padding: 0; }
 .picker.shape > .menu-item.slider > .label { width: 56px; color: var(--ink-3); font: var(--t12); }
 .shapes > button[aria-pressed="true"] { background: var(--selected); color: var(--accent-ink); }
-.pop:has(> .insert) { padding: 4px; }
-.insert { min-width: 216px; }
-.insert > .menu-item { width: 100%; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; }
-.insert > .menu-item:hover { background: var(--hover); }
-.insert > .menu-item:focus-visible { background: var(--hover); outline: 2px solid var(--focus); outline-offset: -2px; }
-.insert > .shapes { padding: 4px; }
+/* Insert: what goes on the chart by name, and the shapes beside them, which scroll on their own; as tall as its rows, or what the window has. */
+.pop:has(> .insert) { padding: 4px; overflow: hidden; display: grid; }
+.insert { display: grid; grid-template-columns: 200px 232px; min-height: 0; max-height: 100%; }
+.insert > .rows { min-height: 0; overflow-y: auto; padding-right: 4px; }
+.insert > .gallery { contain: size; height: 100%; max-height: none; border-left: 1px solid var(--rule); padding: 0 4px 0 8px; margin: -4px -4px -4px 0; background: none; }
 .shapes { display: grid; grid-template-columns: repeat(7, 28px); gap: 2px; }
 .shapes > button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--r); background: transparent; color: var(--ink-2); display: grid; place-items: center; }
 .shapes > button:hover { background: var(--hover); color: var(--ink); }
@@ -310,7 +306,9 @@ svg.ln { width: 40px; height: 10px; fill: none; stroke: currentColor; overflow: 
 /* The Export dialog: what's exported, and the file's pages in a well, each fitted, or one at full size. More
    than one go two across, two rows of them in view, each page as large as that allows (--a its width over its
    height). */
-.ex { display: flex; flex-direction: column; gap: 12px; height: min(calc(100vh - 32px - 118px), calc(56vh + 144px), 664px); min-height: 280px; overflow: hidden; }
+.ex { display: flex; flex-direction: column; gap: 12px; height: min(calc(100vh - 32px - 118px), 800px); min-height: 280px; overflow: hidden; }
+/* The file's pages are what's looked at here: the dialog as large as they need, but a table's file, which says what it is in a line or two. */
+dialog.dlg:has(.ex:not(:has(> .ex-well))) { width: min(720px, calc(100vw - 32px)) !important; }
 /* (With no pages to show, a table's file, it's as tall as what it says.) */
 .ex:not(:has(> .ex-well)) { height: auto; min-height: 0; }
 .ex > * { flex-shrink: 0; }
@@ -334,8 +332,11 @@ dialog.dlg:has(.ex)[open] { animation: none; }
 .ex-well.full { grid-template-columns: max-content; }
 .ex-well.many { grid-template-columns: repeat(2, minmax(0, 1fr)); container-type: size; }
 .ex-well.many .ex-page { width: min(100%, max(280px, (50cqh - 44px) * var(--a))); justify-self: center; }
+/* (Two pages have the whole height to themselves.) */
+.ex-well.many:has(> .ex-page:nth-child(2):last-child) .ex-page { width: min(100%, (100cqh - 60px) * var(--a)); }
 .ex-page { margin: 0; display: grid; gap: 4px; }
 .ex-page > button { display: block; padding: 0; border: 0; border-radius: 0; background: #fff; box-shadow: 0 0 0 1px var(--rule-2); cursor: zoom-in; }
+.ex-page > button:hover { box-shadow: 0 0 0 1px var(--accent); }
 /* The file's own vectors, on the page, not a picture of them: its text set by the same type engine as the chart's, its strokes of the screen's width however small the page is shown. */
 .ex-drawn { display: block; }
 .ex-drawn > svg { display: block; width: 100%; height: auto; }
@@ -377,20 +378,17 @@ text.dc-gap { fill: #c2372b; stroke: none; font-family: var(--font-ui, sans-seri
 /* The chart's master, being edited: a bar over its page. */
 .dc-over > .dc-masterhost { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); pointer-events: none; }
 .dc-masterbar { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 4px 4px 4px 12px; background: var(--surface); border: 1px solid var(--rule-2); border-radius: var(--r); box-shadow: 0 6px 18px rgb(0 0 0 / .12); font-weight: 600; }
-/* A popover's own rows: Effects' and Edit points, as a menu's. */
-.picker > button.menu-item { width: 100%; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; }
-.picker > button.menu-item:hover, .picker > button.menu-item:focus-visible { background: var(--hover); }
 .picker:has(> button.menu-item) { gap: 2px; }
-.fonts > button.menu-item { width: 100%; margin-top: 4px; border: 0; border-top: 1px solid var(--rule); background: transparent; color: var(--ink); font: inherit; text-align: left; }
-.fonts > button.menu-item:hover, .fonts > button.menu-item:focus-visible { background: var(--hover); }
+.fonts > button.menu-item { margin-top: 4px; border-top: 1px solid var(--rule); }
 /* A table on the page: the cell picked; the rule between two columns, to drag; Insert's grid of rows and columns. */
 .dc-tcell { fill: none; stroke: var(--accent); vector-effect: non-scaling-stroke; pointer-events: none; }
 .dc-tcol { cursor: col-resize; }
 .pop:has(> .iconpick) { padding: 6px; }
-.iconpick { width: 320px; }
+/* (A whole number of rows, so none is cut at its foot; what's found past them scrolls a row at a time.) */
+.iconpick { width: 324px; }
 .iconpick .find { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
-.iconpick .grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; max-height: 280px; overflow-y: auto; }
-.iconpick .grid button { aspect-ratio: 1; padding: 4px; border: 0; background: transparent; border-radius: var(--r); cursor: pointer; color: var(--ink); }
+.iconpick .grid { display: grid; grid-template-columns: repeat(8, 36px); grid-auto-rows: 36px; gap: 2px; max-height: calc(6 * 36px + 5 * 2px); overflow-y: auto; scroll-snap-type: y mandatory; scrollbar-gutter: stable; }
+.iconpick .grid button { padding: 6px; border: 0; background: transparent; border-radius: var(--r); cursor: default; color: var(--ink); scroll-snap-align: start; }
 .iconpick .grid button:hover, .iconpick .grid button:focus-visible { background: var(--hover); outline: none; }
 .iconpick .grid svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .iconpick .menu-none { grid-column: 1 / -1; }
@@ -401,8 +399,6 @@ input.cell.tabs { width: 88px; }
 .tablepick .grid button { width: 22px; height: 18px; padding: 0; border: 1px solid var(--rule-2); border-radius: 1px; background: var(--surface); cursor: pointer; }
 .tablepick .grid button.on { background: var(--selected); border-color: var(--accent); }
 .tablepick .grid button:focus-visible { outline: 2px solid var(--focus); outline-offset: 0; }
-.tablepick > .menu-item { width: 100%; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; }
-.tablepick > .menu-item:hover, .tablepick > .menu-item:focus-visible { background: var(--hover); }
 .dc-cropper.frame { stroke: var(--ink); stroke-dasharray: 3 2; pointer-events: none; }
 .dc-cropper.bar { fill: var(--ink); stroke: #fff; stroke-width: .5; pointer-events: auto; }
 .dc-cropper.bar.tall { cursor: ew-resize; }
@@ -444,7 +440,8 @@ input.cell.tabs { width: 88px; }
 .dc-over > .dc-ruler[hidden] { display: none; }
 .dc-over > .dc-ruler.down { border-right: 1px solid var(--rule-2); }
 .dc-over > .dc-ruler.across { border-bottom: 1px solid var(--rule-2); }
-.dc .x6-widget-transform-rotate { width: 10px !important; height: 10px !important; top: -22px !important; left: calc(50% - 5px) !important; right: auto !important; bottom: auto !important; margin: 0 !important; border-radius: 50% !important; background: #fff !important; border: 1px solid var(--accent) !important; cursor: grab !important; }
+.dc .x6-widget-transform-rotate { width: 10px !important; height: 10px !important; top: -22px !important; left: calc(50% - 5px) !important; right: auto !important; bottom: auto !important; margin: 0 !important; border-radius: 50% !important; background: #fff !important; border: 1px solid var(--accent) !important; cursor: grab !important; opacity: 0; transition: opacity var(--quick) var(--ease); }
+.dc.near-grips .x6-widget-transform-rotate, .dc .x6-widget-transform-rotate:hover { opacity: 1; }
 
 /* What a house style holds: its paper, fonts, footer and Key, then its rows, each with its swatch */
 .holds { display: grid; gap: 6px; max-height: min(60vh, 520px); overflow: auto; }
@@ -455,17 +452,26 @@ input.cell.tabs { width: 88px; }
 .holds .v { color: var(--ink); min-width: 0; }
 .holds .menu-head { margin-top: 8px; padding: 0; }
 
+/* One tile, in every gallery (Design, Effects, Fill's Gradient, Pattern and Texture): the thing itself drawn small on a bit of quiet page, a frame that's the same in every state, and the state on the frame: a wash under the pointer, the accent for what it has now, a ring where the keys are. Its name, where it has one, under it on one line. */
+.tile { display: grid; gap: 4px; justify-items: stretch; width: 100%; padding: 3px; border: 1px solid transparent; border-radius: var(--r); background: transparent; color: var(--ink-2); cursor: default; min-width: 0; }
+.tile > .art { display: block; aspect-ratio: 3 / 2; border-radius: 2px; background: var(--well); box-shadow: 0 0 0 1px var(--rule); overflow: hidden; }
+.tile > .art > svg { display: block; width: 100%; height: 100%; }
+.tile:hover { background: var(--hover); color: var(--ink); }
+.tile[aria-pressed="true"], .tile[aria-checked="true"] { border-color: var(--accent); background: var(--selected); color: var(--accent-ink); }
+.tile:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.tile > .nm { font: var(--t12); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A menu of tiles: three across, its other rows across the whole. The tile's name is there for the keys and the hover. */
+.menu.tiled { display: grid; grid-template-columns: repeat(3, 76px); gap: 4px; min-width: 0; max-width: none; align-content: start; }
+.menu.tiled > :not(.tile) { grid-column: 1 / -1; }
+.menu.tiled > .tile { height: auto; display: grid; padding: 3px; }
+.menu.tiled > .tile > .label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.menu.tiled > .tile.on { background: var(--hover); }
+.menu.tiled > .tile[aria-checked="true"].on { background: var(--selected); }
 /* A design's gallery: each tile a real thumbnail, its name beneath, a pencil on the one pointed at; and the bar while one's edited */
-.picker.designs { width: 448px; max-width: calc(100vw - 32px); max-height: min(calc(100vh - 100px), 620px); overflow: auto; }
+.picker.designs { width: 448px; max-width: calc(100vw - 32px); }
 .picker.designs .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .picker.designs .tile-at { position: relative; display: block; min-width: 0; }
-.picker.designs .tile { width: 100%; padding: 6px 4px 4px; border: 1px solid transparent; border-radius: var(--r); background: transparent; color: var(--ink-2); display: grid; gap: 4px; justify-items: stretch; cursor: pointer; }
-.picker.designs .tile:hover { background-image: linear-gradient(var(--hover), var(--hover)); color: var(--ink); }
-.picker.designs .tile[aria-pressed="true"] { border-color: var(--accent); background: var(--selected); color: var(--accent-ink); }
-.picker.designs .tile:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
-.picker.designs .art { display: block; height: 62px; border-radius: 3px; background: #ffffff; overflow: hidden; }
-.picker.designs .art svg { display: block; width: 100%; height: 100%; }
-.picker.designs .nm { font: var(--t12); line-height: 1.25; text-align: center; min-height: 2.5em; }
+.picker.designs .art { aspect-ratio: auto; height: 62px; }
 .picker.designs .pencil { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; padding: 3px; border: 1px solid var(--edge); border-radius: var(--r); background: var(--surface); color: var(--ink-2); display: none; place-items: center; }
 .picker.designs .tile-at:hover .pencil, .picker.designs .pencil:focus-visible { display: grid; }
 .picker.designs .pencil:hover { color: var(--ink); background-image: linear-gradient(var(--hover), var(--hover)); }

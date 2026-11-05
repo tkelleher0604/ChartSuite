@@ -1253,7 +1253,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     const kept = (was.views ?? []).filter(id => list.some(v => v.id === id)), on = list.some(v => v.id === shown) ? shown : null;
     const views0 = on ? (kept.includes(on) ? kept : [on]) : kept.length ? kept : here ? [here.id] : [], onPages = new Set(views0.map(id => pageNow(id).paper));
     const choice = { format: first, views: views0, all: !!was.all, paper: last.paper && list.length ? last.paper : onPages.size === 1 && [...onPages][0] ? [...onPages][0] : list.length ? OWN : 'slide' };
-    const go = await Shell.dialog({ title: 'Export', width: 720, body: settle => html`<${Choice} choice=${choice} here=${here} others=${others} close=${settle} />`,
+    const go = await Shell.dialog({ title: 'Export', width: 1180, body: settle => html`<${Choice} choice=${choice} here=${here} others=${others} close=${settle} />`,
       actions: [{ label: 'Cancel', value: false }, { label: 'Export', value: true, primary: true }] });
     if (!go) return;
     const x = choice.format.startsWith('x') ? others[+choice.format.slice(1)] : null;
@@ -1274,7 +1274,14 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   api.open = open;
 }
 // A box by itself, as this draws it, for a gallery's thumbnail (dendra.md, Group designs): at the scale its page is drawn at, from its own top left.
-api.markSvgOf = (m, scale = 1) => { at = scale; const pad = 6; return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-pad} ${-pad} ${n(m.w + 2 * pad)} ${n(m.h + 2 * pad)}">${markSvg(m)}</svg>`; };
+api.markSvgOf = (m, scale = 1) => { at = scale; picturesNow = null; const pad = 6; return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-pad} ${-pad} ${n(m.w + 2 * pad)} ${n(m.h + 2 * pad)}">${markSvg(m)}</svg>`; };
+// The same with a look tried on it, its body alone, as words that small would be mush, and room round it for what spreads past its frame (`below`, what a reflection takes): a tile of Effects' or Fill's menus, which every tile of a gallery shares.
+api.tileSvg = (m, over = {}, scale = 1, below = 0) => {
+  at = scale; picturesNow = null;
+  const b = { ...m, x: 0, y: 0, texts: [], ...(m.parts && { parts: m.parts.map(p => ({ ...p, texts: [] })) }), ...(m.look && { look: { ...m.look, ...over } }), ...(m.settings && { settings: { ...m.settings, ...Object.fromEntries(Object.entries(over).map(([k, value]) => [k, { value, note: null }])) } }) };
+  const pad = Math.max(10 * PT / scale, Math.min(m.w, m.h) * .22);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${n(-pad)} ${n(-pad)} ${n(m.w + 2 * pad)} ${n(m.h + 2 * pad + below)}">${markSvg(b)}</svg>`;
+};
 
 return api;
 })();

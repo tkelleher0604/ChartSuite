@@ -87,7 +87,7 @@ window.EyeDropper = undefined;  // (the way a browser without its own goes, whic
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 // (A little under what's asked: the page is near what a run of the suite gives it.)
-const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.85));
+const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.8));
 const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
 // What a click there lands on: what's travelling lands first, for frames can stall in a headless run while its clock goes on.
 const hitAt = (x, y) => { for (const a of document.getAnimations()) if (a.effect?.target?.closest?.('.dc')) a.finish(); cv()?.root.classList.remove('flying'); return document.elementFromPoint(x, y); };
@@ -111,6 +111,9 @@ function titleAt() {
 const key = (k, o = {}) => { const e = new KeyboardEvent('keydown', { key: k, code: o.code ?? k, bubbles: true, cancelable: true, ...o }); cv().root.dispatchEvent(e); };
 const menuItems = () => $$('.float .menu-item').map(txt);
 const closeMenus = async () => { document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); await tick(); };
+// A color's menu's flyout, the whole palette; the rows under a right-click's More.
+const moreColors = async () => { $$('.float .palette .menu-item.sub').find(b => txt(b) === 'More colors').click(); await tick(120); };
+const underMore = async () => { const b = $$('.float .menu-item').find(e => txt(e) === 'More'); b.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120); };
 
 async function run() {
   await until(() => App.views.peek().length && sc(), 15000);
@@ -300,16 +303,17 @@ async function run() {
   // ---- Live preview: a swatch or an option pointed at is drawn, and leaving ends it ----
   const changes = App.wb.changes().length, fillOf = id => sc().byId.get(id).settings.Fill.value;
   $('[data-fb="fill"]').click(); await tick(120);
-  const swatch = $$('.float .palette > button').find(b => b.getAttribute('aria-label') === 'Blue, Accent 1, Lighter 60%');
+  await moreColors();
+  const swatch = $$('.float .palette.grid > button').find(b => b.getAttribute('aria-label') === 'Blue, lighter 60%');
   swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
   check('pointing at a swatch draws the box in it', fillOf('halvard') === '#b4c7e7' && App.scene.peek().byId.get('halvard').settings.Fill.value !== '#b4c7e7', fillOf('halvard'));
   check('… and changes nothing', App.wb.changes().length === changes);
-  $('.float .palette').dispatchEvent(new PointerEvent('pointerleave')); await tick(80);
+  $('.float .palette.grid').dispatchEvent(new PointerEvent('pointerleave')); await tick(80);
   check('leaving the swatches ends the preview', fillOf('halvard') === App.scene.peek().byId.get('halvard').settings.Fill.value);
   swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
   cv().nudge(1, 0); await tick(120);
   check('a change to the chart ends a preview of it as it was', sc() === App.scene.peek() && fillOf('halvard') !== '#b4c7e7');
-  $('.float .palette').dispatchEvent(new PointerEvent('pointerleave')); await tick(40);
+  $('.float .palette.grid').dispatchEvent(new PointerEvent('pointerleave')); await tick(40);
   swatch.dispatchEvent(new PointerEvent('pointerenter')); await tick(80);
   await closeMenus(); await tick(80);
   check('closing the palette ends it too', sc() === App.scene.peek() && App.wb.changes().length === changes + 1);
@@ -416,21 +420,23 @@ async function run() {
   await size(1440, 900);
 
   // ---- Colors by PowerPoint's names, in PowerPoint's whole palette, and any other by its hex ----
-  const names = [['#DAE3F3', 'Blue, Accent 1, Lighter 80%'], ['E2F0D9', 'Green, Accent 6, Lighter 80%'], ['#f2f2f2', 'White, Background 1, Darker 5%'], ['#595959', 'Black, Text 1, Lighter 35%'],
-    ['#C00000', 'Dark Red'], ['#7f7f7f', 'Black, Text 1, Lighter 50%'], ['#ffc000', 'Gold, Accent 4'], ['#000000', 'Black, Text 1'], ['#E7E6E6', 'Light Gray, Background 2'],
-    ['#AFABAB', 'Light Gray, Background 2, Darker 25%'], ['#44546A', 'Blue-Gray, Text 2'], ['#D6DCE5', 'Blue-Gray, Text 2, Lighter 80%'], ['#FFFF00', 'Yellow'], ['#92D050', 'Light Green'], ['#123456', null]];
+  const names = [['#DAE3F3', 'Blue, lighter 80%'], ['E2F0D9', 'Green, lighter 80%'], ['#f2f2f2', 'White, darker 5%'], ['#595959', 'Black, lighter 35%'],
+    ['#C00000', 'Dark Red'], ['#7f7f7f', 'Black, lighter 50%'], ['#ffc000', 'Gold'], ['#000000', 'Black'], ['#E7E6E6', 'Light Gray'],
+    ['#AFABAB', 'Light Gray, darker 25%'], ['#44546A', 'Blue-Gray'], ['#D6DCE5', 'Blue-Gray, lighter 80%'], ['#FFFF00', 'Yellow'], ['#92D050', 'Light Green'], ['#123456', null]];
   const bad = names.filter(([c, n]) => FormatBar.colorName(c) !== n);
-  check('FormatBar.colorName gives PowerPoint’s name for a theme color, and null for a custom one', !bad.length, bad.map(([c]) => `${c}: ${FormatBar.colorName(c)}`).join('; '));
+  check('FormatBar.colorName gives a plain name for a theme color, never a slot of a theme, and null for a custom one', !bad.length, bad.map(([c]) => `${c}: ${FormatBar.colorName(c)}`).join('; '));
   toTitle();
   Shell.select(['halvard']); await tick(120);
   $('[data-fb="fill"]').click(); await tick(120);
-  const swatches = $$('.float .palette > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
-  check('a swatch is named so on hover', tips.join() === 'White, Background 1,Black, Text 1,Light Gray, Background 2', tips.join(' | '));
-  const fillRows = $$('.float .palette .menu-item').map(txt);
-  check('the palette is PowerPoint’s: its theme’s ten columns of six, then its ten standard colors, the chart’s own, then More colors, the Eyedropper, Transparency and No fill', swatches.length >= 70 && swatches.length <= 80 && swatches.slice(70).every(b => /^#[0-9A-F]{6}$/.test(b.dataset.tip))
-    && getComputedStyle($('.float .palette')).gridTemplateColumns.split(' ').length === 10
-    && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple'
-    && fillRows.length === 9 && fillRows[0] === 'More colors#' && fillRows[1] === 'Eyedropper' && /^Set this chart.s colors/.test(fillRows[2]) && fillRows[3] === 'Gradient' && fillRows[4] === 'Pattern' && fillRows[5] === 'Picture…' && fillRows[6] === 'Texture' && /^Transparency ?\d*%$/.test(fillRows[7]) && fillRows[8] === 'No fill' && !$('input[type="color"]'), `${swatches.length}: ${standard.join(', ')} | ${fillRows}`);
+  const ownFirst = $$('.float .palette > .own > button'), fillRows = $$('.float .palette > .more > .menu-item').map(txt);
+  check('a color’s menu leads with the chart’s own, large, what it’s painted in among them, then its rows; none of Office’s grid till asked', ownFirst.length > 2 && ownFirst[0].getBoundingClientRect().width >= 36 && ownFirst[0].getBoundingClientRect().top < $('.float .palette > .more').getBoundingClientRect().top && !$('.float .palette.grid')
+    && fillRows.join('|').startsWith('More colors#|Eyedropper|') && /^Set this chart.s colors/.test(fillRows[2]) && fillRows[3] === 'Gradient' && fillRows[4] === 'Pattern' && fillRows[5] === 'Picture…' && fillRows[6] === 'Texture' && fillRows[7] === 'Take the picture off' && /^Transparency ?\d*%$/.test(fillRows[8]) && fillRows[9] === 'No fill' && !$('input[type="color"]'), `${ownFirst.length} | ${fillRows}`);
+  await moreColors();
+  const swatches = $$('.float .palette.grid > button'), tips = swatches.slice(0, 3).map(b => b.dataset.tip), standard = swatches.slice(60, 70).map(b => b.dataset.tip);
+  check('a swatch is named so on hover', tips.join() === 'White,Black,Light Gray', tips.join(' | '));
+  check('More colors is PowerPoint’s whole palette: its theme’s ten columns of six, then its ten standard colors', swatches.length === 70
+    && getComputedStyle($('.float .palette.grid')).gridTemplateColumns.split(' ').length === 10
+    && standard.join() === 'Dark Red,Red,Orange,Yellow,Light Green,Green,Light Blue,Blue,Dark Blue,Purple', `${swatches.length}: ${standard.join(', ')}`);
   // Every swatch has one hairline, drawn on the menu, not on its own colour, so in either theme the swatches
   // nearest the menu's colour keep their edges: White on the light menu, the near-blacks on the dark.
   const rgb = s => s.match(/[\d.]+/g).slice(0, 3).map(Number), lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
@@ -452,8 +458,8 @@ async function run() {
   check('… and Enter makes it, and closes the palette', App.scene.peek().byId.get('halvard').settings.Fill.value === '#1f5fbf' && !$('.float .palette'), App.scene.peek().byId.get('halvard').settings.Fill.value);
   Shell.select(['northpine']); await tick(120);
   $('[data-fb="outline"]').click(); await tick(120);
-  const own = $$('.float .palette > button').slice(70).map(b => b.dataset.tip);
-  check('… and the chart’s own colors follow the standard ones, as PowerPoint’s Recent Colors do', own[0] === '#1F5FBF', own.join(' | '));
+  const own = $$('.float .palette > .own > button').map(b => b.dataset.tip);
+  check('… and what was last given leads the chart’s own colors', own[0] === '#1F5FBF', own.join(' | '));
   await closeMenus();
   Shell.parts.peek().undo.undo(); await tick(150);
 
@@ -693,6 +699,10 @@ async function run() {
     const fj = textAt('feeder', 'feeder_juris');
     if (fj) await press(fj);
     $('[data-fb="groups"]').click(); await tick(120);
+    // (A long list has what each field could reach a row away.)
+    const farther = $$('.float .menu-item').find(e => txt(e) === 'Same field value');
+    check('a long scope list isn’t a wall: its field values are a row away', !!farther && !$$('.float .menu-item').some(e => /^Jurisdiction: Cayman Islands/.test(txt(e))), menuItems().join(' | '));
+    farther?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120);
     $$('.float .menu-item').find(e => /^Jurisdiction: Cayman Islands/.test(txt(e)))?.click(); await tick(150);
     const fieldOn = cv().field()?.it.id === 'feeder_juris', jurisOff = !boldOn();
     const restOf = () => ['feeder', 'caygp'].map(b => App.scene.peek().byId.get(b).texts.filter(it => it.id !== `${b}_juris`).map(it => it.look.Bold).join()).join('|'), restWas = restOf();
@@ -865,11 +875,11 @@ async function run() {
   // and Route ▸, then No outline; each ▸ a menu of the popover's, the value the line has checked ----
   Shell.select([line.id]); await tick(120);
   $('[data-fb="outline"]').click(); await tick(150);
-  const subs = $$('.float .palette .menu-item.sub').map(txt), outlineRows = $$('.float .palette .menu-item').map(txt);
+  const subs = $$('.float .palette .menu-item.sub:not(:disabled)').map(txt), outlineRows = $$('.float .palette .menu-item').map(txt);
   $$('.float .palette .menu-item.sub').find(b => txt(b) === 'Weight')?.click(); await tick(150);
   const lineWeight = +Scene.toSlide(sc().page, sc().byId.get(line.id).settings.Weight.value).toFixed(2), checkedW = $$('.float .menu-item[aria-checked="true"]').map(txt);
   check('Outline offers its palette, then Weight ▸, Dashes ▸, Arrows ▸ and Route ▸ for a line, then No outline; Weight ▸ checks the weight the line has, and the popover stays open beside it',
-    subs.join() === 'Weight,Dashes,Compound,Gradient,Arrows,Route' && outlineRows.at(-1) === 'No outline' && checkedW.includes(`${lineWeight} pt`) && !!$('.float .palette'), `${outlineRows.join(' | ')}; ${checkedW}`);
+    subs.join() === 'More colors,Weight,Dashes,Compound,Gradient,Arrows,Route' && outlineRows.at(-1) === 'No outline' && checkedW.includes(`${lineWeight} pt`) && !!$('.float .palette'), `${outlineRows.join(' | ')}; ${checkedW}`);
   $$('.float .menu-item').find(e => txt(e) === '3 pt')?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120);
   check('… and a weight pointed at in it is drawn on the line, changing nothing', Math.abs(Scene.toSlide(sc().page, sc().byId.get(line.id).settings.Weight.value) - 3) < 0.01
     && sc() !== App.scene.peek());
@@ -877,9 +887,9 @@ async function run() {
   check('… until the popover closes', sc() === App.scene.peek());
   { toTitle(); Shell.select(['fund']); await tick(120);
     $('[data-fb="outline"]').click(); await tick(150);
-    const boxSubs = $$('.float .palette .menu-item.sub').map(txt);
+    const boxSubs = $$('.float .palette .menu-item.sub:not(:disabled)').map(txt), allSubs = $$('.float .palette .menu-item.sub').map(txt);
     await closeMenus();
-    check('a box’s Outline has no Arrows ▸ or Route ▸, and the Line and Arrowheads buttons are gone', boxSubs.join() === 'Weight,Dashes,Compound,Gradient' && !$('[data-fb="line"]') && !$('[data-fb="arrow"]'), boxSubs.join()); }
+    check('a box’s Outline has the same rows, in the same places, Arrows ▸ and Route ▸ grey, and the Line and Arrowheads buttons are gone', boxSubs.join() === 'More colors,Weight,Dashes,Compound,Gradient' && allSubs.join() === 'More colors,Weight,Dashes,Compound,Gradient,Arrows,Route,Frame' && !$('[data-fb="line"]') && !$('[data-fb="arrow"]'), boxSubs.join()); }
 
   // ---- Fonts: found as typed, each in its own face, the chart's own first, then by class; one not on this computer
   // greyed and said so; any font on it taken by its name ----
@@ -1205,8 +1215,11 @@ async function run() {
     const boxAt = m => { const c = cv().graph.localToGraph(m.x + m.w / 2, m.y + 4), r0 = cv().root.getBoundingClientRect(); return [r0.left + c.x, r0.top + c.y]; };
     const [bx, by] = boxAt(sc().byId.get(plain));
     hitAt(bx, by)?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: bx, clientY: by, button: 2, view: window })); await tick(150);
+    const boxTop = $$('.float .menu-item').map(x => txt(x.querySelector('.label')));
+    await underMore();
     const boxMenu = Object.fromEntries($$('.float .menu-item').map(x => [txt(x.querySelector('.label')), txt(x.querySelector('kbd'))]));
-    check('a box’s menu keys Delete to Delete…, named for what it records (Dissolve…), and Hide in this view to nothing, with History beside them', boxMenu[`${App.deleteVerb([plain])}…`] === Shell.keyLabel('Delete') && 'Hide in this view' in boxMenu && !boxMenu['Hide in this view'] && 'History' in boxMenu, JSON.stringify(boxMenu));
+    check('a box’s menu keys Delete to Delete…, named for what it records (Dissolve…), and under More Hide in this view to nothing, with History beside it', boxMenu[`${App.deleteVerb([plain])}…`] === Shell.keyLabel('Delete') && 'Hide in this view' in boxMenu && !boxMenu['Hide in this view'] && 'History' in boxMenu, JSON.stringify(boxMenu));
+    check('… about a dozen rows at its top, in one order: what it says, what it’s related to, the clipboard, Format and More, what takes it away', boxTop.length <= 14 && boxTop.indexOf('Edit text') === 0 && boxTop.indexOf('Copy') > boxTop.indexOf('Add footnote') && boxTop.indexOf('Format') > boxTop.indexOf('Paste') && boxTop.indexOf('More') === boxTop.indexOf('Format') + 1 && boxTop.at(-1) === `${App.deleteVerb([plain])}…`, boxTop.join(' | '));
     $$('.float .menu-item').find(x => txt(x.querySelector('.label')) === 'History')?.click(); await tick(250);
     check('… its History opens History filtered to it', !!$('.hist') && txt($('.hist-filter .of')).includes('Ninth Street Holdings LLC'), txt($('.hist-filter .of')));
     Time.close(); await tick(120);
@@ -1800,11 +1813,13 @@ async function pickings() {
   Shell.select([a.id, b.id]); await tick(200);
   const rightClickAt = async (m, it) => { const l = it ? it.lines[0] : null, q = g.localToGraph(m.x + (l ? l.x : 6), m.y + (l ? l.y - 3 : 6)), [x, y] = [R().left + q.x, R().top + q.y], el = hitAt(x, y); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2, buttons: 2, view: window })); await tick(250); };
   await rightClickAt(a, a.texts[0]);
+  await underMore();
   let items = menuItems();
   check('a right-click on a name in a selection of several gives the box menu', items.some(s => s.startsWith('Hide in this view')) && items.some(s => s.startsWith('Show only these')) && !items.some(s => s.startsWith('Clear contents')), items.join(' | '));
   await closeMenus();
   Shell.select([a.id]); await tick(200);
   await rightClickAt(sc().byId.get(a.id), sc().byId.get(a.id).texts[0]);
+  await underMore();
   items = menuItems();
   check('one on a name in a box selected alone gives the box’s menu, and the name’s own in one row under Edit text', items.some(s => s.startsWith('Hide in this view')) && items[1]?.startsWith('Name') && !items.some(s => s.startsWith('Clear contents')), items.join(' | '));
   await closeMenus(); Shell.select([]); await tick(150);
@@ -2664,7 +2679,8 @@ async function format() {
   check('a text with no color of its own is drawn white on a fill too dark for ink', fundBox().texts.every(it => it.look.Color === '#ffffff'), fundBox().texts.map(it => it.look.Color).join());
   // Text color at a group means every field it shows, as a shape's in PowerPoint.
   $('[data-fb="color"]').click(); await tick(120);
-  const swatchRed = $$('.float .palette > button').find(b => b.getAttribute('aria-label') === 'Yellow');
+  await moreColors();
+  const swatchRed = $$('.float .palette.grid > button').find(b => b.getAttribute('aria-label') === 'Yellow');
   swatchRed.dispatchEvent(new PointerEvent('pointerenter')); swatchRed.click(); await tick(400);
   check('a text color given a group of boxes goes to every field they show', fundBox().texts.every(it => it.look.Color === '#ffff00'), fundBox().texts.map(it => it.look.Color).join());
   cap('Funds').click(); await tick(150);
@@ -2800,18 +2816,59 @@ async function format() {
   $$('.float .throw button').find(b => b.getAttribute('aria-label') === 'Top left').click(); await tick(300);
   const shadowNow = () => Scene.shadowOf(sc().byId.get('northpine').settings.Shadow.value);
   check('a shadow thrown a way it’s named', shadowNow()?.angle === 225 && shadowNow().distance > 0 && !!$('.float .throw button[aria-pressed="true"]'), JSON.stringify(shadowNow()));
+  check('… each way a tile, drawn from the box with that shadow on it', $$('.float .throw button.tile .art svg').length === 9);
+  $$('.float .menu-item.sub').find(b => txt(b) === 'Shadow options').click(); await tick(150);
   const blurField = $('.float .shadow input[aria-label="Blur"]');
   blurField.value = '9'; blurField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(300);
   const colorField = $('.float .shadow input[aria-label="Shadow color"]');
   colorField.value = '1F3864'; colorField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(300);
   check('… Blur and Color typed, what it had staying', shadowNow().blur === 9 && shadowNow().color === '#1f3864' && shadowNow().angle === 225, JSON.stringify(shadowNow()));
   await closeMenus();
+  // ---- One system: a menu hangs from what opened it; rows hold still; a look's a tile of what's selected; a toast has one home ----
+  {
+    const insert = () => $('[data-fb="insert"]'), rows = () => $$('.float .insert .rows .menu-item');
+    insert().click(); await tick(150);
+    const b = insert().getBoundingClientRect(), m = $('.float .pop:has(> .insert)').getBoundingClientRect(), onBox = rows().map(txt);
+    check('Insert hangs from its button, inside the window, and says it’s open', m.top >= b.bottom && m.bottom <= innerHeight && insert().hasAttribute('data-open'), `${m.top} ${b.bottom} ${m.bottom}`);
+    await closeMenus(); Shell.select([]); await tick(150);
+    insert().click(); await tick(150);
+    const none = rows().map(txt), grey = rows().filter(e => e.getAttribute('aria-disabled') === 'true').map(txt);
+    await closeMenus();
+    check('… and its rows are the same whatever’s selected, what can’t be now grey', none.join() === onBox.join() && grey.join() === 'Text in this box,Footnote' && !insert().hasAttribute('data-open'), `${none} | ${grey}`);
+    Shell.select(['northpine']); await tick(150);
+    $('[data-fb="effects"]').click(); await tick(150);
+    const sub = async name => { const row = $$('.float .sub').find(e => txt(e) === name); row.dispatchEvent(new PointerEvent('pointerenter')); await tick(150); };
+    const drawn = () => $$('.float .menu.tiled > .tile .art').map(a => a.innerHTML.replace(/fx-\d+\w?/g, 'fx'));
+    let words = [];
+    // (A flat shape turned left and turned right, seen straight on, are one drawing; PowerPoint's own parallel rotations are too.)
+    for (const [name, n, as = n] of [['Glow', 5], ['Soft edges', 6], ['Reflection', 6], ['Inner shadow', 8], ['Bevel', 9], ['3-D rotation', 7, 5]]) {
+      await sub(name);
+      words = [...words, ...menuItems()];
+      check(`${name}: every one a tile of the box with it on, each drawn as itself`, drawn().length === n && new Set(drawn()).size === as, `${drawn().length} ${new Set(drawn()).size}`);
+    }
+    const wasFill = sc().byId.get('northpine').settings.Glow?.value ?? null;
+    await sub('Glow'); const t = $$('.float .menu.tiled > .tile')[2];
+    t.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120);
+    check('… pointed at, drawn on the chart, changing nothing', !!sc().byId.get('northpine').settings.Glow?.value && App.scene.peek().byId.get('northpine').settings.Glow?.value === wasFill && t.dataset.tip === txt(t.querySelector('.label')), t.dataset.tip);
+    await closeMenus(); await tick(100);
+    check('… and the menu’s words are the deck’s no longer: no preset’s name for what a picture says', words.length > 30 && !words.some(w => /Relaxed|Cool slant|Art deco|Accent \d/.test(w)), words.join(' | '));
+    const lookRow = $$('section[data-key="look"] .row .sel.dd')[0], lookAt = lookRow?.getBoundingClientRect();
+    lookRow?.click(); await tick(150);
+    const hung = $('.float .pop')?.getBoundingClientRect();
+    check('a Look row is changed where it’s read: it opens the bar’s menu for it, by it', !!hung && (hung.right <= lookAt.left + 1 || hung.left <= lookAt.right) && $$('section[data-key="look"] .row.still').length + $$('section[data-key="look"] .row .sel.dd').length >= 1, `${hung?.left} ${lookAt?.left}`);
+    await closeMenus(); await tick(60);
+    Shell.toast('Home'); await tick(60);
+    const v = $('#view').getBoundingClientRect(), home = $('.toasts').getBoundingClientRect();
+    Shell.select(['halvard']); await tick(150);
+    const after = $('.toasts').getBoundingClientRect();
+    check('a toast stands at the view’s foot, in its middle, whatever’s selected', Math.abs(home.left + home.width / 2 - (v.left + v.width / 2)) < 2 && Math.abs(after.left - home.left) < 1 && Math.abs(after.top - home.top) < 1, `${home.left} ${after.left} ${v.left} ${v.width}`);
+  }
   // ---- A line: arrowheads by style and size at each end, PowerPoint's dashes, a weight typed ----
   const settingsOf = m => Object.fromEntries(Object.entries(m.settings).map(([k, v]) => [k, v.value]));
   const lineId = sc().marks.find(m => m.type === 'line' && !m.computed && !m.merged).id, lineM = () => sc().byId.get(lineId);
   Shell.select([lineId]); await tick(200);
   $('[data-fb="outline"]').click(); await tick(150);
-  const weightField = $('.float .withfield input');
+  const weightField = $('.float .withfield .amount input');
   weightField.value = '2.25'; weightField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick(300);
   check('a line’s weight is typed', Math.abs(Scene.toSlide(sc().page, lineM().settings.Weight.value) - 2.25) < 0.01, lineM().settings.Weight.value);
   const sub = async name => { const b = $$('.float .sub').find(e => txt(e).startsWith(name)); b.dispatchEvent(new PointerEvent('pointerenter')); b.click(); await tick(150); };
@@ -3345,7 +3402,7 @@ Shell.ready.then(() => location.search.includes('format') ? format().finally(() 
     const failed = out.filter(c => !c.ok);
     const line = c => `${c.ok ? 'pass' : 'FAIL'}  ${c.name}${c.detail && !c.ok ? `  (${c.detail})` : ''}`;
     document.title = `canvas test: ${out.length - failed.length} pass, ${failed.length} fail`;
-    $('#out').innerHTML = [`${out.length - failed.length} passed, ${failed.length} failed`, '',
+    $('#out').innerHTML = [`${out.length - failed.length} passed, ${failed.length} failed`, `(${Math.round(performance.now() / 1000)} s of the suite's 240)`, '',
       ...failed.map(c => `<span class="fail">${line(c).replace(/</g, '&lt;')}</span>`), ...(failed.length ? [''] : []),
       ...out.filter(c => c.ok).map(line).map(s => s.replace(/</g, '&lt;'))].join('\n');
   });
