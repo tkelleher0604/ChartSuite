@@ -986,7 +986,7 @@ function attach(x) {
       </div></div>`;
   }
 
-  return { editPoints, endPoints, merge, mergeable, alongLine, lineAmong, shapeItems, pastePicture, setLink, editCell, tableItems, newTable, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook,
+  return { editPoints, endPoints, merge, mergeable, alongLine, lineAmong, shapeItems, pastePicture, setLink, editCell, tableItems, newTable, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook, reorder,
     destroy() { stopMaster(); render(null, masterEl); removeEventListener('pointermove', altMove, true); removeEventListener('keyup', altUp, true); removeEventListener('pointermove', heldKeys, true); removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
 }
 return { attach };

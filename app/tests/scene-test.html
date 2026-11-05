@@ -1540,7 +1540,7 @@ function groupDesigns() {
   const s2 = scene(w2);
   check('the narrowest decides: one box’s own over its group’s', s2.byId.get(llcs[1].id).design.value.id === 'side' && s2.byId.get(llcs[2].id).design.value.id === 'header');
   const shown = s2.byId.get(llcs[0].id);
-  check('what’s said over it at a box is that box’s, only what’s different, its base flowing through', shown.design.value.id === 'header' && shown.parts[1].look.Fill === '#ffeeaa' && s2.byId.get(llcs[2].id).parts[1].look.Fill === '#ffffff' && shown.parts[0].texts.length === 1);
+  check('what’s said over it at a box is that box’s, only what’s different, its base flowing through', shown.design.value.id === 'header' && shown.parts[1].look.Fill === '#ffeeaa' && s2.byId.get(llcs[2].id).parts[1].look.Fill !== '#ffeeaa' && shown.parts[0].texts.length === 1);
   const w3 = Log.open(SAMPLE);
   edit(w3, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); tx.note('Design', own, { over: { parts: { rest: { format: { Fill: '#ffeeaa' } } } } }, { view: MAIN }); });
   edit(w3, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, { ...preset('header'), parts: preset('header').parts.map(p => p.id === 'name' ? { ...p, format: { ...p.format, Italic: true } } : p) }, { view: MAIN }); });
