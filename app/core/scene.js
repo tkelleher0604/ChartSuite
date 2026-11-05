@@ -1193,7 +1193,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
     // else for it. (But on another paper, which draws the chart closer.)
     b.exact = !!b.pos?.hand && !onPaper;
     if (b.pos) positions.set(b.id, b.pos);
-    else if (p) hints.set(b.id, p.pos);
+    // (A place only kept was never chosen: no side of its relatives is said by it.)
+    else if (p && !p.pos.kept) hints.set(b.id, p.pos);
   }
 
   // Frames: each style giving a box's record, or a record in it, a Frame adds a step to the box's path,

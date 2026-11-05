@@ -3398,10 +3398,12 @@ function mount(el) {
   // lanes took moved it with them, which drawing it again gives it again. In one the layout alone placed, where it's drawn.)
   function holdsOf(base) {
     const o = origin(base.page), out = new Map();
+    // (One nothing relates yet, added from a table and laid in a row under what stands, is kept loosely, as one made on the chart is: once a line relates it, it goes beside its relatives.)
+    const related = new Set(base.marks.flatMap(m => m.type === 'line' && m.ranks ? [m.from, m.to] : []));
     for (const m of base.marks) if (m.type === 'box' && !m.placed && !m.revealed) {
       const [x, y] = base.page.placed && m.laid ? [m.laid.x, m.laid.y] : [m.x - o.x, m.y - o.y];
       // (A box of a design has the design's size: its own isn't kept, so it goes back to what it was with the design taken away.)
-      out.set(m.record, { x: round(x), y: round(y), ...(!m.design ? { w: round(m.w) } : m.narrow && { narrow: round(m.narrow) }), kept: true });
+      out.set(m.record, { x: round(x), y: round(y), ...(!m.design ? { w: round(m.w) } : m.narrow && { narrow: round(m.narrow) }), kept: true, ...(!related.has(m.id) && { loose: true }) });
     }
     // And the Key the page placed, where it's drawn on the sheet, so it keeps its corner as the chart is edited.
     const key = base.marks.find(m => m.geometry === 'legend' && m.byPage), s = base.page.scale;
@@ -3424,7 +3426,8 @@ function mount(el) {
       if (!t) { const was = rowOf(id)?.kept; if (rowOf(id) && (was?.x !== p.x || was?.y !== p.y)) tx.update(id, { kept: p }); continue; }
       const old = tx.noteAt('Position', t, { view })?.value;
       // (Not what this change itself placed, on a page that kept nothing till now.)
-      if (tx.item(id).length && !done?.has(id) && (old?.loose ?? true) && (!Number.isFinite(old?.x) || old.kept || old.loose)) tx.note('Position', t, { ...p, ...(old?.h != null && { h: old.h }) }, { view });
+      // (A place Tidy wrote that the layout has since moved, a box slid aside for one added beside it, as a kept one.)
+      if (tx.item(id).length && !done?.has(id) && (old?.loose ?? true) && (!Number.isFinite(old?.x) || old.kept || old.loose || Number.isFinite(old.order))) tx.note('Position', t, { ...p, ...(old?.h != null && { h: old.h }) }, { view });
     }
   });
 

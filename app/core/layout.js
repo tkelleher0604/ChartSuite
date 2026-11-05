@@ -730,14 +730,26 @@ function arranging({ boxes, links, clusters, entered, page, lines = [], obstacle
   let loose = { x: leftAll, y: Math.max(...standing.map(g => g.y + g.h)) + GAP.down, h: 0 };
   const looseAt = b => { if (loose.x > leftAll && loose.x + b.w > rightAll) loose = { x: leftAll, y: loose.y + loose.h + GAP.down, h: 0 }; const p = { x: loose.x, y: loose.y }; loose = { x: loose.x + b.w + GAP.across, y: loose.y, h: Math.max(loose.h, b.h) }; return p; };
   for (const b of rest.sort((a, c) => flanking(a) - flanking(c) || at.get(a.id).y - at.get(c.id).y || (a.order ?? Infinity) - (c.order ?? Infinity) || madeAt.get(a.id) - madeAt.get(c.id))) {
-    // Kept on one rank with one that stands, it goes on that one's row, beside it, on the side it was made on, as near as is clear.
-    const mate = links.filter(l => l.level && (l.from === b.id || l.to === b.id)).map(l => geo.get(l.from === b.id ? l.to : l.from)).find(Boolean);
+    // Kept on one rank with one that stands, it goes on that one's row, beside it, on the side it was made on, as near as is clear, with the room their line has wherever they're laid out.
+    const tie = links.find(l => l.level && (l.from === b.id || l.to === b.id) && geo.has(l.from === b.id ? l.to : l.from)), mate = tie && geo.get(tie.from === b.id ? tie.to : tie.from);
     if (mate) {
-      const hinted = hints?.get(b.id), dir = hinted ? Math.sign(hinted.x + b.w / 2 - mate.x - mate.w / 2) || 1 : 1;
+      const hinted = hints?.get(b.id), dir = hinted ? Math.sign(hinted.x + b.w / 2 - mate.x - mate.w / 2) || 1 : 1, room = Math.max(24, tie.room ?? 0);
       let spot = null;
       for (let i = 0; i < 200 && !spot; i++) for (const d of i ? [dir, -dir] : [dir]) {
-        const q = { x: d > 0 ? mate.x + mate.w + 24 + i * 8 : mate.x - b.w - 24 - i * 8, y: mate.y, w: b.w, h: b.h };
+        const q = { x: d > 0 ? mate.x + mate.w + room + i * 8 : mate.x - b.w - room - i * 8, y: mate.y, w: b.w, h: b.h };
         if (q.x >= m / 2 && clear(q)) { spot = q; break; }
+      }
+      // (Where that's past another of the row, nothing having said where it goes, the row's boxes slide apart for it, as for one added from a list: see roomBeside. What a hand put doesn't slide.)
+      const row = placedBoxes.filter(g => Math.min(g.y + g.h, mate.y + b.h) - Math.max(g.y, mate.y) > Math.min(g.h, b.h) / 2).sort((p, q) => p.x - q.x), mid = g => g.x + g.w / 2;
+      if (!hinted && !keep && !bounds && (!spot || row.some(g => g !== mate && (mid(g) - mid(mate)) * (mid(g) - spot.x - b.w / 2) < 0))) {
+        const wide = room - GAP.across, passing = routed.filter(l => !row.some(g => g.id === l.from || g.id === l.to)).flatMap(l => (l.points ?? []).slice(1).map((p, i) => [l.points[i], p]));
+        const fits = q => !obstacles.some(o => !apart(q, o, 16, 16)) && !passing.some(s => meets(q, s, -1));
+        const r = roomBeside({ ...b, w: b.w + wide }, mate.y, row, [mate], null, mate.x + mate.w + room + b.w / 2, Math.min(...placedBoxes.map(g => g.x)), fits, placedBoxes.filter(g => !row.includes(g)));
+        if (r) {
+          for (const [g, dx] of r.moves) { g.x += dx; out.get(g.id).x = g.x; nearBoxes.add(g, placedBoxes.indexOf(g)); }
+          if (r.moves.length) { route(geo, routed, { labels: false }); segs = routed.flatMap(l => (l.points ?? []).slice(1).map((p, i) => [l.points[i], p])); nearSegs = grid(segs.map(span)); }
+          spot = { x: r.x + (r.x > mate.x ? wide : 0), y: mate.y, w: b.w, h: b.h };
+        }
       }
       if (spot) {
         geo.set(b.id, { id: b.id, ...spot, shape: b.shape });
