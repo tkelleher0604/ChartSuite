@@ -2301,6 +2301,17 @@ async function tablesG3() {
   // What the marks mean, on hover.
   const fxCell = cell(named('Calder Ridge III AIV-1 Blocker, Inc.'), 'Tax Classification').getElement();
   check('An italic says it’s computed, on hover', getComputedStyle(fxCell).fontStyle === 'italic' && fxCell.dataset.tip === 'Worked out by a formula', fxCell.dataset.tip);
+  { // Tab goes on past what a rule works out; the arrows still reach it.
+    const row = rowOf(named('Calder Ridge III AIV-1 Blocker, Inc.')), cs = row.getCells(), at = cs.findIndex(c => c.getElement() === fxCell), prev = cs[at - 1], grid = Table.grid.rowManager.element;
+    const push = key => grid.dispatchEvent(new KeyboardEvent('keydown', { key, code: key, bubbles: true, cancelable: true }));
+    Table.grid.addRange(prev, prev); await tick();
+    push('Tab'); await tick(80);
+    const past = Table.grid.modules.selectRange.getActiveCell();
+    check('Tab goes on past what a rule works out', past?.getComponent().getElement() !== fxCell && past?.row.getComponent() === row, past?.column.getDefinition().title);
+    Table.grid.addRange(prev, prev); await tick();
+    push('ArrowRight'); await tick(80);
+    check('… and an arrow still reaches it', Table.grid.modules.selectRange.getActiveCell()?.getComponent().getElement() === fxCell, Table.grid.modules.selectRange.getActiveCell()?.column.getDefinition().title);
+  }
   const overCell = cell(named('Calder Ridge Capital BDC, Inc.'), 'Tax Classification').getElement();
   check('… and a corner triangle that it’s typed over what’s worked out, saying what that is', overCell.classList.contains('over') && overCell.dataset.tip === 'Typed over what’s worked out, which is C Corporation', overCell.dataset.tip);
   // Its way back is on its cell's menu; cleared, it asks why as that does; out in Excel, its note says what the rule says.

@@ -1377,7 +1377,7 @@ function Look({ id }) {
     : (s => { const c = Scene.captionOf(n, x.pattern, v); return T.norm(c).startsWith(T.norm(s)) ? c : `${s}: ${c}`; })(Scene.styleName(n, T.bare(x.pattern)));
   const bent = n.resolve('Bend', t, v)?.note;
   // An arrow its style leaves Auto is said so: this line has it by which way it runs, and it's no look of this line's own.
-  const look = [...Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position')
+  const look = [...Object.entries(sc.byId.get(id)?.settings ?? {}).filter(([label, s]) => s?.note && label !== 'Shown' && label !== 'Position' && !(label === 'Format' && recs()[id].args))   // (A line's name is said by its own row, Name on the line.)
     .map(([label, s]) => ({ label, value: s.value, ...(label === 'Arrow' && s.note.value === 'auto' && { said: `Auto (${s.value === 'none' ? 'none, as it runs down' : `${s.value === 'both' ? 'both ends' : `at the ${s.value}`}, as it doesn’t run down`})` }), from: from(s.note, label), rank: rank(s.note) })), ...(bent ? [{ label: 'Route', value: 'Bent', from: 'This line', rank: 0 }] : [])].sort((a, b) => a.rank - b.rank);
   // (And what's this box's alone of its fields, beside it, as a look pasted on it gives.)
   const beside = n.notes('Size').length ? WORDS.flatMap(l => Object.values(n.fields(t, v, l)).map(r => r.note)) : [];
@@ -1592,7 +1592,7 @@ function LaterView({ id }) {
   const entry = test => (T.index(then).entries.get(id) ?? []).find(e => then[e].field === 'date' && test(T.treeOf(then, e)) && then[e].value === (d ?? gone.day));
   const was = d ? entry(t => N().isStart(t)) : entry(t => N().isEnd(t));
   // (Named as its panel names it: a relation by what it is and between whom; an entry by its name, under the path to it.)
-  const words = (was && App.actOf(then[was].edge)?.[1]) || (d ? 'From' : 'Ended'), name = x.args ? `${N().nameOf(then, id)}: ${N().segmentOf(then, id)}` : N().nameOf(then, id);
+  const words = (was && !(d > Log.today()) && App.actOf(then[was].edge)?.[1]) || (d ? 'From' : 'Ended'), name =x.args ? `${N().nameOf(then, id)}: ${N().segmentOf(then, id)}` : N().nameOf(then, id);
   const path = x.kind ? [{ label: x.kind }] : x.args ? [] : T.pathOf(then, id).slice(0, -1).map(p => ({ label: N().segmentOf(then, p), go: () => select([p]) }));
   // (And the way to change that day, as any is.)
   const change = !App.readOnly.value && dayItems(id, d ? 'from' : 'until', on).find(it => it.label.startsWith('Change'));

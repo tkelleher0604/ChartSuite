@@ -1235,9 +1235,14 @@ const Table = (() => {
   function step(d, col) {
     const sr = table?.modules.selectRange;
     if (!sr?.activeRange) return;
+    const from = sr.getActiveCell();
     sr.navigate(false, false, d);
-    // (Tab goes on past what can't be typed in or ticked: a rule's column. At the row's end it stays.)
-    if (d === 'left' || d === 'right') for (let i = 0, was = sr.getActiveCell(); i < 60 && was && !canEdit(was.getComponent()) && columnOf(was.getComponent())?.type !== 'tag'; i++) { sr.navigate(false, false, d); const now = sr.getActiveCell(); if (now === was) break; was = now; }
+    // (Tab goes on past what can't be typed in or ticked: what a rule works out, which the arrows still reach. With nothing past it to stop at, it stays where it was.)
+    if (d === 'left' || d === 'right') {
+      const stops = c => !meta(c)?.fx && (canEdit(c) || columnOf(c)?.type === 'tag');
+      let was = sr.getActiveCell();
+      for (let i = 0; i < 60 && was && !stops(was.getComponent()); i++) { sr.navigate(false, false, d); const now = sr.getActiveCell(); if (now === was) { const c = from.getComponent(); table.addRange(c, c); break; } was = now; }
+    }
     const a = sr.getActiveCell();
     if (col && a && a.column !== col && col.visible) { const cell = a.row.getCell(col)?.getComponent(); if (cell) table.addRange(cell, cell); }
     across();

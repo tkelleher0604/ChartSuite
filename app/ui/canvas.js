@@ -2397,8 +2397,8 @@ function mount(el) {
       // What's between it and another box: asked for, a tick in the two's panel relates them; Viewing, it reads what's there, and makes nothing.
       ...(one?.type === 'box' ? [{ label: ro ? 'With…' : 'Relate…', run: () => relating(one, undefined, null, ro) }] : []),
       // A relation recorded, as its panel's ⋯ has it: renamed where it's seen; given to another (App.transferring). Viewing, each of these is a what-if: redlined, and made only from Editing.
-      // (Its name, on its lines or not: one row, for the lines of a stem taken together as for one.)
-      ...(ms.length && ms.every(m => m.type === 'line') && !ro ? [{ label: `Rename ${App.notes.peek().nameOf(App.state.peek(), ms[0].record)}…`, run: () => Shell.parts.peek().inspector?.renameLine?.(ms[0].record) }, { label: App.lineNamed(ms[0].record) ? 'Hide name' : 'Show name', run: () => App.nameLine(ms[0].record, !App.lineNamed(ms[0].record)) }] : []),
+      // (Its name, on its lines or not: one row, for the lines of a stem taken together as for one; and of each relation where they're of more than one, a stem along a marriage.)
+      ...(ms.length && ms.every(m => m.type === 'line') && !ro ? (rels => rels.flatMap(([name, rid]) => [{ label: `Rename ${name}…`, run: () => Shell.parts.peek().inspector?.renameLine?.(rid) }, { label: `${App.lineNamed(rid) ? 'Hide' : 'Show'} ${rels.length > 1 ? name : 'name'}`, run: () => App.nameLine(rid, !App.lineNamed(rid)) }]))([...new Map(ms.map(m => [App.notes.peek().nameOf(App.state.peek(), m.record), m.record]))]) : []),
       ...(one?.type === 'line' && App.isDated.peek() && App.transferable(one.record) ? [{ label: 'Transfer…', disabled: !App.canAsk(), run: () => App.transferring(one.record) }] : []),
       ...(one?.type === 'line' && App.interposable(one.record) ? [{ label: App.interposeWord(one.record), disabled: !App.canAsk(), run: () => App.interposing(one.record) }] : []),
       ...(one?.type === 'box' || one?.type === 'line' ? ['-'] : []),

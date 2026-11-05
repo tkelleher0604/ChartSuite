@@ -767,6 +767,7 @@ const Shell = (() => {
     const was = el.style.translate;
     el.style.translate = '';
     el.style.left = `${Math.round(view.left + view.width / 2)}px`;
+    el.style.maxWidth = `${Math.round(view.width - 24)}px`;   // Centred on the work, a long one wraps inside it, not off the window's edge.
     const r = el.getBoundingClientRect(), under = typedIn().filter(b => b.left < r.right + 8 && b.right > r.left - 8 && b.top < r.bottom + 8 && b.bottom > r.top - 8);
     const now = under.length ? `0 ${Math.round(Math.min(...under.map(b => b.top)) - 8 - r.bottom)}px` : '';
     el.style.translate = now;

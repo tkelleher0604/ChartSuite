@@ -260,7 +260,7 @@ const App = (() => {
   const stackOf = c => stacks.value[c] ?? { undo: [], redo: [] };
   const keep = (c, s) => { stacks.value = { ...stacks.peek(), [c]: s }; try { if (!sand) sessionStorage.setItem('dendra.undo', JSON.stringify(stacks.peek())); } catch {} };
   const made = c => { lastDiscarded.value = null; const s = stackOf(c.chart); keep(c.chart, { undo: [...s.undo, { id: c.id, act: c.id }], redo: [] }); return c; };
-  function step(back) {
+  function step(back, quiet) {
     if (Shell.time.peek()?.stood) return refuse();
     // With a change pending, Undo discards it first, and says so, Redo bringing it back; it never undoes past it. A
     // change pending discarded is the latest thing undone, so Redo brings it back first, until something's made or begun.
@@ -272,11 +272,11 @@ const App = (() => {
     if (viewing.peek() || !top) return stepLook(back);
     const r = top ? book.peek().reverse(top.id, who()) : null;
     // A change kept from before a reload that never reached the workbook is passed over.
-    if (r === null && top) { keep(c, { ...s, [from]: s[from].slice(0, -1) }); return step(back); }
+    if (r === null && top) { keep(c, { ...s, [from]: s[from].slice(0, -1) }); return step(back, quiet); }
     if (!r) return Shell.toast(back ? 'Nothing to undo' : 'Nothing to redo', { ms: 2000 });
     if (typeof r === 'string') return Shell.toast(r);
     keep(c, { [from]: s[from].slice(0, -1), [to]: [...s[to], { id: r.id, act: top.act }] });
-    Shell.toast(Time.describe(r), back ? { redo } : { undo });
+    if (!quiet) Shell.toast(Time.describe(r), back ? { redo } : { undo });
   }
   const undo = () => step(true), redo = () => step(false);
   // A look taken back or put back, as Viewing's Undo does it, and a look's own toast.
@@ -372,7 +372,7 @@ const App = (() => {
   }
   // Whether a line says its name on the page shown, and saying so: one note, at its relation in that view, from its right-click and its page alike. (dendra.md, From nothing)
   const lineNamed = (rid, view = Shell.view.peek()) => { const t = Tree.treeOf(state.peek(), rid); return !!t && notes.peek().value('Format', t, view) !== 'none'; };
-  const nameLine = (rid, on, view = Shell.view.peek()) => { const recs = state.peek(), t = Tree.treeOf(recs, rid), N = notes.peek(); if (!t) return; const name = N.name(t), p = { ...('tag' in (t.out ?? {}) && { out: { tag: true } }), ...N.relationPattern(t) }; change(tx => tx.note('Format', p, on ? 'value' : 'none', { view }), { dated: false, say: `${on ? 'Said' : 'Hid'} the name on ${name} lines` }); };
+  const nameLine = (rid, on, view = Shell.view.peek()) => { const recs = state.peek(), t = Tree.treeOf(recs, rid), N = notes.peek(); if (!t) return; const name = N.name(t), p = { ...('tag' in (t.out ?? {}) && { out: { tag: true } }), ...N.relationPattern(t) }; change(tx => tx.note('Format', p, on ? 'value' : 'none', { view }), { dated: false, say: `${on ? 'Showed' : 'Hid'} the name on ${name} lines` }); };
   // A chart with nothing to draw on the day shown, every box of it not yet formed, opens on the first day it has one: a fund
   // about to be formed is a chart worth drawing. Only for this window, as a day picked is, and only till the user asks for today.
   const nothingDrawn = () => { const s = typeof Scene !== 'undefined' && scene.peek(); return !!s && !s.marks.some(m => m.type === 'box'); };
@@ -621,7 +621,7 @@ const App = (() => {
   // Whether a value typed over another could say from when: words or a choice that changes over time; not a name, a date, nor a fixed fact.
   const canSayFrom = (id, out) => { const r = state.peek()[id]; return !!r && !result.peek().computed[id] && ('value' in out || 'choice' in out) && out.field !== 'date' && r.field !== 'date' && !fixedAt(id) && !Tree.same(r.edge ?? '', 'Name'); };
   // A correction said after all to have been a change from a day: taken back, and asked, in the bar. Its toast's offer.
-  const fromWhen = (id, slot, out) => ['From when…', () => { undo(); stageTyped([{ id, slot, out, over: false }], { auto: true, day: day.peek(), held: true }); }];
+  const fromWhen = (id, slot, out) => ['From when…', () => { step(true, true); stageTyped([{ id, slot, out, over: false }], { auto: true, day: day.peek(), held: true }); }];
   // A date typed over another is made at once, a date saying its own day, and says what it replaces (dendra.md, Time).
   function replaces(id, out) {
     const r = id && state.peek()[id];

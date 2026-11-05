@@ -1054,7 +1054,8 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
     return { ...(own && shown?.view === v.id && shown.day === Time.pageDay(v.id) ? shown : scene(v.id, own ? null : paper)), name: v.name };
   });
   // A page's day, as its caption says it, or the moment while the past is shown.
-  const whenOf = s => App.shown.peek().moment ? App.asOfWords(s.day).line : Tree.formatDate(s.day, 'short');
+  // (On a chart that keeps no dated record, a page has no day to say.)
+  const whenOf = s => App.shown.peek().moment ? App.asOfWords(s.day).line : App.isDated.peek() ? Tree.formatDate(s.day, 'short') : '';
   const chartName = () => App.shown.peek().charts().find(c => c.chart === App.chart.peek())?.name ?? 'Chart';
   const uri = s => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(s)}`;
   // The pages the file will have: a deck's on its one slide size, a document's each its own, in the faces it will
