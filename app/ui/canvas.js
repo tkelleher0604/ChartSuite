@@ -479,7 +479,7 @@ function mount(el) {
   // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
   const pageScale = () => scene?.page.scale ?? 1;
   const zoomRead = () => { zoomLevel.value = graph.zoom() / pageScale(); zoomedTo(graph.zoom() * (devicePixelRatio || 1)); };
-  let cued = null, cuedWords = null, hinted = null, hintedWords = null, inReach = null, reachNames = false; // a pen pointed at, lit; a row pointed at; what's in reach of the pen (see cue)
+  let cued = null, cuedWords = null, hinted = null, hintedWords = null, inReach = null, reachNames = false, reachWords = null; // a pen pointed at, lit; a row pointed at; what's in reach of the pen (see cue)
   let pointing = false, hold = false;
   // The field selected, pointed at, lit from the inspector, and the box a row is dragged over (see Fields).
   let field = null, hovered = null, litKey = null, dropOn = null, dropAt = null;
@@ -2749,7 +2749,7 @@ function mount(el) {
     const lightWords = (words, cls) => { for (const id of words) { const h = hosts.get(id), it = h?.texts.find(t => t.id === id); if (it) outlineWords(h, it, cls); } };
     if (cuedWords) lightWords(cuedWords, 'dc-cue'); else for (const id of cuedHere ?? []) outline(scene.byId.get(id), 'dc-cue', 0);
     if (!cuedHere) {
-      for (const id of reachHere ?? []) outline(scene.byId.get(id), 'dc-reach', RING);
+      if (reachWords) lightWords(reachWords, 'dc-reach'); else for (const id of reachHere ?? []) outline(scene.byId.get(id), 'dc-reach', RING);
       if (hintedWords) lightWords(hintedWords, 'dc-cue'); else for (const id of hintHere ?? []) outline(scene.byId.get(id), 'dc-cue', 0);
     }
     // A selected line is traced in the accent, as Office marks one.
@@ -2933,10 +2933,10 @@ function mount(el) {
     hinted = next; hintedWords = next && words;
     paintStates();
   }
-  function reach(ids, names = false) {
-    const next = ids ? new Set(ids) : null;
-    if (reachNames === names && JSON.stringify(next && [...next]) === JSON.stringify(inReach && [...inReach])) return;
-    inReach = next; reachNames = names;
+  function reach(ids, names = false, words = null) {
+    const next = ids ? new Set(ids) : null, say = JSON.stringify([next && [...next], names, words]);
+    if (say === JSON.stringify([inReach && [...inReach], reachNames, reachWords])) return;
+    inReach = next; reachNames = names; reachWords = next && words;
     paintStates();
   }
   // A format pointed at in the format bar, as it would look: the chart drawn from `wb`, the workbook as the

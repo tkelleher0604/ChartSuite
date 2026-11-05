@@ -1081,14 +1081,14 @@ function cue(x, by = null) {
 }
 function wordsOf(c, x) {
   if (x?.swatch?.kind !== 'text' || !x.marks) return null;
-  const sc = c.scene(), st = App.state.peek();
-  return [...x.marks].flatMap(id => (sc.byId.get(id)?.texts ?? []).filter(it => x.outputs.some(p => Tree.fits(st, it.id, p))).map(it => it.id));
+  const sc = c.scene(), st = App.state.peek(), words = [...x.marks].flatMap(id => (sc.byId.get(id)?.texts ?? []).filter(it => x.outputs.some(p => Tree.fits(st, it.id, p))).map(it => it.id));
+  return words.length ? words : null;
 }
 function atRest() {
   const c = Canvas.active.peek();
   if (!c?.scene()) return;
   const s = scopesOf(c), sc = scopeOf(s.scopes);
-  c.reach?.(sc && !sc.own && !sc.root && sc.marks ? [...sc.marks] : null, pen.moved());
+  c.reach?.(sc && !sc.own && !sc.root && sc.marks ? [...sc.marks] : null, pen.moved(), wordsOf(c, sc));
 }
 // The group that's lit, a Styles row aimed at or a place a hand put the pen, which what comes next takes (dendra.md, What's lit is what's
 // meant); null where it's the selection itself, or the pen went there by itself. And what it reaches of a page, whatever a look keeps off it just now.
