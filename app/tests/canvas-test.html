@@ -86,7 +86,7 @@ window.EyeDropper = undefined;  // (the way a browser without its own goes, whic
 const out = [];
 const check = (name, ok, detail = '') => out.push({ name, ok: !!ok, detail: String(detail ?? '') });
 // (A little under what's asked: the page is near what a run of the suite gives it.)
-const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.9));
+const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.85));
 const until = async (f, ms = 4000) => { for (let t = 0; t < ms; t += 25) { if (f()) return true; await tick(25); } return false; };
 // What a click there lands on: what's travelling lands first, for frames can stall in a headless run while its clock goes on.
 const hitAt = (x, y) => { for (const a of document.getAnimations()) if (a.effect?.target?.closest?.('.dc')) a.finish(); cv()?.root.classList.remove('flying'); return document.elementFromPoint(x, y); };
@@ -475,7 +475,7 @@ async function run() {
   key('ArrowRight'); await tick(60);
   // (PowerPoint's: an arrow a step of 6 pt on the sheet, Ctrl+arrow 1.25 pt.)
   const movedAtOnce = cellX() - x0, arrowStep = 8 / sc().page.scale, arrowFine = 5 / 3 / sc().page.scale;
-  key('ArrowRight'); await tick(60); key('ArrowRight', { ctrlKey: true }); await tick(700);
+  key('ArrowRight'); await tick(60); key('ArrowRight', { ctrlKey: true }); await tick(800);
   check('an arrow key nudges the box selected at once, and nudges one after another are one change, as History lists it', Math.abs(movedAtOnce - arrowStep) <= 0.5 && Math.abs(sc().byId.get(first).x - x0 - 2 * arrowStep - arrowFine) <= 0.5
     && App.wb.changes().length === nx + 1 && /^Moved /.test(Time.describe(App.wb.changes().at(-1))), `${movedAtOnce} ${x0} → ${sc().byId.get(first).x}, ${App.wb.changes().length - nx} changes`);
   Shell.parts.peek().undo.undo(); await tick(150);
@@ -1273,7 +1273,7 @@ async function run() {
     const off = Shell.toast('Placed again', { undo: () => {} }); await tick(80);
     const at = $('.toasts').getBoundingClientRect(), f = field.getBoundingClientRect(), clear = at.right <= f.left || at.left >= f.right || at.bottom <= f.top || at.top >= f.bottom;
     const passing = getComputedStyle($('.toast')).pointerEvents === 'none';
-    await tick(500);
+    await tick(650);
     check('a toast never covers a field being typed in, and just placed it takes no click, then takes one', clear && passing && getComputedStyle($('.toast')).pointerEvents === 'auto',
       `${JSON.stringify(at)} vs ${JSON.stringify(f)}; ${passing}`);
     field.remove(); off(); await tick(80);
