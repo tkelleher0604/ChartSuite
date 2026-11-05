@@ -179,7 +179,7 @@ function textMarkup(it, red, faint) {
       return [...mark, { tagName: 'tspan', attrs: { x: l.x, y: l.y }, children: l.spans.map(sp => {
         const up = sp.base ? -Scene.BASE[sp.base] * px(t.Size) : 0, dy = up - off, s = sp.look, d = [s.Underline && 'underline', (s.Strike || r === 'go') && 'line-through'].filter(Boolean).join(' ');
         off = up;
-        return { tagName: 'tspan', attrs: { ...(dy && { dy }), fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(s.Color), 'font-family': Scene.fontFamily(s.Font), 'font-size': px(s.Size), 'font-weight': s.Bold ? 700 : 400, 'font-style': s.Italic ? 'italic' : 'normal', ...(d && { 'text-decoration': d }) }, textContent: sp.text };
+        return { tagName: 'tspan', attrs: { ...(dy && { dy }), fill: r === 'appear' ? BLUE : r === 'go' ? RED : tone(s.Color), 'font-family': Scene.fontFamily(s.Font), 'font-size': px(s.Size), 'font-weight': s.Bold ? 700 : 400, 'font-style': s.Italic ? 'italic' : 'normal', ...(d && { 'text-decoration': d }), ...(s.Link && { 'data-link': JSON.stringify(s.Link), 'pointer-events': 'auto' }) }, textContent: sp.text };
       }) }];
     }),
   };
@@ -1464,6 +1464,7 @@ function mount(el) {
     ed.focus();
     const parts = rich && richEditor(ed, text, rich.runs ?? [], it.look);
     if (parts) richEdit = parts;
+    const printed = rich ? asPrinted(ed, t, rect, z) : null;
     // Double-click selects it all, to type over; typing over starts after what was typed.
     const range = document.createRange(), s = getSelection();
     range.selectNodeContents(ed);
@@ -1471,7 +1472,7 @@ function mount(el) {
     s.removeAllRanges(); s.addRange(range);
     let done = false;
     const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box, () => finish(true));
-    const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys, runs); else escaped?.(); };
+    const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); printed?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys, runs); else escaped?.(); };
     // (Going to the format bar's palette, it stays open, what's selected kept, till a press anywhere else.)
     const outside = e => { if (!e.target.closest?.('.dc-edit, .fb, .float')) finish(true); };
     ed.addEventListener('keydown', e => {
@@ -1490,6 +1491,36 @@ function mount(el) {
     ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); if (kind && e.relatedTarget?.closest?.('.dc-kinds')) return; finish(true); });
     return ed;
   }
+  // A shape's words as they're typed, as they'll print: in its columns, its inner margins and its indent, each paragraph with its mark beside it. → what closes that.
+  function asPrinted(ed, t, rect, z) {
+    const by = pts => pts * Scene.PT / pageScale() * z, ins = t.Inset ? { l: by(t.Inset.l ?? 7.2), r: by(t.Inset.r ?? 7.2), t: by(t.Inset.t ?? 3.6), b: by(t.Inset.b ?? 3.6) } : null, cols = Math.max(1, Math.round(t.Columns?.n ?? 1)), marked = t.Bullet && t.Bullet !== 'none';
+    const indent = t.Indent != null ? by(t.Indent) : marked ? px(t.Size) * z * 1.5 : 0, l = ins?.l ?? 7.2 * z;
+    if (ins) Object.assign(ed.style, { paddingTop: `${ins.t}px`, paddingRight: `${ins.r}px`, paddingBottom: `${ins.b}px` });
+    if (ins || indent) ed.style.paddingLeft = `${l + indent}px`;
+    if (cols > 1) Object.assign(ed.style, { columnCount: cols, columnGap: `${by(t.Columns.gap ?? 7.2)}px`, columnFill: 'auto', height: `${rect.h * z}px`, minHeight: '' });
+    if (!marked) return null;
+    const layer = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-edit-marks' })), paint = () => {
+      layer.replaceChildren();
+      const walk = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT), base = over.getBoundingClientRect();
+      let n = 0, atStart = true;
+      for (let node; (node = walk.nextNode());) for (let i = 0; i < node.length; i++) {
+        const c = node.data[i];
+        if (c === '\n') { atStart = true; continue; }
+        if (!atStart) continue;
+        atStart = false;
+        const r = document.createRange(); r.setStart(node, i); r.setEnd(node, i + 1);
+        const b = r.getClientRects()[0];
+        if (!b) continue;
+        n++;
+        const mark = Object.assign(document.createElement('span'), { textContent: t.Bullet === 'number' ? `${n}.` : '•' });
+        Object.assign(mark.style, { left: `${b.left - base.left - indent * 0.75}px`, top: `${b.top - base.top}px`, font: ed.style.font, color: t.Color });
+        layer.append(mark);
+      }
+    };
+    paint();
+    ed.addEventListener('input', paint);
+    return { close() { layer.remove(); } };
+  }
   // A new line at the caret, as text, so a run's places stay in its characters. (At the very end, a second, which keeping the words takes off, as a last line break draws nothing to type on.)
   function paragraph(ed) {
     const s = getSelection();
@@ -1506,7 +1537,7 @@ function mount(el) {
   // caret's in, takes a look; Ctrl+B, Ctrl+I, Ctrl+U, Ctrl+Shift+X, and Ctrl+Shift+= and Ctrl+= for a superscript and subscript, as PowerPoint's; Ctrl+] and Ctrl+[ its size.
   function richEditor(ed, text, runs, base) {
     let last = [0, 0];
-    const css = r => [r.Bold !== undefined && `font-weight:${r.Bold ? 700 : 400}`, r.Italic !== undefined && `font-style:${r.Italic ? 'italic' : 'normal'}`, (r.Underline || r.Strike) && `text-decoration:${[r.Underline && 'underline', r.Strike && 'line-through'].filter(Boolean).join(' ')}`, r.Color && `color:${r.Color}`, r.Font && `font-family:${Scene.fontFamily(r.Font).replace(/"/g, "'")}`, r.Size && `font-size:${px(r.Size) / pageScale() * graph.zoom() * (r.Base ? 0.66 : 1)}px`, r.Base && `vertical-align:${r.Base === 'up' ? 'super' : 'sub'}`, r.Base && !r.Size && 'font-size:66%'].filter(Boolean).join(';');
+    const css = r => [r.Bold !== undefined && `font-weight:${r.Bold ? 700 : 400}`, r.Italic !== undefined && `font-style:${r.Italic ? 'italic' : 'normal'}`, (r.Underline || r.Strike || r.Link) && `text-decoration:${[(r.Underline || r.Link) && 'underline', r.Strike && 'line-through'].filter(Boolean).join(' ')}`, (r.Color || r.Link) && `color:${r.Color ?? Scene.LINK}`, r.Font && `font-family:${Scene.fontFamily(r.Font).replace(/"/g, "'")}`, r.Size && `font-size:${px(r.Size) / pageScale() * graph.zoom() * (r.Base ? 0.66 : 1)}px`, r.Base && `vertical-align:${r.Base === 'up' ? 'super' : 'sub'}`, r.Base && !r.Size && 'font-size:66%'].filter(Boolean).join(';');
     const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const paint = (txt, rs) => {
       let html = '', at = 0;
@@ -1540,9 +1571,11 @@ function mount(el) {
     const moved = () => { if (document.activeElement === ed) told(); };
     document.addEventListener('selectionchange', moved);
     // A look given what's selected, or the word the caret's in; a yes-or-no given its opposite where it has it throughout.
-    function set(label, value) {
-      let [a, b] = now();
+    function set(label, value, at = null) {
+      let [a, b] = at ?? now();
       const t = ed.textContent;
+      // (A link's on the words: not the space a double-click takes with one.)
+      if (label === 'Link') { while (a < b && /\s/.test(t[a])) a++; while (b > a && /\s/.test(t[b - 1])) b--; }
       if (a === b) { while (a > 0 && /\S/.test(t[a - 1])) a--; while (b < t.length && /\S/.test(t[b])) b++; }
       if (a === b) return false;
       const rs = read(), scale = pageScale();
@@ -1555,12 +1588,20 @@ function mount(el) {
       return true;
     }
     const sized = by => { const [a] = now(), r = read().find(x => x.from <= a && x.to > a), at = r?.Size ?? Math.round(base.Size * pageScale() * 2) / 2; return set('Size', Math.max(1, at + by)); };
+    // A link on what's selected, or the word the caret's in: Ctrl+K, or a right-click, as PowerPoint's; asked for beside it, what's selected kept.
+    const linkOn = () => { const [a] = now(); return read().find(x => x.from <= a && x.to > a && x.Link)?.Link ?? null; };
+    const askLink = () => { const s = getSelection(), b = s.rangeCount && ed.contains(s.anchorNode) ? s.getRangeAt(0).getBoundingClientRect() : ed.getBoundingClientRect(), at = [...now()]; hand.askLink({ x: b.left, y: b.bottom || ed.getBoundingClientRect().bottom }, linkOn(), v => { set('Link', v, at); }); };
+    ed.addEventListener('contextmenu', e => {
+      e.preventDefault(); e.stopPropagation();
+      const at = [...now()], cmd = name => () => { ed.focus(); place(...at); document.execCommand(name); };
+      Shell.menu({ x: e.clientX, y: e.clientY }, [{ label: 'Link…', keys: '$mod+KeyK', run: askLink }, ...(linkOn() ? [{ label: 'Remove link', run: () => set('Link', undefined, at) }] : []), '-', { label: 'Bold', keys: '$mod+KeyB', run: () => set('Bold', undefined, at) }, { label: 'Italic', keys: '$mod+KeyI', run: () => set('Italic', undefined, at) }, { label: 'Underline', keys: '$mod+KeyU', run: () => set('Underline', undefined, at) }, '-', { label: 'Cut', keys: '$mod+KeyX', run: cmd('cut') }, { label: 'Copy', keys: '$mod+KeyC', run: cmd('copy') }]);
+    });
     paint(text, runs);
     told();
     return { runs: read, close() { document.removeEventListener('selectionchange', moved); rich.value = null; }, set,
       key(e) {
         if (!(e.ctrlKey || e.metaKey) || e.altKey) return false;
-        const k = e.key.toLowerCase(), act = !e.shiftKey && k === 'b' ? () => set('Bold') : !e.shiftKey && k === 'i' ? () => set('Italic') : !e.shiftKey && k === 'u' ? () => set('Underline') : e.shiftKey && k === 'x' ? () => set('Strike')
+        const k = e.key.toLowerCase(), act = !e.shiftKey && k === 'k' ? askLink : !e.shiftKey && k === 'b' ? () => set('Bold') : !e.shiftKey && k === 'i' ? () => set('Italic') : !e.shiftKey && k === 'u' ? () => set('Underline') : e.shiftKey && k === 'x' ? () => set('Strike')
           : e.shiftKey && (k === '+' || k === '=') ? () => set('Base', lookNow().Base === 'up' ? undefined : 'up') : !e.shiftKey && k === '=' ? () => set('Base', lookNow().Base === 'down' ? undefined : 'down')
           : !e.shiftKey && k === ']' || (e.shiftKey && k === '>') ? () => sized(1) : !e.shiftKey && k === '[' || (e.shiftKey && k === '<') ? () => sized(-1) : null;
         if (!act) return false;

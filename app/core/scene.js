@@ -269,8 +269,10 @@ const linesOf = (it, width) => it.text ? breakLines(it.text, widestLook(it), wid
 // Part of a text in another look: a run is { from, to, ...look }, its letters as typed, its look any of a text's and Base, up
 // (superscript) or down (subscript). A span is a run's letters on one line: what's set there in that look.
 const RAISED = { up: 0.33, down: -0.14 }, RAISED_SIZE = 0.66;
-const RUN_LOOK = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Base'];
-const spanLook = (t, r, u) => { const { from, to, Size, Base, ...rest } = r, size = (Size != null ? Size * u : t.Size) * (Base ? RAISED_SIZE : 1); return { ...t, ...rest, Size: size, ...(Base && { Base }) }; };
+const RUN_LOOK = ['Font', 'Size', 'Bold', 'Italic', 'Underline', 'Strike', 'Color', 'Base', 'Link'];
+// (A run can be a link, a web address or a page of the chart: it reads as one, as PowerPoint's does, its theme's hyperlink color, underlined.)
+const LINK = '#0563c1';
+const spanLook = (t, r, u) => { const { from, to, Size, Base, ...rest } = r, size = (Size != null ? Size * u : t.Size) * (Base ? RAISED_SIZE : 1); return { ...t, ...rest, Size: size, ...(Base && { Base }), ...(rest.Link && { Underline: true, Color: rest.Color ?? LINK }) }; };
 // What a run changes takes the letters from..to, and runs that say the same run on as one; a look given back to the text's own goes.
 function runsWith(runs, from, to, label, value, base = {}) {
   if (from >= to) return runs ?? [];
@@ -2932,7 +2934,7 @@ function says(scene, name, paper) {
 }
 
 return {
-  MASTER, fontName, tooDark, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
+  MASTER, LINK, fontName, tooDark, outlineOf, of, looks, steps: drawing, reflow, shapeOf, listsAt, path, dash, measure, breakLines, runsWith, keyLies, glued, edgePoint, annotated, BASE: RAISED, bind, reach, groupsOf, outputPattern, captionOf, outputName, styleName, swatch, swatchOf, fontFamily,
   instance, swatchParts, wholeDesign, overDesign, designAtPattern, tokensIn, reader, readWords,
   toSlide, fromSlide, says, textRect, DEFAULTS, GEOMETRIES, PAGES, PAPERS, PT, CORNER, FOOTER, NUMBER, lineHeight, baseline, fontClass, shadowOf, headOf, headSize, changeOutput, isChange, CHANGE_LOOKS, CHANGE_CAPTIONS, sinceOf,
   FONTS: Object.entries(FONTS).map(([name, [kind]]) => ({ name, kind })),

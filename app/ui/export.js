@@ -406,6 +406,17 @@ function sketch(scene) {
 const titleOf =s => s.marks.find(m => m.role === 'title')?.texts.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim() || s.name || '';
 // A PDF text string: as it is where it's Latin-1, else UTF-16 and marked so, as a title with a curly quote needs.
 const pdfText = s => /^[\x20-\x7e\xa0-\xff]*$/.test(s) ? s : `\xfe\xff${Array.from({ length: s.length }, (_, i) => String.fromCharCode(s.charCodeAt(i) >> 8, s.charCodeAt(i) & 255)).join('')}`;
+// A page's links in its PDF, as a reader follows them: a shape's over it, and each word's over its span; a page of the chart where it's among those going out.
+function linksOn(doc, s, scenes) {
+  const k = fit(s.page), ox = (s.page.sheet.w - s.page.w * k) / 2, oy = (s.page.sheet.h - s.page.h * k) / 2, pt = 0.75, put = (l, x, y, w, h) => { const to = l.url ? { url: l.url } : (i => i >= 0 ? { pageNumber: i + 1 } : null)(scenes.findIndex(q => q.view === l.view)); if (to) doc.link((ox + x * k) * pt, (oy + y * k) * pt, w * k * pt, h * k * pt, to); };
+  for (const m of s.marks) {
+    if (m.link && m.w != null) put(m.link, m.x, m.y, m.w, m.h);
+    for (const it of m.texts ?? []) for (const l of it.lines ?? []) if (l.spans?.some(sp => sp.look.Link)) {
+      let at = m.x + l.x - l.w * ({ left: 0, center: 0.5, right: 1 }[it.look.Align] ?? 0.5);
+      for (const sp of l.spans) { const w = Scene.measure(sp.text, sp.look); if (sp.look.Link) put(sp.look.Link, at, m.y + l.y - sp.look.Size * PT, w, sp.look.Size * PT * 1.2); at += w; }
+    }
+  }
+}
 // A PDF of `scenes`, in `fonts` (see fontsOf).
 async function pdf(scenes, title, author, fonts = PLAIN) {
   await LIBS.pdf();
@@ -420,6 +431,7 @@ async function pdf(scenes, title, author, fonts = PLAIN) {
       else doc.addPage([w, h], o);
       holder.innerHTML = svg(s, { pdf: fonts });
       await doc.svg(holder.firstElementChild, { x: 0, y: 0, width: w, height: h });
+      linksOn(doc, s, scenes);
       if (scenes.length > 1) doc.outline.add(null, pdfText(titleOf(s)), { pageNumber: doc.getNumberOfPages() });
     }
   } finally { holder.remove(); }
@@ -615,7 +627,7 @@ function txBody(items, k, anchor, inset, { fit = false, upright = false, wrap = 
     const mark = ls => !t.Bullet || t.Bullet === 'none' ? '' : !ls[0]?.bullet ? '<a:buNone/>' : t.Bullet === 'number' ? '<a:buFont typeface="+mj-lt"/><a:buAutoNum type="arabicPeriod"/>' : '<a:buFont typeface="Arial"/><a:buChar char="&#8226;"/>';
     // Part of a line in another look: a run of its own, a superscript by PowerPoint's own baseline, at its full size, as PowerPoint makes it smaller itself.
     const spanRuns = l => l.spans.map(sp => { const s = sp.look, z = Math.max(100, Math.round((sp.base ? s.Size / 0.66 : s.Size) * k * 100)), f = esc(s.Font);
-      return `<a:r><a:rPr lang="en-US" sz="${z}"${s.Bold ? ' b="1"' : ' b="0"'}${s.Italic ? ' i="1"' : ' i="0"'}${s.Underline ? ' u="sng"' : ''}${s.Strike ? ' strike="sngStrike"' : ''}${sp.base ? ` baseline="${sp.base === 'up' ? 30000 : -25000}"` : ''} dirty="0"><a:solidFill>${clr(s.Color)}</a:solidFill><a:latin typeface="${faceRef(s.Font)}"/><a:cs typeface="${faceRef(s.Font, 'cs')}"/></a:rPr><a:t>${esc(sp.text.replace(/ /g, ' '))}</a:t></a:r>`; }).join('');
+      return `<a:r><a:rPr lang="en-US" sz="${z}"${s.Bold ? ' b="1"' : ' b="0"'}${s.Italic ? ' i="1"' : ' i="0"'}${s.Underline ? ' u="sng"' : ''}${s.Strike ? ' strike="sngStrike"' : ''}${sp.base ? ` baseline="${sp.base === 'up' ? 30000 : -25000}"` : ''} dirty="0"><a:solidFill>${clr(s.Color)}</a:solidFill><a:latin typeface="${faceRef(s.Font)}"/><a:cs typeface="${faceRef(s.Font, 'cs')}"/>${s.Link ? hlink(s.Link) : ''}</a:rPr><a:t>${esc(sp.text.replace(/ /g, ' '))}</a:t></a:r>`; }).join('');
     // A blank field has no paragraph: its room is under the words, which stand as what's printed.
     // A paragraph's mark is in its text's look, so PowerPoint's font box shows the font, and what's typed there matches.
     if (it.blank) return [];

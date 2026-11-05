@@ -719,7 +719,7 @@ function attach(x) {
   }, true);
   // A press in a table picks the cell under it, the first selecting the table; a drag from there, or Shift, goes as far as the cell it gets to, as Excel's does. (It's by its grip or its edge that a table's moved: see paintGrip.)
   function pressCell(e, m) {
-    const at = cellAt(e.target);
+    const at = cellAt(e.target) ?? (e.target.closest?.('[data-link]') ? cellOver(m, local(e)) : null);
     if (!at || e.button !== 0) return;
     if (e.shiftKey && cellNow?.id === m.id) reach(m.id, at[0], at[1]); else pickCell(m.id, at[0], at[1]);
     const move = ev => { const q = scene().byId.get(m.id), g = q?.table && cellOver(q, local(ev)); if (g && (g[0] !== (cellNow?.r2 ?? cellNow?.r) || g[1] !== (cellNow?.c2 ?? cellNow?.c))) reach(m.id, g[0], g[1]); };
@@ -779,7 +779,7 @@ function attach(x) {
   }
 
   // Painted with the selection, a line's ends, a picture's crop handles and a group's turning handle.
-  function paint() { paintEnds(); paintCrop(); paintTurn(); paintCell(); paintGrip(); paintPoints(); paintPins(); }
+  function paint() { paintEnds(); paintCrop(); paintTurn(); paintCell(); paintGrip(); paintPoints(); paintPins(); paintLinks(); }
   // A group's handle over it, dragged: it turns as a free shape's does, by degrees, Shift by 15; the shapes go round its middle as one.
   function paintTurn() {
     marks.querySelectorAll('.dc-turn').forEach(n => n.remove());
@@ -1031,28 +1031,38 @@ function attach(x) {
     for (const p of N.notes('Pinned')) if (p.view === sc.view && p.value === true && p.pattern.id) { const m = sc.marks.find(q => q.type === 'box' && q.record === p.pattern.id); if (m) svg('path', { class: 'dc-pin', transform: `translate(${m.x + m.w - 7 / z} ${m.y - 7 / z}) scale(${0.5 / z})`, d: 'M12 17v5M9 10.76V6h6v4.76l2 3.24H7zM8 2h8', 'stroke-width': 2 }); }
   }
 
-  // ---- A link on a shape, as PowerPoint's: a web address, or a page of this chart; Ctrl+click follows it ----
-  async function setLink(id) {
+  // ---- A link, as PowerPoint's: on a shape or on words as they're typed, a web address, or a page of this chart; Ctrl+click follows it, and it says where ----
+  function LinkForm({ now, put, close }) {
+    const pages = App.views.peek().filter(v => v.layout === 'chart'), [url, setUrl] = useState(now?.url ?? ''), [view, setView] = useState(now?.view ?? '');
+    const done = () => { const u = url.trim(); close(); put(view ? { view } : u ? { url: /^[a-z]+:/i.test(u) ? u : `https://${u}` } : undefined); };
+    return html`<form class="linkform" onSubmit=${e => { e.preventDefault(); done(); }}>
+      <label class="row"><span class="k">Address</span><input class="cell" type="text" autofocus value=${url} aria-label="Address" spellcheck="false" placeholder="https://" onInput=${e => setUrl(e.currentTarget.value)} onKeyDown=${e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); done(); } else if (e.key === 'Escape') { e.preventDefault(); close(); } }} /></label>
+      <label class="row"><span class="k">Or a page</span><${Shell.Pick} label="Page" value=${view} onPick=${setView} options=${[['', 'None'], ...pages.map(v => [v.id, v.name])]} /></label>
+      <div class="acts">${now ? html`<button type="button" class="btn" onClick=${() => { close(); put(undefined); }}>Remove link</button>` : null}<button type="submit" class="btn primary">OK</button></div></form>`;
+  }
+  const askLink = (at, now, put) => Shell.popover(at, close => html`<${LinkForm} now=${now} put=${put} close=${close} />`, { placement: 'bottom-start' });
+  function setLink(id) {
     const m = id ? scene().byId.get(id) : x.selectedNow()[0];
     if (!m || m.type !== 'shape') return Shell.toast('Select a shape first', { ms: 2500 });
-    const row = x.rowOf(m.id), pages = App.views.peek().filter(v => v.layout === 'chart'), now = { url: row.link?.url ?? '', view: row.link?.view ?? '' };
-    const go = await Shell.dialog({ title: 'Link', width: 420, body: () => html`<div class="ex palette-def">
-      <label class="row"><span class="k">Address</span><input class="cell" type="text" autofocus value=${now.url} aria-label="Address" spellcheck="false" placeholder="https://" onInput=${e => { now.url = e.currentTarget.value.trim(); }} /></label>
-      <label class="row"><span class="k">Or a page</span><${Shell.Pick} label="Page" value=${now.view} onPick=${v => { now.view = v; }} options=${[['', 'None'], ...pages.map(v => [v.id, v.name])]} /></label></div>`,
-      actions: [...(row.link ? [{ label: 'Take it off', value: 'off' }] : []), { label: 'Cancel', value: false }, { label: 'OK', value: true, primary: true }] });
-    if (!go) return;
-    const link = go === 'off' ? undefined : now.view ? { view: now.view } : now.url ? { url: /^[a-z]+:/i.test(now.url) ? now.url : `https://${now.url}` } : undefined;
-    App.change(tx => tx.update(m.id, { link }), { dated: false, keep: false, say: link ? `Linked ${x.called(m)}` : `Took the link off ${x.called(m)}` });
+    const row = x.rowOf(m.id), p = graph.localToClient(m.x, m.y + m.h);
+    askLink({ x: p.x, y: p.y }, row.link ?? null, link => App.change(tx => tx.update(m.id, { link }), { dated: false, keep: false, say: link ? `Linked ${x.called(m)} to ${link.url ?? App.views.peek().find(v => v.id === link.view)?.name}` : `Took the link off ${x.called(m)}` }));
   }
+  const linkAt = (e, m) => { const w = e.target.closest?.('[data-link]'); return w ? JSON.parse(w.getAttribute('data-link')) : m?.link ?? null; };
+  const saidOfLink = l => `Ctrl+click: ${l.url ?? App.views.peek().find(v => v.id === l.view)?.name ?? ''}`;
   x.gEl.addEventListener('click', e => {
     if (!(e.ctrlKey || e.metaKey)) return;
-    const id = e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id'), m = id && scene().byId.get(id), l = m?.link;
+    const id = e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id'), l = linkAt(e, id && scene().byId.get(id));
     if (!l) return;
     e.preventDefault(); e.stopPropagation();
     if (l.view) Shell.show(l.view); else window.open(l.url, '_blank', 'noopener');
   }, true);
-  graph.on('node:mouseenter', ({ node }) => { const l = scene().byId.get(node.id)?.link; if (l) root.title = `Ctrl+click: ${l.url ?? App.views.peek().find(v => v.id === l.view)?.name ?? ''}`; });
-  graph.on('node:mouseleave', () => { root.title = ''; });
+  x.gEl.addEventListener('mouseover', e => { const id = e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id'), l = linkAt(e, id && scene().byId.get(id)); root.title = l ? saidOfLink(l) : ''; });
+  // A shape with a link shows it, never printed; words with one read as one.
+  function paintLinks() {
+    marks.querySelectorAll('.dc-linkmark').forEach(n => n.remove());
+    const z = zoom();
+    for (const m of scene().marks) if (m.link && m.type === 'shape' && !m.master) svg('path', { class: 'dc-linkmark', transform: `translate(${m.x + m.w + 2 / z} ${m.y - 12 / z}) scale(${0.45 / z})`, d: 'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.8 1.8M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.8-1.8', 'stroke-width': 2 });
+  }
 
   // A box's alt text: what a reader's told of it in the deck, as a free shape's is; a note at its own tree, so it can be said of a group too.
   async function boxAlt(m) {
@@ -1169,7 +1179,7 @@ function attach(x) {
       </div></div>`;
   }
 
-  return { editPoints, endPoints, merge, mergeable, alongLine, lineAmong, shapeItems, pastePicture, setLink, editCell, tableItems, newTable, readsFrom, styleGallery, StyleGallery, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), cellsPicked: id => { const m = id && scene().byId.get(id); return m?.table ? inRange(m) : []; }, arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook,
+  return { editPoints, endPoints, merge, mergeable, alongLine, lineAmong, shapeItems, pastePicture, setLink, askLink, editCell, tableItems, newTable, readsFrom, styleGallery, StyleGallery, cell: id => (cellNow && (!id || cellNow.id === id) ? cellNow : null), cellsPicked: id => { const m = id && scene().byId.get(id); return m?.table ? inRange(m) : []; }, arm, disarm, armed: () => !!armed, paint, followLines, duplicate, copyTo, flip, turnBy, angleOf, aimLine, crop, endCrop, changePicture, setDefault, sizeBy, did, repeat, pane, paintPane, paneOpen, guideCells, guideDrag, guidesNow, putGuides, equalGaps, clearGaps, gluable, markAt, newLook,
     destroy() { stopMaster(); render(null, masterEl); removeEventListener('pointermove', altMove, true); removeEventListener('keyup', altUp, true); removeEventListener('pointermove', heldKeys, true); removeEventListener('keydown', sizeEnds, true); removeEventListener('pointerdown', sizeEnds, true); removeEventListener('keydown', fromPanel); disarm(); render(null, paneEl); } };
 }
 return { attach };
