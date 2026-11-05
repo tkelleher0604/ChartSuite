@@ -1,6 +1,6 @@
 /* The chart canvas and its format bar: only what's theirs. Tokens are dendra.css's. The page is the
-   document, so it stays white in both themes; the selection is Office's, a thin frame in the accent with
-   square handles, and the guides are red-orange. */
+   document, so it stays white in both themes; the selection is a ring in the accent by the mark's own shape, with
+   Office's square handles, and the guides are red-orange. */
 
 .dc { position: absolute; inset: 0; outline: none; background: var(--side); overflow: hidden; }
 .dc-graph { position: absolute; inset: 0; }
@@ -34,8 +34,8 @@
 .dc.flying :is(.x6-widget-selection, .x6-widget-transform, .dc-marks) { visibility: hidden; }
 .dc-ghosts { pointer-events: none; }
 
-/* The selection: a thin frame and 6 px square handles at its corners and sides, as in Office; a box too
-   small on screen for its side handles shows only its corners. */
+/* The selection's 6 px square handles at its corners and sides, as in Office; a box too small on screen for its
+   side handles shows only its corners. */
 .dc .x6-widget-selection-box { border: 1px solid var(--accent) !important; box-shadow: none !important; margin: -3px 0 0 -3px !important; padding: 2px !important; border-radius: 0 !important; }
 /* The box the keys are on is where they are: its ring as plain as any focus ring, on the page's white in either theme. */
 :root[data-hand="keys"] .dc:focus .x6-widget-selection-box { outline: 3px solid #2c4c7c; outline-offset: 1px; }
