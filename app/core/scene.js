@@ -1107,14 +1107,16 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const editing = boxes.find(b => b.design?.value.editing);
   if (editing) {
     const kept = N.resolve('Scale', { id: view, kind: 'View' })?.value?.scale ?? 1, names = new Set((editing.design.value.names ?? []).map(Tree.norm));
+    // (What stands under a part's words is what's on the page, a part being read against those as it will be against its neighbours.)
+    const standing = onPage.filter(r => r.part || wb.made(r.shape) > editing.design.value.begun);
     for (let i = 0; i < onPage.length; i++) {
       const r = onPage[i];
       if (r.role || r.geometry === 'legend') continue;
       if (r.rest) said.set(r.id, editing.fields.filter(it => !names.has(Tree.norm(state[it.id]?.edge ?? ''))).map(it => it.text).join('\n'));
       else if (r.geometry === 'table') said.set(r.id, reads.table(r, editing.record));
-      else if (r.text) said.set(r.id, /^\s*=/.test(r.text) ? reads.formula(r.text, editing.record) : cleaned(r.text.replace(TOKEN, (_, l) => { const q = reads(editing.record, l), it = !l.includes('|') && editing.fields.find(x => x.id === q.id); return it ? it.text : q.text; })));
+      else if (r.text) said.set(r.id, /^\s*=/.test(r.text) ? reads.formula(r.text, editing.record) : cleaned(r.text.replace(TOKEN, (_, l) => { const q = reads(editing.record, l), it = !l.includes('|') && editing.fields.find(x => x.id === q.id); return (it ? it.text : q.text) || l; })));
       // (Drawn since it began too: as it will be, a part.)
-      if (r.part || wb.made(r.shape) > editing.design.value.begun) { const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))); onPage[i] = { ...r, format: partFormat(editing, { p: r, item }, kept) }; }
+      if (r.part || wb.made(r.shape) > editing.design.value.begun) { const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))); onPage[i] = { ...r, format: partFormat(editing, { p: r, item }, kept, standing) }; }
     }
   }
 
@@ -2310,22 +2312,22 @@ function designIn(b, read, hidden, hasEntry) {
   if (value.parts?.length) inkOn({ texts: b.texts, settings: { Fill: { value: rest ? groundOf(b, rest) : b.settings.Fill.value }, Transparency: b.settings.Transparency } });
 }
 // What a part's words stand on: its own fill; or, clear, the fill of the part before it that it stands in the middle of; or the box's.
-function groundOf(b, p) {
+function groundOf(b, p, parts = b.design?.value.parts ?? []) {
   const fill = q => (q.geometry === 'text' || q.geometry === 'line' || q.geometry === undefined ? q.format?.Fill ?? 'none' : q.format?.Fill ?? '#ffffff');
   if (!none(fill(p))) return fill(p);
-  const parts = b.design?.value.parts ?? [], i = parts.findIndex(q => q.id === p.id), mx = p.x + p.w / 2, my = p.y + p.h / 2;
+  const i = parts.findIndex(q => q.id === p.id), mx = p.x + p.w / 2, my = p.y + p.h / 2;
   for (let k = i - 1; k >= 0; k--) { const q = parts[k]; if (!q.hidden && !none(fill(q)) && mx >= q.x && mx <= q.x + q.w && my >= q.y && my <= q.y + q.h) return fill(q); }
   return b.settings.Fill.value;
 }
 // A part's look: what it says of itself; a look named as {Outline}, the box's; and of its words, what the chart says of the field it reads, or the box, as a text's in the box would have
 // it (All text's font; a style's bold; a size a note gives, as printed, else the chart's, at the sheet's half point). A colour that wouldn't read on what's under it gives way, as Ink.
-function partFormat(b, { p, item }, s) {
+function partFormat(b, { p, item }, s, parts) {
   const f = { ...p.format }, src = item?.settings ?? b.settings, given = l => (src[l]?.note ? src[l].value : undefined);
   for (const [k, v] of Object.entries(f)) { const m = typeof v === 'string' && /^\{(\w+)\}$/.exec(v); if (m) { const o = b.settings[m[1]]?.value; if (o === undefined) delete f[k]; else f[k] = m[1] === 'Weight' ? o * s : o; } }
   f.Font ??= item?.look.Font ?? b.settings.Font.value;
   if (f.Size === undefined) f.Size = Number.isFinite(given('Size')) ? given('Size') : half(item?.look.Size ?? BESIDE_NAME, s) * s;
   for (const l of ['Bold', 'Italic', 'Underline', 'Strike', 'Spacing', 'Align']) if (f[l] === undefined && given(l) !== undefined) f[l] = given(l);
-  if (f.Color === undefined && !['line', 'picture'].includes(p.geometry)) { const ground = groundOf(b, { ...p, format: f }), c = given('Color'); if (c && (none(ground) || !unread(c, ground))) f.Color = c; else if (tooDark({ Fill: ground, Transparency: 0 })) f.Color = WHITE; }
+  if (f.Color === undefined && !['line', 'picture'].includes(p.geometry)) { const ground = groundOf(b, { ...p, format: f }, parts), c = given('Color'); if (c && (none(ground) || !unread(c, ground))) f.Color = c; else if (tooDark({ Fill: ground, Transparency: 0 })) f.Color = WHITE; }
   return f;
 }
 // What a part's words keep in from its edges, the chart's as a box's are: its Inner margins, or PowerPoint's own.

@@ -235,7 +235,8 @@ function edit(m, given) {
   // (What's drawn since, and the box; not what's on the chart's master.)
   const box = m.id, keeps = id => { const q = c.scene().byId.get(id); return id === box || (!rows0.has(id) && q?.type === 'shape' && !q.master); };
   c.designing({ box, keeps });
-  Shell.select([]);
+  // (The box selected, so its page is beside it, its rows to drag onto the parts.)
+  Shell.select([box]);
   c.bringTo({ x: m.x - m.w * 0.5, y: m.y - m.h * 0.5, w: m.w * 2, h: m.h * 2 });
   const bar = c.root.querySelector('.dc-over').appendChild(document.createElement('div'));
   bar.className = 'dc-designbar';

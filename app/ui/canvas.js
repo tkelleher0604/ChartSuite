@@ -2098,12 +2098,14 @@ function mount(el) {
   // The handles show on the box whose outline the pointer nears, on the outline, as PowerPoint's connection
   // points are: at the middle of each side (a triangle's apex, slopes and base), or off it along the side as far
   // as keeps them clear of the lines there, of the box's grips and of each other, so a click by a box on a line
-  // takes the line. A side with no such place has none.
+  // takes the line. A side with no such place has none. On a box selected, whose grips hold those middles and which is
+  // the box a person has just made, they stand a little off the outline, as FigJam's do, so a drag from a side's middle
+  // resizes and one from the dot beyond it relates, each where it's seen; a triangle's stay, as its sides have no grips.
   let near = null, placed = null, pointerAt = null;
   const handles = ['n', 'e', 's', 'w'].map(side => {
     const h = document.createElement('div');
     h.className = `dc-handle ${side}`;
-    h.addEventListener('pointerdown', e => { if (near && h.at && e.button === 0) { e.preventDefault(); e.stopPropagation(); relating(near, h.at, e); } });
+    h.addEventListener('pointerdown', e => { if (near && h.at && e.button === 0) { e.preventDefault(); e.stopPropagation(); relating(near, h.from, e); } });
     over.appendChild(h);
     return h;
   });
@@ -2128,7 +2130,7 @@ function mount(el) {
     return Math.hypot(x - ax - t * dx, y - ay - t * dy);
   };
   // How far off the middle a handle may go, and how clear it keeps, in screen pixels: its reach and a line's.
-  const ALONG = [0.5, 0.38, 0.62, 0.26, 0.74, 0.14, 0.86], CLEAR = 16;
+  const ALONG = [0.5, 0.38, 0.62, 0.26, 0.74, 0.14, 0.86], CLEAR = 16, STANDOFF = 18, OUTWARD = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] };
   function showHandles(m = near) {
     near = m && !pointing && !still() && !dragging ? m : null;
     if (!near) { root.classList.remove('relating-on'); placed = null; return; }
@@ -2154,22 +2156,27 @@ function mount(el) {
     const nearLabels = scene.marks.filter(k => k.type === 'line' && k.labelAt && k.label && k.labelAt.x < m.x + m.w + r && k.labelAt.x + k.label.w > m.x - r && k.labelAt.y < m.y + m.h + r && k.labelAt.y + k.label.h > m.y - r);
     const offLabels = p => { const g = 8 / z; return nearLabels.every(k => p[0] < k.labelAt.x - g || p[0] > k.labelAt.x + k.label.w + g || p[1] < k.labelAt.y - g || p[1] > k.labelAt.y + k.label.h + g); };
     const clear = p => offLabels(p) && segs.every(([a, b]) => toSegment(p, a, b) * z >= CLEAR) && dots.every(d => Math.hypot(p[0] - d[0], p[1] - d[1]) * z >= CLEAR);
+    const off = gripped && !tri ? STANDOFF / z : 0, onNoBox = p => !scene.marks.some(k => k.type === 'box' && k.id !== m.id && p[0] > k.x && p[0] < k.x + k.w && p[1] > k.y && p[1] < k.y + k.h);
     for (const h of handles) {
-      const side = h.classList[1], p = ALONG.map(f => sidePoint(m, side, f)).find(p => p && clear(p));
+      const side = h.classList[1], [nx, ny] = OUTWARD[side], beyond = q => [q[0] + nx * off, q[1] + ny * off], along = ALONG.map(f => sidePoint(m, side, f)).filter(Boolean);
+      const edge = off ? along.find(q => clear(beyond(q)) && onNoBox(beyond(q))) : null, p = edge ? beyond(edge) : along.find(clear);
       h.at = p ?? null;
+      h.from = edge ?? p ?? null;
       h.hidden = !p;
       if (p) { const g = graph.localToGraph(p[0], p[1]); h.style.left = `${g.x}px`; h.style.top = `${g.y}px`; dots.push(p); }
     }
     root.classList.add('relating-on');
   }
-  // The box whose outline a point is within 12 px of, on screen, the nearest.
+  // The box whose outline a point is within 12 px of, on screen, the nearest; or a box selected, as far as its handles stand off it.
   function nearEdge(p) {
-    const z = graph.zoom(), r = 12 / z;
+    const z = graph.zoom();
     let best = null, bd = Infinity;
     for (const m of scene.marks) {
-      if (m.type !== 'box' || p.x < m.x - r || p.x > m.x + m.w + r || p.y < m.y - r || p.y > m.y + m.h + r) continue;
+      if (m.type !== 'box') continue;
+      const reach = transform.widgets.has(graph.getCellById(m.id)) ? STANDOFF + 12 : 12, r = reach / z;
+      if (p.x < m.x - r || p.x > m.x + m.w + r || p.y < m.y - r || p.y > m.y + m.h + r) continue;
       const o = outlineOf(m), d = Math.min(...o.map((a, i) => toSegment([p.x, p.y], a, o[(i + 1) % o.length]))) * z;
-      if (d <= 12 && d < bd) { best = m; bd = d; }
+      if (d <= reach && d < bd) { best = m; bd = d; }
     }
     return best;
   }
@@ -2181,7 +2188,7 @@ function mount(el) {
     // A free shape is no box: on one, or on its grips, there's nothing to relate, whatever box is under or beside it; but one not selected has dots too, for a line
     // drawn from it, which only glues (see relating).
     const onCell = graph.getCellById(e.target.closest?.('[data-cell-id]')?.getAttribute('data-cell-id') ?? '');
-    if (e.target.closest?.('.x6-widget-transform')) { showHandles(null); return hover(null); }
+    if (e.target.closest?.('.x6-widget-transform')) { showHandles([...transform.widgets.keys()].map(c => scene.byId.get(c.id)).find(x => x?.type === 'box' && x.shape !== 'triangle') ?? null); return hover(null); }
     if (onCell?.getData()?.kind === 'shape') { const fs = scene.byId.get(onCell.id); showHandles(hand?.gluable(fs) && !sel.isSelected(onCell) && !e.buttons ? fs : null); return hover(null); }
     const f = e.buttons || pointing || root.classList.contains('relating') ? null : fieldUnder(e.clientX, e.clientY);
     showHandles(e.buttons ? null : nearEdge(graph.clientToLocal(e.clientX, e.clientY)) ?? (f?.m.type === 'box' ? f.m : null));
