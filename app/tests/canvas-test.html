@@ -265,6 +265,8 @@ async function run() {
   const feeder = drawnBoxes.find(b => { const e = entryOf(b, 'Jurisdiction'); return e && rs[e].choice === 'Cayman Islands'; });
   Shell.select([feeder.id]); await tick(120);
   $('[data-fb="groups"]').click(); await tick(120);
+  // (A long list has what each field could reach a row away.)
+  $$('.float .menu-item').find(e => txt(e) === 'Same field value')?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true })); await tick(120);
   const cayman = $$('.float .menu-item').find(e => txt(e).startsWith('Jurisdiction: Cayman Islands'));
   const caymans = reachOf('Jurisdiction', { choice: 'Cayman Islands' });
   check('a box’s option is offered as a group of its own', !!cayman && txt(cayman) === `Jurisdiction: Cayman Islands (${caymans})`, menuItems().join(' | '));

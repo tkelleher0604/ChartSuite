@@ -2152,7 +2152,7 @@ async function run() {
     && naming()?.value === `${name0} copy` && objects(C2) === objects(C0) && viewNames() === views0 && Time.describe(last()) === `Began the chart ${name0} copy`,
     `${naming()?.value} ${objects(C2)}/${objects(C0)} ${viewNames()} ${Time.describe(last())}`);
   press('Escape', naming()); await tick(60);
-  check('… its records its own: what it shares with the first is none of its ids', !App.wb.rows(C2).some(r => r.record && App.wb.item(C0, r.record).length));
+  check('… its records its own: what it shares with the first is none of its ids, but the calendar’s years, what’s paid at each kept', !App.wb.rows(C2).some(r => r.record && !r.calendar && App.wb.item(C0, r.record).length) && App.wb.rows(C2).some(r => r.edge === 'Annual Tax Paid'));
   $('.titlebar .chartmenu').click(); await tick(60);
   item('Delete chart').click(); await tick(200);
   check('Delete chart takes it out, says so, and shows another', !App.wb.charts().some(c => c.chart === C2) && C() !== C2 && $('.toast span')?.textContent === `Deleted the chart ${name0} copy`, $('.toast span')?.textContent);
