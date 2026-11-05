@@ -631,6 +631,9 @@ async function run() {
     if (named) await press(named);
     check('… and another picked lights its own, the row lit before no longer lit', cv().field()?.it.id === 'fund_name' && !$$('.insp .row.lit').length,
       `${cv().field()?.it.id}; lit ${$$('.insp .row.lit').map(r => r.dataset.key)}`);
+    check('… a name picked, the pen stands in a row of the page', $$('.insp .pen.here').length === 1, `${$$('.insp .pen.here').length}`);
+    const forBox = cv().fields.scope('EIN'), forName = Canvas.scope();
+    check('… and another field goes where the pen stands for the box, never to what the name’s place reaches', forName.own || forBox.own || forBox.caption !== forName.caption, `${forBox.caption} ${forName.caption}`);
     if (at) await press(at);
     const changes = App.shown.peek().changes().length, shownNotes = App.notes.peek().notes('Shown').length;
     cv().root.focus(); key('Delete'); await tick(250);

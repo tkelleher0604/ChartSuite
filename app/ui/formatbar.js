@@ -358,14 +358,14 @@ function locOf(c, s, g) {
 // Where it goes by itself (dendra.md, The pen). Several selected: what they are exactly, or else them. A box with looks of its
 // own entered: its title. A field: where what shows it or gives its look is decided. Else the narrowest place that already
 // decides its look, the Styles row that fills it, or else its kind. A free shape has no schema, and no pen.
-function byItself(c, s) {
+function byItself(c, s, forBox = false) {
   const sc = c.scene();
   if (s.aim || !s.marks.length) return null;
   const bound = s.marks.filter(m => m.type === 'box' || m.type === 'line');
   if (!bound.length || bound.length < s.marks.length || s.scopes.length < 2) return s.scopes.some(x => x.own) ? { own: true } : null;
   if (bound.length > 1) return s.narrowest && s.narrowest.marks.size === new Set(bound.map(m => m.merged ?? m.id)).size ? { group: s.narrowest.key } : { own: true };
   const m = bound[0], st = App.state.peek(), mine = n => n?.view === sc.view && Tree.idsIn(n.pattern).size > 0;
-  const f = fieldOf(c);
+  const f = forBox ? null : fieldOf(c);
   if (f) {
     const n = f.it.shownBy ?? null;
     if (n && Tree.idsIn(n.pattern).size) return { own: true };
@@ -396,8 +396,11 @@ function penRow(c, s, scope) {
   const m = s.marks.length === 1 ? s.marks[0] : null, st = App.state.peek(), fits = id => { const u = Tree.treeOf(st, id); return !!u && scope.outputs?.some(p => Tree.narrower(u, p)); };
   if (!m?.record) return null;
   if (fits(m.record)) return 'kind';
-  for (const id of inMark(st, m)) if (id !== m.record && fits(id)) return `entry:${id}`;
-  return null;
+  // (A name's row is the title. A field whose place has no row of its own stands at the field's.)
+  const rowOf = id => Tree.same(st[id]?.edge ?? '', 'Name') ? 'title' : `entry:${id}`;
+  for (const id of inMark(st, m)) if (id !== m.record && fits(id)) return rowOf(id);
+  const f = fieldOf(c);
+  return f ? (f.it.id !== m.record && st[f.it.id]?.edge !== undefined ? rowOf(f.it.id) : 'title') : null;
 }
 // A place's name, as its pen's tooltip and the toast say it.
 const placeSaid = (c, g) => g.own ? g.label : allOf(g, (g.marks ?? marksOf(c.scene(), g)).size);
@@ -1910,10 +1913,10 @@ const typing = () => !!document.activeElement?.closest?.('input, textarea, [cont
 // FormatBar.copyLook() → whether there was a look to copy, from the selection (Ctrl+Shift+C); FormatBar.pasteLook()
 //   pastes it on the selection at its scope (Ctrl+Shift+V), one change; FormatBar.canPasteLook() → whether a look is
 //   copied; FormatBar.clear() clears the look at the scope (Clear formatting), one change, saying what it cleared.
-function describe() {
+function describe(forBox = false) {
   const c = Canvas.active.peek();
   if (!c?.scene()) return null;
-  const s = scopesOf(c), sc = scopeOf(s.scopes);
+  const s = scopesOf(c), sc = forBox && !level.peek() && fieldOf(c) ? place(c, s, byItself(c, s, true)) ?? scopeOf(s.scopes) : scopeOf(s.scopes);
   if (!sc || sc.root) return null;
   const by = c.scene().byId, ids = sc.own ? s.marks.map(m => m.id) : [...sc.marks ?? []], records = [...new Set(ids.map(id => by.get(id)?.record).filter(Boolean))];
   const base = { label: named(c, sc), view: c.scene().view, records };
