@@ -5,7 +5,7 @@ This change makes blank charts and reusable object designs accessible without fi
 ## What a user can do
 
 1. Begin a blank chart. **Add object** is on the page and in the toolbar. Enter a name and either choose an existing object type or type a new one. Double-clicking the page and the existing Insert shortcuts still support quick inline creation.
-2. Draw and group shapes. Their text panel accepts ordinary text and offers **Merge field → New field…**. Literal braces remain literal; field chips bind to record values.
+2. Choose **Design a reusable card** on the blank page or in Insert to begin with a name field, or draw and group shapes freely. Their text panel accepts ordinary text and offers **Merge field → New field…**. Literal braces remain literal; field chips bind to record values.
 3. Select the grouping and choose **Save as object type…** in the side panel. Name the type and review its fields and datatypes. Saving creates the type's schema, its standard design in this view, and its first object. One Undo restores the drawing and removes those additions.
 4. Add another object of that type. It uses the same design automatically, with its own field values. Edit values in the side panel; edit the shared graphics through **Design → Edit design**.
 5. Drag a field's label from the record panel onto a graphical part. Existing words and fields stay in place. **New field…** while editing a design stages a text field; **Done** adds it to the schema with the design. **Discard** adds nothing.
@@ -15,7 +15,9 @@ The first instance created from a drawing starts with the type's name and is imm
 ## Review boundaries
 
 - `app/ui/canvas.js`: object creation reuses the existing placement and transaction path; literal shape editing uses TextTemplate; field drops prefer visible design parts over an overlapping “Other fields” frame.
-- `app/ui/designs.js`: drawing-to-type schema declarations and the design are committed together. Only fields explicitly created during an existing design edit are declared on Done. Existing relative tokens must never become own fields merely because the design was edited.
+- `app/core/design-schema.js`: pure planning for affected types, field inference and validated declarations. A shared design reaches every note that uses it, including other views and types with no visible instance. Field types are inferred from the full source path and type; unrelated choice options are never pooled. Declaration conflicts return no partial plan.
+- `app/ui/designs.js`: commits schema declarations and the design together. Only fields explicitly created during an existing design edit are declared on Done. Existing relative tokens must never become own fields merely because the design was edited. Validation happens before closing the editable draft.
+- `app/ui/words.js`: shared literal text, field chips, caret handling and rich-text edits. Adapters provide fields and persistence; the control does not look up records or write transactions.
 - `app/ui/inspector.js`: ordinary shapes and design parts use the same text controls. The standalone inspector still supports running without the design/canvas modules.
 - `app/ui/shell.js`, `formatbar.js`, and `canvas.css`: one empty-canvas prompt, visible creation actions, and toolbar sizing.
 
@@ -29,7 +31,7 @@ The test builds objects and a grouped drawing, creates a type and its schema, ch
 
 For visual review, append `?stop=blank`, `?stop=save`, `?stop=cards`, or `?stop=finished`. These stop at the relevant UI and hide the test report after successful checks. These are scripted DOM-event browser tests, not trusted hardware-input automation or a human usability study. The PowerPoint ease-of-use goal still needs a short human task comparison.
 
-Verified in headless Chrome on November 7, 2026: builder 37, canvas 784, inspector 421, scene 358, export 223, core 172, engine 284, table 580, store 76, tour 158, skill 19, text 23, and performance 27 checks passed: **3,162 total**. `git diff --check` passed. The complete builder flow also passed at 1024 × 900 and in dark mode; the blank page, save dialog, and finished chart were inspected in screenshots.
+Baseline verification at `c33d90d` on November 7, 2026: builder 37, canvas 784, inspector 421, scene 358, export 223, core 172, engine 284, table 580, store 76, tour 158, skill 19, text 23, and performance 27 checks passed: **3,162 total**. The complete builder flow also passed at 1024 × 900 and in dark mode; the blank page, save dialog, and finished chart were inspected in screenshots. The current runner additionally includes the design-schema suite and both formula-editor suites; use its results for the current checkout.
 
 The initial regression pass found an inspector dependency assumption and toolbar overflow. Both were fixed and their suites rerun successfully. A narrow-window acceptance failure came from using SVG bounds that included selection widgets; the drag helper now reads the rendered box geometry for its pointer coordinates. It still performs the drag through pointer events.
 
@@ -41,4 +43,4 @@ Kinds currently anchor schema locations, relationship roles, formulas, tables, f
 
 A useful next experiment is one generic object kind with choice-based classifications and explicit rules for field/relationship applicability. Compare it against a small real chart before migrating records. Preserve object IDs and history, and require save/reopen and cross-view GUI tests. Do not introduce a second “type” choice that merely repeats the existing kind.
 
-For code cleanup, the next extraction should be reusable schema-declaration commands and the shared text editor, followed by scope resolution and note-writing. Keep each extraction behavior-preserving and reviewable independently of a model migration. This change consolidates the inspector's repeated text-editor branches; it does not attempt a broad rewrite of the large canvas and format-bar modules.
+Schema planning and the shared text editor now have separate modules. The next useful boundaries are scope resolution/note-writing and the design edit session's validation/commit/teardown lifecycle. Keep those changes reviewable independently of a model migration. The large canvas and format-bar modules still contain several responsibilities.

@@ -1662,6 +1662,7 @@ function insertMenu(e, c) {
   Shell.popover(e.currentTarget, close => html`<div class="insert" role="menu" data-grid="button">
     <div class="rows">
       ${item('Add object…', () => c.newObject(), close, mastering ? offMaster : Designs.editing.peek() ? 'Finish editing the design first' : null)}
+      ${item('Design a reusable card…', () => c.startCard(), close, mastering ? offMaster : Designs.editing.peek() ? 'Finish editing the design first' : null)}
       ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
       ${item(one?.type === 'line' ? 'Text on this line' : 'Text in this box', () => c.addText(one.id), close, bound ? null : 'Select a box first')}${item('Footnote', () => c.footnote(one.id), close, noted ? null : mastering ? offMaster : 'Select what it’s about first')}
       <div class="menu-sep" />

@@ -156,16 +156,28 @@ async function richDrawingToType() {
   await key(panel, 'Escape');
   check('Escape restores the committed panel text without losing formatting', panel.textContent === 'Prefix ' + text && rowOf(shape.id).runs?.[0]?.from === from + 7);
   await prose(text);
+  const words = $('.words-in'); words.focus();
+  const start = document.createRange(); start.setStart(words.firstChild, 0); start.collapse(true); getSelection().removeAllRanges(); getSelection().addRange(start);
+  words.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true })); await field('Name');
+  const drawingText = App.scene.peek().byId.get(shape.id)?.texts[0];
+  check('A field before rich text keeps the second repeated word styled on the free drawing', drawingText?.text === 'Name' + text && drawingText.runs?.[0]?.from === from + 4 && drawingText.runs[0].to === text.length + 4);
   await click(button('Save as object type…', '.inspector button'));
   await input('dialog input[aria-label="Design name"]', 'Rich card'); await input('dialog input[aria-label="Object type"]', 'Rich card');
   await click(button('Save', 'dialog button')); await wait(350);
-  const literalPart = name => box(name)?.parts?.find(p => p.texts?.some(t => t.text === text))?.texts[0];
-  const preserved = part => part?.runs?.length === 1 && part.runs[0].from === from && part.runs[0].to === text.length && part.runs[0].Bold;
-  check('Saving a drawing as a type preserves exact bold offsets and spaces', preserved(literalPart('Rich card')));
-  await object('Second card', 'Rich card');
-  check('The next object retains the same literal text and bold occurrence', preserved(literalPart('Second card')));
+  const literalPart = name => box(name)?.parts?.find(p => p.texts?.some(t => t.text === name + text))?.texts[0];
+  const preserved = (part, name) => part?.runs?.length === 1 && part.runs[0].from === from + name.length && part.runs[0].to === text.length + name.length && part.runs[0].Bold;
+  check('Saving a drawing as a type preserves exact bold offsets after the merged value', preserved(literalPart('Rich card'), 'Rich card'));
+  const second = 'Second card with a longer name';
+  await object(second, 'Rich card');
+  check('Different field lengths keep the second word styled in both instances', preserved(literalPart(second), second) && preserved(literalPart('Rich card'), 'Rich card'));
+  const exported = new DOMParser().parseFromString(Export.svg(App.scene.peek(), {}), 'image/svg+xml');
+  check('The exported SVG contains the styled second occurrence', [...exported.querySelectorAll('text')].some(el => el.textContent.trim() === 'echo' && el.getAttribute('font-weight') === 'bold'), JSON.stringify({ root: exported.documentElement.localName, spans: literalPart(second)?.lines.map(l => l.spans?.map(s => [s.text, s.look.Bold])), text: [...exported.querySelectorAll('text')].slice(-8).map(e => [e.textContent, e.getAttribute('font-weight')]) }));
+  await editDesign();
+  const editingPart = shapes().find(m => rowOf(m.id)?.text?.startsWith('{Name}'))?.texts[0];
+  check('Design editing projects rich ranges against the edited object’s value', preserved(editingPart, second));
+  await click(button('Discard', '.dc-designbar button'));
   await click('.chartmenu'); await menu('Save as…'); await click('.chartmenu'); await menu('Open…'); await wait(400);
-  check('Saving and reopening retain the formatted literal text', preserved(literalPart('Second card')));
+  check('Saving and reopening retain the formatted literal text', preserved(literalPart(second), second));
 }
 async function textControls() {
   await chart('Text controls');
@@ -189,6 +201,28 @@ async function textControls() {
   check('Typing a field prefix offers completion without committing a field', visible($('.part-words .dc-complete')) && rowOf(shape.id).text === saved);
   await key(panel, 'Escape'); await key(panel, 'Escape');
   check('Escape closes completion, then restores the committed text and chip', rowOf(shape.id).text === saved && $('.words-in .word-chip')?.dataset.token === 'Role' && !$('.part-words .dc-complete'));
+}
+async function reusableCardAction() {
+  await chart('Rooms'); await click('.dc-empty .design-card');
+  check('A blank chart offers a ready-to-edit reusable card with a Name field', $('.word-chip')?.dataset.token === 'Name' && visible(button('Save as object type…', '.inspector button')));
+  const panel = $('.words-in'); panel.focus(); panel.append(document.createTextNode('\nCapacity: '));
+  const end = document.createRange(); end.setStart(panel.lastChild, panel.lastChild.length); end.collapse(true); getSelection().removeAllRanges(); getSelection().addRange(end);
+  panel.dispatchEvent(new Event('input', { bubbles: true })); panel.blur();
+  await field('Capacity', true); await click(button('Save as object type…', '.inspector button'));
+  await input('dialog input[aria-label="Design name"]', 'Room card'); await input('dialog input[aria-label="Object type"]', 'RoomCard');
+  const type = $('dialog select[aria-label="Type of Capacity"]'); type.value = 'number'; type.dispatchEvent(new Event('change', { bubbles: true }));
+  await click(button('Save', 'dialog button')); await wait(300); await value('Capacity', '8');
+  await object('Studio', 'RoomCard'); await value('Capacity', '12');
+  check('A card made from the blank-page action declares fields and reads each room’s values', specs('RoomCard').some(s => s.args[0].edge === 'Capacity' && s.out.field === 'number') && drawnText(box('Studio')).includes('Capacity: 12') && drawnText(box('RoomCard')).includes('Capacity: 8'));
+  check('Saving a rounded card preserves its silhouette without adding an outer rectangle', box('Studio').shape === 'rounded' && box('Studio').settings.Outline.value === 'none' && box('Studio').settings.Fill.value === 'none' && box('Studio').parts.some(p => p.geometry === 'rounded' && p.look.Outline !== 'none'));
+  const capacity = Tree.entryAt(App.state.peek(), named('Studio')[0], 'Capacity');
+  check('Mixed text reports its visible resolved fields', box('Studio').design.parts.some(p => p.sourceIds?.includes(capacity)));
+  const eye = () => $$('.inspector .row').find(r => words(r.querySelector('.k') ?? r) === 'Capacity')?.querySelector('.onchart:not(.named)');
+  check('The field eye is checked when a field appears in mixed card text', eye()?.getAttribute('aria-pressed') === 'true');
+  await click(eye()); await wait(250);
+  check('Hiding a mixed field keeps its literal label and stored value', drawnText(box('Studio')).includes('Capacity:') && !drawnText(box('Studio')).includes('12') && App.state.peek()[capacity]?.value === 12 && eye()?.getAttribute('aria-pressed') === 'false');
+  await click('[aria-label="Undo"]'); await wait(250);
+  check('Undo restores the mixed field and its checked eye', drawnText(box('Studio')).includes('Capacity: 12') && eye()?.getAttribute('aria-pressed') === 'true');
 }
 async function run() {
   await wait(500);
@@ -280,6 +314,7 @@ async function run() {
   await sharedDesignAcrossViews();
   await richDrawingToType();
   await textControls();
+  await reusableCardAction();
 }
 Shell.ready.then(run).catch(e => out.push({ name: 'GUI flow finishes', ok: false, detail: e.stack ?? String(e) })).finally(() => {
   const failed = out.filter(x => !x.ok);

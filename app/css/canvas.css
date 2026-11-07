@@ -171,12 +171,14 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .dc-empty[hidden] { display: none; }
 .dc.drawing .dc-empty { display: none; }
 .dc-empty button { pointer-events: auto; padding: 9px 16px; border: 1px solid var(--rule-2); background: var(--surface); }
+.dc-empty .design-card { margin-top: 8px; padding: 4px 8px; border-color: transparent; background: transparent; color: var(--ink-2); }
 .dc-empty > span { color: var(--ink-3); font-size: 12px; }
 .fb .add-object { gap: 4px; }
 .design-save .design-fields { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--rule-2); }
 .design-save .design-fields .head { margin-bottom: 8px; font-weight: 600; }
 .design-prompt { padding: 12px 20px 0; }
 .design-prompt .btn { width: 100%; justify-content: center; border: 1px solid var(--rule-2); }
+.design-prompt p { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.4; }
 .dc-kind { position: absolute; z-index: 4; height: 26px; padding: 0 8px 0 10px; gap: 6px; font: var(--t12); background-color: var(--surface); }
 .dc-kinds { position: absolute; z-index: 5; min-width: 160px; }
 .dc-kinds > .menu-item:hover { background: var(--hover); }

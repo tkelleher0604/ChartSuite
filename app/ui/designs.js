@@ -226,6 +226,7 @@ function make(ms = canvas().selected(), { asType = false } = {}) {
       <label class="field"><span>Design name</span><input aria-label="Design name" placeholder="New design" spellcheck="false" autocomplete="off" autofocus onInput=${e => { name = e.target.value; }} /></label>
       <label class="field"><span>For</span><select aria-label="For" value=${target} onChange=${e => { chosen = e.target.value; setTarget(chosen); }}>${fors.map(f => html`<option value=${f.key}>${f.label}</option>`)}</select></label>
       ${target === 'new' ? html`<label class="field"><span>Object type</span><input aria-label="Object type" placeholder="e.g. Person" required autocomplete="off" value=${kind} onInput=${e => { kind = Tree.clean(e.target.value); e.target.setCustomValidity(kindError(kind)); }} /></label>
+        <p class="muted">Saving turns this drawing into the first object of the new type. You can then give it a name and fill in its fields.</p>
         <div class="design-fields"><div class="head">Fields for this type</div>${fields.map(f => html`<label class="field"><span>${f.label}</span>${f.linked ? html`<span class="muted">Linked field</span>` : html`<select aria-label=${`Type of ${f.label}`} disabled=${Tree.same(f.label, 'Name')} value=${f.datatype} onChange=${e => { f.datatype = e.target.value; }}>
           ${Object.entries(Tree.DATATYPES).map(([key, label]) => html`<option value=${key}>${label}</option>`)}${['choice', 'tag'].includes(f.datatype) ? html`<option value=${f.datatype}>${f.datatype === 'choice' ? 'Choice' : 'Yes / No'}</option>` : null}
         </select>`}</label>`)}${fields.some(f => f.linked) ? html`<p class="muted">Linked fields need matching relationships on the new type.</p>` : null}</div>` : null}
@@ -245,8 +246,13 @@ function make(ms = canvas().selected(), { asType = false } = {}) {
     });
     const foot = Math.min(1, Math.max(0, ...parts.filter(p => p.geometry === 'text' && p.text).map(p => p.y + p.h)));
     parts.push({ id: Log.newId(), rest: true, geometry: 'text', x: 0, y: foot, w: 1, h: Math.max(0.05, 1 - foot), format: { Align: 'center', Valign: foot ? 'top' : 'middle' } });
+    // A standalone drawing already contains its visible background and border. Its object frame
+    // must not add a rectangular border around a rounded card (or paint behind a cutout drawing).
+    const backing = free.find(q => Shapes.ids.includes(q.geometry) && !q.rotate && Math.abs(q.x - drawn.x) < 0.01 && Math.abs(q.y - drawn.y) < 0.01 && Math.abs(q.w - drawn.w) < 0.01 && Math.abs(q.h - drawn.h) < 0.01);
+    const base = target ? { Shape: target.shape, ...(target.shape === 'rounded' && { Corner: target.settings.Corner.value }) }
+      : { Shape: backing?.geometry ?? 'rect', Fill: 'none', Outline: 'none', ...(backing?.geometry === 'rounded' && { Corner: backing.settings.Corner.value }) };
     const patterns = f?.fresh ? [{ kind }] : f?.none ? [] : patternsAt(target, s), d = {
-      id: Log.newId(), name: Tree.clean(name) || (f?.fresh ? kind : 'New design'), w: round(W), h: round(H), base: { Shape: target?.shape ?? 'rect', ...(target?.shape === 'rounded' && { Corner: target.settings.Corner.value }) }, parts,
+      id: Log.newId(), name: Tree.clean(name) || (f?.fresh ? kind : 'New design'), w: round(W), h: round(H), base, parts,
     };
     const said = f?.fresh ? `Saved ${d.name} as the design for ${kind}` : `Made the design ${d.name}${f?.none ? '' : ` for ${whom(target, s, s?.marks?.size)}`}`;
     const declarations = DesignSchema.declarations(App.schema.peek(), f?.fresh ? [kind] : [], fields);

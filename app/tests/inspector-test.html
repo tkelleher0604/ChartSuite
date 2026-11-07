@@ -88,8 +88,50 @@ const pick = async label => { const it = [...document.querySelectorAll('.float .
 // The window's one bar while a change is pending (App.Pending), which the shell shows under the view.
 const pb = (s = '') => document.querySelector('.pendbar' + (s && ' ' + s));
 
+// Declaring a choice's options keeps one editor, then one normal row; abandoning the answer keeps the declaration.
+async function choiceDrafts() {
+  // Office and family charts show blank schema fields in their forms immediately.
+  App.change(tx => tx.note('Dated', { kind: 'View' }, false), { dated: false }); await tick(60);
+  Shell.select(['fund']); await tick(60);
+  const rows = () => $$('.row').filter(r => r.querySelector(':scope > .k')?.textContent.trim() === 'Building');
+  const value = () => Object.values(st()).find(r => r.at === 'fund' && r.edge === 'Building')?.choice;
+  const options = () => Object.values(App.schema.peek()).filter(s => s.args?.length === 1 && s.args[0].edge === 'Building').map(s => s.out?.choice).sort();
+  const declare = async () => {
+    $('.add-entry').click(); await tick(); await pick('New choice');
+    await type($('.draft input[aria-label="Name"]'), 'Building');
+    const input = $('.draft input[aria-label="New options"]');
+    check('New options explains comma separation without changing its accessible name', input?.placeholder === 'New options, separated by commas');
+    await type(input, 'Head Office, Distribution Hub, Sales Centre');
+    check('Enter declares all choice options and immediately leaves exactly one unanswered Building row',
+      rows().length === 1 && rows()[0].classList.contains('draft') && !value()
+      && options().join('|') === 'Distribution Hub|Head Office|Sales Centre', rows().map(r => r.outerHTML).join());
+  };
+  await declare();
+  rows()[0].querySelector('.sel').click(); await tick(); await pick('Head Office');
+  check('Choosing a declared option replaces the draft with exactly one saved Building row',
+    rows().length === 1 && !$('.draft') && value() === 'Head Office' && rows()[0].querySelector('.sel')?.textContent.trim() === 'Head Office');
+  Shell.parts.value.undo.undo(); await tick(60);
+  check('Undoing the chosen value keeps exactly one blank row and its declared options', rows().length === 1 && !value() && options().length === 3);
+  Shell.parts.value.undo.undo(); await tick(60);
+  check('Undoing the options declaration removes the blank field and all three options together', !rows().length && !options().length && !value());
+  await declare();
+  key(rows()[0].querySelector('.sel'), 'Escape'); await tick(60);
+  check('Escape drops only the answer draft, leaving exactly one blank Building row and all declared options',
+    !$('.draft') && rows().length === 1 && !value() && options().length === 3);
+  rows()[0].querySelector('.sel').click(); await tick();
+  check('After Escape the normal choice row still offers every declared option',
+    ['Head Office', 'Distribution Hub', 'Sales Centre'].every(o => [...document.querySelectorAll('.float .menu-item .label')].some(el => el.textContent === o)));
+  Shell.closeAll();
+  rows()[0].querySelector('.lbl').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 })); await tick(); await pick('Rule');
+  check('The declared choice Options panel gives the same comma guidance and New options accessible name', $('[aria-label="New options"]')?.placeholder === 'New options, separated by commas');
+  Shell.select(['fund']); await tick(60); Shell.parts.value.undo.undo(); await tick(60);
+  check('Undo after Escape removes the declaration without leaving a draft or duplicate row', !$('.draft') && !rows().length && !options().length && !value());
+  Shell.parts.value.undo.undo(); await tick(60);
+}
+
 async function run() {
   while (!App.chart.value) await tick(50);
+  await choiceDrafts();
   // The shared singular used by the spouse-name eye also supplies the list's New spouse prompt.
   // Exercise that word through the record panel, on either side of the same family relation.
   {

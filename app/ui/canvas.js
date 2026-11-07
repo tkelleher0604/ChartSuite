@@ -482,6 +482,8 @@ function mount(el) {
   const firstObject = empty.appendChild(Object.assign(document.createElement('button'), { className: 'btn', type: 'button', textContent: '+ Add object' }));
   firstObject.addEventListener('click', () => newObject());
   empty.appendChild(Object.assign(document.createElement('span'), { textContent: 'or double-click the page' }));
+  const firstCard = empty.appendChild(Object.assign(document.createElement('button'), { className: 'btn ghost design-card', type: 'button', textContent: 'Design a reusable card' }));
+  firstCard.addEventListener('click', () => startCard());
 
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
   // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
@@ -2041,7 +2043,11 @@ function mount(el) {
   // What a mark's words can read, by name: its entries, then a relative's ("Owner's name"), each what `{` offers and what's read.
   const wordsOf = m => Scene.readable(st(), App.notes.peek(), App.schema.peek(), m.record).map(x => x.label);
   // Whether a mark shows an entry of a label at a record (its own, or one in it), as a field or a blank.
-  const shows = (m, edge, at = m.record) =>(m.texts ?? []).some(it => it.blank ? it.blank.at === at && Tree.same(it.blank.edge, edge) : st()[it.id]?.at === at && Tree.same(st()[it.id].edge, edge));
+  const shows = (m, edge, at = m.record) => {
+    const records = st(), matches = id => !!records[id] && records[id].at === at && Tree.same(records[id].edge, edge);
+    return (m.texts ?? []).some(it => it.blank ? it.blank.at === at && Tree.same(it.blank.edge, edge) : matches(it.id))
+      || (m.design?.parts ?? []).some(part => part.sourceIds?.some(matches));
+  };
   // The pen, for a mark: where it reaches that, the pen's place; else that mark alone, as what's dragged onto a box the pen doesn't reach is.
   const scoped = (m, s = scopeOfBox()) => !s.own && s.marks?.has(m.id) ? s : { own: true };
   // What's said of one thing goes on that thing: a footnote or a free text begun on a box goes on that box, unless a hand moved the pen for this selection, and then it goes where the pen is.
@@ -3146,6 +3152,15 @@ function mount(el) {
     Shell.toast('The page has no free room: the picture is over what’s drawn', { ms: 3500 });
     return { ...spot(s, w, h, near), w, h };
   }
+  // A discoverable starting point for drawing a new object type. The name is already a field;
+  // the existing shape editor and Save as object type command handle the rest of the workflow.
+  function startCard() {
+    if (still() || designing || scene?.view === Scene.MASTER) return;
+    const s = pageScale(), id = insert('rounded', { w: 216 / s, h: 96 / s, text: TextTemplate.field('Name'),
+      format: { Size: 14, Align: 'center', Valign: 'middle', Fill: '#ffffff', Outline: '#64748b' } });
+    if (id) Shell.toast('Add text or merge fields, then choose Save as object type.', { ms: 6000 });
+    return id;
+  }
   function insert(geometry, opts = {}) {
     // (While a design is edited, a text box is words begun on its box: a part, in the free band of it.)
     if (geometry === 'text' && designing && opts.x === undefined) return Designs.addWords();
@@ -3918,7 +3933,7 @@ function mount(el) {
   function holdsFor(base) { const at = App.pending.peek()?.placing?.(); if (!at && base.page.composed) return null; const h = holdsOf(base); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, hint, reach, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
-    insert, create, newObject, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, relaid, relaidLook, tidyEvery, tidiedEvery, zoom, put, sizeAtPen, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
+    insert, startCard, create, newObject, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, relaid, relaidLook, tidyEvery, tidiedEvery, zoom, put, sizeAtPen, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
     table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), cellsPicked: id => hand.cellsPicked(id), readsFrom: (id, of) => hand.readsFrom(id, of), styleGallery: (at, id) => hand.styleGallery(at, id), get StyleGallery() { return hand.StyleGallery; }, link: id => hand.setLink(id), pastePicture: f => hand.pastePicture(f), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
