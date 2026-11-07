@@ -52,17 +52,32 @@ function rangeAt(el, saved, formula) {
 }
 function Editor({ text = '', runs = EMPTY, put, offered = EMPTY, createField, readOnly = false, fieldLabel = TextTemplate.label, label = 'Text' }) {
   const box = useRef(null), caret = useRef(null), draft = useRef({ text, runs }), [list, setList] = useState(null);
+  // The browser restores characters on native Undo/Redo, but our formatting is kept separately.
+  // Match its restored text to local snapshots, including when one native undo groups many inputs.
+  const history = useRef({ entries: [draft.current], at: 0 });
   const formula = TextTemplate.formula(text), labels = () => offered.filter(l => !l.head);
   const chip = token => chipOf(token, fieldLabel);
   const paint = (t, rs) => {
     const el = box.current; if (!el) return;
     el.replaceChildren(...(TextTemplate.formula(t) ? [document.createTextNode(t)] : TextTemplate.parts(t).map(p => p.field === undefined ? document.createTextNode(p.text) : chip(p.field))));
     draft.current = { text: t, runs: rs }; caret.current = null;
+    history.current = { entries: [draft.current], at: 0 };
   };
   const read = () => content(box.current, formula).source;
-  const sync = () => { const t = read(), was = draft.current; draft.current = { text: t, runs: TextTemplate.editRuns(was.text, t, was.runs) }; return draft.current; };
+  const sync = inputType => {
+    const t = read(), was = draft.current, h = history.current;
+    const step = inputType === 'historyUndo' ? -1 : inputType === 'historyRedo' ? 1 : 0;
+    if (step) for (let i = h.at + step; i >= 0 && i < h.entries.length; i += step) {
+      if (h.entries[i].text === t) { h.at = i; return draft.current = h.entries[i]; }
+    }
+    if (t === was.text) return was;
+    const next = { text: t, runs: TextTemplate.editRuns(was.text, t, was.runs) };
+    h.entries.splice(h.at + 1); h.entries.push(next); h.at++;
+    return draft.current = next;
+  };
   useLayoutEffect(() => {
-    // A successful own commit needs no repaint. External Undo/Redo must refresh even a focused editor.
+    // Own commits retain native history across blur. External Undo/Redo, changed formatting and
+    // read-only mode repaint/reset it, so stale snapshots cannot restore another model revision.
     if (readOnly || read() !== text || JSON.stringify(draft.current.runs) !== JSON.stringify(runs)) paint(text, runs);
     else draft.current = { text, runs };
   }, [text, runs, readOnly]);
@@ -97,7 +112,7 @@ function Editor({ text = '', runs = EMPTY, put, offered = EMPTY, createField, re
     else if (ev.key === 'Escape') { ev.stopPropagation(); if (list) setList(null); else { paint(text, runs); box.current.blur(); } }
   };
   return html`<span class="part-words">
-    <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" data-ph="Text" contenteditable=${readOnly ? 'false' : 'plaintext-only'} spellcheck="false" onInput=${() => { sync(); remember(); look(); }} onKeyDown=${key} onKeyUp=${remember} onMouseUp=${remember} onClick=${clicked} onBlur=${() => { remember(); setList(null); commit(); }} />
+    <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" data-ph="Text" contenteditable=${readOnly ? 'false' : 'plaintext-only'} spellcheck="false" onInput=${ev => { sync(ev.inputType); remember(); look(); }} onKeyDown=${key} onKeyUp=${remember} onMouseUp=${remember} onClick=${clicked} onBlur=${() => { remember(); setList(null); commit(); }} />
     ${list ? html`<div class="dc-complete" role="listbox">${list.items.map((l, i) => html`<div class=${'menu-item' + (i === list.on ? ' on' : '')} role="option" onPointerDown=${ev => { ev.preventDefault(); take(l); }}>${l}</div>`)}</div>` : null}
     ${readOnly || formula ? null : html`<button type="button" class="btn ghost add-field" onMouseDown=${ev => { ev.preventDefault(); remember(); }} onClick=${ev => Shell.menu(ev.currentTarget, fields(null, -1), { search: true })}>${Shell.icon('plus')}Merge field</button>`}
   </span>`;

@@ -146,6 +146,37 @@ async function richDrawingToType() {
   await key($('.dc'), 'Enter');
   check('Reopening a literal leading equals sign retains rich text editing', $('.dc-edit')?.textContent === text && $('.dc-edit [data-run]')?.textContent === text.slice(from));
   await key($('.dc-edit'), 'Enter', { ctrlKey: true });
+  // Use the browser's native edit history: restoring characters must restore the rich ranges
+  // deleted with them, including after blur has committed the deletion to the workbook.
+  const native = $('.words-in'), inputTypes = [];
+  native.addEventListener('input', ev => inputTypes.push(ev.inputType));
+  native.focus();
+  const remove = document.createRange(); remove.setStart(native.firstChild, from); remove.setEnd(native.firstChild, text.length);
+  getSelection().removeAllRanges(); getSelection().addRange(remove);
+  check('Native delete removes the selected bold text', document.execCommand('delete') && native.textContent !== text);
+  const deletedText = native.textContent;
+  check('Native Undo restores the deleted characters', document.execCommand('undo') && native.textContent === text);
+  native.blur(); await wait(200);
+  check('Blur after native Undo preserves the restored formatting', rowOf(shape.id).text === source && rowOf(shape.id).runs?.[0]?.from === from && rowOf(shape.id).runs[0].to === text.length && rowOf(shape.id).runs[0].Bold);
+  native.focus();
+  check('Native Redo restores the deletion', document.execCommand('redo') && native.textContent === deletedText);
+  native.blur(); await wait(200);
+  check('Blur after native Redo commits the deletion without stale formatting', !rowOf(shape.id).runs?.length && TextTemplate.characters(rowOf(shape.id).text) === deletedText);
+  native.focus();
+  check('Native Undo remains available after a committed deletion', document.execCommand('undo') && native.textContent === text);
+  native.blur(); await wait(200);
+  check('Undo across an own commit restores text and formatting together', rowOf(shape.id).text === source && rowOf(shape.id).runs?.[0]?.from === from && rowOf(shape.id).runs[0].Bold);
+  native.focus();
+  const before = document.createRange(); before.setStart(native.firstChild, 0); before.collapse(true); getSelection().removeAllRanges(); getSelection().addRange(before);
+  check('An ordinary edit after native Undo starts a new history branch', document.execCommand('insertText', false, 'New ') && native.textContent === 'New ' + text);
+  native.blur(); await wait(200);
+  check('The new edit shifts retained formatting instead of reviving deleted ranges', rowOf(shape.id).runs?.[0]?.from === from + 4 && rowOf(shape.id).runs[0].to === text.length + 4);
+  await click('[aria-label="Undo"]'); await wait(200);
+  check('External chart Undo resets the editor to the restored model text and ranges', native.textContent === text && rowOf(shape.id).runs?.[0]?.from === from);
+  await click('[aria-label="Redo"]'); await wait(200);
+  check('External chart Redo resets the editor to the later model text and ranges', native.textContent === 'New ' + text && rowOf(shape.id).runs?.[0]?.from === from + 4);
+  await click('[aria-label="Undo"]'); await wait(200);
+  check('The regression exercised native browser undo and redo input events', inputTypes.includes('historyUndo') && inputTypes.includes('historyRedo'));
   await prose('Prefix ' + text);
   check('Editing panel text before a bold word moves its formatting with it', rowOf(shape.id).runs?.[0]?.from === from + 7 && rowOf(shape.id).runs[0].to === text.length + 7);
   await click('[aria-label="Undo"]'); await wait(200);
