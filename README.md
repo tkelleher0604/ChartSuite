@@ -20,6 +20,6 @@ The runner uses an installed Chrome or Edge, an isolated profile for each suite,
 powershell -NoProfile -ExecutionPolicy Bypass -Command "& ./app/tests/run.ps1 -Suite builder,store"
 ```
 
-`-Browser` selects an executable; `-Artifacts` selects the output directory. Use `-Suite builder -Width 1024` or `-Suite builder -Theme dark` for the alternate builder presentations. The fixtures also open directly in a browser; the inspector uses `?run`, and the formula editor uses `?checks` and `?rules`. Browser authoring tests drive visible controls with scripted DOM events. Human interaction and native Office review remain separate checks.
+`-Browser` selects an executable; `-Artifacts` selects the output directory. Each suite has up to ten minutes to finish (`-TimeoutSeconds` changes this). Use `-Suite builder -Width 1024` or `-Suite builder -Theme dark` for the alternate builder presentations. The fixtures also open directly in a browser; the inspector uses `?run`, the separate canvas-entry checks use `?entering`, and the formula editor uses `?checks` and `?rules`. Browser authoring tests drive visible controls with scripted DOM events. Human interaction and native Office review remain separate checks.
 
 For AI agents keeping a fund's records in a workbook: [skills/dendra](skills/dendra/SKILL.md), a skill with a tool that records plans in the chart's own words with Dendra's core.

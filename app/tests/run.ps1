@@ -2,14 +2,14 @@
 # Examples: ./run.ps1; ./run.ps1 -Suite builder,store; ./run.ps1 -Suite builder -Width 1024
 [CmdletBinding()]
 param(
-  [ValidateSet('text','core','engine','scene','export','inspector','canvas','table','store','tour','skill','perf','builder','design-schema','formulabar','formulabar-rules')]
-  [string[]]$Suite = @('text','core','engine','scene','export','inspector','canvas','table','store','tour','skill','perf','builder','design-schema','formulabar','formulabar-rules'),
+  [ValidateSet('text','core','engine','scene','export','inspector','canvas','canvas-entering','table','store','tour','skill','perf','builder','design-schema','formulabar','formulabar-rules')]
+  [string[]]$Suite = @('text','core','engine','scene','export','inspector','canvas','canvas-entering','table','store','tour','skill','perf','builder','design-schema','formulabar','formulabar-rules'),
   [string]$Browser,
   [string]$Artifacts,
   [ValidateRange(800,3840)][int]$Width = 1440,
   [ValidateRange(600,2160)][int]$Height = 1000,
   [ValidateSet('light','dark')][string]$Theme = 'light',
-  [ValidateRange(30,600)][int]$TimeoutSeconds = 300
+  [ValidateRange(30,600)][int]$TimeoutSeconds = 600
 )
 $ErrorActionPreference = 'Stop'
 if (!$Browser) {
@@ -39,17 +39,20 @@ if (!(Test-Path -LiteralPath $ready)) { throw ('Test server did not start: ' + (
 foreach ($name in $Suite) {
   $dir = Join-Path $Artifacts $name
   New-Item -ItemType Directory -Path $dir -Force | Out-Null
-  $file = if ($name -eq 'formulabar-rules') { 'formulabar' } else { $name }
+  $file = switch ($name) { 'formulabar-rules' { 'formulabar' }; 'canvas-entering' { 'canvas' }; default { $name } }
   $query = switch ($name) {
     'inspector' { '?run' }
     'formulabar' { '?checks' }
     'formulabar-rules' { '?rules' }
+    'canvas-entering' { '?entering' }
     'builder' { '?theme=' + $Theme }
     default { '' }
   }
   $separator = if ($query) { '&' } else { '?' }
   $runId = [guid]::NewGuid().ToString('N')
-  $url = "http://127.0.0.1:$port/app/tests/$file-test.html$query${separator}runner=$runId"
+  # Performance finishes synchronously in the load event, which must not be held pending.
+  $signal = if ($name -eq 'perf') { '' } else { "${separator}runner=$runId" }
+  $url = "http://127.0.0.1:$port/app/tests/$file-test.html$query$signal"
   $dom = Join-Path $dir 'dom.html'
   $err = Join-Path $dir 'browser.log'
   $shot = Join-Path $dir 'screen.png'
