@@ -33,7 +33,38 @@ For visual review, append `?stop=blank`, `?stop=save`, `?stop=cards`, or `?stop=
 
 Baseline verification at `c33d90d` on November 7, 2026: builder 37, canvas 784, inspector 421, scene 358, export 223, core 172, engine 284, table 580, store 76, tour 158, skill 19, text 23, and performance 27 checks passed: **3,162 total**. The complete builder flow also passed at 1024 × 900 and in dark mode; the blank page, save dialog, and finished chart were inspected in screenshots. The current runner additionally includes the design-schema suite and both formula-editor suites; use its results for the current checkout.
 
+Latest verification at `508c44a`, November 7, 2026: **3,561 passed, zero failed across 17 suites**, combining the sequential regression run with targeted reruns after the final fixes. [Machine-readable results](review-evidence/verification.json) list each suite. The builder's 87 checks include native browser delete/Undo/Redo, formatting after blur, subsequent edits, and chart Undo/Redo. The storage suite's 88 checks include a delayed two-tab rename; temporarily removing its guard produces exactly the two expected persistence failures.
+
+The complete 87-check builder flow also passes at 1024 × 900 and in dark mode, adding 174 successful assertions beyond the primary suite total.
+
+The initial combined run found that the runner's load gate blocked the performance fixture's load-event checks. The corrected runner captures that synchronous report without a gate; all 27 performance checks passed on rerun. The separate canvas-entry mode adds 30 checks beyond the main canvas suite. These results retain unaffected suites from the combined run rather than treating the harness timeout as a product failure or a passing suite.
+
 The initial regression pass found an inspector dependency assumption and toolbar overflow. Both were fixed and their suites rerun successfully. A narrow-window acceptance failure came from using SVG bounds that included selection widgets; the drag helper now reads the rendered box geometry for its pointer coordinates. It still performs the drag through pointer events.
+
+## Independent GUI exercises
+
+On November 7, three source-blind testers received task briefs and used rendered controls without reading product source, documentation, existing tests, or model APIs. One tester also tried a second task after learning the app. Their work used isolated persistent browser profiles and scripted mouse, keyboard, selection and input events. Reloads checked saved results. These are agent usability exercises, not a controlled comparison with human PowerPoint users.
+
+| Task | Result | Review artifact |
+| --- | --- | --- |
+| Org chart | Created Maya and four reports, titles and departments; changed Sam from Engineering to Product; applied department colors; downloaded PowerPoint. | [Native PowerPoint render](review-evidence/org-powerpoint.png), [editable deck](review-evidence/org-chart.pptx) |
+| Family tree | Created six people, two marriages, shared-parent relationships and birth dates; corrected Avery's name; changed styling and orientation; exercised Undo; downloaded PDF. | [Family tree](review-evidence/family-tree.png), [PDF](review-evidence/family-tree.pdf) |
+| Rooms, first attempt | Created fields and a shared Room design through the record editor. Cedar stayed at 12 while Maple changed from 6 to 8. The drawing-to-type shortcut was not discovered. | Led to the explicit blank-page card action. |
+| Rooms, fresh tester | Found the card action, inserted Name and Capacity merge fields beside literal text, saved a numeric Capacity schema and shared Room design, created Cedar and Maple, used Building choices, and verified independent values after reload. | [Add object dialog](review-evidence/blank-chart.png), [card editor](review-evidence/card-editor.png), [room cards](review-evidence/room-cards.png) |
+
+The org deck was also opened in installed native PowerPoint. Its thirteen text boxes remain editable inside normal groups. A name was changed in a temporary copy, saved, and read back successfully; the linked original is unchanged. The PDF's content stream contains all six names and dates. The browser export suite separately checks generated file structure and rendering inputs.
+
+The exercises prompted these fixes: a direct card-design action; an explanation that saving creates the first object; preservation of a drawing's silhouette without an added rectangular outline; correct field-eye state for mixed merge text; one Spouses column covering both directions; correct spouse labels with compatibility for old tokens; and one active row when creating a new choice field, with comma guidance. The room screenshot predates the automatic outline fix and shows the tester's successful manual correction; the builder regression now verifies that correction is unnecessary.
+
+The tests also exposed a real persistence gap during workbook creation. Workbook metadata and initial changes now commit in one IndexedDB transaction. A simulated failed write verifies rollback, complete in-memory data, an honest storage status, and recovery of the whole log on a later successful write. Renaming while storage is failing cannot publish an empty workbook entry. Browser startup and animation captures can race virtual time, so the checked-in runner waits for actual completed reports using real time. Apparent page-orientation and legend overlaps that could not be reproduced after reload are not counted as product defects.
+
+## Human review handoff
+
+Run the command in [README](../README.md), then try the blank-page card task with actual mouse and keyboard input. The runner includes the separately selected canvas-entry checks and both formula-editor modes; the main canvas suite includes its formatting, template and craft sub-suites. Inspect the final screenshots as well as the result counts.
+
+Review the changes in this order: literal/field contract; pure design-schema planning; workbook persistence; shared text control and rendering ranges; then the GUI fixes and their acceptance cases. No schema migration, second canvas document, new dependency or build step was introduced. The unfinished Claude branches listed in [editor-text-review.md](editor-text-review.md) remain a separate review queue.
+
+Remaining usability questions for humans are the distinction between selecting a design part and its enclosing object, how clearly formatting scope is separated from editing one record's data, and whether the complete task is faster than PowerPoint. Custom fixed graphics can still need manual room when extra fields are displayed. Local GUI, persistence and exports were exercised; live Microsoft tenant integration is not established by the mocked remote-store tests.
 
 ## Kinds versus choice fields
 

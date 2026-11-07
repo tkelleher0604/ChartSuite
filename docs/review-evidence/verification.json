@@ -1,0 +1,184 @@
+{
+    "checked_on":  "2026-11-07",
+    "code_revision":  "508c44ad42977cb36eecced49acc98b0b369740f",
+    "browser":  "Chrome 156.0.8078.48",
+    "method":  "Sequential browser regression run with targeted final reruns; real time; visible controls driven by scripted DOM events. Unaffected suite results are retained.",
+    "passed":  3561,
+    "failed":  0,
+    "suites":  [
+                   {
+                       "suite":  "text",
+                       "passed":  45,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  0.95,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "core",
+                       "passed":  173,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  1.74,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "engine",
+                       "passed":  284,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  7.93,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "scene",
+                       "passed":  366,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  102.44,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "export",
+                       "passed":  221,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  22.66,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "inspector",
+                       "passed":  438,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  72.56,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "canvas",
+                       "passed":  784,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  286.07,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "table",
+                       "passed":  589,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  180.26,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "store",
+                       "passed":  88,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  25.98,
+                       "evidence_set":  "final-store"
+                   },
+                   {
+                       "suite":  "tour",
+                       "passed":  158,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  31.55,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "skill",
+                       "passed":  19,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  2,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "perf",
+                       "passed":  27,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  25.34,
+                       "evidence_set":  "final-followup"
+                   },
+                   {
+                       "suite":  "builder",
+                       "passed":  87,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  58.61,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "design-schema",
+                       "passed":  30,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  0.77,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "formulabar",
+                       "passed":  201,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  25.51,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "formulabar-rules",
+                       "passed":  21,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  4.09,
+                       "evidence_set":  "final"
+                   },
+                   {
+                       "suite":  "canvas-entering",
+                       "passed":  30,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  7.31,
+                       "evidence_set":  "final-followup"
+                   }
+               ],
+    "additional_presentations":  [
+                                     {
+                                         "suite":  "builder",
+                                         "width":  1024,
+                                         "height":  900,
+                                         "theme":  "light",
+                                         "passed":  87,
+                                         "failed":  0,
+                                         "status":  "pass",
+                                         "evidence_set":  "final-narrow"
+                                     },
+                                     {
+                                         "suite":  "builder",
+                                         "width":  1440,
+                                         "height":  1000,
+                                         "theme":  "dark",
+                                         "passed":  87,
+                                         "failed":  0,
+                                         "status":  "pass",
+                                         "evidence_set":  "final-dark"
+                                     }
+                                 ],
+    "negative_control":  {
+                             "suite":  "store",
+                             "removed":  "Guard against a superseded queued rename",
+                             "passed":  86,
+                             "failed":  2,
+                             "expected_failures":  [
+                                                       "Delayed earlier write preserves later name",
+                                                       "Reopen preserves consistent workbook and chart names"
+                                                   ],
+                             "evidence_set":  "store-negative"
+                         },
+    "notes":  [
+                  "The initial performance run timed out because the runner held the load event used by that fixture. The corrected ungated run passed all 27 checks.",
+                  "Canvas entry is a separate 30-check mode and is included in the 17-suite total.",
+                  "This does not establish trusted hardware-input behavior or a human timing comparison against PowerPoint."
+              ]
+}

@@ -36,7 +36,7 @@ Verified in headless Chrome on November 7, 2026: text 23, scene 358, canvas 784,
 
 ## Continuing the cleanup
 
-The next useful extraction is the text editor itself: one component for the design panel, inline canvas text and annotations, with one field-insertion command and one commit/cancel contract. After that, extract scope resolution and note-writing commands from the canvas and format bar, with tests of selection, group patterns, instance overrides and undo. Keep the record model stable until a concrete failing case requires changing it. Large UI modules can then be split along these boundaries without changing their behavior in the same commit.
+The follow-up extracted `WordsEditor` for the design/shape panel and pure `DesignSchema` planning. Field discovery and transactions stay in adapters. `TextTemplate` now maps rich-text ranges through edits and substitutions; the shared scene supplies those projected ranges to canvas and exports. Inline canvas, annotations and table editing still have distinct controls. Next, extract scope resolution and note-writing commands from the canvas and format bar, with tests of selection, group patterns, instance overrides and undo. Keep the record model stable until a concrete failing case requires changing it. Large UI modules can then be split along these boundaries without changing their behavior in the same commit.
 
 Claude's handoff identifies four unfinished branches. They are preserved and have not been merged into this work:
 
