@@ -144,7 +144,7 @@ async function session(book, seed) {
   const where = () => ({ id: book.id, type: book.type, name: book.name });
 
   // In this browser: each new change is appended, and the other tabs told.
-  function keep(changes) {
+  function keep(changes, name) {
     writing++;
     // Serialize attempts so a successful later write cannot hide an earlier failure. Recovery
     // keeps the complete in-memory log, including a seed whose initial transaction rolled back.
@@ -154,6 +154,8 @@ async function session(book, seed) {
         await db.transaction('rw', db.books, db.changes, async () => {
           await db.changes.bulkPut(batch.map(change => ({ book: book.id, id: change.id, change })));
           if (retry) await db.books.put(book);
+          // A rename must never become durable without its log, nor overwrite a later name or new file location.
+          else if (name && book.type === 'browser' && book.name === name) await db.books.update(book.id, { name });
         });
         keptAt = now(); local = null;
       } catch (e) { local = unkept(e); }
@@ -164,19 +166,20 @@ async function session(book, seed) {
   // in a file or a library is named by the file.
   let named = null;
   const follow = () => {
-    const now = wb.charts()[0]?.name;
-    if (book.type === 'browser' && now && book.name === named && now !== named) { book.name = now; db.books.put(book).catch(() => {}); }
+    const now = wb.charts()[0]?.name, changed = book.type === 'browser' && now && book.name === named && now !== named;
+    if (changed) book.name = now;
     named = now ?? named;
+    return changed ? now : null;
   };
   const off = wb.subscribe(cs => {
+    const name = follow();
     const fresh = cs.filter(c => !known.has(c.id));
     if (fresh.length) {
       fresh.forEach(c => known.add(c.id));
-      keep(fresh);
+      keep(fresh, name);
       channel.postMessage({ changes: fresh });
       if (!pulling) later();
     }
-    follow();
     tell();
   });
   // Another tab made changes, which it has kept, or moved where the workbook is kept.
