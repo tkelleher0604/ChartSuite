@@ -103,32 +103,61 @@ const unkept = e => ({ text: [e?.name, e?.inner?.name].includes('QuotaExceededEr
 // opened }. Its changes are in IndexedDB under its id, so workbooks kept in different places never mix.
 
 let s = null;
+let opening = 0;
 const listeners = new Set();
-const status = () => s ? s.status() : { text: 'Opening…', tone: 'busy' };
+const status = () => !opening && s ? s.status() : { text: 'Opening…', tone: 'busy' };
 const emit = () => { const st = status(); listeners.forEach(f => f(st)); };
 
 async function session(book, seed) {
   const channel = new BroadcastChannel(`dendra ${book.id}`), early = [];
   channel.onmessage = e => early.push(e.data);
-  let rows = [], local = null;
+  let rows = [], local = null, wb = null, seeded = [];
   book.opened = now();
-  try { await db.books.put(book); rows = await db.changes.where('book').equals(book.id).toArray(); } catch (e) { local = unkept(e); }
-  const wb = Log.open(rows.map(r => r.change));
+  try {
+    // Publish the workbook's identity and its initial changes together. An interrupted creation
+    // must not leave an empty workbook marked as the one to reopen on the next launch.
+    await db.transaction('rw', db.books, db.changes, async () => {
+      rows = await db.changes.where('book').equals(book.id).toArray();
+      wb = Log.open(rows.map(r => r.change));
+      const had = new Set(wb.changes().map(c => c.id));
+      if (seed) wb.merge(seed);
+      seeded = wb.changes().filter(c => !had.has(c.id));
+      if (seeded.length) await db.changes.bulkPut(seeded.map(change => ({ book: book.id, id: change.id, change })));
+      book.name ||= wb.charts()[0]?.name ?? 'Workbook';
+      await db.books.put(book);
+    });
+  } catch (e) {
+    // The complete workbook remains usable in memory and can be downloaded if storage is off.
+    local = unkept(e);
+    wb ??= Log.open(rows.map(r => r.change));
+    if (seed) wb.merge(seed);
+    book.name ||= wb.charts()[0]?.name ?? 'Workbook';
+  }
   const known = new Set(wb.changes().map(c => c.id));
   const remote = () => book.type !== 'browser';
   // `seen` is the copy there as last read or written: its version, when it was saved, and its changes.
   // (`keptAt`, the last change it kept: nothing's been saved till then, so nothing's said. Looking saves nothing.)
-  let seen = null, problem = null, saving = false, writing = 0, keptAt = null, seeding = false;
+  let seen = null, problem = null, saving = false, writing = 0, keptAt = null;
+  let localWrites = Promise.resolve();
   let timer = null, running = null, again = false, pulling = false, self = null;
   const tell = () => { if (s === self) emit(); };
   const where = () => ({ id: book.id, type: book.type, name: book.name });
 
   // In this browser: each new change is appended, and the other tabs told.
   function keep(changes) {
-    const opening = seeding;
     writing++;
-    db.changes.bulkPut(changes.map(c => ({ book: book.id, id: c.id, change: c })))
-      .then(() => { if (!opening) keptAt = now(); local = null; }, e => { local = unkept(e); })
+    // Serialize attempts so a successful later write cannot hide an earlier failure. Recovery
+    // keeps the complete in-memory log, including a seed whose initial transaction rolled back.
+    localWrites = localWrites.then(async () => {
+      const retry = !!local, batch = retry ? wb.changes() : changes;
+      try {
+        await db.transaction('rw', db.books, db.changes, async () => {
+          await db.changes.bulkPut(batch.map(change => ({ book: book.id, id: change.id, change })));
+          if (retry) await db.books.put(book);
+        });
+        keptAt = now(); local = null;
+      } catch (e) { local = unkept(e); }
+    })
       .finally(() => { writing--; tell(); });
   }
   // A workbook kept only in this browser is named by its first chart, and follows it when it's renamed; one
@@ -164,7 +193,7 @@ async function session(book, seed) {
   function later() { if (remote()) { clearTimeout(timer); timer = setTimeout(sync, SAVE_AFTER); } }
   function sync() {
     clearTimeout(timer);
-    if (!remote()) return Promise.resolve();
+    if (!remote()) return localWrites;
     if (running) { again = true; return running; }
     return running = (async () => { do { again = false; await step(); } while (again); running = null; })();
   }
@@ -265,20 +294,22 @@ async function session(book, seed) {
   };
   channel.onmessage = e => hear(e.data);
   early.forEach(hear);
-  // (What a workbook opens holding isn't what anyone saved.)
-  if (seed) { seeding = true; wb.merge(seed); seeding = false; }
-  if (!book.name) { book.name = wb.charts()[0]?.name ?? 'Workbook'; db.books.put(book).catch(() => {}); }
+  // A seed is already durable before the session is exposed, and other open tabs can now take it.
+  if (!local && seeded.length) channel.postMessage({ changes: seeded });
   named = wb.charts()[0]?.name ?? null;
   sync();
   return self;
 }
 
 async function use(book, seed) {
-  const next = await session(book, seed);
-  s?.close();
-  s = next;
+  opening++;
   emit();
-  return s.wb;
+  try {
+    const next = await session(book, seed);
+    s?.close();
+    s = next;
+    return s.wb;
+  } finally { opening--; emit(); }
 }
 async function open({ id, sample } = {}) {
   await sp()?.ready();

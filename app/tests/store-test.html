@@ -131,6 +131,30 @@ async function browser() {
   check('… and one here, there', await until(() => has(twb, e)));
   check('… and each is kept once', await until(async () => await db.changes.where('book').equals(book.id).count() === again.changes().length));
   check('the sample has no disagreements', !Store.wb.disagreements(C).length, JSON.stringify(Store.wb.disagreements(C)));
+  // Opening resolves only once the seed and its book entry have committed together.
+  const seededId = 'atomic-seed', seeded = await Store.open({ id: seededId, sample: SAMPLE });
+  check('a new workbook is named and fully persisted when opening resolves',
+    (await db.books.get(seededId))?.name === seeded.charts()[0].name && await db.changes.where('book').equals(seededId).count() === seeded.changes().length);
+  const failedId = 'atomic-seed-failure', put = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function(value, ...args) {
+    if (this.name === 'books' && value?.id === failedId) throw new DOMException('Simulated storage failure', 'QuotaExceededError');
+    return put.call(this, value, ...args);
+  };
+  let unsaved;
+  try { unsaved = await Store.open({ id: failedId, sample: SAMPLE }); }
+  finally { IDBObjectStore.prototype.put = put; }
+  check('a failed creation leaves neither an empty workbook nor orphan changes',
+    !(await db.books.get(failedId)) && await db.changes.where('book').equals(failedId).count() === 0);
+  check('the failed seed stays complete in memory with an honest storage status',
+    unsaved.changes().length === SAMPLE.changes.length && Store.status().text === 'Not kept · browser storage is full');
+  set(unsaved, 'fund_ein', '55-5555555');
+  await Store.sync();
+  check('a later successful write recovers the whole seed, not just the latest edit',
+    !!(await db.books.get(failedId)) && await db.changes.where('book').equals(failedId).count() === unsaved.changes().length && saved(Store.status()));
+  const recovered = await Store.open({ id: failedId });
+  check('the recovered workbook reopens with its original chart and latest edit',
+    ids(recovered) === ids(unsaved) && recovered.asOf(C).fund_ein.value === '55-5555555');
+  await Store.open({ id: book.id });
   return t;
 }
 
