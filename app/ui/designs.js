@@ -132,10 +132,9 @@ function say(tx, m, part, what, s = Canvas.scope()) {
     tx.note('Design', p, { ...at, over: { ...at.over, parts: { ...parts, [part]: now } } }, { view: v });
   }
 }
-// A row dropped on a part: its token takes the place of the one entry a tag reads, or goes under the words a part has (a name stays). → the part's words now.
+// A row dropped on a part adds a field without replacing its existing words or fields.
 function tokenIn(m, part, edge) {
-  const raw = String(m.design.value.parts.find(p => p.id === part)?.text ?? '').trim(), one = /^\{([^{}\n]+)\}$/.exec(raw);
-  return !raw || (one && !Tree.same(one[1].split('|')[0].trim(), 'Name')) ? `{${edge}}` : `${raw}\n{${edge}}`;
+  return TextTemplate.append(m.design.value.parts.find(p => p.id === part)?.text, edge);
 }
 // A shape, or how round its corners are, given at a design's own pattern is said over that design, so it's seen and Reset to design takes it back; given elsewhere it's a note, as ever. → whether it's done.
 function atPen(tx, sc, scope, marks, label, value) {
@@ -169,16 +168,6 @@ function standing(format, m, scale) {
   const out = { ...format }, named = {};
   for (const [k, v] of Object.entries(format ?? {})) { const ref = typeof v === 'string' && /^\{(\w+)\}$/.exec(v); if (ref) { const o = m.settings[ref[1]]?.value; out[k] = ref[1] === 'Weight' ? +(o * scale).toFixed(3) : o; named[k] = [v, out[k]]; } }
   return { format: out, ...(Object.keys(named).length && { named }) };
-}
-// The words of a shape, where they read as a field of the box's record, kept as that field's token: "Fund III" is {Name}; and a word that's only a field's own name ("Name") stands for it.
-function tokened(text, record) {
-  if (!text || /^\s*=/.test(text) || !record) return text;
-  const st = App.state.peek(), N = App.notes.peek(), read = Scene.reader(st, N, App.computed.peek(), App.day.peek()), { entries } = Tree.index(st), seen = new Map();
-  for (let todo = [record], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { const w = read(record, st[e].edge).text; if (w && !seen.has(w)) seen.set(w, st[e].edge); todo.push(e); }
-  let out = text;
-  for (const [w, edge] of [...seen].sort((a, b) => b[0].length - a[0].length)) if (out.includes(w)) out = out.split(w).join(`{${edge}}`);
-  const labels = Scene.readable(st, N, App.schema.peek(), record).map(x => x.label);
-  return out.split('\n').map(l => { const k = labels.find(x => Tree.same(x, l.trim())); return k ? `{${k}}` : l; }).join('\n');
 }
 // Where a design goes for a box: what the scope says; and how that's said ("all 5 limited partnerships", "Holdco").
 const patternsAt = (m, s) => (s?.outputs?.length ? s.outputs : [treeOf(m.record)]);
@@ -227,10 +216,10 @@ function make(ms = canvas().selected()) {
     </div>` }).then(ok => {
     if (!ok) return;
     const f = fors.find(x => x.key === chosen), s = f?.s, v = sc.view, target = under ?? (s ? [...s.marks].map(id => sc.byId.get(id)).find(b => b?.type === 'box') : null), inside = under && free.every(q => q.x >= under.x - 1 && q.y >= under.y - 1 && q.x + q.w <= under.x + under.w + 1 && q.y + q.h <= under.y + under.h + 1);
-    const within = inside ? under : drawn, W = target?.w ?? drawn.w, H = target?.h ?? drawn.h, k = inside ? 1 : Math.min(1, W / drawn.w, H / drawn.h), record = under?.record ?? target?.record ?? null;
+    const within = inside ? under : drawn, W = target?.w ?? drawn.w, H = target?.h ?? drawn.h, k = inside ? 1 : Math.min(1, W / drawn.w, H / drawn.h);
     // A field's words take the width of the box, as they'll be longer than whatever stood for them, at the size the chart gives that field; words of its own, as they were, scaled with the drawing. What it doesn't name goes under the last that it does.
     const parts = free.map(q => {
-      const r = rows.item(App.chart.peek(), q.id)[0], size = q.texts?.[0]?.look.Size, typed = r.format?.Size, text = tokened(r.text, record), reads = (r.geometry ?? 'rect') === 'text' && /\{[^{}\n]+\}/.test(text ?? ''), { Size: _, ...look } = r.format ?? {};
+      const r = rows.item(App.chart.peek(), q.id)[0], size = q.texts?.[0]?.look.Size, typed = r.format?.Size, text = r.text, reads = (r.geometry ?? 'rect') === 'text' && TextTemplate.fields(text).length > 0, { Size: _, ...look } = r.format ?? {};
       if (reads) return { ...partFrom({ ...r, part: null, format: { Align: 'center', Valign: 'middle', ...look, ...(inside && typed !== undefined && { Size: typed }) } }, q, within, text), x: 0, w: 1 };
       return partFrom({ ...r, part: null, format: { ...r.format, ...(size && { Size: +((typed ?? size * sc.page.scale) * k).toFixed(2) }) } }, q, within, text);
     });
@@ -380,8 +369,8 @@ function holdWords(tx, id, text) {
 function dropped(q, edge, at) {
   const e = editing.peek();
   if (!e) return null;
-  const token = `{${edge}}`, row = App.shown.peek().item(App.chart.peek(), q.id)[0];
-  if (q.type === 'shape' && row && !row.rest) return App.change(tx => tx.update(q.id, { text: row.text ? `${row.text}\n${token}` : token }), { dated: false, say: `Put ${edge} in the part` });
+  const token = TextTemplate.field(edge), row = App.shown.peek().item(App.chart.peek(), q.id)[0];
+  if (q.type === 'shape' && row && !row.rest) return App.change(tx => { const text = TextTemplate.append(row.text, edge); tx.update(q.id, { text }); holdWords(tx, q.id, text); }, { dated: false, say: `Put ${edge} in the part` });
   const sc = canvas().scene(), b = sc.byId.get(e.box);
   return App.change(tx => { addPart(tx, sc, e, b, at, token); }, { dated: false, say: `Put ${edge} in the design` });
 }
@@ -437,25 +426,52 @@ const pickNow = () => {
   const own = all.filter(x => !x.of).map(x => x.label), near = all.filter(x => x.first && has.has(Tree.norm(x.of))).map(x => x.label), far = all.filter(x => x.of && !near.includes(x.label)).map(x => x.label);
   return [...own.slice(0, 1), ...near, { head: 'Its own' }, ...own.slice(1), ...(far.length ? [{ head: 'Over it' }, ...far] : [])];
 };
-const TOKENS = /(\{[^{}\n]+\})/;
 const chipOf = token => { const el = document.createElement('span'); el.className = 'word-chip'; el.contentEditable = 'false'; el.dataset.token = token; el.textContent = Scene.partName({ text: `{${token}}` }); return el; };
+// Menus take focus and a committed edit can replace text nodes. Keep character offsets, not a live
+// DOM Range (which silently moves to the beginning when its nodes are replaced).
+function wordsCaret(el) {
+  const selection = getSelection();
+  if (!selection.rangeCount || !el.contains(selection.anchorNode) || !el.contains(selection.focusNode)) return null;
+  const range = selection.getRangeAt(0);
+  const offset = (node, at) => { const before = document.createRange(); before.selectNodeContents(el); before.setEnd(node, at); return before.toString().length; };
+  return { from: offset(range.startContainer, range.startOffset), to: offset(range.endContainer, range.endOffset) };
+}
+function wordsRange(el, saved) {
+  if (!saved) return null;
+  const range = document.createRange();
+  const point = (at, end) => {
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node; (node = walk.nextNode());) {
+      if (at > node.length) { at -= node.length; continue; }
+      const chip = node.parentElement.closest('.word-chip');
+      if (chip) range[end ? (at ? 'setEndAfter' : 'setEndBefore') : (at ? 'setStartAfter' : 'setStartBefore')](chip);
+      else range[end ? 'setEnd' : 'setStart'](node, at);
+      return;
+    }
+    range[end ? 'setEnd' : 'setStart'](el, el.childNodes.length);
+  };
+  point(saved.from, false); point(saved.to, true);
+  return range;
+}
 // The words of what's being edited: each field in them a chip that says what it is ("Name, as initials"), clicked for a list of what else it could be, or taken out; words typed between, and a `{` typed offers the fields in reach; Field beside them adds one. What's left says what's kept. A formula is its text, as typed.
 function Words({ text, put, label = 'Text' }) {
-  const box = useRef(null), [list, setList] = useState(null), still = App.readOnly.value;
-  const formula = /^\s*=/.test(text ?? '');
-  const paint = t => { const el = box.current; if (!el) return; el.replaceChildren(...(/^\s*=/.test(t) ? [t] : String(t).split(TOKENS)).filter(Boolean).map(s => TOKENS.test(s) && !/^\s*=/.test(t) ? chipOf(s.slice(1, -1)) : document.createTextNode(s))); };
-  const read = () => { let out = ''; const walk = n => { for (const k of n.childNodes) { if (k.nodeType === 3) out += k.data; else if (k.dataset?.token) out += `{${k.dataset.token}}`; else if (k.nodeName === 'BR') out += '\n'; else { if (out && !out.endsWith('\n')) out += '\n'; walk(k); } } }; walk(box.current); return out.replace(/\n+$/, ''); };
-  useLayoutEffect(() => { if (document.activeElement !== box.current) paint(text ?? ''); }, [text]);
-  const commit = () => { const t = read(); if (t.trim() !== String(text ?? '').trim()) put(t.trim()); };
+  const box = useRef(null), caret = useRef(null), [list, setList] = useState(null), still = App.readOnly.value;
+  const formula = TextTemplate.formula(text);
+  const paint = t => { const el = box.current; if (!el) return; el.replaceChildren(...(TextTemplate.formula(t) ? [document.createTextNode(t)] : TextTemplate.parts(t).map(p => p.field === undefined ? document.createTextNode(p.text) : chipOf(p.field)))); caret.current = null; };
+  const read = () => { let out = ''; const walk = n => { for (const k of n.childNodes) { if (k.nodeType === 3) out += formula ? k.data : TextTemplate.literal(k.data); else if (k.dataset?.token) out += TextTemplate.field(k.dataset.token); else if (k.nodeName === 'BR') out += '\n'; else { if (out && !out.endsWith('\n')) out += '\n'; walk(k); } } }; walk(box.current); return out; };
+  useLayoutEffect(() => { if (document.activeElement !== box.current && read() !== String(text ?? '')) paint(text ?? ''); }, [text]);
+  const commit = () => { if (App.readOnly.peek()) return; const t = read(); if (t !== String(text ?? '')) put(t); };
+  const remember = () => { const saved = wordsCaret(box.current); if (saved) caret.current = saved; };
   // A field chosen: for a chip (by its place among them, as it may have been drawn again), in its place; else at the caret, or at the end.
   const chipAt = i => box.current?.querySelectorAll('.word-chip')[i];
-  const insert = (label, at = -1) => {
+  const insert = (label, at = -1, saved = caret.current) => {
     const el = box.current, one = chipOf(label);
     if (at >= 0) chipAt(at)?.replaceWith(one);
-    else { const s = getSelection(), r = s.rangeCount && el.contains(s.anchorNode) ? s.getRangeAt(0) : null; if (r) { r.deleteContents(); r.insertNode(one); r.setStartAfter(one); r.collapse(true); s.removeAllRanges(); s.addRange(r); } else el.append(one); }
+    else { const s = getSelection(), r = wordsRange(el, saved); if (r) { r.deleteContents(); r.insertNode(one); r.setStartAfter(one); r.collapse(true); el.focus(); s.removeAllRanges(); s.addRange(r); } else el.append(one); }
+    remember();
     commit();
   };
-  const fields = (now, at) => q => { const k = Tree.norm(q ?? ''), bare = now?.split('|')[0].trim(), row = l => l.head ? l : ({ label: l, ...(now && { checked: Tree.same(l, bare) }), run: () => insert(now?.includes('|') ? `${l}|initials` : l, at) }); return [...(now && !k ? [{ label: 'As initials', checked: now.includes('|initials'), run: () => insert(now.includes('|') ? bare : `${bare}|initials`, at) }, { label: 'Take it out', run: () => { chipAt(at)?.remove(); commit(); } }, '-'] : []), ...pickNow().filter(l => l.head ? !k : Tree.norm(l).includes(k)).map(row)]; };
+  const fields = (now, at, saved = caret.current) => q => { const k = Tree.norm(q ?? ''), bare = now?.split('|')[0].trim(), row = l => l.head ? l : ({ label: l, ...(now && { checked: Tree.same(l, bare) }), run: () => insert(now?.includes('|') ? `${l}|initials` : l, at, saved) }); return [...(now && !k ? [{ label: 'As initials', checked: now.includes('|initials'), run: () => insert(now.includes('|') ? bare : `${bare}|initials`, at, saved) }, { label: 'Take it out', run: () => { chipAt(at)?.remove(); commit(); } }, '-'] : []), ...pickNow().filter(l => l.head ? !k : Tree.norm(l).includes(k)).map(row)]; };
   const clicked = ev => { const chip = ev.target.closest?.('.word-chip'); if (!chip || still) return; ev.preventDefault(); const r = chip.getBoundingClientRect(), all = [...box.current.querySelectorAll('.word-chip')]; Shell.menu({ x: r.left, y: r.bottom + 2 }, fields(chip.dataset.token, all.indexOf(chip)), { search: true }); };
   // A `{` typed: the fields in reach, narrowed as it goes on, the arrows moving in them, Enter or Tab putting one in.
   const typedBefore = () => { const s = getSelection(); if (!s.rangeCount || !box.current.contains(s.anchorNode) || s.anchorNode.nodeType !== 3) return null; const m = /\{([^{}\n]*)$/.exec(s.anchorNode.data.slice(0, s.anchorOffset)); return m ? { node: s.anchorNode, at: s.anchorOffset, m } : null; };
@@ -467,7 +483,7 @@ function Words({ text, put, label = 'Text' }) {
     else if (ev.key === 'Escape') { ev.stopPropagation(); if (list) setList(null); else { paint(text ?? ''); box.current.blur(); } }
   };
   return html`<span class="part-words">
-    <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" data-ph="Text" contenteditable=${still ? 'false' : 'plaintext-only'} spellcheck="false" onInput=${look} onKeyDown=${key} onClick=${clicked} onBlur=${() => setTimeout(() => { if (document.activeElement !== box.current && !box.current?.closest('.part-words')?.querySelector('.dc-complete:hover')) { setList(null); if (box.current) commit(); } })} />
+    <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" data-ph="Text" contenteditable=${still ? 'false' : 'plaintext-only'} spellcheck="false" onInput=${() => { remember(); look(); }} onKeyDown=${key} onKeyUp=${remember} onMouseUp=${remember} onClick=${clicked} onBlur=${() => { remember(); setList(null); commit(); }} />
     ${list ? html`<div class="dc-complete" role="listbox">${list.items.map((l, i) => html`<div class=${'menu-item' + (i === list.on ? ' on' : '')} role="option" onPointerDown=${ev => { ev.preventDefault(); take(l); }}>${l}</div>`)}</div>` : null}
     ${still || formula ? null : html`<button type="button" class="btn ghost add-field" onMouseDown=${ev => ev.preventDefault()} onClick=${ev => Shell.menu(ev.currentTarget, fields(null, -1), { search: true })}>${Shell.icon('plus')}Field</button>`}
   </span>`;

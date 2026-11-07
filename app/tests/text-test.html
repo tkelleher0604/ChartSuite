@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Dendra text test</title>
+<pre id="out">Running…</pre>
+<script src="../core/text.js"></script>
+<script>
+const out = [];
+const check = (name, ok) => out.push({ name, ok: !!ok });
+const read = name => ({ Name: 'Alice', Title: 'Director', Empty: '', Braces: '{Title}' })[name];
+const T = TextTemplate;
+for (const literal of ['Name', 'Alice', 'A  B\tC\n\nD ', '{Name}', '={Name}', 'C:\\Files\\{Name}', '\\', '<script>alert(1)</' + 'script>']) {
+  check(`literal round trip: ${JSON.stringify(literal)}`, T.render(T.literal(literal), read) === literal && !T.fields(T.literal(literal)).length && !T.formula(T.literal(literal)));
+}
+check('legacy fields still read', T.render('Hello {Name}: {Title}', read) === 'Hello Alice: Director');
+check('unknown fields read as empty', T.render('A{Missing}B{Empty}C', read) === 'ABC');
+check('field values are never interpreted as more fields', T.render('{Braces}', read) === '{Title}');
+check('mixed literal braces and fields', T.render(T.literal('{Name}: ') + T.field('Name'), read) === '{Name}: Alice');
+check('spaces and paragraphs stay as typed', T.render('  {Name}  \n\n {Title}\t', read) === '  Alice  \n\n Director\t');
+check('field paths and modifiers stay intact', JSON.stringify(T.parts("{Owner's Name|initials}")) === JSON.stringify([{ field: "Owner's Name|initials" }]));
+check('fields omit modifiers', T.fields('{Name|initials} {Title}').join() === 'Name,Title');
+check('formula strings do not claim text fields', T.formula(' ="{Name}"') && !T.fields(' ="{Name}"').length);
+check('single field ignores surrounding whitespace', T.single(' {Name|initials} ') === 'Name|initials');
+check('literal braces are never a single field', T.single(T.literal('{Name}')) === null);
+check('mixed text is not a single field', T.single('Hello {Name}') === null && T.single('{Name}{Title}') === null);
+check('drop preserves an existing field', T.append('{Title}', 'Name') === '{Title}\n{Name}');
+check('drop preserves literal text exactly', T.append('Name  ', 'Title') === 'Name  \n{Title}');
+check('drop on an empty part adds one field', T.append('', 'Title') === '{Title}');
+check('drop respects an existing paragraph break', T.append('Name\n', 'Title') === 'Name\n{Title}');
+const failed = out.filter(c => !c.ok);
+document.title = `text test: ${out.length - failed.length} pass, ${failed.length} fail`;
+document.getElementById('out').textContent = [`${out.length - failed.length} passed, ${failed.length} failed`, ...out.map(c => `${c.ok ? 'pass' : 'FAIL'} ${c.name}`)].join('\n');
+</script>
+</html>

@@ -1048,7 +1048,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   function freeText(h) {
     const c = freeOf.get(h.id), v = c?.value;
     if (!v || typeof v !== 'object') return [];
-    const text = cleaned(String(v.text ?? '').replace(TOKEN, (_, l) => reads(h.record, l).text));
+    const text = TextTemplate.render(v.text, l => reads(h.record, l).text);
     const given = {};
     for (const label of TEXT_PROPS) given[label] = label !== 'Format' && label in v ? { value: v[label], note: c.note } : h.settings[label];
     const settings = besideName(h, given);
@@ -1071,7 +1071,7 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   // decides; each read as a free text is, for the box or line it lands on, or a free shape's own. An empty one gives none.
   const footsOf = new Map(), footRow = shapeRows.find(r => r.role === 'footnotes' && r.view === view && !r.hidden);
   if (footRow) {
-    const read = (h, v) => String(v?.text ?? '').replace(TOKEN, (_, l) => h ? reads(h.record, l).text : '').replace(/\s+/g, ' ').trim();
+    const read = (h, v) => TextTemplate.render(v?.text, l => h ? reads(h.record, l).text : '').replace(/\s+/g, ' ').trim();
     if (N.notes('Footnote').some(n => n.view === view)) for (const id of ids) for (const [param, res] of Object.entries(once(id, 'foot', () => N.fields(tree(id), view, 'Footnote')))) for (const start of own.get(id) ?? []) {
       const [h, depth] = hostOf(start);
       if (!h?.texts) continue;
@@ -1171,10 +1171,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
         continue;
       }
       if (r.geometry === 'table') said.set(r.id, reads.table(r, editing.record));
-      else if (r.text) said.set(r.id, /^\s*=/.test(r.text) ? reads.formula(r.text, editing.record) : cleaned(r.text.replace(TOKEN, (_, l) => { const q = reads(editing.record, l), it = !l.includes('|') && editing.fields.find(x => x.id === q.id); return (it ? it.text : q.text) || l.split('|')[0].trim(); })));
+      else if (r.text) said.set(r.id, TextTemplate.formula(r.text) ? reads.formula(r.text, editing.record) : TextTemplate.render(r.text, l => { const q = reads(editing.record, l), it = !l.includes('|') && editing.fields.find(x => x.id === q.id); return (it ? it.text : q.text) || TextTemplate.label(l); }));
       // (Drawn since it began too: as it will be, a part.)
       if (r.part || wb.made(r.shape) > editing.design.value.begun) {
-        const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))), one = /^\s*\{([^{}\n]+)\}\s*$/.exec(r.text ?? ''), unfilled = one && !reads(editing.record, one[1]).text, t = said.get(r.id) ?? '';
+        const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))), one = TextTemplate.single(r.text), unfilled = one && !reads(editing.record, one).text, t = said.get(r.id) ?? '';
         // (One whose field has none yet stands faint, by its name, as a blank does.)
         onPage[i] = { ...r, reads: true, ...(unfilled && t && { runs: [{ from: 0, to: t.length, Bold: false, Italic: true, Color: '#8a8f8c' }] }), format: partFormat(editing, { p: r, item, shares: sharesOf(r) }, kept, standing) };
       }
@@ -2338,7 +2338,6 @@ const SHAPED = new Set(['line', 'picture', 'group', 'legend', 'table', 'text', '
 const TABLE = { Fill: 'none', Outline: '#a6a6a6', Weight: 0.5, Align: 'left', Size: 10, Valign: 'middle' };
 // The page's own texts: its title, its date, its footer and its number.
 const ROLES = { title: { Size: 20, Bold: true, Font: 'Heading' }, date: { Size: 11, Color: '#595959' }, footer: { Size: 9, Color: '#595959' }, day: { Size: 9, Color: '#595959' }, number: { Size: 9, Color: '#595959', Align: 'right' }, footnotes: { Size: 8, Color: '#595959' } };
-const TOKENED = /\{[^{}\n]+\}/;
 // How far out a frame stands from what it holds, as Insert makes one, or a hand has since (dendra.md, Frames).
 const padOf = r => r?.pad ?? { l: 14, t: 28, r: 14, b: 14 };
 function freeShape(row, text, u = 1, k = 1) {
@@ -2389,7 +2388,7 @@ function freeShape(row, text, u = 1, k = 1) {
     // Shrink on overflow, PowerPoint's: smaller by its steps until it holds, no less than a quarter of its size.
     if (t.Shrink && !m.auto) for (const f of [0.925, 0.85, 0.775, 0.7, 0.625, 0.55, 0.475, 0.4, 0.325, 0.25]) { if (Math.ceil(lines.length / cols) * lineHeight(look) <= tall + 0.5) break; look = { ...t, Size: t.Size * f }; lines = lay(look); m.shrunk = f; }
     // (A field named in a text box on the page reads the box it's dropped on or the design it's made a part of. Till then it has nothing to read, and stands as a blank does, faint, by its name, and printing nothing.)
-    const asks = !row.reads && !row.role && !row.part && !/^\s*=/.test(row.text ?? '') && TOKENED.test(row.text ?? '');
+    const asks = !row.reads && !row.role && !row.part && tokensIn(row.text).length > 0;
     const it = { id: shape, type: 'text', look, settings: m.settings, text, lines, ...(runs && { runs }), ...(asks && { blank: { reads: true } }) };
     const perCol = cols > 1 ? Math.max(1, Math.floor((tall + 0.5) / lineHeight(look))) : Infinity, tb = cols > 1 ? Math.min(perCol, lines.length) * lineHeight(look) : blockHeight([it]), ind = indentOf(look);
     if (sideways && m.auto) { m.h = tb ? widest([{ lines }]) + ins.l + ins.r + 1 : m.h; m.w = tb + ins.t + ins.b; }
@@ -2424,7 +2423,7 @@ function shapeText(row, computed, day, state, N) {
   if (row.geometry === 'table') return JSON.stringify(tableRead(row, computed, day, state, N));
   const text = row.text ?? '';
   if (/^\s*=/.test(text)) return computed ? Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } })) : text;
-  return !row.role && TOKENED.test(text) ? text.replace(/\{([^{}\n]+)\}/g, (_, l) => l.split('|')[0].trim()) : text;
+  return row.role ? text : TextTemplate.render(text, TextTemplate.label);
 }
 
 // ---- Group designs (dendra.md, Group designs) ----
@@ -2432,9 +2431,7 @@ function shapeText(row, computed, day, state, N) {
 // A design: { id, name, w, h, base: { Shape, …look }, parts: [row] }, one note, Design, at a pattern in a view; each part a free
 // shape's row, its place in shares of the box, its text with {Entry} tokens, or a formula; one may be its `rest`, where the fields it
 // doesn't name go. An override is { over: { base, parts: { [id]: { text, format } } } }, only what's different, or the same in a whole one's own.
-const TOKEN = /\{([^{}\n]+)\}/g;
-const cleaned = s => s.split('\n').map(x => x.replace(/[ \t]+/g, ' ').trim()).join('\n').trim();
-const tokensIn = text => [...String(text ?? '').matchAll(TOKEN)].map(m => m[1].split('|')[0].trim());
+const tokensIn = TextTemplate.fields;
 const wholeDesign = v => !!v && (Array.isArray(v.parts) || !!v.base || !!v.label);
 function overDesign(d, over) {
   if (!over) return d;
@@ -2518,7 +2515,7 @@ function reader(state, N, computed, day) {
   read.table = (row, at) => JSON.stringify(tableRead({ ...row, table: { ...row.table, of: row.table?.of ?? at } }, computed, day, state, N));
   return read;
 }
-const readWords = (text, at, read) => /^\s*=/.test(text) ? read.formula(text, at) : cleaned(String(text).replace(TOKEN, (_, l) => read(at, l).text));
+const readWords = (text, at, read) => TextTemplate.formula(text) ? read.formula(text, at) : TextTemplate.render(text, l => read(at, l).text);
 // A box's parts as its record reads them: the fields they name out of its stack, and each its words. `hidden`, whether an entry's token reads as nothing;
 // `hasEntry`, whether the chart has an entry of a label, which a part that names it alone and has none yet stands blank for, to type into, as a field does.
 function designIn(b, read, hidden, hasEntry) {
@@ -2530,19 +2527,19 @@ function designIn(b, read, hidden, hasEntry) {
   b.design.parts = (value.parts ?? []).filter(p => !p.hidden).map(p => {
     if (p.rest) return { p };
     if (p.geometry === 'table') return { p, text: read.table(p, b.record) };
-    const raw = String(p.text ?? ''), one = /^\s*\{([^{}\n]+)\}\s*$/.exec(raw);
+    const raw = String(p.text ?? ''), one = TextTemplate.single(raw);
     let item = null, id = null, blank = null;
-    let text = /^\s*=/.test(raw) ? read.formula(raw, b.record) : cleaned(raw.replace(TOKEN, (_, l) => {
+    let text = TextTemplate.formula(raw) ? read.formula(raw, b.record) : TextTemplate.render(raw, l => {
       const r = read(b.record, l);
       if (!r.id) return r.text;
       const it = of(r.id);
       if (it) { named.add(it); item ??= it; }
       id ??= r.id;
       return hidden(r.id) ? '' : it && !l.includes('|') ? it.text : r.text;
-    }));
-    if (one && !text && !id && hasEntry(one[1].trim())) { blank = { at: b.record, edge: one[1].trim() }; text = blank.edge; }
+    });
+    if (one && !text.trim() && !id && hasEntry(one.trim())) { blank = { at: b.record, edge: one.trim() }; text = blank.edge; }
     const runs = p.runs?.length ? (text === raw ? p.runs : runsAfter(raw, text, p.runs)) : null;
-    return { p, text, item, ...(one && id && text && !one[1].includes('|') && { id }), ...(blank && { blank }), ...(runs?.length && { runs }) };
+    return { p, text, item, ...(one && id && text && !one.includes('|') && { id }), ...(blank && { blank }), ...(runs?.length && { runs }) };
   });
   const rest = value.parts?.find(p => p.rest && !p.hidden);
   // (Words typed in the part the fields go in stand under those fields, in the look it gives them; a field they name isn't said twice.)
@@ -2586,9 +2583,9 @@ function partFormat(b, { p, item, shares = p }, s, parts) {
 function partName(p) {
   if (p.name) return p.name;
   if (p.rest) return 'Other fields';
-  const raw = String(p.text ?? '').trim(), one = /^\{([^{}\n]+)\}$/.exec(raw);
-  if (one) { const [t, how] = one[1].split('|').map(x => x.trim()), word = t.replace(/^(.+?)\.(.+)$/, "$1's $2"); return how === 'initials' ? `${word}, as initials` : word; }
-  if (raw) return raw.split('\n')[0].replace(TOKEN, (_, l) => l.split('|')[0].trim());
+  const raw = String(p.text ?? '').trim(), one = TextTemplate.single(raw);
+  if (one) { const [t, how] = one.split('|').map(x => x.trim()), word = t.replace(/^(.+?)\.(.+)$/, "$1's $2"); return how === 'initials' ? `${word}, as initials` : word; }
+  if (raw) return TextTemplate.render(raw.split('\n')[0], TextTemplate.label);
   if (p.geometry === 'line') return 'Rule';
   if (p.geometry === 'text') return 'Text';
   return panels(p) ? 'Panel' : bodied(p) && (p.w >= 0.98 || p.h >= 0.98) ? 'Band' : Shapes.name(p.geometry) ?? 'Shape';
@@ -2735,7 +2732,7 @@ function tableRead(row, computed, day, state = {}, N = null) {
     const s = String(text ?? '');
     if (/^\s*=\s*SUM\(\s*ABOVE\s*\)\s*$/i.test(s)) { const vs = up.filter(x => figure(x) !== null), n = vs.reduce((a, x) => a + figure(x), 0); return vs.length ? `${+n.toFixed(4)}${vs.some(x => /%/.test(x)) ? '%' : ''}` : ''; }
     if (/^\s*=/.test(s)) return computed ? Formulas.text(computed, Formulas.evaluateAt(computed, s, at ?? t.of ?? null, names)) : s;
-    return N ? s.replace(/\{([^{}\n]+)\}/g, (_, l) => entryOf(state, N, at ?? t.of, l)) : s;
+    return N ? TextTemplate.render(s, l => entryOf(state, N, at ?? t.of, l)) : s;
   };
   const push = (r, src, of) => { const i = out.length, cells = (r.cells ?? []).map((c, k) => read(c?.text, of ?? r.of, out.slice(t.header === false ? 0 : 1, i).map(x => x.cells[k]))); out.push({ src, ...(of && { of }), cells }); };
   (t.rows ?? []).forEach((r, src) => {

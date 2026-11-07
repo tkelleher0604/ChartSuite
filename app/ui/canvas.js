@@ -1454,7 +1454,7 @@ function mount(el) {
     if (it.of || (it.part && !it.blank && st()[it.id]?.edge === undefined)) {
       const part = partOf(m, it), raw = m.design.value.parts.find(p => p.id === part?.part)?.text ?? '';
       // (What reads a field is said in Edit design, its fields as chips, and never by its token.)
-      if (!part || !part.texts.length || (typed === undefined && /\{[^{}\n]+\}/.test(raw))) return Designs.edit(m);
+      if (!part || !part.texts.length || (typed === undefined && TextTemplate.fields(raw).length)) return Designs.edit(m);
       return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? raw, text => saidOfPart(`Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}`, tx => Designs.say(tx, m, part.part, { text: text.trim() }, scopeNow(canvas))), { multiline: true, selectAll: typed === undefined, complete: wordsOf(m), kept: true });
     }
     const r = it.blank ? null : st()[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
@@ -1537,7 +1537,7 @@ function mount(el) {
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
       raw = legend ? m.title : row?.text;
       // (While a design is edited, a part that reads a field is typed in the panel, its fields as chips, and never by its token.)
-      if (designing && typed === undefined && /\{[^{}\n]+\}/.test(raw ?? '')) { Shell.select([m.id]); return setTimeout(() => document.querySelector('.part-words .words-in')?.focus(), 30); }
+      if (designing && typed === undefined && TextTemplate.fields(raw).length) { Shell.select([m.id]); return setTimeout(() => document.querySelector('.part-words .words-in')?.focus(), 30); }
       // A text box left empty goes, however it's left, as PowerPoint's does.
       const gone = tx => tx.remove(m.id);
       save = (text, keys, runs) => { const said = App.change(tx => { if (m.geometry === 'text' && !text.trim() && !row?.rest) return gone(tx); tx.update(m.id, legend ? { title: text } : { text, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, text); }); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, text); };
@@ -1553,10 +1553,11 @@ function mount(el) {
   const boxOver = m => { const cx = m.x + m.w / 2, cy = m.y + m.h / 2; return [...scene.marks].reverse().find(b => b.type === 'box' && cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) ?? null; };
   // A text box that asks for a field reads the box it stands on, as text dropped there does; on none, it's said it won't print, and how it can.
   function askedOf(id, text) {
-    if (!/\{[^{}\n]+\}/.test(text) || /^\s*=/.test(text)) return;
+    const names = TextTemplate.fields(text);
+    if (!names.length) return;
     const m = scene.byId.get(id), b = m && boxOver(m);
     if (b) return joinText(m, b);
-    Shell.toast(`${text.match(/\{[^{}\n]+\}/)[0]} reads a box, so this won’t print here: drag it onto one`, { ms: 5000 });
+    Shell.toast(`${names[0]} reads a box, so this won’t print here: drag it onto one`, { ms: 5000 });
   }
   // A text box dropped on a box joins it, its free text at the pen, its words and its look kept; where it's a mistake, it can stand loose where it was dropped.
   function joinText(m, b, place = null) {

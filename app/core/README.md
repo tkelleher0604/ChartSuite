@@ -2,6 +2,8 @@
 
 Classic scripts, each exposing one global and touching no page: `Tree` (tree.js), `Notes` (notes.js), `Log` (log.js) and `Formulas` (formulas.js), loaded in that order; then `Layout` and `Scene`, `SharePoint` and `Store`, which say what they do in their own headers. Terms are data-model.md's and dendra.md's. Tests: [../tests/core-test.html](../tests/core-test.html) and [../tests/engine-test.html](../tests/engine-test.html).
 
+`TextTemplate` (text.js) loads before `Scene`. It parses the text shared by designs, scoped annotations and table cells, independently of records and the DOM. `parts(text)` separates literal text from explicit `{Field}` tokens; `render(text, read)` substitutes each field once through the supplied reader, preserving the surrounding whitespace. `fields` and `single` identify bindings; `literal` encodes typed text, escaping backslashes, braces and a leading equals sign. Existing unescaped field tokens and formula strings retain their syntax. Field values are never parsed again. See [text-test.html](../tests/text-test.html) and [the editor review guide](../../docs/editor-text-review.md).
+
 ## Shapes
 
 **Records**, keyed by id in a state `{ [id]: record }`:

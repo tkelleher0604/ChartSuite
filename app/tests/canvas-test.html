@@ -67,6 +67,7 @@ const Store = { open: async ({ sample }) => Log.open(sample), who: () => 'Dana J
 <script src="../ui/app.js"></script>
 <script src="../core/layout.js"></script>
 <script src="../core/shapes.js"></script>
+<script src="../core/text.js"></script>
 <script src="../core/scene.js"></script>
 <script src="../ui/drawing.js"></script>
 <script src="../ui/canvas.js"></script>
@@ -1558,7 +1559,7 @@ async function reloaded() {
   // Every mark, as it's drawn: where, how large, its route, its label, its words; `chartOnly`, its boxes and lines.
   const drawn = (s, chartOnly = false) => JSON.stringify([...s.marks.filter(m => !chartOnly || m.type === 'box' || m.type === 'line').map(m => [m.id, ...xs(m.x, m.y, m.w, m.h), m.points?.flat().map(round2), m.labelAt && xs(m.labelAt.x, m.labelAt.y), (m.texts ?? []).map(it => (it.lines ?? []).map(l => l.text))]), chartOnly ? 0 : s.page.scale]);
   const frame = document.body.appendChild(Object.assign(document.createElement('iframe'), { style: 'position:fixed;left:-2000px;width:800px;height:600px' }));
-  frame.srcdoc = `<!doctype html><script src="../../vendor/elkjs/elk.bundled.js"><\/script>${['tree', 'notes', 'log', 'formulas', 'layout', 'shapes', 'scene'].map(f => `<script src="../core/${f}.js"><\/script>`).join('')}<script>
+  frame.srcdoc = `<!doctype html><script src="../../vendor/elkjs/elk.bundled.js"><\/script>${['tree', 'notes', 'log', 'formulas', 'layout', 'shapes', 'text', 'scene'].map(f => `<script src="../core/${f}.js"><\/script>`).join('')}<script>
     window.fresh = (json, c, view, day) => { const wb = Log.open(json), N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, day), N.definitions(S), { relations: N.relations(S), schema: S }); return Scene.of(wb, c, view, day, { state: R.records, computed: R }); };<\/script>`;
   await until(() => frame.contentWindow?.fresh, 8000);
   const fresh = d => frame.contentWindow.fresh(JSON.stringify(App.wb.toJSON()), App.chart.peek(), App.scene.peek().view, d);
@@ -3069,12 +3070,12 @@ async function designing(st) {
   [...$$('dialog.dlg button')].find(b => b.textContent === 'Make').click(); await tick(500);
   const mine = sc().marks.filter(m => m.design?.value.name === 'Mine'), first = mine.find(m => m.id === 'northpine');
   check('Make a design: the shapes become its parts, one change, at the box’s group', changes() === m0 + 1 && mine.length > 1 && !App.shown.peek().item(App.chart.peek(), shape).length && first?.design.value.parts.some(p => p.rest) && first?.design.value.parts.length === 2, mine.length);
-  check('… the words kept as tokens where they read as a field', first?.design.value.parts[0].text === '{Name}', first?.design.value.parts[0].text);
+  check('… typed words stay literal even when they match a record name, in every box in scope', mine.every(m => m.design.value.parts[0].text === App.notes.peek().nameOf(App.state.peek(), 'northpine') && m.parts[0].texts[0].text === App.notes.peek().nameOf(App.state.peek(), 'northpine')), first?.design.value.parts[0].text);
   check('… and it’s in the gallery for the chart', App.notes.peek().value('Designs', { kind: 'View' })?.list.some(d => d.name === 'Mine'));
   undo(); await tick(300);
   // From a selection with no box in it: fitted to the box it's for, by shares of what it draws.
   let bigRect = null, word = null, gr = null;
-  App.change(tx => { bigRect = tx.add('shape', { view: st.id, geometry: 'rect', x: 30, y: 30, w: 300, h: 120, format: { Fill: '#ddeeff' } }); word = tx.add('shape', { view: st.id, geometry: 'text', x: 60, y: 40, text: 'Name' }); }, { dated: false }); await tick(250);
+  App.change(tx => { bigRect = tx.add('shape', { view: st.id, geometry: 'rect', x: 30, y: 30, w: 300, h: 120, format: { Fill: '#ddeeff' } }); word = tx.add('shape', { view: st.id, geometry: 'text', x: 60, y: 40, text: '{Name}' }); }, { dated: false }); await tick(250);
   Shell.select([bigRect, word]); await tick(150);
   const m1 = changes(), tiles1 = (() => { $('[data-fb="design"]').click(); return null; })(); await tick(250);
   check('shapes alone: the Design control offers to make one of them', [...$$('.float .picker.designs .btn')].some(b => b.textContent.startsWith('Make a design') && !b.disabled), [...$$('.float .picker.designs .btn')].map(b => b.textContent).join());
@@ -3099,6 +3100,29 @@ async function designing(st) {
   check('Edit design: the panel lists the parts, called what they are, the box last', partRows.map(r => txt(r.querySelector('.nm'))).join() === 'Other fields,Name,Name, as initials,The box', partRows.map(r => txt(r.querySelector('.nm'))).join());
   partRows[2].click(); await tick(200);
   check('… a click selects one, its words a chip that says what it is, never its token', txt($('.words-in .word-chip')) === 'Name, as initials' && !/\{/.test(txt($('.words-in'))), txt($('.words-in')));
+  {
+    const id = partRows[2].dataset.part, row = () => App.shown.peek().item(App.chart.peek(), id).at(-1), original = row().text;
+    const editor = $('.words-in'), literal = '  Name {Name} = text  ';
+    editor.focus(); editor.textContent = literal;
+    editor.dispatchEvent(new Event('input', { bubbles: true })); editor.blur();
+    partRows[1].click(); await tick(150);
+    check('leaving a part immediately keeps its literal text and spaces', row().text === TextTemplate.literal(literal), row().text);
+    partRows[2].click(); await tick(150);
+    check('literal braces reopen as text, without a field chip', $('.words-in').textContent === literal && !$('.words-in .word-chip'), $('.words-in').textContent);
+    const words = $('.words-in'); words.focus(); words.textContent = 'Before  after';
+    const range = document.createRange(); range.setStart(words.firstChild, 7); range.collapse(true);
+    getSelection().removeAllRanges(); getSelection().addRange(range);
+    words.dispatchEvent(new Event('input', { bubbles: true }));
+    $('.part-words .add-field').click(); await tick(150);
+    $$('.float .menu-item').find(el => txt(el) === 'Name').click(); await tick(150);
+    check('Field inserts at the saved caret after the menu takes focus', row().text === 'Before {Name} after', row().text);
+    check('literal words and the selected field stay in order', $('.words-in').textContent === 'Before Name after' && $('.words-in .word-chip')?.dataset.token === 'Name');
+    words.blur(); await tick(50);
+    Designs.dropped(sc().byId.get(id), 'Jurisdiction', null); await tick(200);
+    check('dropping another field preserves the existing text and field', row().text === 'Before {Name} after\n{Jurisdiction}', row().text);
+    check('dropping on a live part also adds without replacing a field', Designs.tokenIn({ design: { value: { parts: [{ id: 'p', text: '{Jurisdiction}' }] } } }, 'p', 'Name') === '{Jurisdiction}\n{Name}');
+    App.change(tx => tx.update(id, { text: original }), { dated: false }); await tick(150);
+  }
   partRows[0].click(); await tick(200);
   check('… the part the rest go in says which they are', [...$$('.held-fields .word-chip')].some(b => txt(b) === 'Jurisdiction'), [...$$('.held-fields .word-chip')].map(txt).join());
   const restMark = sc().marks.find(m => App.shown.peek().item(App.chart.peek(), m.id)?.[0]?.rest);

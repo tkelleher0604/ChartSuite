@@ -19,6 +19,7 @@
 <script src="../core/formulas.js"></script>
 <script src="../core/layout.js"></script>
 <script src="../core/shapes.js"></script>
+<script src="../core/text.js"></script>
 <script src="../core/scene.js"></script>
 <script src="../sample/calder-ridge.js"></script>
 <script src="../core/templates.js"></script>
@@ -1545,6 +1546,17 @@ function groupDesigns() {
   const ofKind = (s, r) => s.marks.filter(m => m.type === 'box' && m.settings.Shape.value !== 'triangle' && m.record === r)[0], R0 = computed(wb).records;
   const llcs = plain.marks.filter(m => m.type === 'box' && (Tree.index(R0).entries.get(m.record) ?? []).some(e => R0[e].edge === 'Entity Type' && R0[e].choice === 'Limited Liability Company'));
   check('(the sample has limited liability companies to design)', llcs.length > 3, llcs.length);
+  // One shared design: literal words stay the same, only explicit fields read each record.
+  {
+    const w = Log.open(SAMPLE), words = 'Name  {literal}\n\n', source = TextTemplate.literal(words) + '{Name}';
+    edit(w, tx => tx.note('Design', LLC, { id: 'explicit', name: 'Explicit fields', base: {}, parts: [
+      { id: 'words', geometry: 'text', x: 0, y: 0, w: 1, h: 1, text: source },
+    ] }, { view: MAIN }));
+    const s = scene(w), said = id => s.byId.get(id).parts[0].texts[0].text;
+    check('shared design preserves literal text, braces and paragraphs at every record', llcs.every(m => said(m.id) === words + w.notes(C).nameOf(R0, m.record)));
+    check('only inserted fields vary between instances', new Set(llcs.map(m => said(m.id))).size > 1);
+    check('design source survives save and reopen', scene(Log.open(w.toJSON())).byId.get(llcs[0].id).parts[0].texts[0].text === said(llcs[0].id));
+  }
   // At a group: every box it reaches has its parts, and no other does.
   const w1 = Log.open(SAMPLE);
   edit(w1, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); });
