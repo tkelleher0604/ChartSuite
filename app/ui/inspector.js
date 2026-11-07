@@ -1958,14 +1958,15 @@ function ShapeView({ id, part }) {
   const rows = key ? [...all, ...hidden] : [], held = m?.geometry === 'frame' ? (m.holds ?? []).map(x => App.scene.value.byId.get(x)).filter(Boolean) : [];
   const show = (k, on) => set({ hide: on ? (row.hide ?? []).filter(x => x !== k) : [...(row.hide ?? []), k] });
   const keyOrder = (from, i) => set({ order: moved(rows.map(r => r.key), from, i) }, 'Reordered the Key');
-  const putWords = text => ofDesign
-    ? App.change(tx => { tx.update(id, { text }); Designs.holdWords(tx, id, text); }, { dated: false })
-    : set({ text });
+  const putWords = (text, runs) => {
+    const change = { text, ...(runs !== undefined && { runs: runs.length ? runs : undefined }) };
+    return ofDesign ? App.change(tx => { tx.update(id, change); Designs.holdWords(tx, id, text); }, { dated: false }) : set(change);
+  };
   const words = worded || (ofDesign && row.rest) ? html`
     ${ofDesign && row.rest ? html`<${Designs.Holds} />` : null}
     <div class="row"><div class="k">Text</div><div class="v ctl">
       ${row.role || !hasDesigns ? html`<${Prose} text=${row.text ?? ''} label="Text" put=${putWords} />`
-        : html`<${Designs.Words} key=${id} text=${row.text ?? ''} put=${putWords} />`}
+        : html`<${Designs.Words} key=${id} text=${row.text ?? ''} runs=${row.runs} put=${putWords} />`}
     </div></div>` : null;
   return html`<div class="insp">
     <${Head} path=${key ? [{ label: name }] : []} title=${key ? row.title ?? 'Key' : name}>${key ? html`<${Field} r=${{ field: 'text', value: row.title ?? 'Key' }} datatype="text" ph="Title" label="Title" title

@@ -146,6 +146,16 @@ async function richDrawingToType() {
   await key($('.dc'), 'Enter');
   check('Reopening a literal leading equals sign retains rich text editing', $('.dc-edit')?.textContent === text && $('.dc-edit [data-run]')?.textContent === text.slice(from));
   await key($('.dc-edit'), 'Enter', { ctrlKey: true });
+  await prose('Prefix ' + text);
+  check('Editing panel text before a bold word moves its formatting with it', rowOf(shape.id).runs?.[0]?.from === from + 7 && rowOf(shape.id).runs[0].to === text.length + 7);
+  await click('[aria-label="Undo"]'); await wait(200);
+  check('Undo restores panel text and its formatting together', rowOf(shape.id).text === source && rowOf(shape.id).runs?.[0]?.from === from && $('.words-in').textContent === text);
+  await click('[aria-label="Redo"]'); await wait(200);
+  check('Redo restores panel text and its shifted formatting together', rowOf(shape.id).text === TextTemplate.literal('Prefix ' + text) && rowOf(shape.id).runs?.[0]?.from === from + 7);
+  const panel = $('.words-in'); panel.focus(); panel.textContent = 'Uncommitted replacement'; panel.dispatchEvent(new Event('input', { bubbles: true }));
+  await key(panel, 'Escape');
+  check('Escape restores the committed panel text without losing formatting', panel.textContent === 'Prefix ' + text && rowOf(shape.id).runs?.[0]?.from === from + 7);
+  await prose(text);
   await click(button('Save as object type…', '.inspector button'));
   await input('dialog input[aria-label="Design name"]', 'Rich card'); await input('dialog input[aria-label="Object type"]', 'Rich card');
   await click(button('Save', 'dialog button')); await wait(350);
@@ -156,6 +166,29 @@ async function richDrawingToType() {
   check('The next object retains the same literal text and bold occurrence', preserved(literalPart('Second card')));
   await click('.chartmenu'); await menu('Save as…'); await click('.chartmenu'); await menu('Open…'); await wait(400);
   check('Saving and reopening retain the formatted literal text', preserved(literalPart('Second card')));
+}
+async function textControls() {
+  await chart('Text controls');
+  await click('[data-fb="insert"]'); await click('.insert .shapes button[aria-label="Rectangle"]'); await key($('.dc'), 'Enter');
+  const shape = shapes()[0], panel = $('.words-in');
+  panel.focus(); panel.replaceChildren(document.createTextNode('First'), document.createElement('br'), document.createTextNode('Second tail'));
+  panel.dispatchEvent(new Event('input', { bubbles: true }));
+  const caret = document.createRange(); caret.setStart(panel.lastChild, 6); caret.collapse(true);
+  getSelection().removeAllRanges(); getSelection().addRange(caret);
+  panel.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+  await field('Name');
+  check('A field inserts at a saved multiline caret, including a BR paragraph', rowOf(shape.id).text === 'First\nSecond{Name} tail', rowOf(shape.id).text);
+  await click('.words-in .word-chip'); await menu('As initials');
+  check('A chip can switch to initials without changing surrounding text', rowOf(shape.id).text === 'First\nSecond{Name|initials} tail' && $('.word-chip').textContent === 'Name, as initials');
+  await click('.words-in .word-chip'); await menu('New field…'); await input('dialog input[aria-label="Field name"]', 'Role'); await click(button('Insert field', 'dialog button'));
+  check('Replacing a chip leaves surrounding text intact', rowOf(shape.id).text === 'First\nSecond{Role} tail');
+  const saved = rowOf(shape.id).text;
+  panel.focus(); panel.textContent = 'Typed {Na';
+  const end = document.createRange(); end.setStart(panel.firstChild, panel.firstChild.length); end.collapse(true); getSelection().removeAllRanges(); getSelection().addRange(end);
+  panel.dispatchEvent(new Event('input', { bubbles: true })); await wait(100);
+  check('Typing a field prefix offers completion without committing a field', visible($('.part-words .dc-complete')) && rowOf(shape.id).text === saved);
+  await key(panel, 'Escape'); await key(panel, 'Escape');
+  check('Escape closes completion, then restores the committed text and chip', rowOf(shape.id).text === saved && $('.words-in .word-chip')?.dataset.token === 'Role' && !$('.part-words .dc-complete'));
 }
 async function run() {
   await wait(500);
@@ -246,6 +279,7 @@ async function run() {
   if (stop === 'finished') return;
   await sharedDesignAcrossViews();
   await richDrawingToType();
+  await textControls();
 }
 Shell.ready.then(run).catch(e => out.push({ name: 'GUI flow finishes', ok: false, detail: e.stack ?? String(e) })).finally(() => {
   const failed = out.filter(x => !x.ok);

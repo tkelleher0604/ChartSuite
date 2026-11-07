@@ -6,6 +6,8 @@ Classic scripts, each exposing one global and touching no page: `Tree` (tree.js)
 
 Rich text `runs` use character offsets in the editor's text, before `TextTemplate.literal` adds storage escapes. A drawing converted into a design keeps those offsets. Scene decodes literal escapes before relocating runs for substituted fields; when the resulting text is unchanged, it retains the exact ranges, including repeated words and surrounding spaces.
 
+`characters(source)` returns that offset text, leaving field token spellings intact. `editRuns(before, after, runs)` maps one contiguous edit by its unchanged prefix and suffix: retained characters keep their formatting, new or replacement characters are unformatted, and deleted characters lose their ranges. The shared [WordsEditor](../ui/words.js) applies this after each input and emits source plus runs together. Its adapter supplies offered fields, field creation, read-only state and persistence; the control has no record/schema lookup or transaction access.
+
 ## Shapes
 
 **Records**, keyed by id in a state `{ [id]: record }`:

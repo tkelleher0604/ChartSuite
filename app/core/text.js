@@ -35,5 +35,24 @@ function single(text) {
 }
 // Dropping a field adds it. Replacing one is an explicit action on its chip.
 const append = (text, name) => `${text ?? ''}${text && !text.endsWith('\n') ? '\n' : ''}${field(name)}`;
-return { parts, literal, field, render, fields, single, formula, label, append };
+// Runs count edited characters: decode storage escapes but keep each field's source spelling.
+const characters = text => formula(text) ? String(text ?? '') : render(text, field);
+// One input changes the middle between its unchanged prefix and suffix. Retained characters keep
+// their look; inserted/replaced characters start unformatted. Deleting through a run clips it.
+// Apply after each input, not just on blur, so separate edits do not erase the style between them.
+function editRuns(before, after, runs = []) {
+  const a = characters(before), b = characters(after);
+  if (a === b) return runs;
+  let from = 0, end = a.length, next = b.length;
+  while (from < end && from < next && a[from] === b[from]) from++;
+  while (end > from && next > from && a[end - 1] === b[next - 1]) { end--; next--; }
+  const by = next - end;
+  return runs.flatMap(run => {
+    const left = { ...run, to: Math.min(run.to, from) }, right = { ...run, from: Math.max(run.from, end) + by, to: run.to + by };
+    const kept = [left, right].filter(r => r.to > r.from);
+    if (kept.length === 2 && left.to === right.from) return [{ ...run, to: right.to }];
+    return kept;
+  });
+}
+return { parts, literal, field, render, fields, single, formula, label, append, characters, editRuns };
 })();

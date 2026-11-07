@@ -474,83 +474,19 @@ const pickNow = () => {
   const own = [...all.filter(x => !x.of).map(x => x.label), ...[...e.newFields.values()].map(f => f.label)], near = all.filter(x => x.first && has.has(Tree.norm(x.of))).map(x => x.label), far = all.filter(x => x.of && !near.includes(x.label)).map(x => x.label);
   return [...own.slice(0, 1), ...near, { head: 'Its own' }, ...own.slice(1), ...(far.length ? [{ head: 'Over it' }, ...far] : [])];
 };
-const chipOf = token => { const el = document.createElement('span'); el.className = 'word-chip'; el.contentEditable = 'false'; el.dataset.token = token; el.textContent = Scene.partName({ text: `{${token}}` }); return el; };
-// Menus take focus and a committed edit can replace text nodes. Keep character offsets, not a live
-// DOM Range (which silently moves to the beginning when its nodes are replaced).
-function wordsCaret(el) {
-  const selection = getSelection();
-  if (!selection.rangeCount || !el.contains(selection.anchorNode) || !el.contains(selection.focusNode)) return null;
-  const range = selection.getRangeAt(0);
-  const offset = (node, at) => { const before = document.createRange(); before.selectNodeContents(el); before.setEnd(node, at); return before.toString().length; };
-  return { from: offset(range.startContainer, range.startOffset), to: offset(range.endContainer, range.endOffset) };
+// Record/schema work stays in this adapter. The editor itself knows only offered labels and text.
+async function createField(suggested) {
+  let name = suggested ?? '';
+  const session = editing.peek(), chart = App.chart.peek();
+  const ok = await Shell.dialog({ title: 'New merge field', width: 340, actions: [{ label: 'Cancel', value: false }, { label: 'Insert field', value: true, primary: true }],
+    body: () => html`<div class="settings"><label class="field"><span>Field name</span><input aria-label="Field name" required autofocus autocomplete="off" placeholder="e.g. Role" value=${name} onInput=${e => { name = e.target.value; e.target.setCustomValidity(!Tree.clean(name) ? 'Enter a field name.' : /[{}|›\n]/.test(name) ? 'Use a name without braces, a vertical bar or ›.' : ''); }} /></label></div>` });
+  if (!ok || App.readOnly.peek() || App.chart.peek() !== chart || editing.peek() !== session || !Tree.clean(name) || /[{}|›\n]/.test(name)) return null;
+  const label = Tree.clean(name);
+  if (session && !offeredNow().some(l => Tree.same(l, label))) session.newFields.set(Tree.norm(label), { label, paths: [label], datatype: 'text', outputs: [] });
+  return label;
 }
-function wordsRange(el, saved) {
-  if (!saved) return null;
-  const range = document.createRange();
-  const point = (at, end) => {
-    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    for (let node; (node = walk.nextNode());) {
-      if (at > node.length) { at -= node.length; continue; }
-      const chip = node.parentElement.closest('.word-chip');
-      if (chip) range[end ? (at ? 'setEndAfter' : 'setEndBefore') : (at ? 'setStartAfter' : 'setStartBefore')](chip);
-      else range[end ? 'setEnd' : 'setStart'](node, at);
-      return;
-    }
-    range[end ? 'setEnd' : 'setStart'](el, el.childNodes.length);
-  };
-  point(saved.from, false); point(saved.to, true);
-  return range;
-}
-// The words of what's being edited: each field in them a chip that says what it is ("Name, as initials"), clicked for a list of what else it could be, or taken out; words typed between, and a `{` typed offers the fields in reach; Field beside them adds one. What's left says what's kept. A formula is its text, as typed.
-function Words({ text, put, label = 'Text' }) {
-  const box = useRef(null), caret = useRef(null), [list, setList] = useState(null), still = App.readOnly.value;
-  const formula = TextTemplate.formula(text);
-  const paint = t => { const el = box.current; if (!el) return; el.replaceChildren(...(TextTemplate.formula(t) ? [document.createTextNode(t)] : TextTemplate.parts(t).map(p => p.field === undefined ? document.createTextNode(p.text) : chipOf(p.field)))); caret.current = null; };
-  const read = () => { let out = ''; const walk = n => { for (const k of n.childNodes) { if (k.nodeType === 3) out += formula ? k.data : TextTemplate.literal(k.data); else if (k.dataset?.token) out += TextTemplate.field(k.dataset.token); else if (k.nodeName === 'BR') out += '\n'; else { if (out && !out.endsWith('\n')) out += '\n'; walk(k); } } }; walk(box.current); return out; };
-  useLayoutEffect(() => { if (document.activeElement !== box.current && read() !== String(text ?? '')) paint(text ?? ''); }, [text]);
-  const commit = () => { if (App.readOnly.peek()) return; const t = read(); if (t !== String(text ?? '')) put(t); };
-  const remember = () => { const saved = wordsCaret(box.current); if (saved) caret.current = saved; };
-  // A field chosen: for a chip (by its place among them, as it may have been drawn again), in its place; else at the caret, or at the end.
-  const chipAt = i => box.current?.querySelectorAll('.word-chip')[i];
-  const insert = (label, at = -1, saved = caret.current) => {
-    const el = box.current, one = chipOf(label);
-    if (at >= 0) chipAt(at)?.replaceWith(one);
-    else { const s = getSelection(), r = wordsRange(el, saved); if (r) { r.deleteContents(); r.insertNode(one); r.setStartAfter(one); r.collapse(true); el.focus(); s.removeAllRanges(); s.addRange(r); } else { if (el.textContent && !/\s$/.test(el.textContent)) el.append(document.createTextNode('\n')); el.append(one); } }
-    remember();
-    commit();
-  };
-  const newField = async (suggested, at, saved) => {
-    let name = suggested ?? '';
-    const ok = await Shell.dialog({ title: 'New merge field', width: 340, actions: [{ label: 'Cancel', value: false }, { label: 'Insert field', value: true, primary: true }],
-      body: () => html`<div class="settings"><label class="field"><span>Field name</span><input aria-label="Field name" required autofocus autocomplete="off" placeholder="e.g. Role" value=${name} onInput=${e => { name = e.target.value; e.target.setCustomValidity(!Tree.clean(name) ? 'Enter a field name.' : /[{}|›\n]/.test(name) ? 'Use a name without braces, a vertical bar or ›.' : ''); }} /></label></div>` });
-    if (ok && box.current?.isConnected && !App.readOnly.peek() && Tree.clean(name) && !/[{}|›\n]/.test(name)) {
-      const label = Tree.clean(name), e = editing.peek();
-      if (e && !offeredNow().some(l => Tree.same(l, label))) e.newFields.set(Tree.norm(label), { label, paths: [label], datatype: 'text', outputs: [] });
-      insert(label, at, saved);
-    }
-  };
-  const fields = (now, at, saved = caret.current) => q => {
-    const k = Tree.norm(q ?? ''), bare = now?.split('|')[0].trim();
-    const row = l => l.head ? l : ({ label: l, ...(now && { checked: Tree.same(l, bare) }), run: () => insert(now?.includes('|') ? `${l}|initials` : l, at, saved) });
-    return [...(now && !k ? [{ label: 'As initials', checked: now.includes('|initials'), run: () => insert(now.includes('|') ? bare : `${bare}|initials`, at, saved) }, { label: 'Take it out', run: () => { chipAt(at)?.remove(); commit(); } }, '-'] : []),
-      ...pickNow().filter(l => l.head ? !k : Tree.norm(l).includes(k)).map(row), '-',
-      { label: k ? `New field: ${Tree.clean(q)}…` : 'New field…', run: () => newField(q, at, saved) }];
-  };
-  const clicked = ev => { const chip = ev.target.closest?.('.word-chip'); if (!chip || still) return; ev.preventDefault(); const r = chip.getBoundingClientRect(), all = [...box.current.querySelectorAll('.word-chip')]; Shell.menu({ x: r.left, y: r.bottom + 2 }, fields(chip.dataset.token, all.indexOf(chip)), { search: true }); };
-  // A `{` typed: the fields in reach, narrowed as it goes on, the arrows moving in them, Enter or Tab putting one in.
-  const typedBefore = () => { const s = getSelection(); if (!s.rangeCount || !box.current.contains(s.anchorNode) || s.anchorNode.nodeType !== 3) return null; const m = /\{([^{}\n]*)$/.exec(s.anchorNode.data.slice(0, s.anchorOffset)); return m ? { node: s.anchorNode, at: s.anchorOffset, m } : null; };
-  const look = () => { const b = typedBefore(); if (!b) return setList(null); const q = Tree.norm(b.m[1]), items = offeredNow().filter(l => Tree.norm(l).includes(q)); setList(items.length ? { items, on: 0 } : null); };
-  const take = l => { const b = typedBefore(); if (!b) return setList(null); const r = document.createRange(); r.setStart(b.node, b.at - b.m[0].length); r.setEnd(b.node, b.at); r.deleteContents(); const one = chipOf(l); r.insertNode(one); r.setStartAfter(one); r.collapse(true); const s = getSelection(); s.removeAllRanges(); s.addRange(r); setList(null); };
-  const key = ev => {
-    if (list && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')) { ev.preventDefault(); setList({ ...list, on: (list.on + (ev.key === 'ArrowDown' ? 1 : list.items.length - 1)) % list.items.length }); }
-    else if (list && (ev.key === 'Enter' || ev.key === 'Tab')) { ev.preventDefault(); take(list.items[list.on]); }
-    else if (ev.key === 'Escape') { ev.stopPropagation(); if (list) setList(null); else { paint(text ?? ''); box.current.blur(); } }
-  };
-  return html`<span class="part-words">
-    <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" data-ph="Text" contenteditable=${still ? 'false' : 'plaintext-only'} spellcheck="false" onInput=${() => { remember(); look(); }} onKeyDown=${key} onKeyUp=${remember} onMouseUp=${remember} onClick=${clicked} onBlur=${() => { remember(); setList(null); commit(); }} />
-    ${list ? html`<div class="dc-complete" role="listbox">${list.items.map((l, i) => html`<div class=${'menu-item' + (i === list.on ? ' on' : '')} role="option" onPointerDown=${ev => { ev.preventDefault(); take(l); }}>${l}</div>`)}</div>` : null}
-    ${still || formula ? null : html`<button type="button" class="btn ghost add-field" onMouseDown=${ev => { ev.preventDefault(); remember(); }} onClick=${ev => Shell.menu(ev.currentTarget, fields(null, -1), { search: true })}>${Shell.icon('plus')}Merge field</button>`}
-  </span>`;
+function Words({ text, runs, put, label = 'Text' }) {
+  return html`<${WordsEditor} text=${text} runs=${runs} put=${put} label=${label} offered=${pickNow()} createField=${createField} readOnly=${App.readOnly.value} fieldLabel=${token => Scene.partName({ text: TextTemplate.field(token) })} />`;
 }
 // What the part the other fields go in holds now: each field no other part names, as a chip; and, clicked, given a part of its own.
 function Holds() {
