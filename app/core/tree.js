@@ -310,7 +310,7 @@ const outputText = r => isField(r) ? format(r.field, r.value) : isChoice(r) ? r.
 const comingText = r => { const day = formatDate(r.since, 'short'); return r.field !== 'date' ? `${outputText(r)} from ${day}` : r.value === r.since ? `next ${day}` : `${formatDate(r.value, 'short')} from ${day}`; };
 // English, from this one place. A word's plural: Entities, Taxes, Statuses, Addresses, Analyses, Wives, Children; one already plural (ERISA Plan Assets, Cayman Islands)
 // is itself. And its singular, the way back: a list's name as one of it says what one is, whichever way it was typed.
-const IRREGULAR = [['child', 'children'], ['person', 'people'], ['wife', 'wives'], ['life', 'lives'], ['half', 'halves'], ['knife', 'knives'], ['leaf', 'leaves'], ['shelf', 'shelves'], ['self', 'selves'], ['wolf', 'wolves'], ['thief', 'thieves'], ['woman', 'women'], ['foot', 'feet'], ['tooth', 'teeth']];
+const IRREGULAR = [['child', 'children'], ['person', 'people'], ['spouse', 'spouses'], ['wife', 'wives'], ['life', 'lives'], ['half', 'halves'], ['knife', 'knives'], ['leaf', 'leaves'], ['shelf', 'shelves'], ['self', 'selves'], ['wolf', 'wolves'], ['thief', 'thieves'], ['woman', 'women'], ['foot', 'feet'], ['tooth', 'teeth']];
 const swapEnd = (w, from, to) => { const i = w.length - from.length, end = w.slice(i); return w.slice(0, i) + (end[0] === end[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to); };
 const ends = (w, s) => w.length >= s.length && w.slice(-s.length).toLowerCase() === s;
 // (A relation's name that ends on its preposition, Reports To, or a state, Services Owned, isn't counted by a last letter: it's as it is.)

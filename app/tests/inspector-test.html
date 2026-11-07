@@ -90,6 +90,28 @@ const pb = (s = '') => document.querySelector('.pendbar' + (s && ' ' + s));
 
 async function run() {
   while (!App.chart.value) await tick(50);
+  // The shared singular used by the spouse-name eye also supplies the list's New spouse prompt.
+  // Exercise that word through the record panel, on either side of the same family relation.
+  {
+    const p = { args: [{ edge: 'Spouse', loc: {} }, { edge: 'Partner', loc: {} }] }, ids = [];
+    App.change(tx => {
+      for (const name of ['Pat Morgan', 'Lee Morgan']) { const id = tx.add('record', { kind: 'Person' }); ids.push(id); tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }); }
+      tx.add('record', { args: [{ edge: 'Spouse', at: ids[0] }, { edge: 'Partner', at: ids[1] }], tag: true });
+      tx.note('Name', p, 'Married To');
+      for (const param of ['Spouse', 'Partner']) tx.note('Name', p, 'Spouses', { param });
+    }, { dated: false }); await tick(80);
+    for (const id of ids) {
+      const word = Scene.readable(st(), N(), App.schema.peek(), id).find(x => x.of === 'Spouses' && x.first)?.label;
+      check('The spouse-name eye receives the complete singular noun on either side', word === "Spouse's name", word);
+      const read = Scene.reader(st(), N()), partner = N().nameOf(st(), ids.find(x => x !== id));
+      check('Correct spouse tokens and formerly offered Spous tokens both keep reading the saved relative',
+        ["Spouse's name", 'Spouse.Name', "Spous's name", 'Spous.Name'].every(token => read(id, token).text === partner));
+      Shell.select([id]); await tick(80); $('[aria-label="Add to Spouses"]').click(); await tick(80);
+      check('A spouse list asks for a New spouse, whichever relation side the person occupies', document.querySelector('.float .menu-find')?.dataset.placeholder === 'New spouse', document.querySelector('.float .menu-find')?.dataset.placeholder);
+      Shell.closeAll(); await tick();
+    }
+    Shell.parts.value.undo.undo(); await tick(80);
+  }
   const C = App.chart.value, n0 = App.wb.changes().length;
   Shell.select(['fund']); await tick();
   { // Typed in a short list, it finds what begins with all that's typed, and no key of it gets out.

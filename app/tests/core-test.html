@@ -85,6 +85,9 @@ function run(json) {
   check('a narrower pattern weighs more', Tree.weight(tax) > Tree.weight(spec) && Tree.weight(spec) > Tree.weight(param) && Tree.weight(param) > Tree.weight(tc()));
   check('a plural: one already plural is itself', ['Entity', 'Tax', 'Status', 'Address', 'Analysis', 'ERISA Plan Assets', 'Cayman Islands', 'Document', 'Bylaws'].map(Tree.plural).join()
     === 'Entities,Taxes,Statuses,Addresses,Analyses,ERISA Plan Assets,Cayman Islands,Documents,Bylaws');
+  check('a spouse list names one spouse, preserving case and a preceding word',
+    ['Spouses', 'spouses', 'Former Spouses'].map(Tree.singular).join() === 'Spouse,spouse,Former Spouse'
+    && ['Spouse', 'Spouses'].map(Tree.plural).join() === 'Spouses,Spouses');
 
   // ---- A location left open: one relation with a side of several kinds of record ----
   {

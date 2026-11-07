@@ -55,10 +55,13 @@ const Table = (() => {
   const viewed = Shell.signal(0);
   const shownAs = new Map();
   const shownIn = view => { if (shownAs.get(view)?.n !== viewed.peek()) shownAs.set(view, { n: viewed.peek(), l: lookOf(view).shown ?? null }); return shownAs.get(view).l; };
+  const waysOf = c => c.ways ?? [c];
+  const columnKeys = c => waysOf(c).map(w => w.key);
+  const anyShown = values => values.includes(true) ? true : values.includes(false) ? false : undefined;
   function putColumns(view, shown) { setLook(view, { shown }); viewed.value++; }
   function seeColumns(view, cs, on, say) {
     const was = lookOf(view).shown, now = { ...was };
-    for (const c of cs) now[c.key] = on;
+    for (const c of cs) for (const key of columnKeys(c)) now[key] = on;
     if (JSON.stringify(was ?? {}) === JSON.stringify(now)) return true;
     putColumns(view, now);
     const words = say ?? `${on ? 'Showed' : 'Hid'} ${cs.length === 1 ? (cs[0].title ?? 'Why') : `${cs.length} columns`} in ${viewOf(view)?.name}`;
@@ -66,7 +69,7 @@ const Table = (() => {
     Shell.toast(words, { undo: App.undoLook, ms: 2500 });
     return true;
   }
-  const seenAs = (view, c) => c.pattern ? shownIn(view)?.[c.key] : undefined;
+  const seenAs = (view, c) => c.pattern ? anyShown(columnKeys(c).map(key => shownIn(view)?.[key])) : undefined;
 
   // A tag's cell where its rule hasn't tested the record (Formulas.notTested): its own value, apart from Yes, No and blank.
   const NA = 'n/a';
@@ -146,7 +149,17 @@ const Table = (() => {
     for (const c of out) if (sided(c.key)) c.key += '|' + norm(c.mine);
     const reached = alike();
     for (const c of out) if (reached(c.key)) { c.key += '|' + norm(c.reach); c.parent = c.reach; c.told = [c.reach, c.title]; }
-    return out;
+    // The same list on both sides of one relation (Spouses) is one column. Keep its former directions and keys:
+    // older views may have shown or ordered either side, and a cell must read and edit relatives on both sides.
+    const merged = [];
+    for (const c of out) {
+      const into = merged.find(d => same(d.title, c.title) && Tree.key(d.pattern) === Tree.key(c.pattern)
+        && same(d.mine, c.other) && same(d.other, c.mine) && d.minePath.map(norm).join('›') === c.minePath.map(norm).join('›')
+        && Tree.key(d.otherLoc) === Tree.key(c.otherLoc) && d.kinds.size === c.kinds.size && [...d.kinds].every(k => c.kinds.has(k)));
+      if (into) into.ways.push(c);
+      else merged.push({ ...c, ways: [c] });
+    }
+    return merged;
   }
   // A record as a cell names it: an object by its name; a relation, which has none, by the place rule and what it is
   // (Margaret A. Chen → Cayman GP, Director; Holdco → Blocker, 100%).
@@ -158,10 +171,14 @@ const Table = (() => {
     return `${N.segmentOf(st, id)}${what ? `, ${what}` : ''}`;
   }
   // The relatives a list's cell names, at the record its side is at: each relation of it held there, by the other side's name.
+  const otherIn = (r, at, c) => waysOf(c).map(w => {
+    const mine = r?.args?.find(a => a.at === at && same(a.edge, w.mine));
+    return mine && r.args.find(a => a !== mine && same(a.edge, w.other));
+  }).find(Boolean);
   const relativesIn = (st, at, c, N = App.notes.peek()) => (Tree.index(st).relations.get(at) ?? []).flatMap(rid => {
     const r = st[rid];
     if (r.args?.length !== 2 || r.tag === false) return [];
-    const mine = r.args.find(a => a.at === at && same(a.edge, c.mine)), other = mine && r.args.find(a => a !== mine && same(a.edge, c.other));
+    const other = otherIn(r, at, c);
     const obj = other && Tree.objectOf(st, other.at);
     return obj && Tree.fits(st, rid, c.pattern) ? [{ rid, obj, name: saidOf(st, obj, N) }] : [];
   }).sort((a, b) => a.name.localeCompare(b.name));
@@ -314,11 +331,11 @@ const Table = (() => {
       // In the view, Order places a column and Shown shows it; by default every entry at the row shows, and no list, nor
       // a tag a Check note covers: a check is marked where it fails, on its row, and only shows as a column ticked.
       for (const c of cols) {
-        const o = c.pattern && N.resolve('Order', c.pattern, view, c.param);
-        c.place = o?.note.view === view ? o.value : Infinity;
+        const orders = c.pattern ? waysOf(c).map(w => N.resolve('Order', c.pattern, view, w.param)).filter(o => o?.note.view === view) : [];
+        c.place = Math.min(...orders.map(o => o.value));
         c.check = c.type === 'tag' && !!c.specs?.some(s => N.check(s));
-        const said = c.pattern ? N.value('Shown', c.pattern, view, c.param) : undefined;
-        c.shown = !c.pattern || (seenAs(view, c) ?? said ?? (c.type !== 'list' && !c.check && (!!c.param || c.path.length === 1)));
+        const said = c.pattern ? anyShown(waysOf(c).map(w => seenAs(view, w) ?? N.value('Shown', c.pattern, view, w.param))) : undefined;
+        c.shown = !c.pattern || (said ?? (c.type !== 'list' && !c.check && (!!c.param || c.path.length === 1)));
       }
       cols.sort((a, b) => a.place - b.place || ownOrder(a, b));
       // Beside a row's Name, its link says where the document is filed rather than its name again.
@@ -1766,7 +1783,7 @@ const Table = (() => {
   function listKind(m, c) {
     const st = App.state.peek(), n = new Map();
     for (const d of m.data) for (const rid of d._m[field(c)]?.rels ?? []) {
-      const r = st[rid], a = r?.args.find(x => same(x.edge, c.other)), k = a && st[Tree.objectOf(st, a.at)]?.kind;
+      const r = st[rid], a = otherIn(r, d._m[field(c)].at, c), k = a && st[Tree.objectOf(st, a.at)]?.kind;
       if (k) n.set(k, (n.get(k) ?? 0) + 1);
     }
     return [...n].sort((a, b) => b[1] - a[1])[0]?.[0] ?? c.kindNames[0];
@@ -1885,7 +1902,7 @@ const Table = (() => {
   }
 
   // ---- Columns: Show/Hide and Order are the column's own notes in the view ----
-  const note = (tx, label, c, view, value) => tx.note(label, c.pattern, value, { view, param: c.param });
+  const note = (tx, label, c, view, value) => waysOf(c).forEach(w => tx.note(label, c.pattern, value, { view, param: w.param }));
   const called = c => c.parent ? `${c.parent} › ${c.title}` : c.title;
   const canWrite = () => !App.readOnly.peek() && !current?.red;
   // Columns shown or hidden, every way there is of asking: a look, in no log (seeColumns).
@@ -1899,7 +1916,7 @@ const Table = (() => {
     const l = lookOf(m.view).shown;
     if (!l) return;
     keepHere();
-    if (edit(tx => { for (const c of m.cols) if (c.key in l && c.pattern) note(tx, 'Shown', c, m.view, l[c.key]); }, `Kept the columns of ${viewOf(m.view)?.name}`)) putColumns(m.view, null);
+    if (edit(tx => { for (const c of m.cols) if (c.pattern && columnKeys(c).some(key => key in l)) note(tx, 'Shown', c, m.view, c.shown); }, `Kept the columns of ${viewOf(m.view)?.name}`)) putColumns(m.view, null);
   }
   // What's written at a table only in this window is written once it's the chart's.
   const keepHere = () => { if (viewOf(current?.view)?.look) App.keepTable(current.view); };
@@ -1922,8 +1939,9 @@ const Table = (() => {
   function moved(view, notes) {
     const m = viewOf(view)?.layout === 'table' ? (real?.view === view ? real : model(view)) : null;
     if (!m?.cols) return null;
-    const keyOf = (p, param) => `${Tree.key(p)}|${norm(param ?? '')}`, cols = new Map(m.cols.filter(c => c.pattern).map(c => [keyOf(c.pattern, c.param), c]));
-    const cs = notes.map(n => ({ c: cols.get(keyOf(n.note.pattern, n.note.param)), now: n.note.value, was: n.was ?? Infinity }));
+    const keyOf = (p, param) => `${Tree.key(p)}|${norm(param ?? '')}`, cols = new Map(m.cols.filter(c => c.pattern).flatMap(c => waysOf(c).map(w => [keyOf(c.pattern, w.param), c])));
+    const changes = notes.map(n => ({ c: cols.get(keyOf(n.note.pattern, n.note.param)), now: n.note.value, was: n.was ?? Infinity }));
+    const cs = [...new Set(changes.map(x => x.c))].map(c => ({ c, now: Math.min(...changes.filter(x => x.c === c).map(x => x.now)), was: Math.min(...changes.filter(x => x.c === c).map(x => x.was)) }));
     if (cs.some(x => !x.c)) return null;
     const after = xs => [...xs].sort((a, b) => a.now - b.now), before = xs => [...xs].sort((a, b) => a.was - b.was || ownOrder(a.c, b.c));
     const against = xs => {

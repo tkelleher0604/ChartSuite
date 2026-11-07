@@ -2462,7 +2462,8 @@ function designAtPattern(N, p, view) {
   return framedDesign(d);
 }
 // One of what a list's name says: Owners, an owner; Children, a child; People, a person.
-const oneOf = w => [w.replace(/ren$/i, ''), w.replace(/people$/i, 'person').replace(/People$/, 'Person'), w.replace(/ies$/i, 'y'), w.replace(/es$/i, ''), w.replace(/s$/i, '')].find(x => x !== w && Tree.same(Tree.plural(x), w)) ?? w;
+const legacyOneOf = w => [w.replace(/ren$/i, ''), w.replace(/people$/i, 'person').replace(/People$/, 'Person'), w.replace(/ies$/i, 'y'), w.replace(/es$/i, ''), w.replace(/s$/i, '')].find(x => x !== w && Tree.same(Tree.plural(x), w)) ?? w;
+const oneOf = w => { const one = Tree.singular(w); return Tree.same(Tree.plural(one), w) ? one : legacyOneOf(w); };
 // "Owner's name", as it's said, is what's offered and what's read: Owner.Name says the same.
 const OWNED = /^(.+?)(?:\.|['’]s\s+)(.+)$/;
 // What a record's words can read, by name, as a person says it: its entries, then, of each list of its relatives, what's said of one of them ("Owner's name", "Owner's Jurisdiction"), and a relation's sides.
@@ -2502,7 +2503,8 @@ function reader(state, N, computed, day) {
   const below = (at, label) => { const { entries } = Tree.index(state), k = Tree.norm(label); for (let todo = [at], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { if (Tree.norm(state[e].edge) === k) return e; todo.push(e); } return null; };
   const objectAt = at => Tree.objectOf(state, at) ?? at;
   // Who a word names among what's over a record: a relation's side, or its list of relatives, by the list's name, one of them, or the side.
-  const among = (at, word) => { const here = state[at]?.args?.find(a => same(a.edge, word)); return here ? [objectAt(here.at)] : (listsAt(state, N, at).find(l => same(l.name, word) || same(oneOf(l.name), word) || same(l.edge, word))?.items ?? []).map(it => objectAt(it.obj)); };
+  // Older designs may contain a guessed singular such as Spous.Name. Still read it, but offer only the shared English.
+  const among = (at, word) => { const here = state[at]?.args?.find(a => same(a.edge, word)); return here ? [objectAt(here.at)] : (listsAt(state, N, at).find(l => same(l.name, word) || same(oneOf(l.name), word) || same(legacyOneOf(l.name), word) || same(l.edge, word))?.items ?? []).map(it => objectAt(it.obj)); };
   const valueOf = e => textOf(state[e], 'value', state[e].edge);
   const read = (at, raw) => {
     const [token, how] = String(raw).split('|').map(x => x.trim()), path = token.split(/\s*›\s*/), side = state[at]?.args?.find(a => same(a.edge, token));
