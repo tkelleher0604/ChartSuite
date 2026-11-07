@@ -15,7 +15,6 @@ const view = () => canvas().scene().view;
 const treeOf = id => Tree.treeOf(App.state.peek(), id);
 const round = v => Math.round(v * 2) / 2;
 const roundUp = v => Math.ceil((v - 1e-8) * 2) / 2;
-const share = v => +v.toFixed(4);
 const LIBRARY = { kind: 'View' };
 
 // ---- The gallery's designs: the app's, this chart's, and each house style's ----
@@ -173,21 +172,7 @@ function reset(m, s = Canvas.scope()) {
 }
 
 // ---- Parts from shapes: a free shape on the page as a part of a design over box b ----
-function partFrom(r, q, b, text = r.text) {
-  const { id, shape, view: _, x, y, w, h, kept, ends, points, part, rest, format, text: t, named, flow, ...more } = r;
-  const at = (px, py) => [share((px - b.x) / b.w), share((py - b.y) / b.h)], [px, py] = at(q.x, q.y);
-  // (A look it took from the box while it stood on the page, left as it was, is the box's still; and where it stands among them is its place in the list.)
-  const { Layer: __, ...look } = { ...format };
-  for (const [k, [ref, v]] of Object.entries(named ?? {})) if (JSON.stringify(look[k]) === JSON.stringify(v)) { if (ref == null) delete look[k]; else look[k] = ref; }
-  return { ...more, id: part ?? Log.newId(), geometry: r.geometry ?? 'rect', x: px, y: py, w: share(q.w / b.w), h: share(q.h / b.h), ...(rest && { rest: true }), ...(text && { text }), ...(Object.keys(look).length && { format: look }),
-    ...(q.points && { points: q.points.map(([u, v]) => at(u, v)) }) };
-}
-// A part's row as it stands on the page: a look it takes from the box, as that is, what it was said as kept beside it.
-function standing(format, m, scale) {
-  const out = { ...format }, named = {};
-  for (const [k, v] of Object.entries(format ?? {})) { const ref = typeof v === 'string' && /^\{(\w+)\}$/.exec(v); if (ref) { const o = m.settings[ref[1]]?.value; out[k] = ref[1] === 'Weight' ? +(o * scale).toFixed(3) : o; named[k] = [v, out[k]]; } }
-  return { format: out, ...(Object.keys(named).length && { named }) };
-}
+const partFrom = (row, mark, frame, text = row.text) => DesignGeometry.part(row, mark, frame, { id: row.part ?? Log.newId(), text });
 // Where a design goes for a box: what the scope says; and how that's said ("all 5 limited partnerships", "Holdco").
 const patternsAt = (m, s) => s?.outputs?.length ? s.outputs : s?.own && s.records?.length ? s.records.map(treeOf).filter(Boolean) : [treeOf(m.record)];
 function whom(m, s, marks) {
@@ -336,11 +321,7 @@ function takes(record) {
   };
 }
 const ownLooks = (rows, v, record) => rows.filter(r => 'note' in r && r.view === v && r.pattern?.id === record && Notes.FORMATS.has(r.label) && !['Design', 'Shown'].includes(r.label));
-const near = (a, b) => Math.abs(a - b) <= 0.5;
-// Temporary layout metadata belongs to sandbox rows, so native app Undo restores it too.
-// A hand-sized frame is distinct from the height its current words happen to need.
-const authoredHeight = (row, initial) => row.flow?.height ? near(row.h, row.flow.height.after) ? row.flow.height.authored : row.h : near(row.h, initial) ? undefined : row.h;
-const heightFlow = (row, initial, after) => { const authored = authoredHeight(row, initial); return { ...row.flow, height: { after, ...(authored !== undefined && { authored }) } }; };
+const { heightFlow } = DesignGeometry;
 // Whole designs may be attached to an object's kind or to any of its entries (for example,
 // Building North). Find those entries, retaining the scene's precedence between shared styles.
 function designsFor(m) {
@@ -419,7 +400,7 @@ function edit(m, given, partId, chosen = {}) {
       const { id, x, y, w, h, points, format, ...row } = p, q = like.parts?.find(q2 => q2.part === id);
       const at = { x: round(q ? q.x + dx : m.x + x * W), y: round(q ? q.y + dy : m.y + y * H), w: round(q ? q.w : w * W), h: round(q ? q.h : h * H), ...(points && { points: (q?.points?.map(([a, b]) => [a + dx, b + dy]) ?? points.map(([a, b]) => [m.x + a * W, m.y + b * H])).map(([a, b]) => [round(a), round(b)]) }) };
       stands.set(id, at);
-      const shown = standing(format, m, sc.page.scale), color = q?.texts?.[0]?.look.Color;
+      const shown = DesignGeometry.standing(format, m.settings, sc.page.scale), color = q?.texts?.[0]?.look.Color;
       // Free shapes do not know the card beneath them. Keep automatic text contrast while
       // editing, then restore automatic color unless the user explicitly changes it.
       if (format?.Color === undefined && color) { shown.format.Color = color; shown.named = { ...shown.named, Color: [null, color] }; }
@@ -461,44 +442,15 @@ function leave(keep) {
   let d = null, looks = {}, unchanged = false;
   if (keep && b) {
     const rows = App.shown.peek().rows(App.chart.peek()), mine = new Map(rows.filter(r => 'shape' in r && r.view === e.view && !e.rows0.has(r.shape)).map(r => [r.shape, r]));
-    const parts = [];
-    // (Words that have run on past the box's foot take the box with them: it holds what's in it.)
-    const foot = Math.max(b.y + b.h, ...sc.marks.filter(q => mine.has(q.id) && q.geometry === 'text' && q.x < b.x + b.w && q.x + q.w > b.x && q.y < b.y + b.h).map(q => q.y + q.h)), held = { ...b, h: foot - b.y };
-    const position = App.notes.peek().resolve('Position', treeOf(e.record), e.view)?.value ?? {}, baseW = e.d.w ?? e.W, baseH = e.d.h ?? e.H;
-    const width = near(position.w ?? e.W, e.W) ? undefined : position.w, height = authoredHeight({ h: e.H, ...position }, e.H), frameW = width ?? baseW, frameH = height ?? baseH;
-    const existing = new Map((e.d.parts ?? []).map(p => [p.id, p])), drawn = sc.marks.filter(q => mine.has(q.id) && q.geometry !== 'group');
-    const byPart = new Map(drawn.map(q => [mine.get(q.id).part, q])), projected = new Map();
-    const nominal = { ...sc, page: { ...sc.page, scale: 1 } };
-    // (In the order they're drawn in; a group's own row isn't a part, its shapes are. One no hand has moved keeps the share it had, and the box no hand has sized the size the design said.)
-    const project = q => {
-      if (projected.has(q.id)) return projected.get(q.id);
-      const r = mine.get(q.id), original = existing.get(r.part), stood = e.stands.get(r.part), part = partFrom(r, q, held);
-      projected.set(q.id, part);
-      if (original && stood) {
-        // Draft geometry includes this record's natural text expansion. Only hand-authored
-        // deltas belong to the template; automatic deltas travel with rows so Undo restores them.
-        part.x = share((original.x * baseW + r.x - stood.x - (r.flow?.x ?? 0)) / Math.max(1, frameW));
-        part.y = share((original.y * baseH + r.y - stood.y - (r.flow?.y ?? 0)) / Math.max(1, frameH));
-        part.w = share((near(r.w, stood.w) ? original.w * baseW : r.w) / Math.max(1, frameW));
-        part.h = share((authoredHeight(r, stood.h) ?? original.h * baseH) / Math.max(1, frameH));
-        if (original.points && r.points?.length === stood.points?.length && r.points.length === original.points.length) part.points = original.points.map(([x, y], i) => [share((x * baseW + r.points[i][0] - stood.points[i][0]) / Math.max(1, frameW)), share((y * baseH + r.points[i][1] - stood.points[i][1]) / Math.max(1, frameH))]);
-      } else if (r.geometry === 'text' && r.flow?.created) {
-        const born = r.flow.created, anchorMark = born.anchor && byPart.get(born.anchor), anchor = anchorMark ? project(anchorMark) : existing.get(born.anchor);
-        const x = (born.x - b.x) / Math.max(1, e.W) * baseW + r.x - born.x - (r.flow.x ?? 0);
-        const y = (anchor ? (anchor.y + anchor.h) * frameH + born.gap : (born.y - b.y) / Math.max(1, e.H) * baseH) + r.y - born.y - (r.flow.y ?? 0);
-        const w = near(r.w, born.w) ? born.w / Math.max(1, e.W) * baseW : r.w;
-        const format = draftFormat(r, b, sc, [...mine.values()]), literal = TextTemplate.render(r.text ?? '', () => 'M') || 'M';
-        const h = authoredHeight(r, born.h) ?? Scene.shapeOf({ ...r, w, h: 0, text: literal, format }, nominal).h;
-        Object.assign(part, { x: share(x / frameW), y: share(y / frameH), w: share(w / frameW), h: share(h / frameH) });
-      } else Object.assign(part, partFrom(r, q, { ...b, w: frameW, h: frameH }));
-      return part;
-    };
-    parts.push(...drawn.map(project));
+    const position = App.notes.peek().resolve('Position', treeOf(e.record), e.view)?.value ?? {};
+    const nominal = { ...sc, page: { ...sc.page, scale: 1 } }, standingRows = [...mine.values()];
+    const { parts, dimensions } = DesignGeometry.capture({ design: e.d, initial: { w: e.W, h: e.H }, box: b, position, stands: e.stands,
+      entries: sc.marks.filter(mark => mine.has(mark.id) && mark.geometry !== 'group').map(mark => ({ mark, row: mine.get(mark.id) })), newId: Log.newId,
+      measure: (row, w) => Scene.shapeOf({ ...row, w, h: 0, text: TextTemplate.render(row.text ?? '', () => 'M') || 'M', format: draftFormat(row, b, sc, standingRows) }, nominal).h });
     // (What's given the box itself since it began: what it had of its own before stays its own.)
     looks = Object.fromEntries(ownLooks(rows, e.view, e.record).filter(r => e.own.get(r.label) !== JSON.stringify(r.value)).map(r => [r.label, r.value]));
     const { Shape, Corner, ...others } = looks;
     looks = others;
-    const dimensions = { ...(width !== undefined && { w: round(frameW) }), ...(height !== undefined && { h: round(frameH) }) };
     d = { ...e.d, name: Tree.clean(e.called.value) || e.d.name, ...dimensions, ...(b.design?.value.layout && { layout: b.design.value.layout }), base: { ...e.d.base, ...(Shape && { Shape }), ...(Corner !== undefined && { Corner }) }, parts };
     delete d.editing; delete d.strip; delete d.over;
     if (!e.wasId) d.id = Log.newId();
