@@ -194,8 +194,44 @@ function makeable(ms) {
 }
 // (The frame of what's drawn.)
 const frameOf = qs => { const x = Math.min(...qs.map(q => q.x)), y = Math.min(...qs.map(q => q.y)); return { x, y, w: Math.max(1, Math.max(...qs.map(q => q.x + q.w)) - x), h: Math.max(1, Math.max(...qs.map(q => q.y + q.h)) - y) }; };
+// A drawing's explicitly named fields become the form for a new object type. Existing definitions
+// supply their datatype/options; unknown fields start as text and can be changed in the save dialog.
+function fieldsOf(parts, record = null) {
+  const named = new Map();
+  for (const label of ['Name', ...parts.flatMap(p => TextTemplate.fields(p.text))]) if (!named.has(Tree.norm(label))) named.set(Tree.norm(label), label);
+  const labels = [...named.values()];
+  const schema = Object.values(App.schema.peek());
+  const readable = record ? Scene.readable(App.state.peek(), App.notes.peek(), App.schema.peek(), record) : [];
+  const relativeName = label => label.replace(/^(.+?)(?:\.|['’]s\s+)(.+)$/, "$1's $2");
+  return labels.map(label => {
+    const paths = label.split(/\s*›\s*/), edge = paths.at(-1);
+    const candidates = schema.filter(s => s.args?.length === 1 && Tree.same(s.args[0].edge, edge) && s.out);
+    const types = new Set(candidates.map(s => 'field' in s.out ? s.out.field : 'choice' in s.out ? 'choice' : 'tag'));
+    const datatype = Tree.same(label, 'Name') ? 'text' : types.size === 1 ? [...types][0] : 'text';
+    const own = readable.some(r => !r.of && Tree.same(r.label, label));
+    const linked = !own && readable.some(r => r.of && (Tree.same(relativeName(r.label), relativeName(label)) || Tree.same(r.of, label) || (r.first && Tree.same(r.label.replace(/['’]s\s+name$/i, ''), label))));
+    return { label, paths, datatype, outputs: candidates.map(s => s.out), linked };
+  });
+}
+function defineFields(tx, kind, fields) {
+  const schema = [...Object.values(App.schema.peek())], known = new Set(schema.map(Tree.key));
+  const add = tree => { const key = Tree.key(tree); if (!known.has(key)) { tx.add('spec', { tree }); known.add(key); schema.push(tree); } };
+  add({ kind });
+  for (const f of fields) {
+    if (f.linked) continue;
+    let loc = { kind };
+    f.paths.forEach((edge, i) => {
+      const last = i === f.paths.length - 1;
+      const outputs = last && ['choice', 'tag'].includes(f.datatype) ? f.outputs : [{ field: last ? f.datatype : 'text' }];
+      const existing = schema.filter(s => s.args?.length === 1 && Tree.same(s.args[0].edge, edge) && Tree.key(s.args[0].loc) === Tree.key(loc));
+      const trees = existing.length ? existing : outputs.map(out => ({ out, args: [{ edge, loc }] }));
+      trees.forEach(add);
+      loc = trees[0];
+    });
+  }
+}
 // Shapes that stand within a box are where they stand on it. Any other is fitted to the box it's for, what it draws as shares of its own frame, its words' sizes scaled down with it, never pasted and dragged into place. → one change, the shapes gone.
-function make(ms = canvas().selected()) {
+function make(ms = canvas().selected(), { asType = false } = {}) {
   const it = makeable(ms);
   if (!it) return Shell.toast('Select shapes, or a group, to make a design of first', { ms: 3000 });
   if (App.readOnly.peek()) return Shell.toast(App.whyNot());
@@ -207,15 +243,27 @@ function make(ms = canvas().selected()) {
   const boxesOf = b => Canvas.groupsAt(sc, b).filter(g => g.marks.size > 1 && g.outputs.every(p => !p.args || p.out));
   // (Boxes a part by share means something in first: a triangle's are last.)
   const seen = new Set(), every = [...sc.marks.filter(b => b.type === 'box' && Shapes.boxy(b.shape)), ...sc.marks.filter(b => b.type === 'box' && !Shapes.boxy(b.shape))].flatMap(b => boxesOf(b).filter(g => { const k = g.outputs.map(p => Tree.key(p)).join(); if (seen.has(k)) return false; seen.add(k); return true; }));
-  const fors = under ? [{ key: 'own', label: `Just ${N.nameOf(App.state.peek(), under.record)}`, s: null }, ...boxesOf(under).map(one)] : [...every.map(one), { key: 'none', label: 'This chart’s gallery alone', s: null, none: true }];
-  let name = '', chosen = fors.find(f => f.s)?.key ?? fors[0].key;
-  Shell.dialog({ title: 'Make a design', width: 380, actions: [{ label: 'Cancel', value: false }, { label: 'Make', value: true, primary: true }],
-    body: () => html`<div class="settings">
-      <label class="field"><span>Name</span><input aria-label="Name" placeholder="New design" spellcheck="false" autocomplete="off" autofocus onInput=${e => { name = e.target.value; }} /></label>
-      <label class="field"><span>For</span><select aria-label="For" onChange=${e => { chosen = e.target.value; }}>${fors.map(f => html`<option value=${f.key} selected=${f.key === chosen}>${f.label}</option>`)}</select></label>
-    </div>` }).then(ok => {
+  const fors = [...(under ? [{ key: 'own', label: `Just ${N.nameOf(App.state.peek(), under.record)}`, s: null }, ...boxesOf(under).map(one)] : every.map(one)), { key: 'new', label: 'A new object type', fresh: true }, { key: 'none', label: 'This chart’s gallery alone', s: null, none: true }];
+  const fields = fieldsOf(free.map(q => rows.item(App.chart.peek(), q.id)[0]), under?.record);
+  let name = '', kind = '', chosen = asType ? 'new' : fors.find(f => f.s)?.key ?? (under ? 'own' : 'new');
+  const chart = App.chart.peek(), oldView = sc.view;
+  const kindError = value => !Tree.clean(value) ? 'Enter an object type.' : Tree.same(value, 'View') || Object.values(App.schema.peek()).some(s => s.kind && Tree.same(s.kind, value)) ? 'This object type already exists. Choose a new name.' : '';
+  function SaveDesign() {
+    const [target, setTarget] = useState(chosen);
+    return html`<div class="settings design-save">
+      <label class="field"><span>Design name</span><input aria-label="Design name" placeholder="New design" spellcheck="false" autocomplete="off" autofocus onInput=${e => { name = e.target.value; }} /></label>
+      <label class="field"><span>For</span><select aria-label="For" value=${target} onChange=${e => { chosen = e.target.value; setTarget(chosen); }}>${fors.map(f => html`<option value=${f.key}>${f.label}</option>`)}</select></label>
+      ${target === 'new' ? html`<label class="field"><span>Object type</span><input aria-label="Object type" placeholder="e.g. Person" required autocomplete="off" value=${kind} onInput=${e => { kind = Tree.clean(e.target.value); e.target.setCustomValidity(kindError(kind)); }} /></label>
+        <div class="design-fields"><div class="head">Fields for this type</div>${fields.map(f => html`<label class="field"><span>${f.label}</span>${f.linked ? html`<span class="muted">Linked field</span>` : html`<select aria-label=${`Type of ${f.label}`} disabled=${Tree.same(f.label, 'Name')} value=${f.datatype} onChange=${e => { f.datatype = e.target.value; }}>
+          ${Object.entries(Tree.DATATYPES).map(([key, label]) => html`<option value=${key}>${label}</option>`)}${['choice', 'tag'].includes(f.datatype) ? html`<option value=${f.datatype}>${f.datatype === 'choice' ? 'Choice' : 'Yes / No'}</option>` : null}
+        </select>`}</label>`)}${fields.some(f => f.linked) ? html`<p class="muted">Linked fields need matching relationships on the new type.</p>` : null}</div>` : null}
+    </div>`;
+  }
+  Shell.dialog({ title: asType ? 'Save as object type' : 'Make a design', width: 420, actions: [{ label: 'Cancel', value: false }, { label: asType ? 'Save' : 'Make', value: true, primary: true }],
+    body: () => html`<${SaveDesign} />` }).then(ok => {
     if (!ok) return;
-    const f = fors.find(x => x.key === chosen), s = f?.s, v = sc.view, target = under ?? (s ? [...s.marks].map(id => sc.byId.get(id)).find(b => b?.type === 'box') : null), inside = under && free.every(q => q.x >= under.x - 1 && q.y >= under.y - 1 && q.x + q.w <= under.x + under.w + 1 && q.y + q.h <= under.y + under.h + 1);
+    if (App.readOnly.peek() || App.chart.peek() !== chart || view() !== oldView || (chosen === 'new' && kindError(kind))) return;
+    const f = fors.find(x => x.key === chosen), s = f?.s, v = sc.view, target = f?.fresh ? null : under ?? (s ? [...s.marks].map(id => sc.byId.get(id)).find(b => b?.type === 'box') : null), inside = !f?.fresh && under && free.every(q => q.x >= under.x - 1 && q.y >= under.y - 1 && q.x + q.w <= under.x + under.w + 1 && q.y + q.h <= under.y + under.h + 1);
     const within = inside ? under : drawn, W = target?.w ?? drawn.w, H = target?.h ?? drawn.h, k = inside ? 1 : Math.min(1, W / drawn.w, H / drawn.h);
     // A field's words take the width of the box, as they'll be longer than whatever stood for them, at the size the chart gives that field; words of its own, as they were, scaled with the drawing. What it doesn't name goes under the last that it does.
     const parts = free.map(q => {
@@ -225,12 +273,26 @@ function make(ms = canvas().selected()) {
     });
     const foot = Math.min(1, Math.max(0, ...parts.filter(p => p.geometry === 'text' && p.text).map(p => p.y + p.h)));
     parts.push({ id: Log.newId(), rest: true, geometry: 'text', x: 0, y: foot, w: 1, h: Math.max(0.05, 1 - foot), format: { Align: 'center', Valign: foot ? 'top' : 'middle' } });
-    const patterns = f?.none ? [] : patternsAt(target, s), d = {
-      id: Log.newId(), name: Tree.clean(name) || 'New design', w: round(W), h: round(H), base: { Shape: target?.shape ?? 'rect', ...(target?.shape === 'rounded' && { Corner: target.settings.Corner.value }) }, parts,
+    const patterns = f?.fresh ? [{ kind }] : f?.none ? [] : patternsAt(target, s), d = {
+      id: Log.newId(), name: Tree.clean(name) || (f?.fresh ? kind : 'New design'), w: round(W), h: round(H), base: { Shape: target?.shape ?? 'rect', ...(target?.shape === 'rounded' && { Corner: target.settings.Corner.value }) }, parts,
     };
-    const said = `Made the design ${d.name}${f?.none ? '' : ` for ${whom(target, s, s?.marks?.size)}`}`;
-    App.change(tx => { for (const q of free) tx.remove(q.id); for (const g of sc.marks) if (g.geometry === 'group' && g.members.every(id => free.some(q => q.id === id))) tx.remove(g.id); rewrite(tx, d, null, patterns, v); tx.says(said); }, { dated: false, say: said });
-    Shell.select(target ? [target.id] : []);
+    const said = f?.fresh ? `Saved ${d.name} as the design for ${kind}` : `Made the design ${d.name}${f?.none ? '' : ` for ${whom(target, s, s?.marks?.size)}`}`;
+    let made = null;
+    const change = App.change(tx => {
+      if (f?.fresh) {
+        defineFields(tx, kind, fields);
+        // The drawing becomes its first object, so the result can immediately be filled in and edited.
+        made = tx.add('record', { kind });
+        tx.add('record', { at: made, edge: 'Name', field: 'text', value: kind });
+        const o = sc.page.offset ?? { x: 0, y: 0 };
+        tx.note('Position', { id: made, kind }, { x: drawn.x - o.x, y: drawn.y - o.y, w: drawn.w, h: drawn.h, loose: true }, { view: v });
+        App.showMade(tx, [made], v);
+      }
+      for (const q of free) tx.remove(q.id);
+      for (const g of sc.marks) if (g.geometry === 'group' && g.members.every(id => free.some(q => q.id === id))) tx.remove(g.id);
+      rewrite(tx, d, null, patterns, v); tx.says(said);
+    }, { dated: false, say: said });
+    if (change) { if (f?.fresh) Shell.store.set('kind', kind); Shell.select(made ? [made] : target ? [target.id] : []); }
   });
 }
 
@@ -295,7 +357,8 @@ function edit(m, given) {
   words.textContent = `Editing the design of ${who}`;
   discard.onclick = () => leave(false);
   done.onclick = () => leave(true);
-  editing.value = { box, record: m.record, d, wasId: given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id, patterns, view: v, rows0, where, bar, called, whom: who, stands, W, H, own };
+  const kinds = [...new Set([App.state.peek()[m.record]?.kind, ...sc.marks.filter(q => q.type === 'box' && q.design?.value.id === d.id).map(q => App.state.peek()[q.record]?.kind)].filter(Boolean))];
+  editing.value = { box, record: m.record, d, wasId: given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id, patterns, view: v, rows0, where, bar, called, whom: who, stands, W, H, own, kinds, newFields: new Map() };
 }
 function leave(keep) {
   const e = editing.peek();
@@ -333,7 +396,10 @@ function leave(keep) {
   if (keep === null) return Shell.toast('The design is as it was', { ms: 2500 });
   if (!keep) return Shell.toast('Discarded the changes to the design', { ms: 2500 });
   const said = `Changed the design of ${e.whom}`;
-  App.change(tx => { rewrite(tx, d, e.wasId, e.patterns, e.view); for (const [l, v] of Object.entries(looks)) for (const p of e.patterns) tx.note(l, p, v, { view: e.view }); tx.says(said); },
+  // Only fields explicitly created in this editor become schema entries. Existing tokens can read
+  // relatives or nested entries; declaring those as own fields would silently change their meaning.
+  const used = new Set(d.parts.flatMap(p => TextTemplate.fields(p.text)).map(Tree.norm)), added = [...e.newFields.values()].filter(f => used.has(Tree.norm(f.label)));
+  App.change(tx => { if (added.length) for (const kind of e.kinds) defineFields(tx, kind, added); rewrite(tx, d, e.wasId, e.patterns, e.view); for (const [l, v] of Object.entries(looks)) for (const p of e.patterns) tx.note(l, p, v, { view: e.view }); tx.says(said); },
     { dated: false, say: said, empty: () => Shell.toast('The design is as it was', { ms: 2500 }) });
 }
 // The parts stood on the page, as the scene draws them, the topmost first.
@@ -418,12 +484,16 @@ function Parts() {
   </div>`;
 }
 // What a part's words can read, the box's it's being edited over.
-const offeredNow = () => { const e = editing.peek(); return e ? Scene.readable(App.state.peek(), App.notes.peek(), App.schema.peek(), e.record).map(x => x.label) : []; };
+const offeredNow = () => {
+  const e = editing.peek(), record = e?.record ?? boxNow()?.record;
+  const labels = record ? Scene.readable(App.state.peek(), App.notes.peek(), App.schema.peek(), record).map(x => x.label) : ['Name', ...Object.values(App.schema.peek()).filter(s => s.args?.length === 1 && s.args[0].loc.kind).map(s => s.args[0].edge)];
+  return [...new Set([...labels, ...[...e?.newFields?.values() ?? []].map(f => f.label)])];
+};
 // The same for a list to pick from: its name, then who's over it that it has, by name, for that's what's hard to guess; then all else.
 const pickNow = () => {
-  const e = editing.peek(); if (!e) return [];
+  const e = editing.peek(); if (!e) return offeredNow();
   const st = App.state.peek(), N = App.notes.peek(), all = Scene.readable(st, N, App.schema.peek(), e.record), has = new Set(Scene.listsAt(st, N, e.record).map(l => Tree.norm(l.name)));
-  const own = all.filter(x => !x.of).map(x => x.label), near = all.filter(x => x.first && has.has(Tree.norm(x.of))).map(x => x.label), far = all.filter(x => x.of && !near.includes(x.label)).map(x => x.label);
+  const own = [...all.filter(x => !x.of).map(x => x.label), ...[...e.newFields.values()].map(f => f.label)], near = all.filter(x => x.first && has.has(Tree.norm(x.of))).map(x => x.label), far = all.filter(x => x.of && !near.includes(x.label)).map(x => x.label);
   return [...own.slice(0, 1), ...near, { head: 'Its own' }, ...own.slice(1), ...(far.length ? [{ head: 'Over it' }, ...far] : [])];
 };
 const chipOf = token => { const el = document.createElement('span'); el.className = 'word-chip'; el.contentEditable = 'false'; el.dataset.token = token; el.textContent = Scene.partName({ text: `{${token}}` }); return el; };
@@ -467,11 +537,27 @@ function Words({ text, put, label = 'Text' }) {
   const insert = (label, at = -1, saved = caret.current) => {
     const el = box.current, one = chipOf(label);
     if (at >= 0) chipAt(at)?.replaceWith(one);
-    else { const s = getSelection(), r = wordsRange(el, saved); if (r) { r.deleteContents(); r.insertNode(one); r.setStartAfter(one); r.collapse(true); el.focus(); s.removeAllRanges(); s.addRange(r); } else el.append(one); }
+    else { const s = getSelection(), r = wordsRange(el, saved); if (r) { r.deleteContents(); r.insertNode(one); r.setStartAfter(one); r.collapse(true); el.focus(); s.removeAllRanges(); s.addRange(r); } else { if (el.textContent && !/\s$/.test(el.textContent)) el.append(document.createTextNode('\n')); el.append(one); } }
     remember();
     commit();
   };
-  const fields = (now, at, saved = caret.current) => q => { const k = Tree.norm(q ?? ''), bare = now?.split('|')[0].trim(), row = l => l.head ? l : ({ label: l, ...(now && { checked: Tree.same(l, bare) }), run: () => insert(now?.includes('|') ? `${l}|initials` : l, at, saved) }); return [...(now && !k ? [{ label: 'As initials', checked: now.includes('|initials'), run: () => insert(now.includes('|') ? bare : `${bare}|initials`, at, saved) }, { label: 'Take it out', run: () => { chipAt(at)?.remove(); commit(); } }, '-'] : []), ...pickNow().filter(l => l.head ? !k : Tree.norm(l).includes(k)).map(row)]; };
+  const newField = async (suggested, at, saved) => {
+    let name = suggested ?? '';
+    const ok = await Shell.dialog({ title: 'New merge field', width: 340, actions: [{ label: 'Cancel', value: false }, { label: 'Insert field', value: true, primary: true }],
+      body: () => html`<div class="settings"><label class="field"><span>Field name</span><input aria-label="Field name" required autofocus autocomplete="off" placeholder="e.g. Role" value=${name} onInput=${e => { name = e.target.value; e.target.setCustomValidity(!Tree.clean(name) ? 'Enter a field name.' : /[{}|›\n]/.test(name) ? 'Use a name without braces, a vertical bar or ›.' : ''); }} /></label></div>` });
+    if (ok && box.current?.isConnected && !App.readOnly.peek() && Tree.clean(name) && !/[{}|›\n]/.test(name)) {
+      const label = Tree.clean(name), e = editing.peek();
+      if (e && !offeredNow().some(l => Tree.same(l, label))) e.newFields.set(Tree.norm(label), { label, paths: [label], datatype: 'text', outputs: [] });
+      insert(label, at, saved);
+    }
+  };
+  const fields = (now, at, saved = caret.current) => q => {
+    const k = Tree.norm(q ?? ''), bare = now?.split('|')[0].trim();
+    const row = l => l.head ? l : ({ label: l, ...(now && { checked: Tree.same(l, bare) }), run: () => insert(now?.includes('|') ? `${l}|initials` : l, at, saved) });
+    return [...(now && !k ? [{ label: 'As initials', checked: now.includes('|initials'), run: () => insert(now.includes('|') ? bare : `${bare}|initials`, at, saved) }, { label: 'Take it out', run: () => { chipAt(at)?.remove(); commit(); } }, '-'] : []),
+      ...pickNow().filter(l => l.head ? !k : Tree.norm(l).includes(k)).map(row), '-',
+      { label: k ? `New field: ${Tree.clean(q)}…` : 'New field…', run: () => newField(q, at, saved) }];
+  };
   const clicked = ev => { const chip = ev.target.closest?.('.word-chip'); if (!chip || still) return; ev.preventDefault(); const r = chip.getBoundingClientRect(), all = [...box.current.querySelectorAll('.word-chip')]; Shell.menu({ x: r.left, y: r.bottom + 2 }, fields(chip.dataset.token, all.indexOf(chip)), { search: true }); };
   // A `{` typed: the fields in reach, narrowed as it goes on, the arrows moving in them, Enter or Tab putting one in.
   const typedBefore = () => { const s = getSelection(); if (!s.rangeCount || !box.current.contains(s.anchorNode) || s.anchorNode.nodeType !== 3) return null; const m = /\{([^{}\n]*)$/.exec(s.anchorNode.data.slice(0, s.anchorOffset)); return m ? { node: s.anchorNode, at: s.anchorOffset, m } : null; };
@@ -485,7 +571,7 @@ function Words({ text, put, label = 'Text' }) {
   return html`<span class="part-words">
     <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" data-ph="Text" contenteditable=${still ? 'false' : 'plaintext-only'} spellcheck="false" onInput=${() => { remember(); look(); }} onKeyDown=${key} onKeyUp=${remember} onMouseUp=${remember} onClick=${clicked} onBlur=${() => { remember(); setList(null); commit(); }} />
     ${list ? html`<div class="dc-complete" role="listbox">${list.items.map((l, i) => html`<div class=${'menu-item' + (i === list.on ? ' on' : '')} role="option" onPointerDown=${ev => { ev.preventDefault(); take(l); }}>${l}</div>`)}</div>` : null}
-    ${still || formula ? null : html`<button type="button" class="btn ghost add-field" onMouseDown=${ev => ev.preventDefault()} onClick=${ev => Shell.menu(ev.currentTarget, fields(null, -1), { search: true })}>${Shell.icon('plus')}Field</button>`}
+    ${still || formula ? null : html`<button type="button" class="btn ghost add-field" onMouseDown=${ev => { ev.preventDefault(); remember(); }} onClick=${ev => Shell.menu(ev.currentTarget, fields(null, -1), { search: true })}>${Shell.icon('plus')}Merge field</button>`}
   </span>`;
 }
 // What the part the other fields go in holds now: each field no other part names, as a chip; and, clicked, given a part of its own.

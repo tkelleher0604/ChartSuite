@@ -167,6 +167,16 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .linkform .row { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 8px; }
 .linkform .acts { display: flex; justify-content: flex-end; gap: 6px; padding-top: 4px; }
 .dc-edit.new:empty::before { content: attr(data-ph); color: #8a8f8a; font-weight: 400; }
+.dc-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; pointer-events: none; }
+.dc-empty[hidden] { display: none; }
+.dc.drawing .dc-empty { display: none; }
+.dc-empty button { pointer-events: auto; padding: 9px 16px; border: 1px solid var(--rule-2); background: var(--surface); }
+.dc-empty > span { color: var(--ink-3); font-size: 12px; }
+.fb .add-object { gap: 4px; }
+.design-save .design-fields { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--rule-2); }
+.design-save .design-fields .head { margin-bottom: 8px; font-weight: 600; }
+.design-prompt { padding: 12px 20px 0; }
+.design-prompt .btn { width: 100%; justify-content: center; border: 1px solid var(--rule-2); }
 .dc-kind { position: absolute; z-index: 4; height: 26px; padding: 0 8px 0 10px; gap: 6px; font: var(--t12); background-color: var(--surface); }
 .dc-kinds { position: absolute; z-index: 5; min-width: 160px; }
 .dc-kinds > .menu-item:hover { background: var(--hover); }
@@ -538,7 +548,8 @@ input.cell.tabs { width: 88px; }
 .fb .design-now { width: 112px; justify-content: flex-start; }
 .fb .design-now > .named { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fb .design-now > .named:empty { display: none; }
-@container (max-width: 1400px) { .fb .design-now { width: auto; } .fb .design-now > .named { display: none; } }
+@container (max-width: 1560px) { .fb .design-now { width: auto; } .fb .design-now > .named { display: none; } }
+@container (max-width: 1130px) { .fb .add-object > span { display: none; } }
 /* The panel, while a design is edited: its parts, a click from each; a part's words, its fields as chips. */
 .parts-of { flex: none; }
 .parts-of > .sect { display: flex; }

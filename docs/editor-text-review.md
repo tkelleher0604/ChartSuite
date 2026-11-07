@@ -16,7 +16,7 @@ The existing model already separates the necessary concerns:
 
 This change adds no record type, persistence format version, server, build tool or dependency. Existing unescaped `{Field}` and `{Field|initials}` tokens still work. The design panel encodes literal braces with a backslash, backslashes with another backslash, and a leading equals sign with a backslash; these escapes are decoded in the shared renderer. A historical source string already containing those escape sequences will now be interpreted that way. Record values are substituted once, so braces or backslashes inside a field value remain literal.
 
-The older inline canvas, annotation and table editors still expose the existing source syntax. Unifying their authoring controls with the design panel is a separate follow-up; this change does not claim every text-entry surface has been converted to chips. Existing formula-backed text remains supported.
+The follow-up [chart builder change](chart-builder-review.md) extends literal authoring to ordinary shapes and inline edits of design text. A shape containing fields opens its chip editor. Annotation and table editors still expose the existing source syntax; not every text-entry surface has been converted to chips. Existing formula-backed text remains supported.
 
 ## Review and verification
 

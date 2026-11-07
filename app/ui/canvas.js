@@ -64,7 +64,7 @@ function kinds(scene = App.scene.peek()) {
   const ks = [...all].filter(k => count.has(k) || !scene || N.value('Shown', { kind: k }, scene.view) !== false)
     .sort((a, b) => (count.get(b) ?? 0) - (count.get(a) ?? 0) || a.localeCompare(b));
   // (A kind of which there's none and of which nothing's said, as a blank chart's Box once its first box is a Person, isn't offered beside others.)
-  const said = ks.filter(k => count.has(k) || Tree.index(st).kinds.get(Tree.norm(k))?.length || Object.values(App.schema.peek()).some(s => s.args?.length === 1 && Tree.same(s.args[0].loc?.kind ?? '', k) && !Tree.same(s.args[0].edge, 'Name')));
+  const said = ks.filter(k => count.has(k) || Tree.index(st).kinds.get(Tree.norm(k))?.length || N.resolve('Design', { kind: k }, scene?.view) || Object.values(App.schema.peek()).some(s => s.args?.length === 1 && Tree.same(s.args[0].loc?.kind ?? '', k) && !Tree.same(s.args[0].edge, 'Name')));
   return said.length ? said : ks.length ? ks : ['Box'];
 }
 // The kind last added, while it can be; or the most drawn.
@@ -478,6 +478,10 @@ function mount(el) {
   const gEl = root.firstChild, over = root.lastChild;
   // What says the chart drawn is Tidy's preview (see restyle).
   const tidyLabel = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-previewing', textContent: 'Tidy preview', hidden: true }));
+  const empty = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-empty', hidden: true }));
+  const firstObject = empty.appendChild(Object.assign(document.createElement('button'), { className: 'btn', type: 'button', textContent: '+ Add object' }));
+  firstObject.addEventListener('click', () => newObject());
+  empty.appendChild(Object.assign(document.createElement('span'), { textContent: 'or double-click the page' }));
 
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
   // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
@@ -1455,7 +1459,8 @@ function mount(el) {
       const part = partOf(m, it), raw = m.design.value.parts.find(p => p.id === part?.part)?.text ?? '';
       // (What reads a field is said in Edit design, its fields as chips, and never by its token.)
       if (!part || !part.texts.length || (typed === undefined && TextTemplate.fields(raw).length)) return Designs.edit(m);
-      return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? raw, text => saidOfPart(`Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}`, tx => Designs.say(tx, m, part.part, { text: text.trim() }, scopeNow(canvas))), { multiline: true, selectAll: typed === undefined, complete: wordsOf(m), kept: true });
+      const literal = !TextTemplate.formula(raw), shown = literal ? TextTemplate.render(raw, () => '') : raw;
+      return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? shown, text => saidOfPart(`Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}`, tx => Designs.say(tx, m, part.part, { text: literal ? TextTemplate.literal(text) : text }, scopeNow(canvas))), { multiline: true, selectAll: typed === undefined, kept: true });
     }
     const r = it.blank ? null : st()[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
     if (!kind || kind.type === 'object' || (r && r.args)) return;
@@ -1536,18 +1541,19 @@ function mount(el) {
       it = legend ? m.texts[0] : !row?.rest && m.texts[0] ? m.texts[0] : { look: m.look, text: '', lines: [] };
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
       raw = legend ? m.title : row?.text;
-      // (While a design is edited, a part that reads a field is typed in the panel, its fields as chips, and never by its token.)
-      if (designing && typed === undefined && TextTemplate.fields(raw).length) { Shell.select([m.id]); return setTimeout(() => document.querySelector('.part-words .words-in')?.focus(), 30); }
+      // Fields are edited as chips in the panel, including shapes not yet made into a design.
+      if (!legend && typed === undefined && TextTemplate.fields(raw).length) { Shell.select([m.id]); return setTimeout(() => document.querySelector('.part-words .words-in')?.focus(), 30); }
+      const literal = !legend && !m.role && !TextTemplate.formula(raw);
+      if (literal) raw = TextTemplate.render(raw ?? '', () => '');
       // A text box left empty goes, however it's left, as PowerPoint's does.
       const gone = tx => tx.remove(m.id);
-      save = (text, keys, runs) => { const said = App.change(tx => { if (m.geometry === 'text' && !text.trim() && !row?.rest) return gone(tx); tx.update(m.id, legend ? { title: text } : { text, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, text); }); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, text); };
+      save = (text, keys, runs) => { const stored = literal ? TextTemplate.literal(text) : text; const said = App.change(tx => { if (m.geometry === 'text' && !text.trim() && !row?.rest) return gone(tx); tx.update(m.id, legend ? { title: text } : { text: stored, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, stored); }); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, stored); };
       if (m.geometry === 'text' && !raw?.trim() && !row?.rest) escaped = () => App.change(gone);
     }
     if (!it) return;
-    // (Its words can be set part by part: a shape's own, not the Key's title or what a formula says. While a design is edited, a `{` offers what its box can read.)
+    // Rich formatting belongs to a shape's literal words, not the Key's title or a formula's source.
     const parts = m.type === 'shape' && m.geometry !== 'legend' && !m.role && !/^\s*=/.test(raw ?? '') && !rowOf(m.id)?.rest;
-    const reads = m.type === 'shape' && m.geometry !== 'legend' && !m.role ? (designing ? scene.byId.get(designing.box) : boxOver(m)) : null;
-    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape', ...(reads && { complete: wordsOf(reads) }), ...(parts && { rich: { runs: typed !== undefined ? [] : rowOf(m.id)?.runs ?? [] } }) });
+    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape', ...(parts && { rich: { runs: typed !== undefined ? [] : rowOf(m.id)?.runs ?? [] } }) });
   }
   // The box a free shape stands on, by its middle: the topmost.
   const boxOver = m => { const cx = m.x + m.w / 2, cy = m.y + m.h / 2; return [...scene.marks].reverse().find(b => b.type === 'box' && cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) ?? null; };
@@ -2284,7 +2290,7 @@ function mount(el) {
   // loosely: once a line relates it, it goes beside its relatives (Scene). What's made on a chart, the chart shows: where
   // the view would hide it, the same change shows it there (App.showMade).
   // `guide`, the line a handle was dragged out on, stays drawn to it while it's named, so it's plain the two will be related.
-  function create(kind, at, { relate, guide, typed = '', way = null } = {}) {
+  function create(kind, at, { relate, guide, typed = '', way = null, name: givenName = null } = {}) {
     if (still() || !scene || !kind) return guide?.remove();
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
     // (Its placeholder is the size it will be: a box of its kind's on this chart, the middle one, or else what a short name makes.)
@@ -2293,7 +2299,7 @@ function mount(el) {
     const ks = kinds(), choice = [...new Set([kind, ...ks.filter(k => k === last), ...ks])];
     let now = kind;
     guide?.setAttribute('d', guide.getAttribute('d').replace(/L[^L]*$/, `L${p.x + w / 2},${p.y + h / 2}`));
-    openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, typed, name => {
+    const finish = name => {
       guide?.remove();
       name = Tree.clean(name);
       if (!name) return;
@@ -2309,7 +2315,27 @@ function mount(el) {
       })) return;
       Shell.store.set('kind', now);
       if (relate) Shell.emit('relate-open', Object.assign([relate, id], { made: true, way })); else Shell.select([id]);
-    }, { box: { kinds: choice, kind, pick: k => { now = k; } }, escaped: () => guide?.remove() });
+    };
+    if (givenName !== null) return finish(givenName);
+    openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, typed, finish, { box: { kinds: choice, kind, pick: k => { now = k; } }, escaped: () => guide?.remove() });
+  }
+  // A visible route to a new kind as well as another instance. Its first object and Name establish
+  // the schema in one change, using the same placement and undo path as typing on the canvas.
+  async function newObject() {
+    if (still() || designing || scene?.view === Scene.MASTER) return;
+    const chart = App.chart.peek(), view = viewOf(), known = kinds();
+    let name = '', kind = lastKind();
+    const ok = await Shell.dialog({ title: 'Add object', width: 360,
+      actions: [{ label: 'Cancel', value: false }, { label: 'Add', value: true, primary: true }],
+      body: () => Shell.html`<div class="settings">
+        <label class="field"><span>Name</span><input aria-label="Name" required autofocus autocomplete="off" onInput=${e => { name = e.target.value; e.target.setCustomValidity(Tree.clean(name) ? '' : 'Enter a name.'); }} /></label>
+        <label class="field"><span>Object type</span><input aria-label="Object type" required list="dc-object-types" value=${kind} autocomplete="off" onInput=${e => { kind = e.target.value; const value = Tree.clean(kind); e.target.setCustomValidity(!value ? 'Enter an object type.' : Tree.same(value, 'View') ? 'Choose another name for this object type.' : ''); }} /></label>
+        <p class="muted">Choose a type or type a new one.</p>
+        <datalist id="dc-object-types">${known.map(k => Shell.html`<option value=${k} />`)}</datalist>
+      </div>` });
+    if (!ok || still() || App.chart.peek() !== chart || viewOf() !== view) return;
+    kind = known.find(k => Tree.same(k, kind)) ?? Tree.clean(kind);
+    if (kind && !Tree.same(kind, 'View') && Tree.clean(name)) create(kind, null, { name });
   }
   const addAt = e => { if (!still()) create(lastKind(), graph.clientToLocal(e.clientX, e.clientY)); };
 
@@ -3173,6 +3199,7 @@ function mount(el) {
     Shell.select([]);
     openEditor({ look: typing.look }, at, '', (text, keys, runs) => {
       if (!text.trim()) return;
+      text = TextTemplate.literal(text);
       // (Put by a hand, it stands where it's put; left to the page, it's placed again, as long as it's come out.)
       const made = Scene.shapeOf({ ...row, x: at.x, y: at.y, text }, scene), q = stands ? { x: at.x, y: at.y } : spot(scene, made.w, made.h, besideIt ? { x: besideIt.left + made.w / 2, y: besideIt.y } : { x: at.x + made.w / 2, y: at.y + made.h / 2 }, !besideIt, !!besideIt);
       const id = add({ ...row, x: round(q.x), y: round(q.y), text, ...(runs?.length && { runs }) });
@@ -3776,6 +3803,7 @@ function mount(el) {
 
   // A restyle is of the chart as it was: one that changes ends it.
   const stopDraw = effect(() => { App.scene.value; App.later?.value; clearTimeout(resting); styled = styledDrawn = null; show(true); });
+  const stopEmpty = effect(() => { const sc = App.scene.value; empty.hidden = App.readOnly.value || !sc || sc.view === Scene.MASTER || sc.marks.some(m => m.type === 'box' || (m.type === 'shape' && !m.role && !m.master)); });
   // A Key that has come to stand over a box, as a chart grew under one a hand put, or a corner holds, says so as it happens, with what mends it.
   let keyOver = null, keyView = null;
   const stopKeyOver = effect(() => {
@@ -3834,7 +3862,10 @@ function mount(el) {
     light(key, by = null) { whilePointed('light', key && by, () => fields.light(null)); if (litKey !== key) { litKey = key; paintFields(); } },
     over(cx, cy) {
       // (While a design is edited, a part stood on the page takes a row dropped too.)
-      const p = cx == null ? null : graph.clientToLocal(cx, cy), m = p && [...scene.marks].reverse().find(b => (b.type === 'box' || (designing && b.type === 'shape' && designing.keeps(b.id))) && (!designing || designing.keeps(b.id)) && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
+      const p = cx == null ? null : graph.clientToLocal(cx, cy), hits = p ? [...scene.marks].reverse().filter(b => (b.type === 'box' || (designing && b.type === 'shape' && designing.keeps(b.id))) && (!designing || designing.keeps(b.id)) && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) : [];
+      // An empty "Other fields" frame may cover the whole box. It must not intercept a drop
+      // on a visible part of the design beneath it.
+      const m = hits.find(b => b.type === 'shape' && !rowOf(b.id)?.rest) ?? hits[0];
       dropAt = p;
       if ((m?.id ?? null) !== dropOn) { dropOn = m?.id ?? null; paintFields(); }
       // Those it would go to lit: what the pen reaches; or else the one box it's over, where the pen doesn't reach that.
@@ -3849,7 +3880,7 @@ function mount(el) {
       paintFields();
       if (m && designing) return Designs.dropped(m, edge, at);
       // (Onto a part of a design: its token there, at the pen, the design standing. Onto the rest of the box, shown as ever.)
-      const part = m && at && [...m.parts ?? []].reverse().find(q => q.geometry !== 'line' && at.x >= q.x && at.x <= q.x + q.w && at.y >= q.y && at.y <= q.y + q.h);
+      const part = m && at && [...m.parts ?? []].reverse().find(q => q.geometry !== 'line' && !m.design.value.parts.find(p => p.id === q.part)?.rest && at.x >= q.x && at.x <= q.x + q.w && at.y >= q.y && at.y <= q.y + q.h);
       if (part && !m.design.value.parts.find(p => p.id === part.part)?.rest) return saidOfPart(`Put ${edge} in a part of ${whereSaid([m], scoped(m))}`, tx => Designs.say(tx, m, part.part, { text: Designs.tokenIn(m, part.part, edge) }, scoped(m)));
       // (A relative's, by name, is read in the words it's given; anything else is its own entry.)
       if (m && wordsOf(m).includes(edge) && !entriesOf(m).includes(edge)) return setWord([m], edge, true, scoped(m));
@@ -3887,7 +3918,7 @@ function mount(el) {
   function holdsFor(base) { const at = App.pending.peek()?.placing?.(); if (!at && base.page.composed) return null; const h = holdsOf(base); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, hint, reach, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
-    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, relaid, relaidLook, tidyEvery, tidiedEvery, zoom, put, sizeAtPen, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
+    insert, create, newObject, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, relaid, relaidLook, tidyEvery, tidiedEvery, zoom, put, sizeAtPen, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
     table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), cellsPicked: id => hand.cellsPicked(id), readsFrom: (id, of) => hand.readsFrom(id, of), styleGallery: (at, id) => hand.styleGallery(at, id), get StyleGallery() { return hand.StyleGallery; }, link: id => hand.setLink(id), pastePicture: f => hand.pastePicture(f), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
@@ -3905,7 +3936,7 @@ function mount(el) {
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },
     destroy() {
       nudged(); stopNudge(); stopWalk(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
-      stopDraw(); stopKeyOver(); stopUnframed(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
+      stopDraw(); stopEmpty(); stopKeyOver(); stopUnframed(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };

@@ -4,6 +4,7 @@ Excel for structure charts: a system of record for anything that's a chart of wh
 
 - [dendra.md](dendra.md): the design, built up from [data-model.md](data-model.md).
 - [formulas.md](formulas.md): the formula language.
+- [docs/chart-builder-review.md](docs/chart-builder-review.md): blank-chart and reusable-design workflow, GUI acceptance checks, and the kinds/choices decision.
 
 Open `app/index.html` in Chrome or Edge. It needs no server, build step or sign-in.
 

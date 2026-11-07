@@ -3530,13 +3530,15 @@ async function templates() {
   // Blank's first page isn't an error, and a chart with no relation works throughout.
   const esc = el => el?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
   App.begin({ template: 'blank', name: 'Nothing yet' }); await tick(500);
-  check('Begin lands naming the first box, no Add a box to find; nothing to attend to, and no box till it’s named', !!$('.dc-edit') && !App.needs.peek().length && !sc().marks.some(m => m.type === 'box'), JSON.stringify(App.needs.peek()));
+  check('Begin offers Add object on the empty canvas, without opening an editor', !$('.dc-edit') && !$('.dc-empty').hidden && !App.needs.peek().length && !sc().marks.some(m => m.type === 'box'), JSON.stringify(App.needs.peek()));
   check('a chart that keeps no dated record says so, and Blank’s page has no As of line', !App.isDated.peek() && !sc().marks.some(m => m.role === 'date'));
-  esc($('.dc-edit')); await tick(150);
-  check('… and Esc leaves Add a box', !!$('.empty.void button') && txt($('.empty.void button')) === 'Add a box');
+  $('.dc-empty button').click(); await tick(150);
+  check('Add object asks for a name and an object type', !!$('dialog input[aria-label="Name"]') && !!$('dialog input[aria-label="Object type"]'));
+  [...$$('dialog button')].find(b => txt(b) === 'Cancel').click(); await tick(150);
   const blankChart = App.chart.peek();
-  $('.empty.void button').click(); await tick(200);
-  check('with one kind, Add a box begins it, naming it', !!$('.dc-edit') && !!$('.dc-kind') && txt($('.dc-kind')) === 'Box');
+  $('[data-fb="insert"]').click(); await tick(100);
+  [...$$('.insert .rows button')].find(b => txt(b) === 'Box').click(); await tick(200);
+  check('Insert Box still offers quick inline creation', !!$('.dc-edit') && !!$('.dc-kind') && txt($('.dc-kind')) === 'Box');
   // Its kind typed on the chip: a new one, and the keys back in the name.
   $('.dc-kind').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })); await tick(60);
   const typedKind = $('.dc-newkind');

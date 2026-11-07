@@ -1945,7 +1945,7 @@ function ShapeView({ id, part }) {
   // A line is a connector where it's glued, and only there. What it's glued to says so, with a way to let go.
   const glued = g => g === 'line' && row.ends?.some(Boolean), gone = id => App.scene.value?.byId.get(id);
   // (While a design is edited, what's drawn is a part: called what it is, its words saying which fields, a row saying what the part the rest go in holds.)
-  const ofDesign = typeof Designs !== 'undefined' && !!Designs.editing.value && !row.role;
+  const hasDesigns = typeof Designs !== 'undefined', ofDesign = hasDesigns && !!Designs.editing.value && !row.role;
   const g = row.geometry ?? 'rect', name = ofDesign ? Designs.nameOf(row) : row.name ?? (row.role === 'footnotes' ? 'Footnotes' : glued(g) ? 'Connector' : SHAPES[g] ?? Shapes.name(g) ?? upper(g)), key = g === 'legend', worded = !['line', 'picture', 'group', 'legend', 'table'].includes(g);
   // (A free shape's weight is as printed, in its row; and a line's Connector is its route, whatever it's glued to.)
   const look = Object.entries(row.format ?? {}).filter(([, value]) => value !== null && value !== undefined).map(([label, value]) => ({ label: label === 'Connector' ? 'Route' : label, value: label === 'Weight' ? Scene.fromSlide(page, value) : value, from: null }));
@@ -1958,12 +1958,22 @@ function ShapeView({ id, part }) {
   const rows = key ? [...all, ...hidden] : [], held = m?.geometry === 'frame' ? (m.holds ?? []).map(x => App.scene.value.byId.get(x)).filter(Boolean) : [];
   const show = (k, on) => set({ hide: on ? (row.hide ?? []).filter(x => x !== k) : [...(row.hide ?? []), k] });
   const keyOrder = (from, i) => set({ order: moved(rows.map(r => r.key), from, i) }, 'Reordered the Key');
+  const putWords = text => ofDesign
+    ? App.change(tx => { tx.update(id, { text }); Designs.holdWords(tx, id, text); }, { dated: false })
+    : set({ text });
+  const words = worded || (ofDesign && row.rest) ? html`
+    ${ofDesign && row.rest ? html`<${Designs.Holds} />` : null}
+    <div class="row"><div class="k">Text</div><div class="v ctl">
+      ${row.role || !hasDesigns ? html`<${Prose} text=${row.text ?? ''} label="Text" put=${putWords} />`
+        : html`<${Designs.Words} key=${id} text=${row.text ?? ''} put=${putWords} />`}
+    </div></div>` : null;
   return html`<div class="insp">
     <${Head} path=${key ? [{ label: name }] : []} title=${key ? row.title ?? 'Key' : name}>${key ? html`<${Field} r=${{ field: 'text', value: row.title ?? 'Key' }} datatype="text" ph="Title" label="Title" title
       put=${out => set({ title: out?.value ?? '' })} />` : null}</${Head}>
+    ${m && hasDesigns && !still && !ofDesign && Designs.makes([m], false).length ? html`<div class="design-prompt"><button class="btn" onClick=${() => Designs.make([m], { asType: true })}>Save as object type…</button></div>` : null}
     <div class="rows">
       ${row.role === 'footnotes' ? html`<div class="row"><div class="k">Columns</div><div class="v ctl"><${Choice} fixed label="Columns" r=${{ choice: String(row.format?.Columns?.n ?? 1) }} options=${['1', '2', '3']} put=${out => set({ format: { ...row.format, Columns: +out.choice > 1 ? { n: +out.choice, gap: row.format?.Columns?.gap ?? 7.2 } : null } }, `Set the footnotes in ${out.choice === '1' ? 'one column' : `${out.choice} columns`}`)} /></div></div>
-        ${(m?.feet ?? []).map(f => html`<div class="row foot-row" key=${f.n}><div class="k">Footnote ${f.n}</div><div class="v"><button type="button" class="lk" disabled=${still} onClick=${() => cv?.fields.footEdit(id, f.from[0].key)}>${f.text}</button>${still ? null : html`<button type="button" class="btn icon foot-x" aria-label=${`Delete footnote ${f.n}`} data-tip="Delete" onClick=${() => cv?.fields.footDelete(id, f.from[0].key)}>${icon('x')}</button>`}</div></div>`)}` : ofDesign && row.rest ? html`<${Designs.Holds} /><div class="row"><div class="k">Text</div><div class="v ctl"><${Designs.Words} key=${id} text=${row.text ?? ''} put=${text => App.change(tx => { tx.update(id, { text }); Designs.holdWords(tx, id, text); }, { dated: false })} /></div></div>` : ofDesign && worded ? html`<div class="row"><div class="k">Text</div><div class="v ctl"><${Designs.Words} key=${id} text=${row.text ?? ''} put=${text => App.change(tx => { tx.update(id, { text }); Designs.holdWords(tx, id, text); }, { dated: false })} /></div></div>` : worded ? html`<div class="row"><div class="k">Text</div><div class="v ctl"><${Prose} text=${row.text ?? ''} label="Text" put=${text => set({ text })} /></div></div>` : null}
+        ${(m?.feet ?? []).map(f => html`<div class="row foot-row" key=${f.n}><div class="k">Footnote ${f.n}</div><div class="v"><button type="button" class="lk" disabled=${still} onClick=${() => cv?.fields.footEdit(id, f.from[0].key)}>${f.text}</button>${still ? null : html`<button type="button" class="btn icon foot-x" aria-label=${`Delete footnote ${f.n}`} data-tip="Delete" onClick=${() => cv?.fields.footDelete(id, f.from[0].key)}>${icon('x')}</button>`}</div></div>`)}` : words}
       ${key ? html`<div class="row"><div class="k">Columns</div><div class="v ctl"><${Choice} fixed label="Columns" r=${{ choice: String(row.columns ?? 1) }} options=${['1', '2', '3']}
         put=${out => set({ columns: +out.choice })} /></div></div>
       <div class="row"><div class="k">Corner</div><div class="v ctl"><${Choice} fixed label="Corner" r=${{ choice: row.x != null ? 'Where it was put' : row.corner ? upper(`${row.corner.v} ${row.corner.h}`) : 'Where the page places it' }} options=${[...(row.x != null ? ['Where it was put'] : []), 'Where the page places it', 'Top left', 'Top right', 'Bottom left', 'Bottom right']}

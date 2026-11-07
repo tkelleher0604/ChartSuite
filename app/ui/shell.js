@@ -868,10 +868,10 @@ const Shell = (() => {
   const naming = signal(null);
   let namedThen = null;
   const nameChart = o => { const id = part('workbook')?.current(); if (id && !App.readOnly.peek()) { closeAll(); namedThen = o?.then ?? null; naming.value = id; } };
-  // A chart just begun lands naming its first box, of its first kind, the chip beside it saying which: the way in, not a button to find. Esc leaves Add a box.
+  // A blank chart offers one clear starting action. Drawing tools remain immediately available.
   function firstBox(tries = 40) {
     const c = part('canvas'), drawn = c?.active?.()?.scene?.();
-    if (drawn && App.scene.peek() && current.peek()?.layout === 'chart' && drawn.view === current.peek().id) { if (!App.readOnly.peek() && !App.scene.peek().marks.some(m => m.type === 'box')) c.kinds?.()[0]?.run(); return; }
+    if (drawn && App.scene.peek() && current.peek()?.layout === 'chart' && drawn.view === current.peek().id) { if (!App.readOnly.peek() && !App.scene.peek().marks.some(m => m.type === 'box')) c.active().root.querySelector('.dc-empty button')?.focus({ preventScroll: true }); return; }
     if (tries) setTimeout(() => firstBox(tries - 1), 50);
   }
   effect(() => { const id = part('workbook')?.current(); if (naming.peek() && naming.peek() !== id) naming.value = null; });
@@ -983,7 +983,7 @@ const Shell = (() => {
         <${Bar} kind="formulabar" />
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
-        ${bare ? html`<div class="empty void">${kinds().length === 1 ? html`<button class="btn" onClick=${() => kinds()[0].run()}>Add a box</button>`
+        ${bare && layout !== 'chart' ? html`<div class="empty void">${kinds().length === 1 ? html`<button class="btn" onClick=${() => kinds()[0].run()}>Add a box</button>`
           : html`<button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button>`}</div>` : null}
         ${part('time') ? h(part('time').Band) : null}
         ${h(App.LookBand)}

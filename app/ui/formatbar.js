@@ -1661,6 +1661,7 @@ function insertMenu(e, c) {
   const offMaster = 'Not on the master';
   Shell.popover(e.currentTarget, close => html`<div class="insert" role="menu" data-grid="button">
     <div class="rows">
+      ${item('Add object…', () => c.newObject(), close, mastering ? offMaster : Designs.editing.peek() ? 'Finish editing the design first' : null)}
       ${kinds.map(k => item(k, () => c.create(k), close))}${kinds.length ? html`<div class="menu-sep" />` : null}
       ${item(one?.type === 'line' ? 'Text on this line' : 'Text in this box', () => c.addText(one.id), close, bound ? null : 'Select a box first')}${item('Footnote', () => c.footnote(one.id), close, noted ? null : mastering ? offMaster : 'Select what it’s about first')}
       <div class="menu-sep" />
@@ -2069,6 +2070,7 @@ function Bar() {
   return html`<div class="fb" onMouseDown=${e => { if (e.target.closest('button')) e.preventDefault(); }}
     onClickCapture=${e => { if (e.target.closest('[aria-disabled="true"]')) { e.stopPropagation(); Shell.toast(why); } }}>
     <button class="btn dd" data-fb="insert" ...${writes(null)} onClick=${e => insertMenu(e, c)}>Insert</button>
+    ${c.scene()?.view !== Scene.MASTER && !Designs.editing.value ? html`<button class="btn add-object" aria-label="Add object" data-fb="add-object" ...${writes('Add object')} onClick=${() => c.newObject()}>${Shell.icon('plus')}<span>Object</span></button>` : null}
     <span class="sep" />
     <button class="btn icon" data-fb="painter" aria-label="Format painter" data-keys="Ctrl+Shift+C" aria-pressed=${!!armed} ...${writes('Format painter', none)}
       onClick=${() => armed ? disarm() : arm(true)} onDblClick=${() => ro || arm(false)}>${Shell.icon('painter')}</button>
