@@ -1450,7 +1450,7 @@ function mount(el) {
   }
   // A field typed over, in a box or on a line's label: a value, as entered; an option, from its list; a tag, ticked or
   // ruled out; a blank, its record made as it's typed; a free text, its words, {Entry} and all (see Fields).
-  function editField(m, it, typed) {
+  function editField(m, it, typed, point) {
     if (!it) return;
     if (still()) return Shell.toast(App.whyNot());
     // What's typed in is the field selected, so Tab goes on from it and its row stays lit.
@@ -1459,8 +1459,12 @@ function mount(el) {
     // A part's own words, typed over, are what's said over the design at the pen (Figma's override); a part with none, the design's own.
     if (it.of || (it.part && !it.blank && st()[it.id]?.edge === undefined)) {
       const part = partOf(m, it), raw = m.design.value.parts.find(p => p.id === part?.part)?.text ?? '';
+      if (part && !TextTemplate.formula(raw) && typeof CanvasBindings !== 'undefined' && !m.design.value.parts.find(p => p.id === part.part)?.rest) {
+        const bound = CanvasBindings.part(m, part.part, FormatBar.scope(true));
+        return openWords(part, typed, bound, m, point);
+      }
       // (What reads a field is said in Edit design, its fields as chips, and never by its token.)
-      if (!part || !part.texts.length || (typed === undefined && TextTemplate.fields(raw).length)) return Designs.edit(m);
+      if (!part || !part.texts.length || (typed === undefined && TextTemplate.fields(raw).length)) return Designs.edit(m, undefined, part?.part);
       const literal = !TextTemplate.formula(raw), shown = literal ? TextTemplate.render(raw, () => '') : raw;
       return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? shown, text => saidOfPart(`Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}`, tx => Designs.say(tx, m, part.part, { text: literal ? TextTemplate.literal(text) : text }, scopeNow(canvas))), { multiline: true, selectAll: typed === undefined, kept: true });
     }
@@ -1543,19 +1547,69 @@ function mount(el) {
       it = legend ? m.texts[0] : !row?.rest && m.texts[0] ? m.texts[0] : { look: m.look, text: '', lines: [] };
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
       raw = legend ? m.title : row?.text;
-      // Fields are edited as chips in the panel, including shapes not yet made into a design.
-      if (!legend && typed === undefined && TextTemplate.fields(raw).length) { Shell.select([m.id]); return setTimeout(() => document.querySelector('.part-words .words-in')?.focus(), 30); }
+      // Templates are normal text boxes on the canvas. Their fields stay atomic chips while
+      // surrounding words, punctuation and paragraphs are edited in place.
+      if (!legend && !m.role && !row?.rest && !TextTemplate.formula(raw) && typeof CanvasWords !== 'undefined'
+        && (designing || TextTemplate.fields(raw).length)) return openWords(m, typed);
       const literal = !legend && !m.role && !TextTemplate.formula(raw);
       if (literal) raw = TextTemplate.render(raw ?? '', () => '');
       // A text box left empty goes, however it's left, as PowerPoint's does.
       const gone = tx => tx.remove(m.id);
-      save = (text, keys, runs) => { const stored = literal ? TextTemplate.literal(text) : text; const said = App.change(tx => { if (m.geometry === 'text' && !text.trim() && !row?.rest) return gone(tx); tx.update(m.id, legend ? { title: text } : { text: stored, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, stored); }); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, stored); };
+      save = (text, keys, runs, { handoff = false } = {}) => { const stored = literal ? TextTemplate.literal(text) : text; const said = App.change(tx => { if (m.geometry === 'text' && !text.trim() && !row?.rest && !designing && !handoff) return gone(tx); tx.update(m.id, legend ? { title: text } : { text: stored, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, stored); }); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, stored); };
       if (m.geometry === 'text' && !raw?.trim() && !row?.rest) escaped = () => App.change(gone);
     }
     if (!it) return;
     // Rich formatting belongs to a shape's literal words, not the Key's title or a formula's source.
     const parts = m.type === 'shape' && m.geometry !== 'legend' && !m.role && !TextTemplate.formula(rowOf(m.id)?.text) && !rowOf(m.id)?.rest;
     openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape', ...(parts && { rich: { runs: typed !== undefined ? [] : rowOf(m.id)?.runs ?? [] } }) });
+  }
+  function openWords(m, typed, bound = null, hostMark = m, point = null) {
+    if (CanvasWords.close() === false) return;
+    const chart = App.chart.peek(), view = viewOf(), z = graph.zoom(), p = graph.localToGraph(m.x, m.y), t = m.texts?.[0]?.look ?? m.look;
+    let overlay = null;
+    // Keeping a value can reflow its card or move the whole chart. Follow the current
+    // part, without replacing the editable DOM and its selection or Undo history.
+    const place = () => {
+      if (!overlay?.isConnected || App.chart.peek() !== chart || viewOf() !== view) return;
+      const host = scene?.byId.get(hostMark.id), part = bound ? host?.parts?.find(part => part.part === m.part) : host;
+      if (!part) return;
+      const zoom = graph.zoom(), at = graph.localToGraph(part.x, part.y), look = part.texts?.[0]?.look ?? part.look;
+      Object.assign(overlay.style, { left: `${at.x}px`, top: `${at.y}px`, width: `${Math.max(120, part.w * zoom)}px`, minHeight: `${Math.max(28, part.h * zoom)}px`,
+        font: `${look.Bold ? 700 : 400} ${look.Italic ? 'italic' : ''} ${Math.max(12, px(look.Size) * zoom)}px/${1.2 * (look.Spacing ?? 1)} ${Scene.fontFamily(look.Font)}` });
+      overlay.style.setProperty('--canvas-text-scale', zoom / pageScale());
+    };
+    const placementEvents = ['drawn', 'scale', 'translate'];
+    const base = { ...t, Size: t.Size * pageScale() };
+    if (typed !== undefined) { if (bound) bound.put(TextTemplate.literal(typed), []); else App.change(tx => tx.update(m.id, { text: TextTemplate.literal(typed), runs: undefined }), { dated: false }); }
+    const put = bound?.put ?? ((text, runs) => {
+      const was = rowOf(m.id);
+      if (App.chart.peek() !== chart || viewOf() !== view || !was) return { error: 'This text box is no longer open.' };
+      if ((was.text ?? '') === text && JSON.stringify(was.runs ?? []) === JSON.stringify(runs ?? [])) return true;
+      const saved = App.change(tx => { tx.update(m.id, { text, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, text); }, { dated: false });
+      return saved ? true : { error: 'These words could not be saved. Your draft is still open.' };
+    });
+    const Words = props => {
+      App.scene.value; App.pending.value;
+      const r = bound ? bound.source() : App.shown.value.item(chart, m.id).at(-1);
+      return r ? preact.h(Designs.Words, { ...props, text: r.text ?? '', runs: r.runs, put, ...(bound && { bindings: bound.bindings }) }) : null;
+    };
+    if (!bound || !Shell.selection.peek().includes(hostMark.id)) Shell.select([hostMark.id]);
+    tipFor(null);
+    const opened = CanvasWords.open({ id: hostMark.id, host: over, selectAll: false, point,
+      ...(bound && typeof FieldExtraction !== 'undefined' && { dragSelection: (event, selection) => FieldExtraction.drag(event, selection, bound) }),
+      style: { left: `${p.x}px`, top: `${p.y}px`, width: `${Math.max(120, m.w * z)}px`, minHeight: `${Math.max(28, m.h * z)}px`,
+        font: `${t.Bold ? 700 : 400} ${t.Italic ? 'italic' : ''} ${Math.max(12, px(t.Size) * z)}px/${1.2 * (t.Spacing ?? 1)} ${Scene.fontFamily(t.Font)}`, textAlign: t.Align ?? 'center', color: t.Color,
+        '--canvas-edit-paper': Scene.tooDark(t.Color) ? '#ffffff' : '#17324d', '--canvas-text-scale': z / pageScale() },
+      formatting: { base, apply: (runs, from, to, label, value) => Scene.runsWith(runs, from, to, label, value, base), changed: look => { rich.value = look; },
+        style: look => ({ ...(look.Bold !== undefined && { fontWeight: look.Bold ? '700' : '400' }), ...(look.Italic !== undefined && { fontStyle: look.Italic ? 'italic' : 'normal' }),
+          ...(look.Color && { color: look.Color }), ...(look.Font && { fontFamily: Scene.fontFamily(look.Font) }), ...(look.Size && { fontSize: `calc(${px(look.Size)}px * var(--canvas-text-scale))` }),
+          ...((look.Underline || look.Strike) && { textDecoration: [look.Underline && 'underline', look.Strike && 'line-through'].filter(Boolean).join(' ') }),
+          ...(look.Base && { verticalAlign: look.Base === 'up' ? 'super' : 'sub', fontSize: look.Size ? `calc(${px(look.Size) * .66}px * var(--canvas-text-scale))` : '.66em' }) }) },
+      render: props => preact.h(Words, props), finished: () => { placementEvents.forEach(name => graph.off(name, place)); bound?.leave(); if (root.isConnected) root.focus({ preventScroll: true }); } });
+    overlay = opened;
+    if (opened) { placementEvents.forEach(name => graph.on(name, place)); place(); }
+    if (opened && bound) bound.activate();
+    return opened;
   }
   // The box a free shape stands on, by its middle: the topmost.
   const boxOver = m => { const cx = m.x + m.w / 2, cy = m.y + m.h / 2; return [...scene.marks].reverse().find(b => b.type === 'box' && cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) ?? null; };
@@ -1584,6 +1638,7 @@ function mount(el) {
   // `rich`, its words can be set part by part: what's selected in it takes a look from the format bar or its keys, and what it saves has its runs too.
   let richEdit = null;
   function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null, kept = false, rich = null } = {}) {
+    if (typeof CanvasWords !== 'undefined' && CanvasWords.close() === false) return;
     over.querySelectorAll('.dc-edit, .dc-kind, .dc-kinds').forEach(x => x.remove());
     tipFor(null);
     const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look, size = px(t.Size) * z;
@@ -1608,7 +1663,7 @@ function mount(el) {
     s.removeAllRanges(); s.addRange(range);
     let done = false;
     const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box, () => finish(true));
-    const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); printed?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys, runs); else escaped?.(); };
+    const finish = (ok, keys, options = {}) => { if (done) return; done = true; list?.close(); kind?.close(); printed?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); if (options.focus !== false) root.focus({ preventScroll: true }); if (ok) save(v, keys, runs, options); else escaped?.(); };
     // (Going to the format bar's palette, it stays open, what's selected kept, till a press anywhere else.)
     const outside = e => { if (!e.target.closest?.('.dc-edit, .fb, .float')) finish(true); };
     ed.addEventListener('keydown', e => {
@@ -1624,7 +1679,7 @@ function mount(el) {
       // (In a shape's words, a tab, as PowerPoint's: the next stop.)
       else if (e.key === 'Tab' && multiline && !e.shiftKey) { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
     });
-    ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); if (kind && e.relatedTarget?.closest?.('.dc-kinds')) return; finish(true); });
+    ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); if (kind && e.relatedTarget?.closest?.('.dc-kinds')) return; finish(true, false, { focus: false, handoff: !!e.relatedTarget?.closest?.('.part-words') }); });
     return ed;
   }
   // A shape's words as they're typed, as they'll print: in its columns, its inner margins and its indent, each paragraph with its mark beside it. → what closes that.
@@ -1877,7 +1932,7 @@ function mount(el) {
     // a free text there.
     if (k === 'box' || k === 'label') {
       const f = fieldUnder(e.clientX, e.clientY);
-      if (f?.it) { pickField(f); return editField(f.m, f.it); }
+      if (f?.it) { pickField(f); return editField(f.m, f.it, undefined, { x: e.clientX, y: e.clientY }); }
       if (k === 'box' && twice?.selected && twice.id === node.id && !still()) return writeText(scene.byId.get(node.id));
     }
     if (UNMARKED.has(k)) return;
@@ -2331,7 +2386,7 @@ function mount(el) {
     if (still() || designing || scene?.view === Scene.MASTER) return;
     const chart = App.chart.peek(), view = viewOf(), known = kinds();
     let name = '', kind = lastKind();
-    const ok = await Shell.dialog({ title: 'Add object', width: 360,
+    const ok = await Shell.dialog({ title: `Add ${known.length === 1 && known[0] !== 'Box' ? lowered(known[0]) : 'object'}`, width: 360,
       actions: [{ label: 'Cancel', value: false }, { label: 'Add', value: true, primary: true }],
       body: () => Shell.html`<div class="settings">
         <label class="field"><span>Name</span><input aria-label="Name" required autofocus autocomplete="off" onInput=${e => { name = e.target.value; e.target.setCustomValidity(Tree.clean(name) ? '' : 'Enter a name.'); }} /></label>
@@ -3818,7 +3873,7 @@ function mount(el) {
 
   // A restyle is of the chart as it was: one that changes ends it.
   const stopDraw = effect(() => { App.scene.value; App.later?.value; clearTimeout(resting); styled = styledDrawn = null; show(true); });
-  const stopEmpty = effect(() => { const sc = App.scene.value; empty.hidden = App.readOnly.value || !sc || sc.view === Scene.MASTER || sc.marks.some(m => m.type === 'box' || (m.type === 'shape' && !m.role && !m.master)); });
+  const stopEmpty = effect(() => { const sc = App.scene.value; empty.hidden = App.readOnly.value || !sc || sc.view === Scene.MASTER || sc.marks.some(m => m.type === 'box' || (m.type === 'shape' && !m.role && !m.master)); const ks = kinds(sc); firstObject.textContent = `+ Add ${ks.length === 1 && ks[0] !== 'Box' ? lowered(ks[0]) : 'object'}`; });
   // A Key that has come to stand over a box, as a chart grew under one a hand put, or a corner holds, says so as it happens, with what mends it.
   let keyOver = null, keyView = null;
   const stopKeyOver = effect(() => {
@@ -3938,7 +3993,7 @@ function mount(el) {
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
     table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), cellsPicked: id => hand.cellsPicked(id), readsFrom: (id, of) => hand.readsFrom(id, of), styleGallery: (at, id) => hand.styleGallery(at, id), get StyleGallery() { return hand.StyleGallery; }, link: id => hand.setLink(id), pastePicture: f => hand.pastePicture(f), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
     // What's being typed part by part takes a look (Bold, a color, a size) in place of the mark it's in. → whether it did.
-    richSet: (label, v) => !!richEdit?.set(label, v),
+    richSet: (label, v) => typeof CanvasWords !== 'undefined' && CanvasWords.active.peek() ? CanvasWords.set(label, v) : !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); }, footnote: id => footnote(id ? marked(id) : undefined),
     // Editing a design: what can be touched; and the zoom, brought to the box and put back (see Designs). A part selected, of a box (see Fields).
     // The tour's step about the dots: a box's own, shown and pulsing whatever the pointer's near, its grips away.
@@ -3950,6 +4005,7 @@ function mount(el) {
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },
     destroy() {
+      if (typeof CanvasWords !== 'undefined' && root.contains(CanvasWords.active.peek()?.element)) CanvasWords.close();
       nudged(); stopNudge(); stopWalk(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
       stopDraw(); stopEmpty(); stopKeyOver(); stopUnframed(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;

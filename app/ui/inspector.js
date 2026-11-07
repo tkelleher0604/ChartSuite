@@ -20,7 +20,7 @@ const overrides = id => App.computed.value.covered?.[id]?.agrees === false;
 const tree = id => T.treeOf(recs(), id);
 const entriesAt = id => T.index(recs()).entries.get(id) ?? [];
 const relationsAt = id => T.index(recs()).relations.get(id) ?? [];
-const within = id => { const out = [id]; for (let i = 0; i < out.length; i++) out.push(...entriesAt(out[i])); return out; };
+const within = id => T.within(recs(), id);
 const objectOf = id => T.objectOf(recs(), id);
 const entryNamed = (id, edge) => T.entryAt(recs(), id, edge);
 const nameOf = id => N().nameOf(recs(), id);
@@ -133,8 +133,9 @@ function slots(at, all) {
   const open = all ? unentered(at).map(s => s.args[0].edge).filter(e => ![...given, ...asked].some(x => T.same(x.edge, e))).map(edge => slot(edge, { at, open: true })).filter(x => !N().check(x.t)) : [];
   // What's blank that others of its kind have stands empty too, so what's missing can be seen and typed; or says it isn't ours.
   const apart = own && !all ? App.blanksApart.value.filter(b => b.id === at && !b.list && ![...given, ...asked].some(x => T.same(x.edge, b.edge))).map(b => slot(b.edge, { open: true, apart: true })) : [];
-  // On a chart that keeps no dated record a box's panel is its form: every entry its kind has stands in it, empty till typed, a new one on the rest of its kind too. (A rule's are its rule's to give, where they're given.)
-  const formed = (own || !!r[at]?.args) && !all && !App.isDated.value ? unentered(at).filter(s => !N().resolve('Formula', T.bare(s)) && !N().check({ args: [{ edge: s.args[0].edge, loc: tree(at) }] }) && ![...given, ...asked, ...apart].some(x => T.same(x.edge, s.args[0].edge))).map(s => slot(s.args[0].edge, { open: true })) : [];
+  // An undated chart's panel is its form: applicable schema entries stand empty till typed,
+  // including fields under an active choice or tag. A rule's results remain the rule's to give.
+  const formed = r[at] && !T.isField(r[at]) && !all && !App.isDated.value ? unentered(at).filter(s => !N().resolve('Formula', T.bare(s)) && !N().check({ args: [{ edge: s.args[0].edge, loc: tree(at) }] }) && ![...given, ...asked, ...apart].some(x => T.same(x.edge, s.args[0].edge))).map(s => slot(s.args[0].edge, { open: true })) : [];
   const out = [...ents.filter(e => !(own && e.pinned)), ...given, ...asked, ...open, ...apart, ...formed].map(x => ({ ...x, o: x.pinned ? -1 : N().order(x.t) ?? Infinity, p: placed(at, x) }))
     .sort((a, b) => a.o - b.o || a.p - b.p || a.edge.localeCompare(b.edge));
   // Offered, the first not yet given, blank or not, is typed into at once.
@@ -237,9 +238,16 @@ const disagreeing = computed(() => {
 // end entry typed past the day shown takes what it's at out of the chart then, and all that's at that: the redline
 // strikes it, and the toast says why (App.change).
 const withOut = (id, slot, out) => { const r = recs()[id] ?? slot; return { ...(r.args ? { args: r.args } : { at: r.at, edge: r.edge }), ...out }; };
-const { enterAt, putting, put } = App;
+const { enterAt, putting } = App;
+const put = (id, slot, out, options) => {
+  const scoped = typeof CanvasBindings !== 'undefined' ? CanvasBindings.putPanel(id, slot, out, options) : null;
+  return scoped?.handled ? scoped.result : App.put(id, slot, out, options);
+};
 // What it would change, as the formula bar redlines it: the records it would leave, as it would leave them.
-const putChange = (id, slot, out) => App.would(tx => putting(tx, id, slot, out), { dated: App.asksFrom(id, out) ? App.day.peek() : true });
+const putChange = (id, slot, out) => {
+  const scoped = typeof CanvasBindings !== 'undefined' ? CanvasBindings.previewPanel(id, slot, out) : null;
+  return scoped?.handled ? scoped.change : App.would(tx => putting(tx, id, slot, out), { dated: App.asksFrom(id, out) ? App.day.peek() : true });
+};
 const flipped = id => ({ tag: !(recs()[id]?.tag ?? false) });
 const flip = (id, slot) => put(id, slot, flipped(id), { auto: true });
 // Deleting, as every deletion is made: redlined first, the bar asking until when where a record ends on a day
@@ -419,8 +427,10 @@ function Field({ r, datatype, put, rule, preview, fx, over, id, auto, ph, cls = 
     const out = outOf(typed.current === null ? null : T.clean(typed.current)), back = held !== null && typed.current !== null;
     if (out === false) { type(null); if (back) put(false); return true; }
     if (out === undefined) { setBad(true); return false; }
+    const previous = typed.current;
     type(null);
-    put(out, { auto: keys });
+    const result = put(out, { auto: keys });
+    if (result?.ok === false) { type(previous); setBad(result.error || true); return false; }
     return true;
   };
   const asked = () => !!id && !!App.pending.peek()?.typed?.some(t => t.id === id);
@@ -460,7 +470,7 @@ function Field({ r, datatype, put, rule, preview, fx, over, id, auto, ph, cls = 
   // Typed over, what it said is struck before what's typed, whole, as comparison software prints the two.
   return html`<label class=${'cellbox' + (title ? ' title' : '') + cls}>${dirty && raw ? html`<s class=${'del' + ((r?.field ?? datatype) === 'date' ? ' date' : '')}>${shown}</s>` : null}<span class=${'hug' + (over ? ' over' : '') + (due && now === null ? ' ' + due : '')}>
     <${Box} ref=${ref} rows=${wrap ? 1 : null} class=${'cell' + ((r?.field ?? datatype) === 'date' ? ' date' : '') + (fx && now === null ? ' fx' : '') + (dirty && T.clean(now) ? ' add' : '') + (bad ? ' bad' : '')}
-      value=${now ?? (title ? Scene.bind(shown) : shown)} placeholder=${ph ?? ' '} disabled=${looks ? !App.canAsk() : App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null} data-why=${bad ? T.notA(datatype ?? T.classify(T.clean(now ?? ''))) : null}
+      value=${now ?? (title ? Scene.bind(shown) : shown)} placeholder=${ph ?? ' '} disabled=${looks ? !App.canAsk() : App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null} data-why=${bad ? typeof bad === 'string' ? bad : T.notA(datatype ?? T.classify(T.clean(now ?? ''))) : null}
       aria-label=${label ? label + (due ? `, ${DUE[due]}` : '') : ph} data-tour=${fx ? 'computed' : null} data-fx=${fx ? '' : null}
       onPointerDown=${e => { clicked.current = document.activeElement !== e.currentTarget; }} onMouseUp=${e => { if (clicked.current) e.preventDefault(); clicked.current = false; }}
       onFocus=${e => { const el = e.currentTarget; if (doc) { type(raw); setTimeout(() => el.select()); } else el.select(); if (fx) emit('why-open', id); }}
@@ -637,8 +647,19 @@ const boxed = id => 'tag' in recs()[id] && !disagreeing.value.get(id);
 // The first day a relation entered at a record holds from, or null.
 // (Today is no evidence: a stake made today says nothing of when a company was formed.)
 const firstRelated = at => App.shown.value.rows(App.chart.value).filter(r => r.since && r.since !== Log.today() && r.args?.some(a => a.at === at)).map(r => r.since).sort()[0] ?? null;
+const boundPending = (id, slot) => {
+  const p = App.pending.value;
+  return p?.source === 'bound-text' && p.chart === App.chart.value ? (p.typed ?? p.boundValues ?? []).find(t => id ? t.id === id : !t.id && t.slot?.at === slot?.at && T.same(t.slot.edge, slot.edge)) : null;
+};
 // A record's output, or a blank one's, in place: typed, chosen or ticked; named `label`.
 function Output({ id, slot, label }) {
+  const canvasDraft = typeof CanvasBindings !== 'undefined' ? CanvasBindings.draft.value : null;
+  const canvasKey = id ?? (slot?.at ? `${slot.at}|${T.norm(slot.edge)}` : null);
+  if (canvasDraft && canvasKey === canvasDraft.key) return html`<span class="canvas-text-handoff live-value"><button type="button" class=${'cell' + (canvasDraft.error ? ' err' : '')} aria-label=${`${label}: editing on canvas`} onClick=${() => {
+    if (CanvasWords.close() === false) return;
+    requestAnimationFrame(() => document.querySelector(`.inspector [data-key="${CSS.escape(canvasKey)}"] input`)?.focus());
+  }}>${canvasDraft.text || 'Empty'}</button></span>`;
+  const pendingValue = boundPending(id, slot);
   if (slot?.na) return html`<span class="na" data-tip="Not tested: its rule doesn’t apply here">n/a</span>`;
   if (slot?.cant) return html`<button class="cant" data-tip=${FormulaBar.blankSaid(slot.error)} onClick=${() => emit('why-open', slot.error.id)}>Can’t say</button>`;
   if (slot?.unsure) return html`<button class="errv err" data-tip="Its rule reads a rule that doesn’t work" onClick=${() => openDef(slot.unsure)}>Can’t say</button>`;
@@ -650,7 +671,8 @@ function Output({ id, slot, label }) {
   if (g) return html`<${Answers} g=${g} />`;
   const r = id ? recs()[id] : null, f = !!id && fx(id), o = !!id && overrides(id);
   const k = r ? null : slot.type ? slot : kindAt(tree(slot.at), slot.edge);
-  const type = r ? T.typeOf(r) : k.type, set = (out, o2) => (out?.words ? App.asWords(id, slot, out.words) : put(id, slot, out, o2)), held = id ? App.held(id) : undefined;
+  const type = r ? T.typeOf(r) : k.type, set = (out, o2) => (out?.words ? App.asWords(id, slot, out.words) : put(id, slot, out, o2)), held = pendingValue ? pendingValue.out : id ? App.held(id) : undefined;
+  const shown = pendingValue && held === null ? null : held ? { ...r, ...held } : r;
   // (Words typed in a figure or a date made by hand, and nowhere else yet, say what it is: it's words.)
   const loose = !App.readOnly.value && ['number', 'percent', 'money', 'date'].includes(r?.field ?? k?.datatype) && App.handMade(r?.edge ?? slot.edge, id) ? t => ({ words: t }) : null;
   // A start entry blank offers the day the record's first relation holds from (a company inserted on Dec 1, its Formation Date).
@@ -658,12 +680,12 @@ function Output({ id, slot, label }) {
   const more = !r ? (firstDay ? html`<button class="lk hint" data-tip="From its first relation" onClick=${() => set({ field: 'date', value: firstDay })}>${short(firstDay)}?</button>` : null) : !f ? html`<${Versions} id=${id} />` : r.field === 'date' ? html`<${Filed} id=${id} />` : null;
   // A box a rule covers, worked out or typed over, says why, clicked, and changes nothing, here as in a table.
   const ruled = f || (!!id && over(id));
-  return type === 'tag' ? html`<${TagBox} r=${r} fx=${f && !held} over=${o} label=${label} reason=${ruled && !held} tone=${id ? App.noTone(id) : ''} held=${held}
-        flip=${() => (held ? set(false) : ruled ? emit('why-open', id) : flip(id, slot))} change=${ruled || held ? null : () => putChange(id, slot, flipped(id))}>${more}</${TagBox}>`
-    : type === 'choice' ? html`<${Choice} r=${held ? { ...r, ...held } : r} was=${held ? r.choice : null} id=${id} fx=${f && !held} over=${o} put=${out => (held && T.same(out.choice, r.choice) ? set(false) : set(out, { auto: true }))} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}
+  return type === 'tag' ? html`<${TagBox} r=${shown} fx=${f && !held} over=${o} label=${label} reason=${ruled && !held} tone=${id ? App.noTone(id) : ''} held=${held}
+        flip=${() => (held ? set(false) : pendingValue ? set({ tag: true }) : ruled ? emit('why-open', id) : flip(id, slot))} change=${ruled || held ? null : () => putChange(id, slot, flipped(id))}>${more}</${TagBox}>`
+    : type === 'choice' ? html`<${Choice} r=${shown} was=${held ? r?.choice : null} id=${id} fx=${f && !held} over=${o} put=${out => (held && T.same(out.choice, r?.choice ?? '') ? set(false) : set(out, { auto: true }))} label=${label} options=${r ? (r.args ? slot.options ?? [] : kindAt(tree(r.at), r.edge).options) : k.options ?? []}
         hint=${!r && recs()[slot.at]?.kind ? namedOption(nameOf(slot.at), k.options ?? []) : null}>${more}</${Choice}>`
     : html`<${Field} r=${r} id=${id} fx=${f} over=${o} put=${set} loose=${loose} rule=${t => FormulaBar.typed(r?.at ?? slot.at, r?.edge ?? slot.edge, t, r?.field ?? k.datatype)} preview=${out => (out?.words ? null : putChange(id, slot, out))} label=${label} due=${id && dueOf(id)} datatype=${r?.field ?? k.datatype} auto=${!r && slot.auto}
-        held=${held ? T.format(held.field, held.value) : null}>${more}</${Field}>`;
+        held=${held === undefined ? null : held === null ? '' : T.format(held.field, held.value)}>${more}</${Field}>`;
 }
 
 // What the keys do in the panel, for the list of them.
@@ -924,7 +946,7 @@ const lits = new Map();
 const lit = (it, at) => {
   if (!charted()) return false;
   const k = fieldKey(it, at);
-  if (!lits.has(k)) { if (lits.size > 4000) lits.clear(); lits.set(k, computed(() => Canvas.fieldLit.value === k)); }
+  if (!lits.has(k)) { if (lits.size > 4000) lits.clear(); lits.set(k, computed(() => Canvas.fieldLit.value === k || (typeof CanvasBindings !== 'undefined' && CanvasBindings.focus.value?.key === k))); }
   return lits.get(k).value;
 };
 const fields = () => charted() ? Canvas.active.peek()?.fields : null;
@@ -1189,7 +1211,7 @@ function Strip() {
     ${more ? html`<button class=${'btn icon strip-more' + (buried ? ' on' : '')} aria-haspopup="menu" aria-label="All sections" data-tip="All sections" onClick=${all}>${icon('chevron')}</button>` : null}
     ${pinned.length ? html`<span class="pinned">${pinned.map(x => chip(x))}</span>` : null}</nav>`;
 }
-const plus = (label, run) => App.readOnly.value ? null : html`<button class="btn icon" aria-label=${label} data-tip=${label} onClick=${run}>${icon('plus')}</button>`;
+const plus = (label, run, caption = '') => App.readOnly.value ? null : html`<button class=${caption ? 'btn relation-add' : 'btn icon'} aria-label=${caption || label} data-tip=${label} onClick=${run}>${icon('plus')}${caption ? html`<span>${caption}</span>` : null}</button>`;
 
 // A relative's other sides, but the one it's named as: "signs for the Manager", not "…, via the Manager".
 const further = it => it.rest.filter(a => objectOf(a.at) !== it.obj);
@@ -1395,7 +1417,7 @@ function Relatives({ id }) {
     // (Those who stand under this one can go to another together, too.)
     const under = items.filter(it => picked.has(it.rid)), rank = under.length && App.rankOver(under[0].obj), changes = rank && under.every(it => T.same(it.mine, rank.top)) ? changesOf(under.map(it => it.obj)) : [];
     return !ids.length || still ? null : html`${changes.map(c => html`<button class="btn ghost ends" onClick=${e => c.run(e.currentTarget)}>${c.label}</button>`)}<button class="btn ghost ends" onClick=${() => { const n = ids.length; App.deleting(ids, n === 1 ? said(ids[0]) : `${n} ${lower(T.plural(nameOf(ids[0])))}`, { source: 'inspector', auto: true, done: () => { ticked.value = new Set(); } }); }}>${App.deleteVerb(ids)} ${ids.length > 1 ? 'these' : 'this'}…</button>`; };
-  const adds = (name, items) => items[0]?.rest.length || worked(items) ? null : plus(`Add to ${name}`, e => add(e, name));
+  const adds = (name, items) => items[0]?.rest.length || worked(items) ? null : plus(`Add to ${name}`, e => add(e, name), `Add ${lower(T.singular(name))}`);
   // Those a check fails at after those that hold, so a list never leads with the one that doesn't (Okafor's signing).
   // And those the page draws, in the order it draws them, so the list and the chart read alike: left to right, a row at a time; those it doesn't, after them, as they were.
   const asDrawn = items => { const by = App.scene.value?.byId, at = it => by?.get(it.obj), rowOf = m => Math.round(m.y / 8); return [...items.filter(at).sort((a, b) => rowOf(at(a)) - rowOf(at(b)) || at(a).x - at(b).x), ...items.filter(it => !at(it))]; };
@@ -1429,7 +1451,7 @@ const DASHES = { dotted: 'Round dot', 'square-dot': 'Square dot', dashed: 'Dash'
 const shadowSaid = v => { const o = Scene.shadowOf(v); return !o ? 'None' : `${o.blur} pt blur, ${o.distance} pt at ${o.angle}°`; };
 const headSaid = v => Object.entries(v ?? {}).map(([end, h]) => `${upper(end)}: ${h.type}, ${h.size}`).join('; ') || 'Triangle, small';
 const colorName = v => (typeof FormatBar !== 'undefined' && FormatBar.colorName?.(v)) || v.toUpperCase();
-const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
+const val = (label, v, named) => v == null ? 'None' : typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? html`<i class="chip" style=${`background:${v}`} />${colorName(v)}`
   : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : label === 'Size' ? `${v} pt`
   : label === 'Weight' ? `${+Scene.toSlide(App.scene.value?.page, v).toFixed(2)} pt`
   : label === 'Format' ? (named ? (v === 'none' ? 'Hidden' : 'Shown') : TEXTS[v] ?? upper(String(v)))
@@ -1446,11 +1468,11 @@ const val = (label, v, named) => typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.te
 const LOOK_MENUS = { Fill: 'fill', Gradient: 'fill', Pattern: 'fill', Picture: 'fill', Transparency: 'fill', Outline: 'outline', Weight: 'outline', Dash: 'outline', Compound: 'outline', 'Line Gradient': 'outline', 'Line Transparency': 'outline', Arrow: 'outline', Arrowhead: 'outline', Connector: 'outline', Frame: 'outline',
   Shape: 'shape', Corner: 'shape', Design: 'design', Shadow: 'effects', Glow: 'effects', 'Soft Edge': 'effects', Reflection: 'effects', 'Inner Shadow': 'effects', Bevel: 'effects', 'Turn 3D': 'effects',
   Font: 'font', Size: 'size', Color: 'color', 'Text Gradient': 'color', 'Text Outline': 'color', Align: 'paragraph', Valign: 'paragraph', Spacing: 'paragraph', Bullet: 'paragraph', Direction: 'paragraph', Columns: 'paragraph', Indent: 'paragraph', 'First Line': 'paragraph', Tabs: 'paragraph', Inset: 'paragraph', Shrink: 'paragraph' };
-function LookSection({ look, reset, named }) {
+function LookSection({ look, reset, named, held }) {
   if (!look.length) return null;
   const from = [...new Set(look.map(x => x.from))], ro = App.readOnly.value;
   // (What's here to read only, its wash gone, so nothing offers what it can't do.)
-  return html`<${Section} title="Look" id="look" act=${reset}>${from.map(f => html`
+  return html`<${Section} title="Look" id="look" act=${reset} held=${held}>${from.map(f => html`
     ${f ? html`<div class="row src" key=${f}><div class="k wide">${f}</div></div>` : null}
     ${look.filter(x => x.from === f).map(x => { const what = !ro && !x.said && LOOK_MENUS[x.label]; return html`<div class=${'row' + (what ? '' : ' still')} key=${x.label} style=${`--depth:${f ? 1 : 0}`}><div class="k">${labelOf(x.label, named)}</div><div class=${what ? 'v ctl' : 'v'}>${what ? html`<div class="hug"><button class="sel dd" aria-haspopup="menu" onClick=${e => FormatBar.open(what, e.currentTarget)}><span>${val(x.label, x.value, named)}</span></button></div>` : x.said ?? val(x.label, x.value, named)}</div></div>`; })}`)}</${Section}>`;
 }
@@ -1467,7 +1489,7 @@ function pointsOf(t) {
   Shell.toast(`“${T.clean(t)}” isn’t a measure: type points, or px, in or cm after the number`, { ms: 4000 });
 }
 // A box's folded till it's asked for, as what it is comes first, and stays as it's left from one box to the next; a free shape has little else, so it's open.
-const placeOpen = signal(false);
+const placeOpen = signal(false), lookOpen = signal(false);
 const Place = ({ at, put, reset, keys = 'xywh', lock, turn, shut = false }) => { const page = App.scene.value?.page;
   return html`<${Section} title="Position" id="place" act=${reset} held=${shut ? placeOpen : null}>
   ${PLACES.filter(([, k]) => keys.includes(k) && at[k] != null).map(([label, k]) => html`<div class="row" key=${k} onClick=${e => { if (!e.target.closest('input')) e.currentTarget.querySelector('input')?.focus(); }}><div class="k">${label}</div><div class="v ctl" data-place=${k}>
@@ -1502,7 +1524,7 @@ function Look({ id }) {
   const resetPlace = !App.readOnly.value && !App.scene.peek()?.page.composed && Number.isFinite(entered?.x) && !Number.isFinite(entered?.order) ? html`<button class="btn ghost reset" onClick=${() => cv?.tidy({ only: id, say: `Reset the position of ${n.nameOf(recs(), id)}` })}>Reset</button>` : null;
   // (Its position before its look, so a row or a section the look gains moves no field under the pointer.)
   return html`${drawn ? html`<${Place} shut=${true} at=${drawn} put=${(k, x) => k === 'w' || k === 'h' ? cv?.sizeAtPen(id, { [k]: x }) : cv?.put(id, { [k]: x })} reset=${resetPlace} lock=${{ on: entered?.lock, set: on => cv?.lockSize(id, on) }} />` : null}
-    <${LookSection} look=${look} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />`;
+    <${LookSection} look=${look} held=${lookOpen} named=${'tag' in recs()[id] || !!recs()[id].kind} reset=${resetting(own, l => l !== 'Position')} />`;
 }
 
 // ---- The views of a selection ----
@@ -1625,6 +1647,31 @@ const renameOfLine = id => renameAt(N().relationPattern(tree(id)));
 const AddRow = ({ at, items = anchor => addItems(at, anchor), also = null }) => App.readOnly.value ? null
   : html`<div class="row addrow"><div class="k wide"><button class="btn ghost add-entry" onClick=${e => menu(e.currentTarget, items(e.currentTarget), { search: true, more: at ? q => addNamed(at, q) : null })}>${icon('plus')}Add</button>${also}</div></div>`;
 
+function RecordDesign({ id }) {
+  const m = App.scene.value?.byId.get(id), r = recs()[id];
+  if (typeof Designs === 'undefined' || typeof FormatBar === 'undefined' || Designs.editing.value || m?.type !== 'box' || !r?.kind) return null;
+  const edit = () => {
+    select([id]);
+    Designs.editShared(m);
+  };
+  const scope = typeof CanvasBindings !== 'undefined' ? CanvasBindings.recordScope(id) : null;
+  return html`<div class="object-editor-actions">
+    <span class="object-data-label"><strong>Data</strong><small>${scope && scope.recordIds.length > 1 ? `For ${scope.recordIds.length} objects` : 'For this object'}</small></span>
+    <div class="object-design-actions"><button class="btn" aria-label="Edit shared design" disabled=${App.readOnly.value} onClick=${edit}>${icon('LayoutTemplate')}<span>Edit shared design</span></button>
+      ${Designs.canUseShared(m) ? html`<button class="btn ghost" disabled=${App.readOnly.value} onClick=${() => { select([id]); Designs.useShared(m); }}>Use shared design</button>` : null}</div>
+  </div>`;
+}
+
+function BoundFieldStatus() {
+  if (typeof CanvasBindings === 'undefined') return null;
+  const editing = CanvasBindings.focus.value, draft = CanvasBindings.draft.value;
+  if (!editing) return null;
+  const n = editing.scope.recordIds.length;
+  return html`<div class="bound-field-status" role="status"><strong>${editing.binding.label}</strong><span>${editing.owner ?? ''}</span>
+    <small>${editing.binding.editable ? n === 1 ? 'Editing this record' : `Editing this value for ${n} objects` : editing.binding.error}</small>
+    ${draft?.error ? html`<p class="err">${draft.error}</p>` : null}</div>`;
+}
+
 function RecordView({ id }) {
   const r = recs()[id];
   aim.value;   // (aimed at while it's shown too, as a toast's way to a row of it does)
@@ -1648,12 +1695,14 @@ function RecordView({ id }) {
   // An object's title is its Name, typed over (cleared, it stays); a relation's or an entry's is what it is,
   // with its tag's box before it, as the formula bar has it.
   const nameId = entryNamed(id, 'Name'), held = nameId ? App.held(nameId) : undefined;
+  const canvasName = typeof CanvasBindings !== 'undefined' && CanvasBindings.draft.value?.key === (nameId ?? `${id}|name`) ? CanvasBindings.draft.value.text : null;
+  const pendingName = boundPending(nameId, { at: id, edge: 'Name' });
   const span = (r.kind || r.args) ? html`<${Span} id=${id} />` : null;
   // The pen on a box's or a line's page: at its title, this one alone; at its kind or relation, every one of it.
   const penTitle = (r.kind || r.args) ? html`<${Pen} w=${{ own: true }} row="title" host=${id} />` : null, penKind = (r.kind || r.args) ? html`<${Pen} w=${{ kind: true }} row="kind" host=${id} />` : null;
   const head = r.kind
     ? html`<${Head} pen=${penTitle} penKind=${penKind} more=${() => moreOf(id)} span=${span} path=${[{ label: r.kind, menu: () => kindMenu(id), named: q => kindNamed(id, q) }, ...(first ? [{ label: recs()[first.id].choice, go: () => alike(first.id), tip: `Select every ${recs()[first.id].choice}` }] : [])]}>
-        <${Field} r=${recs()[nameId]} id=${nameId} datatype="text" ph="Name" title held=${held ? held.value : null} put=${(out, o) => (out || out === false) && put(nameId, { at: id, edge: 'Name' }, out, o)}
+        <${Field} r=${recs()[nameId]} id=${nameId} datatype="text" ph="Name" title held=${canvasName ?? (pendingName ? pendingName.out?.value ?? '' : held ? held.value : null)} put=${(out, o) => (out || out === false) && put(nameId, { at: id, edge: 'Name' }, out, o)}
           preview=${out => out && putChange(nameId, { at: id, edge: 'Name' }, out)} /></${Head}>`
     : html`<${Head} title=${name} span=${span} pen=${penTitle} penKind=${penKind} more=${r.args ? () => moreOf(id) : null} path=${r.args ? (App.scene.value?.byId.has(id) ? [{ label: 'Connection', go: () => select([general(N().relationPattern(tree(id)))]), tip: `Open ${name}` }] : []) : path.slice(0, -1).map(x => ({ label: segment(x), go: () => select([x]) }))}>
         ${boxed(id) ? html`<h2 class="ih-title ih-tag" data-key=${id}><${Output} id=${id} slot=${r} label=${name} /><span class="nm lbl asks" onClick=${e => (fx(id) ? emit('why-open', id) : typedBy(e.currentTarget, id))}>${name}</span></h2>` : null}</${Head}>`;
@@ -1664,6 +1713,9 @@ function RecordView({ id }) {
   const moving = !here && !App.readOnly.value && r.args && App.isDated.value && App.transferable(id)
     ? html`<button class="btn ghost add-entry" onClick=${() => App.transferring(id)}>${icon('ArrowRightLeft')}Transfer…</button>` : null;
   return html`<div class=${'insp' + (goes(id) ? ' going' : '')}><${CameBack} id=${id} />${head}
+    <${RecordDesign} id=${id} />
+    <${BoundFieldStatus} />
+    ${typeof FieldExtraction !== 'undefined' && typeof CanvasBindings !== 'undefined' ? html`<${FieldExtraction.Dropzone} recordId=${id} adapter=${CanvasBindings.active.value} />` : null}
     <${Strip} />
     <div class="rows">
       ${sides.map(a => { const way = trail(a.at);
@@ -1963,12 +2015,17 @@ function ShapeView({ id, part }) {
     const change = { text, ...(runs !== undefined && { runs: runs.length ? runs : undefined }) };
     return ofDesign ? App.change(tx => { tx.update(id, change); Designs.holdWords(tx, id, text); }, { dated: false }) : set(change);
   };
+  const inPlace = typeof CanvasWords !== 'undefined' && CanvasWords.active.value?.id === id;
+  const textFit = row.format?.Fit ?? (row.format?.Shrink ? 'shrink' : g === 'text' ? 'grow' : 'fixed');
+  const fitText = fit => { const { Shrink: _, ...format } = row.format ?? {}; set({ format: { ...format, Fit: fit } }, 'Changed how the text fits'); };
   const words = worded || (ofDesign && row.rest) ? html`
     ${ofDesign && row.rest ? html`<${Designs.Holds} />` : null}
     <div class="row"><div class="k">Text</div><div class="v ctl">
-      ${row.role || !hasDesigns ? html`<${Prose} text=${row.text ?? ''} label="Text" put=${putWords} />`
+      ${inPlace ? html`<div class="canvas-text-handoff"><button type="button" class="lk" onClick=${() => CanvasWords.focus()}>Editing on canvas</button><button type="button" class="btn ghost" onClick=${() => { CanvasWords.close(); requestAnimationFrame(() => document.querySelector('.inspector .words-in')?.focus()); }}>Edit in panel</button></div>`
+        : row.role || !hasDesigns ? html`<${Prose} text=${row.text ?? ''} label="Text" put=${putWords} />`
         : html`<${Designs.Words} key=${id} text=${row.text ?? ''} runs=${row.runs} put=${putWords} />`}
-    </div></div>` : null;
+    </div></div>
+    ${!row.role && !row.rest ? html`<label class="row text-sizing"><span class="k">Text sizing</span><span class="v ctl"><select class="cell" aria-label="Text sizing" value=${textFit} disabled=${still} onChange=${e => fitText(e.target.value)}><option value="grow">Grow height</option><option value="fixed">Fixed frame</option><option value="shrink">Shrink to fit</option></select></span></label>` : null}` : null;
   return html`<div class="insp">
     <${Head} path=${key ? [{ label: name }] : []} title=${key ? row.title ?? 'Key' : name}>${key ? html`<${Field} r=${{ field: 'text', value: row.title ?? 'Key' }} datatype="text" ph="Title" label="Title" title
       put=${out => set({ title: out?.value ?? '' })} />` : null}</${Head}>

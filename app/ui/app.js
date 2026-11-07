@@ -382,6 +382,13 @@ const App = (() => {
   // A design being edited (dendra.md, Group designs): the workbook read from a copy of its log, what's drawn there this window's alone, in no one's History or
   // file, with Undo's steps of its own, till Done writes the note, one change, or Discard. `takes`, whether a change is one that belongs there, what a hand draws; another says so, and nothing's lost.
   let sand = null;
+  // Workbook/chart commands bypass change(), so they share this boundary rather than
+  // relying on whichever toolbar or menu happens to expose them.
+  function designBusy() {
+    if (!sand) return false;
+    Shell.toast('Finish the design first: Done or Discard');
+    return true;
+  }
   function sandbox(takes) {
     if (sand) return false;
     const real = book.peek(), copy = Log.open(real.changes());
@@ -651,6 +658,69 @@ const App = (() => {
     const own = id && recurs(id, state.peek()[id], out) && out.value <= day.peek();
     stageTyped(typed, { auto, day: own ? out.value : isDated.peek() ? day.peek() : begins(), instead: partOfTransfer(id, out), ...(later && { go: () => fromWhen(id, slot, out), say: () => typedWords({ id, slot, out }) }) });
   }
+  // A scoped canvas edit is one proposal and one Undo, including shared relative targets.
+  // BoundText validates/uniquely targets values first; this boundary applies the same temporal
+  // policy as put(), with a local undated transaction for Fixed facts in a mixed batch.
+  function putBatch(values, { append, appendKey, appenders: suppliedAppenders = [], say, auto = false } = {}) {
+    const error = message => ({ ok: false, status: 'error', error: message });
+    if (readOnly.peek()) return error('Switch to Editing to change these values.');
+    if (designBusy()) return error('Finish the design first: Done or Discard.');
+    const pendingBatch = mine();
+    if (pendingBatch && pendingBatch.source !== 'bound-text') return error('Finish or discard the pending change before editing another value.');
+    const keyOf = t => t.id ?? JSON.stringify([t.slot.at, Tree.norm(t.slot.edge)]);
+    const unique = new Map();
+    for (const t of values ?? []) {
+      if ((!t.id && !t.slot?.at) || (t.id && !state.peek()[t.id]) || (!t.id && !state.peek()[t.slot.at])) return error('A field or its record no longer exists.');
+      const key = keyOf(t), prior = unique.get(key);
+      if (prior && JSON.stringify(prior.out) !== JSON.stringify(t.out)) return error('Two values target the same field.');
+      unique.set(key, t);
+    }
+    // Later edits replace their own targets. A value put back as stored removes that target
+    // from the pending proposal, rather than leaving an invisible earlier draft to commit.
+    const combined = new Map((pendingBatch?.typed ?? pendingBatch?.boundValues ?? []).map(t => [keyOf(t), t]));
+    for (const [key, t] of unique) combined.set(key, t);
+    const typed = [...combined.values()].filter(t => { const before = t.id && state.peek()[t.id]; return t.out ? !before || !Object.keys(t.out).every(k => before[k] === t.out[k]) : !!before; });
+    const additions = [...suppliedAppenders, ...(append || appendKey !== undefined ? [{ key: appendKey, run: append }] : [])];
+    if (additions.some(a => !a || (a.run !== undefined && typeof a.run !== 'function'))) return error('This text change has an invalid transaction action.');
+    let appenders = [...pendingBatch?.boundAppenders ?? []];
+    for (const addition of additions) {
+      if (addition.key !== undefined) appenders = appenders.filter(a => a.key !== addition.key);
+      if (addition.run) appenders.push(addition);
+    }
+    if (!typed.length && !appenders.length) { if (pendingBatch) discard({ quiet: true }); return { ok: true, status: 'unchanged' }; }
+    const first = t => !t.id && t.out?.field === 'date' && t.out.value <= day.peek() && recursAt(t.slot);
+    const write = (tx, rows = typed, additions = appenders, until = null) => {
+      for (const t of rows) {
+        const start = first(t), correction = start || fixedAt(t.id, t.slot);
+        const out = until && (t.over || overRule(t.id, t.out)) ? { ...t.out, before: until } : t.out;
+        putting(correction ? tx.at(null) : tx, t.id, t.slot, start ? { ...out, since: out.value } : out);
+      }
+      for (const addition of additions) addition.run(tx);
+    };
+    const asks = typed.some(t => asksFrom(t.id, t.out) || overRule(t.id, t.out));
+    const report = say ?? `Updated ${typed.length === 1 ? 'field' : typed.length + ' fields'}`;
+    try {
+      // Clearing never asks by itself; combined with dated edits it still belongs to the
+      // same proposal. The normal typed summary requires nonempty outputs.
+      const summary = typed.length && typed.every(t => t.out) ? typedPending(typed) : { typed: undefined, what: typed.length ? `${typed.length} values` : 'text', act: null, reason: typed.some(t => t.over || overRule(t.id, t.out)) };
+      summary.needs = [...new Set(typed.map(t => t.id ?? t.slot.at))];
+      if (pendingBatch) {
+        amend(pendingBatch, { ...summary, boundValues: typed, boundAppenders: appenders, say: report });
+        return { ok: true, status: 'pending' };
+      }
+      if (!asks) {
+        const c = change(tx => write(tx), { dated: typed.some(t => !first(t) && !fixedAt(t.id, t.slot)), say: report });
+        return c ? { ok: true, status: 'committed', change: c } : error('The change could not be applied.');
+      }
+      const recurring = typed.filter(t => t.id && t.out && recurs(t.id, state.peek()[t.id], t.out) && t.out.value <= day.peek());
+      const ownDay = recurring.length === typed.length && new Set(recurring.map(t => t.out.value)).size === 1 ? recurring[0].out.value : null;
+      const c = stage({ verb: 'Change', source: 'bound-text', asks: 'from', along: 'a correction', ...summary,
+        boundValues: typed, boundAppenders: appenders,
+        day: ownDay ?? (isDated.peek() ? day.peek() : begins()), auto,
+        make: (tx, d, q) => write(tx, q.typed ?? q.boundValues, q.boundAppenders, q.until), say: report });
+      return c ? { ok: true, status: 'committed', change: c } : mine()?.source === 'bound-text' ? { ok: true, status: 'pending' } : error('The change could not be prepared.');
+    } catch (e) { return error(e.message ?? String(e)); }
+  }
   // A value typed over, asking from when, as one change pending.
   function stageTyped(typed, o) {
     let told = null;
@@ -659,7 +729,7 @@ const App = (() => {
       say: c => told ?? Time.describe(c), ...o });
   }
   // Whether a value typed over another could say from when: words or a choice that changes over time; not a name, a date, nor a fixed fact.
-  const canSayFrom = (id, out) => { const r = state.peek()[id]; return !!r && !result.peek().computed[id] && ('value' in out || 'choice' in out) && out.field !== 'date' && r.field !== 'date' && !fixedAt(id) && !Tree.same(r.edge ?? '', 'Name'); };
+  const canSayFrom = (id, out) => { const r = state.peek()[id]; return !!out && !!r && !result.peek().computed[id] && ('value' in out || 'choice' in out) && out.field !== 'date' && r.field !== 'date' && !fixedAt(id) && !Tree.same(r.edge ?? '', 'Name'); };
   // A correction said after all to have been a change from a day: taken back, and asked, in the bar. Its toast's offer.
   const fromWhen = (id, slot, out) => ['From when…', () => { step(true, true); stageTyped([{ id, slot, out, over: false }], { auto: true, day: day.peek(), held: true }); }];
   // A date typed over another is made at once, a date saying its own day, and says what it replaces (dendra.md, Time).
@@ -678,7 +748,7 @@ const App = (() => {
     return part > 0 ? { label: 'Change the transfer', run: () => { discard({ quiet: true }); amending(by, { part }); } } : null;
   }
   // A value typed that's pending, as it would read, of the chart shown: its output, or undefined.
-  const typedOut = id => { const p = pending.value; return p?.typed && p.chart === chart.value ? p.typed.find(t => t.id === id)?.out : undefined; };
+  const typedOut = id => { const p = pending.value, values = p?.typed ?? p?.boundValues; return values && p.chart === chart.value ? values.find(t => t.id === id)?.out : undefined; };
   // A computed tag overridden (dendra.md, Definitions: Typed over): entered the other way, as a change pending, which asks why. What a rule can't say,
   // which has no record to be the other way (`slot`), is entered as a yes.
   function overriding(id, slot) {
@@ -1945,6 +2015,7 @@ const App = (() => {
   }
   // A new chart like the one shown is named as it begins, in the title bar. `style`, a house style chosen to begin it in.
   function newChart(style) {
+    if (designBusy()) return null;
     if (readOnly.peek()) return refuse();
     const c = startChart(book.peek(), style?.notes ? style : null);
     if (typeof c === 'string') return Shell.toast(c);
@@ -1955,6 +2026,9 @@ const App = (() => {
   // house style's look; `name`, what it's called, or else it's named in the title bar as it opens; `workbook`, in a workbook of its
   // own, this one kept. One change, in History as any is.
   function begin({ template = null, style = null, name = '', workbook = false } = {}) {
+    // Creation writes directly to a workbook rather than through change(). A draft design's
+    // copy must never receive a new chart that unsandbox() would silently throw away.
+    if (designBusy()) return null;
     if (!workbook && readOnly.peek()) return refuse();
     const t = template && Templates.of(template), make = wb => t ? chartFrom(wb, t, style, name) : startChart(wb, style, name);
     // (Opened, it's named in the title bar if it hasn't been; then, its first box.)
@@ -1962,12 +2036,13 @@ const App = (() => {
     if (!workbook) { const c = make(book.peek()); if (typeof c !== 'string') open(c.chart); return opening(c); }
     const wb = Log.open([]), c = make(wb);
     if (typeof c === 'string') return Shell.toast(c);
-    return opened(Store.open({ id: Log.newId(), sample: wb })).then(() => { if (chart.peek() === c.chart) opening(c); return c; });
+    return opened(() => Store.open({ id: Log.newId(), sample: wb })).then(() => { if (chart.peek() === c.chart) opening(c); return c; });
   }
   // A copy of the chart shown, as one change: every row it has, each item under a new id and what refers to it
   // following (a record's place and sides, a note's pattern and view, a shape's view, ends and members), so the copy
   // is the chart as it stands, its records' days included, with its own History from here on. Named as it begins.
   function duplicateChart() {
+    if (designBusy()) return;
     if (readOnly.peek()) return refuse();
     const wb = book.peek(), from = chart.peek(), was = wb.charts().find(x => x.chart === from)?.name ?? 'Untitled';
     const names = new Set(wb.charts().map(x => Tree.norm(x.name)));
@@ -1993,6 +2068,7 @@ const App = (() => {
   }
   // The chart shown taken out of the workbook, as one change, which its toast can take back; another chart is shown.
   function deleteChart() {
+    if (designBusy()) return;
     const wb = book.peek(), id = chart.peek(), next = wb.charts().find(x => x.chart !== id);
     if (readOnly.peek()) return refuse();
     if (!next) return;
@@ -2007,6 +2083,7 @@ const App = (() => {
   // hand keeps what it says), so its exports are named as it is. A workbook kept in this browser is named by its first
   // chart (Store), and the chart menu's list of them says so at once.
   function rename(id, name) {
+    if (designBusy()) return;
     const was = book.peek().charts().find(c => c.chart === id)?.name;
     if (id !== chart.peek() || !name || name === was) return;
     change(tx => {
@@ -2037,7 +2114,7 @@ const App = (() => {
         { label: 'Delete chart', danger: true, disabled: readOnly.value || all.length < 2, tip: all.length < 2 ? 'It’s this workbook’s only chart' : null, run: deleteChart }, '-',
         { label: 'Charts', items: all.map(c => ({ label: c.name, checked: c.chart === chart.value, run: () => c.chart !== chart.peek() && open(c.chart) })) },
         { label: 'Workbooks', items: [
-          ...books.value.map(b => ({ label: b.name, detail: b.sample ? 'Sample' : null, checked: b.id === here, run: () => b.id !== here && opened(Store.open({ id: b.id })) })),
+          ...books.value.map(b => ({ label: b.name, detail: b.sample ? 'Sample' : null, checked: b.id === here, run: () => b.id !== here && opened(() => Store.open({ id: b.id })) })),
           ...(books.value.length ? ['-'] : []),
           { label: 'Delete workbook', danger: true, disabled: !others.length, tip: others.length ? null : 'The open workbook can’t be deleted', items: others.map(b => ({ label: b.name, run: () => deleteBook(b) })) }] }];
     },
@@ -2266,7 +2343,7 @@ const App = (() => {
         : html`<span class=${'keeping' + (st.tone ? ' is-' + st.tone : '')} title=${st.detail ?? ''} onPointerOver=${e => { const k = e.currentTarget; if (k.scrollWidth > k.clientWidth) k.dataset.tip = st.text; else delete k.dataset.tip; }}>${st.text}</span>`;
     },
   });
-  const opened = p => p.then(wb => wb && use(wb), e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t open it'));
+  const opened = start => designBusy() ? Promise.resolve(null) : start().then(wb => wb && use(wb), e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t open it'));
   const saved = p => p.then(listBooks, e => e?.name === 'AbortError' || Shell.toast(e?.message || 'Couldn’t save it'));
 
   // Settings: who you are, and signing in to the SharePoint library the team keeps its workbooks and documents
@@ -2300,7 +2377,7 @@ const App = (() => {
   const toLibrary = () => SharePoint.settings().library ? saved(Store.saveAs('library')) : settings(true).then(ok => { if (ok && SharePoint.settings().library) saved(Store.saveAs('library')); });
   // Saving somewhere keeps the workbook there from now on, as Office's Save As does; a copy is downloaded.
   [
-    { id: 'file.open', name: 'Open…', keys: '$mod+O', run: () => opened(Store.openFile()) },
+    { id: 'file.open', name: 'Open…', keys: '$mod+O', run: () => opened(() => Store.openFile()) },
     { id: 'file.save', name: 'Save as…', keys: '$mod+Shift+S', run: () => saved(Store.saveAs('file')) },
     { id: 'file.library', name: 'Save to SharePoint…', run: toLibrary },
     { id: 'file.download', name: 'Download a copy', run: () => Store.download() },
@@ -2320,6 +2397,6 @@ const App = (() => {
     get wb() { return book.value; },
     chart, version, day, shown, entered, schema, notes, definitions, relations, namesOn, computed: result, workOn, workAt, state, needs, moving, movable, rankBy, rankOver, linesOver, handMade, asWords, amountOf, ofTemplate,
     untracked, sayUntracked, mastering, pageMaster, hasMaster, readOnly, viewing, setViewing, canAsk, seeing, seenIn, see, looks, lookOf, looking, letGo, lookChange, lookStep, undoLook: () => stepLook(true), lookTable, closeLook, keepTable, keepShown, showOnly, showAll, filterBy, clearFilters, filtersOf, ruleOf, offRule, filterFields, filterable, answerWord, pagesFor, shownOf, lookWordsOf, LookBand, page: drawnPage, opensViewing, setOpensViewing, whyNot, needsWithin, change, keeping, asOfWords, would, asksDay, begins, endOf, endsOf, merging, endsAct, isDated, deleteLabel, mistakeLabel, bookName, lineNamed, nameLine, heldFrom, heldUntil, formerNames, notOurs, sayNotOurs, blanksApart, spanOf, dayChanger, amending, amendingRow, neverHeld, mergedInto, keepOff, responsible, newKinds, amendPending: amend, enteredBy, later, From, pending, ownDay, stage, discard, commit, deleting, deleteVerb, actOf, relating, transferable, transferring, repoint, ofScene, interposable, interposeWord, interposing, Pending, reverse, restore, views, scene, layouts, addView, who, begin, showMade, newChart, hasPattern,
-    enterAt, putting, put, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken, sandbox, sandboxBegun, unsandbox,
+    enterAt, putting, put, putBatch, asksFrom, fixedAt, held: typedOut, overriding, backToRule, overOf, ruleSaid, noTone, annotate, broken, sandbox, sandboxBegun, unsandbox,
   };
 })();

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Dendra tour test</title>
 <script>
-  // A very first launch: never toured, so the tour runs by itself once the window is drawn.
+  // A first launch offers creation; the Tour starts only when explicitly chosen.
   try { sessionStorage.setItem('dendra.launched', '1'); localStorage.clear(); } catch {}
 </script>
 <link rel="stylesheet" href="../../vendor/tabulator/tabulator.min.css">
@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="../../vendor/codemirror/lint.css">
 <link rel="stylesheet" href="../css/dendra.css">
 <link rel="stylesheet" href="../css/canvas.css">
+<link rel="stylesheet" href="../css/design-editor.css">
 <link rel="stylesheet" href="../css/inspector.css">
 <link rel="stylesheet" href="../css/formulabar.css">
 <link rel="stylesheet" href="../css/table.css">
@@ -48,7 +49,9 @@
 <script src="../../vendor/codemirror/matchbrackets.js"></script>
 <script src="../../vendor/msal/msal-browser.min.js"></script>
 <script src="../core/tree.js"></script>
+<script src="../core/edit-scope.js"></script>
 <script src="../core/notes.js"></script>
+<script src="../core/formatting.js"></script>
 <script src="../core/log.js"></script>
 <script src="../core/formulas.js"></script>
 <script src="../core/sharepoint.js"></script>
@@ -69,11 +72,17 @@ const Store = { open: async ({ sample }) => Log.open(sample), who: () => localSt
 <script src="../core/text.js"></script>
 <script src="../core/design-schema.js"></script>
 <script src="../core/scene.js"></script>
+<script src="../core/bound-text.js"></script>
 <script src="../ui/drawing.js"></script>
 <script src="../ui/canvas.js"></script>
 <script src="../ui/formatbar.js"></script>
+<script src="../ui/bound-words.js"></script>
 <script src="../ui/words.js"></script>
+<script src="../ui/canvas-words.js"></script>
+<script src="../ui/canvas-bindings.js"></script>
+<script src="../ui/field-palette.js"></script>
 <script src="../ui/designs.js"></script>
+<script src="../ui/field-extraction.js"></script>
 <script src="../ui/inspector.js"></script>
 <script src="../ui/table.js"></script>
 <script src="../ui/time.js"></script>
@@ -104,8 +113,15 @@ const beside = () => { const { x, y } = card(); return (x >= 0 && x <= 24 && y <
 
 async function run() {
   await until(() => App.views.peek().length && App.scene.peek() && Canvas.active.peek(), 15000);
+  await until(() => !!$('dialog[open] .gallery'), 8000);
+  check('The first launch offers chart creation before an optional tour', !!$('dialog[open] .gallery') && !step());
+  check('First-chart creation omits workbook placement and copying the example', !$('dialog [aria-label="Goes in"]') && !$('dialog [aria-label="Like this chart"]'));
+  $$('dialog button').find(b => txt(b) === 'Explore the example').click(); await tick(150);
+  check('New chart remains directly accessible after leaving the welcome dialog', !!$('.titlebar [aria-label="New chart"]'));
+  $('.chartmenu').click(); await tick(100);
+  $$('.float .menu-item').find(b => txt(b.querySelector('.label') ?? b) === 'Tour').click();
   await until(() => step() === '1 / 7', 8000);
-  check('On the very first launch the tour starts by itself, at its first step', step() === '1 / 7', step());
+  check('Choosing Tour starts at its first step', step() === '1 / 7', step());
   check('… and it’s kept as toured', localStorage.getItem('dendra.toured') === '1');
   const n0 = N(), began = Shell.selection.peek().join();
 

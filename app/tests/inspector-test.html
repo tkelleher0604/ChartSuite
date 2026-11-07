@@ -69,6 +69,7 @@ if (Q.has('y')) Shell.ready.then(() => setTimeout(() => { document.querySelector
 // ---- The checks: each drives the inspector as a person would, then reads the log ----
 const results = [], check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
 const tick = (ms = 30) => new Promise(r => setTimeout(r, ms));
+const until = async test => { const end = performance.now() + 2000; while (!test() && performance.now() < end) await tick(20); };
 const $ = s => document.querySelector('.inspector ' + s), $$ = s => [...document.querySelectorAll('.inspector ' + s)];
 // What an element says, its no-break spaces, which bind a name's suffix and numerals, as spaces.
 const spoken = el => el.textContent.replace(/\s/g, ' ');
@@ -148,7 +149,7 @@ async function run() {
       const read = Scene.reader(st(), N()), partner = N().nameOf(st(), ids.find(x => x !== id));
       check('Correct spouse tokens and formerly offered Spous tokens both keep reading the saved relative',
         ["Spouse's name", 'Spouse.Name', "Spous's name", 'Spous.Name'].every(token => read(id, token).text === partner));
-      Shell.select([id]); await tick(80); $('[aria-label="Add to Spouses"]').click(); await tick(80);
+      Shell.select([id]); await tick(80); $('[aria-label="Add spouse"]').click(); await tick(80);
       check('A spouse list asks for a New spouse, whichever relation side the person occupies', document.querySelector('.float .menu-find')?.dataset.placeholder === 'New spouse', document.querySelector('.float .menu-find')?.dataset.placeholder);
       Shell.closeAll(); await tick();
     }
@@ -386,6 +387,9 @@ async function run() {
   App.change(tx => tx.note('Fill', themedFill, '#f2f2f2', { view: Shell.view.peek() }));
   App.change(tx => tx.note('Fill', Tree.treeOf(st(), 'fund'), '#123456', { view: Shell.view.peek() })); Shell.select(['fund']); await tick(60);
   const looks = () => { const sec = $$('section').find(s => s.querySelector('.fold')?.textContent === 'Look'); return sec ? [...sec.querySelectorAll('.row')].map(r => r.textContent.trim()) : []; };
+  const lookToggle = $$('section').find(s => s.querySelector('.fold')?.textContent === 'Look')?.querySelector('.fold');
+  check('record appearance starts folded so data stays in focus', lookToggle?.getAttribute('aria-expanded') === 'false' && !looks().length);
+  lookToggle.click(); await tick(60);
   check('the look says where each property comes from once, this box’s own first, a color of one’s own by its code', looks()[0] === 'This box' && looks()[1] === 'Fill#123456'
     && looks().includes('Entity Type: Limited partnership') && !$('.from'), looks().join(' | '));
   Shell.parts.value.undo.undo(); await tick(60);
@@ -570,6 +574,7 @@ async function run() {
   const amt = pb('.amount input'), nAmt = App.wb.changes().length, failsAt = () => { const f = pb('.fails'); return f && spoken(f).trim(); };
   const before5 = failsAt();
   amt.value = '5'; amt.dispatchEvent(new Event('input', { bubbles: true })); await tick(80);
+  await until(() => Object.values(FormulaBar.pending.peek()?.change.records ?? {}).some(r => r?.edge === 'Percentage' && r.value === 0.05));
   check('a relation’s amount typed in its row is redlined as Enter will add it, the bar showing it too', App.pending.peek()?.value?.v === 0.05
     && Object.values(FormulaBar.pending.peek()?.change.records ?? {}).some(r => r?.edge === 'Percentage' && r.value === 0.05), `${App.pending.peek()?.value?.v} ${pb('.amount input')?.value}`);
   check('… and what it would fail said as it’s typed, by the record the check is about, with its figure', !before5 && failsAt() === 'Fails Ownership Adds Up at Fund III (105%, not 100%)', `${before5} / ${failsAt()}`);
@@ -579,7 +584,7 @@ async function run() {
   Shell.parts.value.undo.undo(); await tick(60);
   // A list's Add asks the same, in the two-box panel, where its role or value is said too
   Shell.select(['northpine']); await tick(60);
-  $$('.sect .btn.icon').find(b => b.getAttribute('aria-label') === 'Add to Owners')?.click(); await tick();
+  $('.sect [aria-label="Add owner"]')?.click(); await tick();
   await pick('Calder Ridge Capital Management, LLC');
   check('a list’s Add asks it there too, redlined, under its row', Shell.selection.peek().join() === 'northpine,mgmt' && /is an owner of Northpine/.test($('.rr.adding .nm')?.textContent ?? '')
     && document.activeElement === pb('.amount input'), `${Shell.selection.peek()} ${$('.insp')?.textContent.slice(0, 160)}`);
@@ -737,6 +742,9 @@ async function run() {
   await findIn('Northpine'); await pick('Northpine Software, LLC'); await tick(60);
   const much = pb('.amount');
   much.value = '30'; much.dispatchEvent(new Event('input', { bubbles: true })); await tick(60);
+  // Large-chart previews deliberately debounce for 300 ms. Wait for the requested
+  // part's preview, keeping the exact record assertions below.
+  await until(() => Object.values(FormulaBar.pending.peek()?.change.records ?? {}).some(r => r?.field === 'percent' && r.value === 0.3));
   const red2 = FormulaBar.pending.peek()?.change.records ?? {};
   check('a part typed: the old line kept, its percentage less the part; the new one the part', red2[own] === undefined && Object.entries(red2).some(([, r]) => r?.at === own && r.value === 0.52)
     && Object.keys(red2).some(k => red2[k]?.args?.some(a => a.at === 'northpine') && pctOf(red2, k) === 0.3), JSON.stringify(red2).slice(0, 300));
@@ -1357,7 +1365,7 @@ async function run() {
 
   // ---- A list's + makes what isn't there, one way with Add's list: a search of who, and a new one of each kind ----
   Shell.select(['fund']); await tick(60);
-  $$('.sect .btn.icon').find(b => b.getAttribute('aria-label') === 'Add to Owners')?.click(); await tick();
+  $('.sect [aria-label="Add owner"]')?.click(); await tick();
   const f0 = document.querySelector('.float .menu-find'); f0.textContent = 'Harbor University Endowment'; f0.dispatchEvent(new Event('input', { bubbles: true })); await tick();
   const offeredNew = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent);
   check('a list’s + offers a new one named as typed, one for each kind its side can be', ['Entity', 'Investor Group', 'Individual'].every(k => offeredNew.includes(`New ${k}: Harbor University Endowment`)), offeredNew.join(' | '));
@@ -1589,6 +1597,7 @@ async function saysWhen(C, keep) {
   endThese.click(); await tick(80);
   check('… a bar saying what goes, what it breaks in words, and End that too', /^\d positions$/.test(spoken(pb('.what'))) && /^Fails Capacity Held: Margaret A\. Chen signs for Offshore Feeder, via Cayman GP/.test(spoken(pb('.fails') ?? document.body)) && pb('.too')?.textContent === 'End that too', pb()?.textContent);
   pb('.too').click(); await tick(80);
+  await until(() => !pb('.fails'));
   check('… which goes with it, what it breaks no longer failing', !pb('.fails') && /Signing Authority: Margaret A\. Chen for Offshore Feeder/.test(spoken(pb('.what'))), pb()?.textContent);
   await keep();
   check('… made on one day, as one change, the panel staying on the record', App.wb.changes().length === nEnd + 1 && Shell.selection.peek().join() === 'chen' && !posSect(), `${App.wb.changes().length - nEnd} ${Shell.selection.peek()}`);
@@ -1658,7 +1667,7 @@ async function saysWhen(C, keep) {
   Shell.select([stockDoc]); await tick(60);
   const evRow = $$('section').find(s => s.dataset.title === 'Evidences')?.querySelector('.row.rel .k .lk');
   check('a document’s Evidences names each by the place rule', /Fund III → Fund III Blocker, 100%/.test(spoken(evRow ?? document.body)), evRow?.textContent);
-  $$('section').find(s => s.dataset.title === 'Evidences')?.querySelector('.sect .btn.icon')?.click(); await tick();
+  $('.sect [aria-label="Add evidence"]')?.click(); await tick();
   await typeIn('Chen'); await tick(30);
   const pickerRows = [...document.querySelectorAll('.float .menu-item .label')].map(x => spoken(x));
   check('… and its picker too, searched by those words', pickerRows.some(x => /Margaret A\. Chen → .*, Director/.test(x)) && !pickerRows.some(x => x === 'Position' || x === 'Signing Authority'), pickerRows.join(' | '));
@@ -1684,7 +1693,7 @@ async function saysWhen(C, keep) {
   const here2 = Shell.view.peek();
   App.change(tx => tx.note('Shown', { args: [{ edge: 'Holder', loc: {} }, { edge: 'Company', loc: {} }] }, false, { view: here2 }), { dated: false }); await tick(60);
   Shell.select(['blocker']); await tick(60);
-  $$('section').find(s => s.dataset.title === 'Personnel')?.querySelector('.sect .btn.icon')?.click(); await tick();
+  $('.sect [aria-label="Add personnel"]')?.click(); await tick();
   await typeIn('Elena Vasquez'); await pick('New Individual: Elena Vasquez'); await tick(80);
   // (It goes straight to the kind and the day, in its bar, nothing yet made.)
   const roles = [...document.querySelectorAll('.float .menu-item .label')].map(x => x.textContent).join();
@@ -1817,7 +1826,7 @@ async function saysWhen(C, keep) {
   Shell.parts.value.undo.undo(); Shell.parts.value.undo.undo(); await tick(60);
   // A relation picker finds by both sides, in any order
   Shell.select(['doc_cert_blk']); await tick(60);
-  $$('section').find(s => s.dataset.title === 'Evidences')?.querySelector('.sect .btn.icon')?.click(); await tick();
+  $('.sect [aria-label="Add evidence"]')?.click(); await tick();
   await typeIn('halvard blocker'); await tick(30);
   const both = [...document.querySelectorAll('.float .menu-item .label')].map(x => spoken(x));
   check('a relation picker finds by both sides, in any order', both.length === 1 && /Fund III Blocker → Halvard/.test(both[0]), both.join(' | '));

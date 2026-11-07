@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Words editor component test</title>
+<style>
+body { font: 16px Arial; }
+#over { position: relative; height: 260px; }
+.dc-edit { position: absolute; border: 1px solid #2464ba; }
+.words-in { white-space: pre-wrap; min-height: 80px; padding: 8px; outline: none; }
+.word-chip { background: #e9f0ff; padding: 0 3px; display: inline-block; }
+.word-bound.active { background: #e9f0ff; }
+.word-bound.empty::before { content: attr(data-placeholder); color: #678; }
+.bound-error { color: #b22; }
+#out { white-space: pre-wrap; font: 12px Consolas, monospace; }
+.inspector { border: 1px solid #ddd; padding: 8px; }
+</style>
+</head>
+<body>
+<button id="bold">Bold</button><button id="field">Insert field</button>
+<div id="over"></div><div class="inspector" id="panel"></div><pre id="out">Running…</pre>
+<script>
+const wordsErrors = [];
+addEventListener('error', e => wordsErrors.push({ name: 'No browser error: ' + e.message, ok: false }));
+addEventListener('unhandledrejection', e => wordsErrors.push({ name: 'No unhandled rejection: ' + String(e.reason), ok: false }));
+</script>
+<script src="../../vendor/preact/preact.min.umd.js"></script>
+<script src="../../vendor/preact/hooks.umd.js"></script>
+<script src="../../vendor/htm/htm.umd.js"></script>
+<script src="../../vendor/signals/signals-core.min.js"></script>
+<script src="../../vendor/signals/signals.min.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/shapes.js"></script>
+<script src="../core/text.js"></script>
+<script src="../core/scene.js"></script>
+<script>const Shell = { icon: () => null, menu: () => {} };</script>
+<script src="../ui/bound-words.js"></script>
+<script src="../ui/words.js"></script>
+<script src="../ui/canvas-words.js"></script>
+<script src="words-test.js"></script>
+</body>
+</html>

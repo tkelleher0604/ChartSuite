@@ -253,6 +253,19 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 @container (max-width: 1560px) { .fb [data-fb="tidy"] { width: 64px; } }
 .fb [data-fb="group"] { width: 76px; }
 .fb .zoom { margin-left: auto; width: 62px; justify-content: flex-end; position: sticky; right: 0; background-color: var(--paper); font-variant-numeric: tabular-nums; }
+
+/* Scope stays readable beside the selection instead of competing with font and drawing controls. */
+.fb-context { height: 36px; border-top: 1px solid var(--rule); background: var(--surface); gap: 10px; }
+.fb-context[hidden] { display: none; }
+.fb-wrap[data-empty] .fb > button:disabled { visibility: hidden; }
+.fb-wrap[data-empty] .fb > .sep { visibility: hidden; }
+.fb-context-label { color: var(--ink-2); font: var(--t12); flex: none; padding-left: 6px; }
+.fb-context .scope { width: auto; max-width: min(65vw, 540px); }
+.fb-context .scope > button { cursor: pointer; }
+.fb-context .scope > button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--rule-2); }
+.fb-context .scope > [data-fb="own"], .fb-context .scope > [data-fb="like"] { min-width: 90px; }
+.fb-context-hint { margin-left: auto; padding-right: 6px; color: var(--ink-3); font: var(--t12); white-space: nowrap; }
+@container (max-width: 1000px) { .fb-context-hint { display: none; } }
 .fb .btn:disabled, .fb .btn[aria-disabled="true"] { color: var(--off); }
 /* The painter armed: the brush, everywhere on the chart. */
 .dc.painting, .dc.painting * { cursor: var(--brush) !important; }

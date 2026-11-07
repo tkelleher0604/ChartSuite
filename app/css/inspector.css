@@ -472,3 +472,13 @@ button.st-n:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* What a chart's compared with, kept or not, and what that marks, by name. */
 .row .v.ctl > .keeps { flex: none; margin: 0 auto 0 8px; height: 24px; padding: 0 8px; }
 .row.marked > .v { display: block; line-height: var(--row); white-space: normal; }
+/* The selected object's values and its shared card layout are separate, explicit tasks. */
+.object-editor-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--paper); }
+.object-data-label { display: flex; flex-direction: column; gap: 1px; }
+.object-data-label strong { font: var(--th); }
+.object-data-label small { color: var(--ink-3); font: var(--t12); }
+.object-editor-actions .btn { gap: 6px; color: var(--accent-ink); white-space: nowrap; }
+.object-design-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.object-design-actions > .ghost { font-size: 12px; min-height: 26px; }
+.sect .relation-add { max-width: 58%; min-width: 0; gap: 3px; color: var(--accent-ink); }
+.sect .relation-add span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

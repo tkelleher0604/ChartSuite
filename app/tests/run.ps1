@@ -2,13 +2,14 @@
 # Examples: ./run.ps1; ./run.ps1 -Suite builder,store; ./run.ps1 -Suite builder -Width 1024
 [CmdletBinding()]
 param(
-  [ValidateSet('text','core','engine','scene','export','inspector','canvas','canvas-entering','table','store','tour','skill','perf','builder','design-schema','formulabar','formulabar-rules')]
-  [string[]]$Suite = @('text','core','engine','scene','export','inspector','canvas','canvas-entering','table','store','tour','skill','perf','builder','design-schema','formulabar','formulabar-rules'),
+  [ValidateSet('text','core','engine','scene','export','inspector','canvas','canvas-entering','table','store','tour','skill','perf','builder','design-editor','canvas-text','design-schema','edit-scope','bound-text','put-batch','words','field-extraction','field-extraction-gui','formatting','classification','classification-gui','formulabar','formulabar-rules')]
+  [string[]]$Suite = @('text','core','engine','scene','export','inspector','canvas','canvas-entering','table','store','tour','skill','perf','builder','design-editor','canvas-text','design-schema','edit-scope','bound-text','put-batch','words','field-extraction','field-extraction-gui','formatting','classification','classification-gui','formulabar','formulabar-rules'),
   [string]$Browser,
   [string]$Artifacts,
   [ValidateRange(800,3840)][int]$Width = 1440,
   [ValidateRange(600,2160)][int]$Height = 1000,
   [ValidateSet('light','dark')][string]$Theme = 'light',
+  [ValidatePattern('^[a-z-]*$')][string]$Stop = '',
   [ValidateRange(30,600)][int]$TimeoutSeconds = 600
 )
 $ErrorActionPreference = 'Stop'
@@ -39,15 +40,21 @@ if (!(Test-Path -LiteralPath $ready)) { throw ('Test server did not start: ' + (
 foreach ($name in $Suite) {
   $dir = Join-Path $Artifacts $name
   New-Item -ItemType Directory -Path $dir -Force | Out-Null
-  $file = switch ($name) { 'formulabar-rules' { 'formulabar' }; 'canvas-entering' { 'canvas' }; default { $name } }
+  $file = switch ($name) { 'formulabar-rules' { 'formulabar' }; 'canvas-entering' { 'canvas' }; 'design-editor' { 'builder' }; 'canvas-text' { 'builder' }; 'put-batch' { 'builder' }; 'field-extraction-gui' { 'builder' }; 'classification-gui' { 'builder' }; default { $name } }
   $query = switch ($name) {
     'inspector' { '?run' }
     'formulabar' { '?checks' }
     'formulabar-rules' { '?rules' }
     'canvas-entering' { '?entering' }
+    'classification-gui' { '?flow=classification' }
+    'put-batch' { '?flow=put-batch' }
+    'field-extraction-gui' { '?flow=field-extraction&theme=' + $Theme }
     'builder' { '?theme=' + $Theme }
+    'design-editor' { '?flow=design-editor&theme=' + $Theme }
+    'canvas-text' { '?flow=canvas-text&theme=' + $Theme }
     default { '' }
   }
+  if ($Stop) { $query += $(if ($query) { '&' } else { '?' }) + 'stop=' + $Stop }
   $separator = if ($query) { '&' } else { '?' }
   $runId = [guid]::NewGuid().ToString('N')
   # Performance finishes synchronously in the load event, which must not be held pending.

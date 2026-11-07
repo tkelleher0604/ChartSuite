@@ -39,7 +39,7 @@ async function value(label, text) {
   await input(selector, text); await key($(selector), 'Enter'); await wait(200);
 }
 async function editDesign() {
-  await click('[data-fb="design"]'); await click(button('Edit design', '.picker.designs button')); await wait(400);
+  await click('[aria-label="Edit shared design"]'); await wait(400);
 }
 const rowOf = id => App.shown.peek().item(App.chart.peek(), id).at(-1);
 async function dragField(label, target) {
@@ -103,9 +103,9 @@ async function sharedDesignAcrossViews() {
   await key($('.sheets input[aria-label="Name"]'), 'Enter'); await wait(300);
   const companyView = App.scene.peek().view;
   await object('Acme', 'Company');
-  await click('[data-fb="design"]'); await click('.picker.designs button.tile[aria-label="Staff card"]');
+  await click('[data-fb="design"]'); await click('.picker.designs button.tile[aria-label="Staff"]');
   const sharedId = box('Acme')?.design?.value.id;
-  check('Another object type can reuse a saved design through the gallery', !!sharedId && box('Acme').design.value.name === 'Staff card');
+  check('Another object type can reuse a saved design through the gallery', !!sharedId && box('Acme').design.value.name === 'Staff');
   await showView(staffView);
   if (box('Acme')) { await selectBox('Acme', true); await menu('More'); await menu('Hide in this view'); }
   check('The other type is absent from the page being edited', !box('Acme'));
@@ -193,7 +193,7 @@ async function richDrawingToType() {
   const drawingText = App.scene.peek().byId.get(shape.id)?.texts[0];
   check('A field before rich text keeps the second repeated word styled on the free drawing', drawingText?.text === 'Name' + text && drawingText.runs?.[0]?.from === from + 4 && drawingText.runs[0].to === text.length + 4);
   await click(button('Save as object type…', '.inspector button'));
-  await input('dialog input[aria-label="Design name"]', 'Rich card'); await input('dialog input[aria-label="Object type"]', 'Rich card');
+  await input('dialog input[aria-label="Object type"]', 'Rich card');
   await click(button('Save', 'dialog button')); await wait(350);
   const literalPart = name => box(name)?.parts?.find(p => p.texts?.some(t => t.text === name + text))?.texts[0];
   const preserved = (part, name) => part?.runs?.length === 1 && part.runs[0].from === from + name.length && part.runs[0].to === text.length + name.length && part.runs[0].Bold;
@@ -240,12 +240,12 @@ async function reusableCardAction() {
   const end = document.createRange(); end.setStart(panel.lastChild, panel.lastChild.length); end.collapse(true); getSelection().removeAllRanges(); getSelection().addRange(end);
   panel.dispatchEvent(new Event('input', { bubbles: true })); panel.blur();
   await field('Capacity', true); await click(button('Save as object type…', '.inspector button'));
-  await input('dialog input[aria-label="Design name"]', 'Room card'); await input('dialog input[aria-label="Object type"]', 'RoomCard');
+  await input('dialog input[aria-label="Object type"]', 'RoomCard');
   const type = $('dialog select[aria-label="Type of Capacity"]'); type.value = 'number'; type.dispatchEvent(new Event('change', { bubbles: true }));
   await click(button('Save', 'dialog button')); await wait(300); await value('Capacity', '8');
   await object('Studio', 'RoomCard'); await value('Capacity', '12');
   check('A card made from the blank-page action declares fields and reads each room’s values', specs('RoomCard').some(s => s.args[0].edge === 'Capacity' && s.out.field === 'number') && drawnText(box('Studio')).includes('Capacity: 12') && drawnText(box('RoomCard')).includes('Capacity: 8'));
-  check('Saving a rounded card preserves its silhouette without adding an outer rectangle', box('Studio').shape === 'rounded' && box('Studio').settings.Outline.value === 'none' && box('Studio').settings.Fill.value === 'none' && box('Studio').parts.some(p => p.geometry === 'rounded' && p.look.Outline !== 'none'));
+  check('Saving a rounded card paints one growing background without a duplicate frame', box('Studio').shape === 'rounded' && box('Studio').settings.Outline.value !== 'none' && box('Studio').settings.Fill.value !== 'none' && !box('Studio').parts.some(p => p.geometry === 'rounded' && p.look.Outline !== 'none'));
   const capacity = Tree.entryAt(App.state.peek(), named('Studio')[0], 'Capacity');
   check('Mixed text reports its visible resolved fields', box('Studio').design.parts.some(p => p.sourceIds?.includes(capacity)));
   const eye = () => $$('.inspector .row').find(r => words(r.querySelector('.k') ?? r) === 'Capacity')?.querySelector('.onchart:not(.named)');
@@ -285,15 +285,15 @@ async function run() {
   await key($('.dc'), 'g', { ctrlKey: true });
   check('Shapes can be grouped with the standard keyboard shortcut', App.scene.peek().marks.some(m => m.geometry === 'group' && m.members.length === 2));
   await click(button('Save as object type…', '.inspector button'));
-  check('A drawing on a blank chart defaults to a new object type', $('dialog select[aria-label="For"]').value === 'new');
-  await input('dialog input[aria-label="Design name"]', 'Staff card');
+  check('Saving a drawing asks directly for its object type, without a second design name or scope', !!$('dialog input[aria-label="Object type"]') && !$('dialog select[aria-label="For"]') && !$('dialog input[aria-label="Design name"]'));
+
   await input('dialog input[aria-label="Object type"]', 'Staff');
   check('The save dialog lists only actual merge fields', $$('dialog .design-fields label').map(words).join('|').includes('Role') && $$('dialog .design-fields label').length === 2);
   if (stop === 'save') return;
   await click(button('Cancel', 'dialog button'));
   check('Cancel keeps the drawing and creates no schema entries', !specs('Staff').length && App.scene.peek().marks.some(m => m.geometry === 'group'));
   await click(button('Save as object type…', '.inspector button'));
-  await input('dialog input[aria-label="Design name"]', 'Staff card');
+
   await input('dialog input[aria-label="Object type"]', 'View');
   await click(button('Save', 'dialog button'));
   check('Reserved object types are rejected before any change', !!$('dialog') && !named('View'));
@@ -301,14 +301,14 @@ async function run() {
   await click(button('Save', 'dialog button')); await wait(500);
   check('Saving a grouped drawing creates its first record', !!named('Staff'));
   check('Its merge fields become backend schema entries', ['Name', 'Role'].every(edge => specs('Staff').some(s => s.args[0].edge === edge && s.out.field === 'text')));
-  check('The design is the standard for the new type', App.notes.peek().resolve('Design', { kind: 'Staff' }, App.scene.peek().view)?.value?.name === 'Staff card');
+  check('The design is the standard for the new type', App.notes.peek().resolve('Design', { kind: 'Staff' }, App.scene.peek().view)?.value?.name === 'Staff');
   check('Typed text and record text render separately', drawnText(box('Staff')).includes('Team {Name}: Staff'), drawnText(box('Staff')));
   await click('[aria-label="Undo"]'); await wait(300);
   check('One Undo restores the grouping and removes the new type', !named('Staff') && !specs('Staff').length && App.scene.peek().marks.some(m => m.geometry === 'group'));
   await click('[aria-label="Redo"]'); await wait(300);
   check('Redo restores the type, schema and object together', !!named('Staff') && specs('Staff').length === 2);
   await object('Alex', 'Staff');
-  check('The next object automatically uses the saved design', box('Alex')?.design?.value.name === 'Staff card');
+  check('The next object automatically uses the saved design', box('Alex')?.design?.value.name === 'Staff');
   check('One design reads each object’s own name', drawnText(box('Alex')).includes('Team {Name}: Alex') && drawnText(box('Staff')).includes('Team {Name}: Staff'));
   await value('Role', 'Designer');
   check('Editing a record field updates only that object’s merged text', drawnText(box('Alex')).includes('Role: Designer') && !drawnText(box('Staff')).includes('Designer'));
@@ -340,7 +340,7 @@ async function run() {
   check('Save includes the type, fields, design and connection', savedFile && JSON.parse(savedFile).changes.length > 0);
   await click('.chartmenu'); await menu('Open…'); await wait(500);
   check('Reopening retains both objects and their merged text', !!named('Alex') && !!named('Staff') && drawnText(box('Alex')).includes('Product'));
-  check('Reopening retains a valid schema and reusable design', !Tree.schemaError(App.schema.peek()) && specs('Staff').some(s => s.args[0].edge === 'Department') && box('Staff')?.design?.value.name === 'Staff card');
+  check('Reopening retains a valid schema and reusable design', !Tree.schemaError(App.schema.peek()) && specs('Staff').some(s => s.args[0].edge === 'Department') && box('Staff')?.design?.value.name === 'Staff');
   if (stop === 'finished') return;
   await sharedDesignAcrossViews();
   await richDrawingToType();
