@@ -1102,6 +1102,7 @@ function mount(el) {
     return true;
   }
   graph.on('edge:mousedown', ({ e, edge }) => {
+    down = twice = null;
     const p = graph.clientToLocal(e.clientX, e.clientY);
     pressed = !pointed(edge) && edge.getData()?.kind === 'line' ? { id: edge.id, p: [p.x, p.y], was: Shell.selection.peek(), more: e.shiftKey || e.ctrlKey || e.metaKey } : null;
   });
@@ -1113,8 +1114,8 @@ function mount(el) {
   let down = null, twice = null;
   graph.on('node:mousedown', ({ e, node }) => {
     const k = node.getData()?.kind, id = k === 'label' ? node.getData().mark : node.id, cell = graph.getCellById(id), t = performance.now();
-    const now = { id, selected: !!cell && sel.isSelected(cell), x: e.clientX, y: e.clientY, t };
-    twice = down && down.id === id && t - down.t < 500 ? down : now;
+    const now = { id, selected: !!cell && sel.isSelected(cell), keys: [...Shell.selection.peek()], x: e.clientX, y: e.clientY, t };
+    twice = e.detail === 2 && down && down.id === id && t - down.t < 500 && Math.hypot(now.x - down.x, now.y - down.y) < 4 ? down : now;
     down = now;
     pressed = null;
     root.focus({ preventScroll: true });
@@ -1123,7 +1124,7 @@ function mount(el) {
     if (UNMARKED.has(k) || e.shiftKey || e.ctrlKey || e.metaKey) return;
     take(node);
   });
-  graph.on('blank:mousedown', () => { pressed = null; root.focus({ preventScroll: true }); });
+  graph.on('blank:mousedown', () => { pressed = null; down = twice = null; root.focus({ preventScroll: true }); });
   graph.on('node:click', ({ e, node }) => {
     const k = node.getData()?.kind;
     if (hold) return;
@@ -1475,11 +1476,20 @@ function mount(el) {
     // The record, or a blank's: typed over where it's worked out, as the inspector enters one.
     // A blank of an entry its record's kind hasn't yet gives the kind the entry, as the inspector's Add does.
     // One that has one to replace goes as the inspector's does, asking from when where it has history to keep (App.put).
-    const put = (out, auto = true) => r ? App.put(it.id, r, out, { auto }) : App.change(tx => {
-      const { at, edge } = it.blank, spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: Tree.specOf(treeOf(at)) }] };
-      if (!App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
-      tx.add('record', { at, edge, ...out });
-    });
+    const put = (out, auto = true) => {
+      const scoped = typeof CanvasBindings !== 'undefined' && CanvasBindings.putPanel(r ? it.id : null, r ?? it.blank, out, { auto });
+      if (scoped?.handled) return scoped.result;
+      if (r) {
+        if (out && Object.entries(out).every(([key, value]) => r[key] === value)) return;
+        return App.put(it.id, r, out, { auto });
+      }
+      if (!out) return;
+      return App.change(tx => {
+        const { at, edge } = it.blank, spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: Tree.specOf(treeOf(at)) }] };
+        if (!App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
+        tx.add('record', { at, edge, ...out });
+      });
+    };
     // A menu under the field, from which Tab goes on to the next field, as from one typed in.
     const picker = (items, o = {}) => {
       let close = null;
@@ -1491,21 +1501,29 @@ function mount(el) {
     if (kind.type === 'choice') {
       const now = r?.choice, opts = optionsOf(r ? r.at : it.blank.at, r ? r.edge : it.blank.edge);
       const items = q => {
-        const k = Tree.norm(q ?? ''), xs = opts.filter(o => Tree.norm(o).includes(k)).map(o => ({ label: o, checked: !!now && Tree.same(o, now), run: () => !(now && Tree.same(o, now)) && put({ choice: o }) }));
+        const k = Tree.norm(q ?? ''), xs = opts.filter(o => Tree.norm(o).includes(k)).map(o => ({ label: o, checked: !!now && Tree.same(o, now), run: () => put({ choice: o }) }));
         return k && !opts.some(o => Tree.same(o, q)) ? [...xs, ...(xs.length ? ['-'] : []), { label: `New option: ${Tree.clean(q)}`, run: () => put({ choice: Tree.clean(q) }) }] : xs;
       };
       return picker(items, { search: true, query: typed ?? '' });
     }
-    if (kind.type === 'tag') return picker([{ label: r?.edge ?? it.blank.edge, checked: r?.tag === true, run: () => r?.tag !== true && put({ tag: true }) },
-      { label: `Not ${r?.edge ?? it.blank.edge}`, checked: r?.tag === false, run: () => r?.tag !== false && put({ tag: false }) }]);
-    const raw = r ? Tree.format(r.field, r.value) : '';
-    openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, (text, keys) => {
+    if (kind.type === 'tag') return picker([{ label: r?.edge ?? it.blank.edge, checked: r?.tag === true, run: () => put({ tag: true }) },
+      { label: `Not ${r?.edge ?? it.blank.edge}`, checked: r?.tag === false, run: () => put({ tag: false }) }]);
+    const pending = App.pending.peek(), held = pending?.chart === App.chart.peek() && (pending.typed ?? pending.boundValues)?.find(t => r ? t.id === it.id : !t.id && t.slot?.at === it.blank.at && Tree.same(t.slot.edge, it.blank.edge));
+    const raw = held ? held.out ? Tree.outputText(held.out) : '' : r ? Tree.format(r.field, r.value) : '';
+    // Opening a value is not an instruction to copy it to the other scoped records.
+    // Typing the same value deliberately still counts, unlike merely leaving the editor.
+    let changed = typed !== undefined;
+    const ed = openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, (text, keys) => {
+      if (!changed) return;
       // (= begins a rule, as in a spreadsheet, and never the words.)
       if (/^\s*=\s*\S/.test(text) && FormulaBar.typed(r?.at ?? it.blank.at, r?.edge ?? it.blank.edge, Tree.clean(text), kind.datatype)) return;
-      const v = Tree.parse(kind.datatype ?? Tree.classify(text), text);
-      if (v === undefined || Tree.clean(text) === '' || (r && v === r.value)) return;
-      put({ field: kind.datatype ?? Tree.classify(text), value: v }, !!keys);
-    }, { selectAll: typed === undefined, ph: it.blank?.edge, tab: d => stepField(d, true) });
+      if (Tree.clean(text) === '') return put(null, !!keys);
+      const datatype = kind.datatype ?? Tree.classify(text), v = Tree.parse(datatype, text);
+      if (v === undefined) return { error: Tree.notA(datatype) };
+      if (r && v === r.value && held) return put(false, !!keys);
+      return put({ field: datatype, value: v }, !!keys);
+    }, { selectAll: typed === undefined, ph: it.blank?.edge, tab: d => stepField(d, true), keepOnError: true });
+    ed?.addEventListener('input', () => { changed = true; });
   }
   function edit(key, target, typed) {
     const [id, rowKey] = keyParts(key);
@@ -1591,7 +1609,7 @@ function mount(el) {
     const Words = props => {
       App.scene.value; App.pending.value;
       const r = bound ? bound.source() : App.shown.value.item(chart, m.id).at(-1);
-      return r ? preact.h(Designs.Words, { ...props, text: r.text ?? '', runs: r.runs, put, ...(bound && { bindings: bound.bindings }) }) : null;
+      return r ? preact.h(Designs.Words, { ...props, text: r.text ?? '', runs: r.runs, put, ...(bound && { bindings: bound.bindings, createField: bound.createField }) }) : null;
     };
     if (!bound || !Shell.selection.peek().includes(hostMark.id)) Shell.select([hostMark.id]);
     tipFor(null);
@@ -1599,7 +1617,7 @@ function mount(el) {
       ...(bound && typeof FieldExtraction !== 'undefined' && { dragSelection: (event, selection) => FieldExtraction.drag(event, selection, bound) }),
       style: { left: `${p.x}px`, top: `${p.y}px`, width: `${Math.max(120, m.w * z)}px`, minHeight: `${Math.max(28, m.h * z)}px`,
         font: `${t.Bold ? 700 : 400} ${t.Italic ? 'italic' : ''} ${Math.max(12, px(t.Size) * z)}px/${1.2 * (t.Spacing ?? 1)} ${Scene.fontFamily(t.Font)}`, textAlign: t.Align ?? 'center', color: t.Color,
-        '--canvas-edit-paper': Scene.tooDark(t.Color) ? '#ffffff' : '#17324d', '--canvas-text-scale': z / pageScale() },
+        '--canvas-edit-paper': Scene.tooDark({ Fill: t.Color }) ? '#ffffff' : '#17324d', '--canvas-text-scale': z / pageScale() },
       formatting: { base, apply: (runs, from, to, label, value) => Scene.runsWith(runs, from, to, label, value, base), changed: look => { rich.value = look; },
         style: look => ({ ...(look.Bold !== undefined && { fontWeight: look.Bold ? '700' : '400' }), ...(look.Italic !== undefined && { fontStyle: look.Italic ? 'italic' : 'normal' }),
           ...(look.Color && { color: look.Color }), ...(look.Font && { fontFamily: Scene.fontFamily(look.Font) }), ...(look.Size && { fontSize: `calc(${px(look.Size)}px * var(--canvas-text-scale))` }),
@@ -1637,7 +1655,7 @@ function mount(el) {
   // chosen beside it (see kindChooser) from `box.kinds`, `box.kind` first, each chosen told to `box.pick`.
   // `rich`, its words can be set part by part: what's selected in it takes a look from the format bar or its keys, and what it saves has its runs too.
   let richEdit = null;
-  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null, kept = false, rich = null } = {}) {
+  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null, kept = false, rich = null, keepOnError = false } = {}) {
     if (typeof CanvasWords !== 'undefined' && CanvasWords.close() === false) return;
     over.querySelectorAll('.dc-edit, .dc-kind, .dc-kinds').forEach(x => x.remove());
     tipFor(null);
@@ -1661,11 +1679,39 @@ function mount(el) {
     range.selectNodeContents(ed);
     if (!selectAll) range.collapse(false);
     s.removeAllRanges(); s.addRange(range);
-    let done = false;
+    let done = false, blockedClick = null;
     const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box, () => finish(true));
-    const finish = (ok, keys, options = {}) => { if (done) return; done = true; list?.close(); kind?.close(); printed?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); if (options.focus !== false) root.focus({ preventScroll: true }); if (ok) save(v, keys, runs, options); else escaped?.(); };
+    const finish = (ok, keys, options = {}) => {
+      if (done) return;
+      done = true;
+      const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, '');
+      if (ok && keepOnError) {
+        const result = save(v, keys, runs, options);
+        if (result?.error || result?.ok === false || result === false) {
+          done = false;
+          const message = result?.error ?? 'This value could not be saved. Your draft is still open.';
+          ed.setAttribute('aria-invalid', 'true'); ed.title = message; Shell.toast(message);
+          requestAnimationFrame(() => { if (ed.isConnected) ed.focus({ preventScroll: true }); });
+          return false;
+        }
+      }
+      list?.close(); kind?.close(); printed?.close(); parts?.close();
+      if (parts && richEdit === parts) richEdit = null;
+      removeEventListener('pointerdown', outside, true); removeEventListener('click', clicked, true); ed.remove();
+      if (options.focus !== false) root.focus({ preventScroll: true });
+      if (ok && !keepOnError) save(v, keys, runs, options); else if (!ok) escaped?.();
+    };
+    if (keepOnError) ed.addEventListener('input', () => { ed.removeAttribute('aria-invalid'); ed.removeAttribute('title'); });
     // (Going to the format bar's palette, it stays open, what's selected kept, till a press anywhere else.)
-    const outside = e => { if (!e.target.closest?.('.dc-edit, .fb, .float')) finish(true); };
+    const outside = e => {
+      blockedClick = null;
+      if (!e.target.closest?.(keepOnError ? '.dc-edit, .float' : '.dc-edit, .fb, .float') && finish(true) === false) {
+        blockedClick = e.target.closest?.('button, a, input, select, [role="button"]') ?? e.target;
+        e.preventDefault(); e.stopImmediatePropagation();
+      }
+    };
+    const clicked = e => { if (blockedClick && (blockedClick === e.target || blockedClick.contains?.(e.target))) { blockedClick = null; e.preventDefault(); e.stopImmediatePropagation(); } };
+    if (keepOnError) { addEventListener('pointerdown', outside, true); addEventListener('click', clicked, true); }
     ed.addEventListener('keydown', e => {
       e.stopPropagation();
       if (list?.key(e) || kind?.key(e)) return;
@@ -1675,7 +1721,7 @@ function mount(el) {
       else if (e.key === 'Enter' && multiline && !(e.ctrlKey || e.metaKey) && (e.shiftKey || ed.textContent)) { e.preventDefault(); paragraph(ed); }
       else if (e.key === 'Enter') { e.preventDefault(); finish(true, true); }
       // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
-      else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
+      else if (e.key === 'Tab' && tab) { e.preventDefault(); if (finish(true) !== false) setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
       // (In a shape's words, a tab, as PowerPoint's: the next stop.)
       else if (e.key === 'Tab' && multiline && !e.shiftKey) { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
     });
@@ -1932,7 +1978,12 @@ function mount(el) {
     // a free text there.
     if (k === 'box' || k === 'label') {
       const f = fieldUnder(e.clientX, e.clientY);
-      if (f?.it) { pickField(f); return editField(f.m, f.it, undefined, { x: e.clientX, y: e.clientY }); }
+      if (f?.it) {
+        // X6 narrows a selection on mouseup. A double-click into a selected member
+        // edits the set present at its first press; a single click still narrows it.
+        if (e.detail === 2 && twice?.selected && twice.id === node.id && performance.now() - twice.t < 500 && twice.keys.length > 1 && twice.keys.includes(f.m.id)) pick(twice.keys);
+        pickField(f); return editField(f.m, f.it, undefined, { x: e.clientX, y: e.clientY });
+      }
       if (k === 'box' && twice?.selected && twice.id === node.id && !still()) return writeText(scene.byId.get(node.id));
     }
     if (UNMARKED.has(k)) return;

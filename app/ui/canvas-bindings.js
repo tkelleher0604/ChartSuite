@@ -48,24 +48,57 @@ function previewPanel(id, slot, out) {
   const { plan } = prepared;
   return { handled: true, change: plan.ok ? App.would(tx => BoundText.apply(tx, plan, { put: (edit, id, slot, out) => App.putting(App.fixedAt(id, slot) ? edit.at(null) : edit, id, slot, out) }), { dated: plan.typed.some(t => App.asksFrom(t.id, t.out)) ? App.day.peek() : true }) : null };
 }
+const pendingBatch = () => {
+  const p = App.pending.peek();
+  return p?.source === 'bound-text' && p.chart === App.chart.peek() ? p : null;
+};
+let proposed = null;
+// A pending paragraph belongs to the proposal, not the editor which first typed it.
+// Replay its actions into an uncommitted transaction so reopening any affected object
+// uses exactly the same note layering and schema as the eventual commit.
+function editingContext() {
+  const ctx = context(), pending = pendingBatch(), book = App.shown.peek();
+  if (!pending?.boundAppenders?.length) { proposed = null; return ctx; }
+  if (proposed?.pending !== pending || proposed.book !== book || proposed.notes !== ctx.notes || proposed.schema !== ctx.schema) {
+    const tx = book.edit({ chart: App.chart.peek() });
+    for (const addition of pending.boundAppenders) addition.run(tx);
+    const changed = tx.noted(() => true), removed = new Set(changed.removed.map(r => r.id));
+    const notes = Notes.index([...book.rows(App.chart.peek()).filter(r => 'note' in r && !removed.has(r.id)), ...changed.added]);
+    const trees = tx.added().filter(r => 'spec' in r).map(r => r.tree);
+    proposed = { pending, book, notes: ctx.notes, schema: ctx.schema, result: { notes, schema: trees.length ? Tree.schema([...Object.values(ctx.schema), ...trees]) : ctx.schema } };
+  }
+  return { ...ctx, ...proposed.result };
+}
+const textKey = (view, part, pattern) => JSON.stringify(['canvas-text', view, part, Tree.key(pattern)]);
+function textAppenders(mark, partId, value, scope) {
+  return scope.outputs.map(pattern => ({
+    key: textKey(scope.view, partId, pattern),
+    canvasText: { view: scope.view, partId, pattern, value },
+    run: tx => Designs.say(tx, mark, partId, value, { ...scope, outputs: [pattern] }),
+  }));
+}
+function schemaAppender(trees) {
+  return { key: JSON.stringify(['canvas-schema', ...trees.map(Tree.key).sort()]), schemaTrees: trees, run: tx => {
+    const added = new Set(tx.added().filter(r => 'spec' in r).map(r => Tree.key(r.tree)));
+    for (const tree of trees) if (!added.has(Tree.key(tree))) { tx.add('spec', { tree }); added.add(Tree.key(tree)); }
+  } };
+}
 function part(mark, partId, requestedScope) {
   const chart = App.chart.peek(), view = App.scene.peek().view;
   const scope = { ...Designs.scope(mark, requestedScope, 'Edit text'), view };
-  const appendKey = `${view}|${mark.record}|${partId}`; let presentation = null;
-  const extractionTrees = new Map();
-  const editingContext = () => {
-    const ctx = context(), pending = App.pending.peek(), keys = new Set(pending?.source === 'bound-text' ? (pending.boundAppenders ?? []).map(a => a.key) : []);
-    for (const key of extractionTrees.keys()) if (!keys.has(key)) extractionTrees.delete(key);
-    const trees = [...extractionTrees.values()].flat();
-    return trees.length ? { ...ctx, schema: Tree.schema([...Object.values(ctx.schema), ...trees]) } : ctx;
-  };
+  // Accepted dialog definitions stay inert until insertion saves a paragraph containing
+  // their token. Cancel, failed validation, or a blocked insertion cannot leave schema behind.
+  const newFields = new Map();
+  const kindsOf = ctx => [...new Set(scope.recordIds.map(id => ctx.state[id]?.kind).filter(Boolean))];
   const current = () => App.scene.peek()?.byId.get(mark.id);
   const valid = () => App.chart.peek() === chart && App.scene.peek()?.view === view && !!current();
-  const source = () => {
-    const part = current()?.design?.value.parts?.find(p => p.id === partId);
-    if (App.pending.peek()?.source !== 'bound-text') presentation = null;
-    return presentation && part ? { ...part, ...presentation } : part;
+  const sourceFor = (recordId, ctx = editingContext()) => {
+    const design = pendingBatch()?.boundAppenders?.length
+      ? Scene.recordDesign(App.scene.peek().state ?? ctx.state, ctx.notes, recordId, view)
+      : App.scene.peek().marks.find(m => m.type === 'box' && m.record === recordId)?.design ?? Scene.recordDesign(App.scene.peek().state ?? ctx.state, ctx.notes, recordId, view);
+    return design?.value.parts?.find(p => p.id === partId);
   };
+  const source = () => sourceFor(mark.record);
   const read = token => {
     const binding = BoundText.resolve(editingContext(), mark.record, token), target = binding.target;
     const pending = App.pending.peek(), held = (pending?.typed ?? pending?.boundValues)?.find(t => target && (target.id ? t.id === target.id : !t.id && t.slot?.at === target.slot.at && Tree.same(t.slot.edge, target.slot.edge)));
@@ -91,14 +124,19 @@ function part(mark, partId, requestedScope) {
     },
   };
   const adapter = { recordId: mark.record, partId, scope, bindings, source, valid, leave, activate: () => { active.value = adapter; },
+    createField(suggested) {
+      if (!valid()) return null;
+      const ctx = editingContext(), kinds = kindsOf(ctx);
+      if (!kinds.length) { Shell.toast('Choose an object before creating a field.'); return null; }
+      return Designs.createField(suggested, { ...ctx, record: mark.record, kinds, newFields, valid, summary: scope.summary });
+    },
     prepareExtraction(selection, { own = false } = {}) {
       if (!valid()) return { error: 'This chart is no longer open.' };
       const chosen = own ? { ...Designs.scope(mark, { own: true, records: [mark.record], view }, 'Make a field'), view } : scope;
       const ctx = editingContext(), sourcesByRecord = {};
-      if (extractionTrees.size) return { error: 'Finish the pending field creation before extracting another value.' };
+      if (pendingBatch()?.boundAppenders?.some(a => a.schemaTrees)) return { error: 'Finish the pending field creation before extracting another value.' };
       for (const recordId of chosen.recordIds) {
-        const shown = App.scene.peek().marks.find(m => m.type === 'box' && m.record === recordId);
-        const part = recordId === mark.record ? source() : (shown?.design ?? Scene.recordDesign(App.scene.peek().state ?? ctx.state, ctx.notes, recordId, view))?.value.parts?.find(p => p.id === partId);
+        const part = sourceFor(recordId, ctx);
         if (part) sourcesByRecord[recordId] = { text: part.text ?? '', runs: part.runs ?? [] };
       }
       return { ctx, recordId: mark.record, recordName: App.notes.peek().nameOf(App.state.peek(), mark.record), recordIds: chosen.recordIds, scope: chosen, source: source()?.text ?? '', runs: source()?.runs ?? [], sourcesByRecord };
@@ -110,27 +148,24 @@ function part(mark, partId, requestedScope) {
       if (prepared.error) return { ok: false, error: prepared.error };
       const latest = FieldExtraction.plan(prepared.ctx, { ...prepared, name: plan.name, selection: plan.selection });
       if (!latest.ok) return latest;
-      const targetMark = current(), value = { text: latest.text, runs: latest.runs ?? [] }, schemaKey = `${appendKey}|schema:${Tree.norm(latest.name)}`;
-      const result = App.putBatch(latest.values, { appendKey, say: `Made ${latest.name} a record field`,
-        append: tx => Designs.say(tx, targetMark, partId, value, latest.scope),
-        appenders: [{ key: schemaKey, run: tx => {
-          const added = new Set(tx.added().filter(r => 'spec' in r).map(r => Tree.key(r.tree)));
-          for (const tree of latest.trees) if (!added.has(Tree.key(tree))) { tx.add('spec', { tree }); added.add(Tree.key(tree)); }
-        } }],
+      const targetMark = current(), value = { text: latest.text, runs: latest.runs ?? [] };
+      return App.putBatch(latest.values, { say: `Made ${latest.name} a record field`,
+        appenders: [...textAppenders(targetMark, partId, value, latest.scope), schemaAppender(latest.trees)],
       });
-      if (result.ok) {
-        presentation = result.status === 'pending' ? value : null;
-        if (result.status === 'pending') extractionTrees.set(schemaKey, latest.trees);
-      }
-      return result;
     },
     put(text, runs) {
       if (!valid()) return { error: 'This chart is no longer open.' };
+      const used = new Set(TextTemplate.fields(text).map(token => Tree.norm(token.split('|')[0])));
+      const fields = [...newFields.values()].filter(field => used.has(Tree.norm(field.label))), ctx = editingContext();
+      const declarations = DesignSchema.declarations(ctx.schema, fields.length ? kindsOf(ctx) : [], fields);
+      if (declarations.error) return { error: declarations.error };
       const was = source();
-      if (was?.text === text && JSON.stringify(was.runs ?? []) === JSON.stringify(runs ?? [])) return;
-      const targetMark = current(), value = { text, runs: runs ?? [] }, result = App.putBatch([], { append: tx => Designs.say(tx, targetMark, partId, value, scope), appendKey, say: scope.summary });
+      if (!declarations.trees.length && was?.text === text && JSON.stringify(was.runs ?? []) === JSON.stringify(runs ?? [])) return;
+      const targetMark = current(), value = { text, runs: runs ?? [] }, result = App.putBatch([], {
+        appenders: [...textAppenders(targetMark, partId, value, scope), ...(declarations.trees.length ? [schemaAppender(declarations.trees)] : [])], say: scope.summary,
+      });
       if (!result.ok) return { error: result.error };
-      presentation = result.status === 'pending' ? value : null;
+      for (const field of fields) newFields.delete(Tree.norm(field.label));
       return true;
     },
   };

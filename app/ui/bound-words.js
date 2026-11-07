@@ -81,8 +81,9 @@ function create(adapter, issue) {
     pending = node && node === fieldAt(range.endContainer) && root.contains(node)
       ? { node, parent: node.parentNode, next: node.nextSibling } : null;
   };
-  const capture = (element, inputType) => {
+  const capture = (element, inputType, inputTarget) => {
     root = element;
+    const edited = /^(insert|delete)/.test(inputType ?? ''), restored = /^history/.test(inputType ?? '');
     // Browsers can remove the wrapper when all of its text is deleted. Editing wholly
     // inside a value clears that value; it must not silently remove the template field.
     if (pending && !pending.node.isConnected && pending.parent.isConnected && !/^history/.test(inputType ?? '')) {
@@ -92,14 +93,20 @@ function create(adapter, issue) {
       const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
     }
     pending = null;
-    const selection = getSelection(), selected = fieldAt(selection.anchorNode), groups = new Map();
+    const selection = getSelection(), selected = fieldAt(selection.anchorNode), target = fieldAt(inputTarget), current = root.contains(target) ? target : selected, groups = new Map();
     for (const node of root.querySelectorAll('[data-bound]')) { const list = groups.get(node.dataset.bound) ?? []; list.push(node); groups.set(node.dataset.bound, list); }
     for (const [key, all] of groups) {
       const state = states.get(key); if (!state?.editable) continue;
-      const node = all.includes(selected) ? selected : all.find(n => valueOf(n) !== state.text);
+      const node = all.includes(current) ? current : all.find(n => valueOf(n) !== state.text);
       if (!node) continue;
-      const text = valueOf(node); if (text === state.text) continue;
-      state.text = text; state.dirty = text !== state.base; state.error = null; notify(state); show(state, node);
+      const text = valueOf(node), touched = state.inputPending || edited && node === current;
+      state.inputPending = false;
+      if (text === state.text && !touched && !(restored && state.dirty)) continue;
+      // Retyping the displayed value is still an explicit edit: a broader scope may
+      // contain different values. Merely focusing or flushing the field is not one.
+      // Native Undo back to the original value cancels an uncommitted edit's intent.
+      state.text = text; state.dirty = restored ? text !== state.base : state.dirty || touched || text !== state.base;
+      state.error = null; notify(state); show(state, node);
     }
   };
   const commitOne = state => {
@@ -110,7 +117,7 @@ function create(adapter, issue) {
     catch (error) { result = { error: error.message ?? 'This value could not be saved.' }; }
     const error = result === false ? 'This value could not be saved.' : result?.error;
     if (error) { state.error = error; notify(state); show(state); return false; }
-    state.base = state.text = String(result?.text ?? state.text); state.dirty = false; state.error = null; notify(state); show(state); return true;
+    state.base = state.text = String(result?.text ?? state.text); state.dirty = false; state.inputPending = false; state.error = null; notify(state); show(state); return true;
   };
   const focusInvalid = state => {
     const node = nodes(state.key)[0]; if (!node) return;
@@ -140,12 +147,12 @@ function create(adapter, issue) {
     root = element;
     for (const [key, value] of Object.entries(values ?? {})) {
       const state = states.get(key) ?? stateFor(value.token); if (!state.editable) continue;
-      state.text = value.text; state.dirty = state.text !== state.base; state.error = null; notify(state); show(state);
+      state.text = value.text; state.dirty = state.text !== state.base; state.inputPending = false; state.error = null; notify(state); show(state);
     }
   };
   const cancel = () => {
     const state = states.get(active); if (!state?.dirty && !state?.error) return false;
-    state.text = state.base; state.dirty = false; state.error = null; notify(state); show(state); focusInvalid(state); return true;
+    state.text = state.base; state.dirty = false; state.inputPending = false; state.error = null; notify(state); show(state); focusInvalid(state); return true;
   };
   const insertText = text => {
     const selection = getSelection(), range = selection.rangeCount && selection.getRangeAt(0), node = range && fieldAt(range.startContainer);
@@ -153,6 +160,7 @@ function create(adapter, issue) {
     const value = valueElement(node);
     if (!value.contains(range.startContainer) || !value.contains(range.endContainer)) return false;
     range.deleteContents(); const typed = document.createTextNode(text); range.insertNode(typed);
+    states.get(node.dataset.bound).inputPending = true;
     if (valueOf(value).endsWith('\n') && !value.querySelector('[data-bound-tail]')) { const tail = document.createElement('br'); tail.dataset.boundTail = ''; value.append(tail); }
     value.focus({ preventScroll: true }); range.setStart(typed, text.length); range.collapse(true); selection.removeAllRanges(); selection.addRange(range); pending = null; return true;
   };

@@ -639,6 +639,13 @@ const App = (() => {
   // override what a rule can't say, where there's no record for it to be over.
   function put(id, slot, out, { auto = false, over = false } = {}) {
     const p = mine(), now = p?.typed ?? null;
+    // Other editors can amend a canvas proposal, but must keep its schema and paragraph
+    // actions. Reverting its last value removes only that value, never those actions.
+    if (p?.source === 'bound-text') {
+      const row = id && state.peek()[id];
+      const original = !row ? null : row.field ? { field: row.field, value: row.value } : 'choice' in row ? { choice: row.choice } : 'tag' in row ? { tag: row.tag } : { args: row.args };
+      return putBatch([{ id, slot, out: out === false ? original : out, over }], { auto });
+    }
     if (out === false || (!out && now?.some(t => t.id === id))) {
       if (!now) return;
       const left = now.filter(t => t.id !== id);

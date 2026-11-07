@@ -2,8 +2,8 @@
 # Examples: ./run.ps1; ./run.ps1 -Suite builder,store; ./run.ps1 -Suite builder -Width 1024
 [CmdletBinding()]
 param(
-  [ValidateSet('text','core','engine','scene','export','inspector','canvas','canvas-entering','table','store','tour','skill','perf','builder','design-editor','canvas-text','design-schema','edit-scope','bound-text','put-batch','words','field-extraction','field-extraction-gui','formatting','classification','classification-gui','formulabar','formulabar-rules')]
-  [string[]]$Suite = @('text','core','engine','scene','export','inspector','canvas','canvas-entering','table','store','tour','skill','perf','builder','design-editor','canvas-text','design-schema','edit-scope','bound-text','put-batch','words','field-extraction','field-extraction-gui','formatting','classification','classification-gui','formulabar','formulabar-rules'),
+  [ValidateSet('text','core','engine','scene','export','inspector','canvas','canvas-entering','table','store','tour','skill','perf','builder','design-editor','canvas-text','design-schema','design-geometry','edit-scope','bound-text','put-batch','pending-bindings','live-field-create','words','field-extraction','field-extraction-gui','formatting','classification','classification-gui','formulabar','formulabar-rules')]
+  [string[]]$Suite = @('text','core','engine','scene','export','inspector','canvas','canvas-entering','table','store','tour','skill','perf','builder','design-editor','canvas-text','design-schema','design-geometry','edit-scope','bound-text','put-batch','pending-bindings','live-field-create','words','field-extraction','field-extraction-gui','formatting','classification','classification-gui','formulabar','formulabar-rules'),
   [string]$Browser,
   [string]$Artifacts,
   [ValidateRange(800,3840)][int]$Width = 1440,
@@ -40,7 +40,7 @@ if (!(Test-Path -LiteralPath $ready)) { throw ('Test server did not start: ' + (
 foreach ($name in $Suite) {
   $dir = Join-Path $Artifacts $name
   New-Item -ItemType Directory -Path $dir -Force | Out-Null
-  $file = switch ($name) { 'formulabar-rules' { 'formulabar' }; 'canvas-entering' { 'canvas' }; 'design-editor' { 'builder' }; 'canvas-text' { 'builder' }; 'put-batch' { 'builder' }; 'field-extraction-gui' { 'builder' }; 'classification-gui' { 'builder' }; default { $name } }
+  $file = switch ($name) { 'formulabar-rules' { 'formulabar' }; 'canvas-entering' { 'canvas' }; 'design-editor' { 'builder' }; 'canvas-text' { 'builder' }; 'put-batch' { 'builder' }; 'pending-bindings' { 'builder' }; 'live-field-create' { 'builder' }; 'field-extraction-gui' { 'builder' }; 'classification-gui' { 'builder' }; default { $name } }
   $query = switch ($name) {
     'inspector' { '?run' }
     'formulabar' { '?checks' }
@@ -48,6 +48,8 @@ foreach ($name in $Suite) {
     'canvas-entering' { '?entering' }
     'classification-gui' { '?flow=classification' }
     'put-batch' { '?flow=put-batch' }
+    'pending-bindings' { '?flow=pending-bindings' }
+    'live-field-create' { '?flow=live-field-create&theme=' + $Theme }
     'field-extraction-gui' { '?flow=field-extraction&theme=' + $Theme }
     'builder' { '?theme=' + $Theme }
     'design-editor' { '?flow=design-editor&theme=' + $Theme }

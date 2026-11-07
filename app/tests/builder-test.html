@@ -105,5 +105,5 @@ const Store = { open: async ({ sample }) => Log.open(sample), who: () => 'Dana J
 <script src="../ui/gallery.js"></script>
 <script>
 // Static fixture dispatch: both authoring flows use this same isolated app shell.
-(() => { const flows = { 'design-editor': 'design-editor-test.js', 'canvas-text': 'canvas-text-test.js', 'put-batch': 'put-batch-test.js', 'field-extraction': 'field-extraction-gui-test.js', classification: 'classification-gui-test.js' }, test = document.createElement('script'); test.src = flows[new URLSearchParams(location.search).get('flow')] ?? 'builder-test.js'; document.body.append(test); })();
+(() => { const flows = { 'design-editor': 'design-editor-test.js', 'canvas-text': 'canvas-text-test.js', 'put-batch': 'put-batch-test.js', 'pending-bindings': 'pending-bindings-test.js', 'live-field-create': 'live-field-create-test.js', 'field-extraction': 'field-extraction-gui-test.js', classification: 'classification-gui-test.js' }, test = document.createElement('script'); test.src = flows[new URLSearchParams(location.search).get('flow')] ?? 'builder-test.js'; document.body.append(test); })();
 </script></body></html>

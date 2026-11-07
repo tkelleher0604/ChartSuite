@@ -57,6 +57,20 @@ async function run() {
   App.putBatch(plan(['b'], 'Role', 'Manager').values);
   const canceled = App.putBatch(plan(['b'], 'Role', 'Designer').values);
   check('Reverting the final pending span cancels the proposal without a write', canceled.status === 'unchanged' && !App.pending.peek() && wb.asOf(chart, App.day.peek())['b-role'].value === 'Designer');
+  App.putBatch(plan(['b'], 'Role', 'Manager').values, {
+    appendKey: 'paragraph', append: edit => edit.note('Text', pattern, 'Kept paragraph', { view: Shell.view.peek() }),
+    appenders: [{ key: 'schema', run: edit => edit.add('spec', { tree: field('Member', 'Kept field') }) }],
+  });
+  App.amendPending(App.pending.peek(), { day: '2025-03-01' });
+  const keptId = App.pending.peek().n, keptCount = wb.changes().length;
+  const reverted = App.put('b-role', App.state.peek()['b-role'], false);
+  check('A direct table-style revert of the sole value preserves the paragraph and schema proposal', reverted.status === 'pending' && App.pending.peek().n === keptId && !App.pending.peek().boundValues.length && App.pending.peek().boundAppenders.length === 2 && wb.changes().length === keptCount);
+  const retouched = App.put('b-role', App.state.peek()['b-role'], { field: 'text', value: 'Coordinator' });
+  check('A direct legacy editor write amends that proposal with its date and actions intact', retouched.status === 'pending' && App.pending.peek().n === keptId && App.pending.peek().day === '2025-03-01' && App.pending.peek().boundValues[0].out.value === 'Coordinator' && App.pending.peek().boundAppenders.length === 2);
+  App.commit(); await wait(220);
+  check('The amended value, schema and paragraph still commit together', wb.changes().length === keptCount + 1 && wb.asOf(chart, '2025-03-01')['b-role'].value === 'Coordinator' && wb.asOf(chart, '2025-02-28')['b-role'].value === 'Designer' && App.notes.peek().value('Text', pattern, Shell.view.peek()) === 'Kept paragraph' && Object.values(App.schema.peek()).some(t => t.args?.[0]?.edge === 'Kept field'));
+  $('[aria-label="Undo"]').click(); await wait(220);
+  check('One Undo restores the complete proposal amended from another editor', wb.asOf(chart, App.day.peek())['b-role'].value === 'Designer' && !App.notes.peek().value('Text', pattern, Shell.view.peek()) && !Object.values(App.schema.peek()).some(t => t.args?.[0]?.edge === 'Kept field'));
   App.stage({ verb: 'Change', source: 'other-action', what: 'another action', asks: 'from', day: '2025-01-01', make: () => {} });
   const other = App.pending.peek();
   check('A different pending action is preserved with an explicit error', App.putBatch(plan(['a'], 'Notes', 'Not now').values).status === 'error' && App.pending.peek() === other);

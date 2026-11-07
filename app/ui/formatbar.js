@@ -2046,7 +2046,7 @@ function Bar() {
         onPointerEnter=${e => cue(like, e.currentTarget)} onPointerLeave=${() => cue(null)} onClick=${e => { cue(null); if (scope?.own) choose(like); else places(e); }}><span>${allLabel}</span></button>
       <button class="more" data-fb="groups" aria-label="Where a change goes" data-tip="Where a change goes" aria-haspopup="menu" onClick=${places} />` : null}
     </div>
-    <span class="fb-context-hint">${scope?.own ? 'Only the selection changes' : root ? 'Default text style for this page' : scope?.each ? 'Only these objects change' : 'Shared style for matching objects'}</span>
+    <span class="fb-context-hint">${scope?.own ? 'Only the selection changes' : root ? 'Default text style for this page' : scope?.each ? 'Only these objects change' : 'Edits apply to matching objects'}</span>
   </div></div>`;
 }
 

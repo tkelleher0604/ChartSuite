@@ -653,12 +653,16 @@ const pickNow = () => {
   return [...own.slice(0, 1), ...near, { head: 'Its own' }, ...own.slice(1), ...(far.length ? [{ head: 'Over it' }, ...far] : [])];
 };
 // Record/schema work stays in this adapter. The editor itself knows only offered labels and text.
-async function createField(suggested) {
+async function createField(suggested, live = null) {
   let name = suggested ?? '', datatype = 'text', options = '';
   const session = editing.peek(), chart = App.chart.peek();
+  const target = live ?? session, staged = target?.newFields;
+  const schema = () => live?.schema ?? App.schema.peek();
   const optionsOf = () => [...new Map(options.split(',').map(Tree.clean).filter(Boolean).map(x => [Tree.norm(x), x])).values()];
-  const described = label => session?.newFields.get(Tree.norm(label)) ?? fieldsOf([{ text: TextTemplate.field(label) }], session?.record).find(f => Tree.same(f.label, label));
-  const adopt = () => { const f = described(Tree.clean(name)); if (f?.templates?.length || f?.linked || session?.newFields.has(Tree.norm(name))) { datatype = f.datatype; options = (f.outputs ?? []).filter(o => 'choice' in o).map(o => o.choice).join(', '); } };
+  const described = label => staged?.get(Tree.norm(label)) ?? (live
+    ? DesignSchema.fields([{ text: TextTemplate.field(label) }], schema(), { kind: live.state[live.record]?.kind, readable: Scene.readable(live.state, live.notes, schema(), live.record) })
+    : fieldsOf([{ text: TextTemplate.field(label) }], session?.record)).find(f => Tree.same(f.label, label));
+  const adopt = () => { const f = described(Tree.clean(name)); if (f?.templates?.length || f?.linked || staged?.has(Tree.norm(name))) { datatype = f.datatype; options = (f.outputs ?? []).filter(o => 'choice' in o).map(o => o.choice).join(', '); } };
   const plan = () => {
     const label = Tree.clean(name), known = described(label), outputs = datatype === 'choice' ? optionsOf().map(choice => ({ choice })) : datatype === 'tag' ? [{ tag: true }, { tag: false }] : [{ field: datatype }];
     const field = { ...known, label, paths: known?.paths ?? [label], datatype, outputs,
@@ -666,7 +670,7 @@ async function createField(suggested) {
     const error = !label ? 'Enter a field name.' : /[{}|\n]/.test(name) ? 'Use a name without braces or a vertical bar.'
       : name.includes('›') && !known?.templates?.length && !known?.linked ? 'Choose an existing nested field from Fields.'
       : datatype === 'choice' && !outputs.length ? 'Enter at least one option.'
-      : session ? DesignSchema.declarations(App.schema.peek(), session.kinds, [...session.newFields.values()].filter(f => !Tree.same(f.label, label)).concat(field)).error : null;
+      : target ? DesignSchema.declarations(schema(), target.kinds, [...staged.values()].filter(f => !Tree.same(f.label, label)).concat(field)).error : null;
     return { field, error };
   };
   adopt();
@@ -674,23 +678,24 @@ async function createField(suggested) {
     const [, refresh] = useState(0), input = useRef(null), { field, error } = plan(), redraw = () => refresh(n => n + 1);
     useLayoutEffect(() => { input.current?.setCustomValidity(error ?? ''); }, [error]);
     return html`<div class="settings design-field-create"><label class="field"><span>Field name</span><input ref=${input} aria-label="Field name" required autofocus autocomplete="off" placeholder="e.g. Role or Capacity" value=${name} onInput=${e => { name = e.target.value; adopt(); redraw(); }} /></label>
-      ${session ? html`<label class="field"><span>Type</span><select aria-label="Field type" disabled=${field.linked} value=${datatype} onChange=${e => { datatype = e.target.value; redraw(); }}>${Object.entries(Tree.DATATYPES).map(([key, label]) => html`<option value=${key}>${label}</option>`)}<option value="choice">Choice</option><option value="tag">Yes / No</option></select></label>
+      ${target ? html`<label class="field"><span>Type</span><select aria-label="Field type" disabled=${field.linked} value=${datatype} onChange=${e => { datatype = e.target.value; redraw(); }}>${Object.entries(Tree.DATATYPES).map(([key, label]) => html`<option value=${key}>${label}</option>`)}<option value="choice">Choice</option><option value="tag">Yes / No</option></select></label>
         ${datatype === 'choice' ? html`<label class="field field-options"><span>Options</span><input aria-label="Field options" required disabled=${field.linked} placeholder="e.g. North, South" value=${options} onInput=${e => { options = e.target.value; redraw(); }} /></label><p class="design-help">Separate choices with commas. Existing options are kept.</p>` : null}
-        <p class="design-help">${field.linked ? 'This field reads a related object. Its definition stays with that object.' : 'The field is saved with the design when you choose Done.'}</p>` : html`<p class="design-help">Choose its data type when you save this drawing as an object type.</p>`}
+        <p class="design-help">${field.linked ? 'This field reads a related object. Its definition stays with that object.' : live ? 'The field definition and its place in this paragraph are saved together.' : 'The field is saved with the design when you choose Done.'}</p>
+        ${live?.summary ? html`<p class="design-help">${live.summary}</p>` : null}` : html`<p class="design-help">Choose its data type when you save this drawing as an object type.</p>`}
       ${error && Tree.clean(name) ? html`<p class="err" role="alert">${error}</p>` : null}
     </div>`;
   }
   const ok = await Shell.dialog({ title: 'New merge field', width: 360, actions: [{ label: 'Cancel', value: false }, { label: 'Insert field', value: true, primary: true }], body: () => html`<${NewField} />` });
-  if (!ok || App.readOnly.peek() || App.chart.peek() !== chart || editing.peek() !== session) return null;
+  if (!ok || App.readOnly.peek() || App.chart.peek() !== chart || editing.peek() !== session || (live && !live.valid())) return null;
   const { field, error } = plan();
   if (error) return null;
   // Explicit reuse is a declaration request too: a design may also reach kinds missing this field.
   // Relative fields only insert a token; they never become fields on the current object.
-  if (session && !field.linked) session.newFields.set(Tree.norm(field.label), field);
+  if (target && !field.linked) staged.set(Tree.norm(field.label), field);
   return field.label;
 }
-function Words({ text, runs, put, label = 'Text', ...editorProps }) {
-  return h(WordsEditor, { ...editorProps, text, runs, put, label, offered: pickNow(), createField, readOnly: App.readOnly.value, fieldLabel: token => Scene.partName({ text: TextTemplate.field(token) }) });
+function Words({ text, runs, put, label = 'Text', createField: create = createField, ...editorProps }) {
+  return h(WordsEditor, { ...editorProps, text, runs, put, label, offered: pickNow(), createField: create, readOnly: App.readOnly.value, fieldLabel: token => Scene.partName({ text: TextTemplate.field(token) }) });
 }
 // What the part the other fields go in holds now: each field no other part names, as a chip; and, clicked, given a part of its own.
 function Holds() {
@@ -753,5 +758,5 @@ for (const [id, name, names, run, enabled, why] of [
   ['design.discard', 'Discard the changes to the design', ['Cancel the design'], () => leave(false), () => !!editing.peek(), () => 'No design is being edited'],
 ]) Shell.register('action', { id, name, names, run, enabled, why });
 
-return { open, say, scope, ScopeSummary, atPen, tokenIn, reset, canUseShared, useShared, editShared, edit, make, items, makes, dropped, addWords, holdWords, editRow, editing, leave, forRecord, Parts, Words, Holds, nameOf: row => { const e = editing.peek(), b = e && canvas()?.scene()?.byId.get(e.box); return nameOf(row, b); } };
+return { open, say, scope, ScopeSummary, atPen, tokenIn, reset, canUseShared, useShared, editShared, edit, make, items, makes, dropped, addWords, holdWords, editRow, editing, leave, forRecord, Parts, Words, Holds, createField, nameOf: row => { const e = editing.peek(), b = e && canvas()?.scene()?.byId.get(e.box); return nameOf(row, b); } };
 })();

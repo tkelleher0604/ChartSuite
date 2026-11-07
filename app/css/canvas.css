@@ -146,6 +146,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* Typing in place: over a mark; widening as it's typed, a text box nobody has sized; a new box, "New entity" till
    its name is typed, and its kind beside it, chosen there. */
 .dc-edit { position: absolute; z-index: 3; box-sizing: border-box; outline: 1px solid var(--accent); background: #fff; white-space: pre-wrap; overflow-wrap: break-word; cursor: text; }
+.dc-edit[aria-invalid="true"] { outline: 2px solid var(--no); }
 .dc-edit.grow { white-space: pre; overflow-wrap: normal; }
 .dc-edit-marks { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 .dc-edit-marks > span { position: absolute; white-space: pre; }

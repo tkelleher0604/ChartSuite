@@ -19,7 +19,24 @@ const shape = () => App.scene.peek().byId.get(Shell.selection.peek()[0]);
 const box = name => App.scene.peek().marks.find(m => m.type === 'box' && App.notes.peek().nameOf(App.state.peek(), m.record) === name);
 const readText = name => [box(name), ...box(name)?.parts ?? []].flatMap(m => m?.texts ?? []).map(t => t.text).join('\n');
 const editor = () => $('.dc-text-editor .words-in');
+function contrast(el) {
+  const style = getComputedStyle(el), luminance = color => {
+    const rgb = color.match(/[\d.]+/g).slice(0, 3).map(n => +n / 255).map(n => n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4);
+    return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+  };
+  const ink = luminance(style.color), paper = luminance(style.backgroundColor);
+  return (Math.max(ink, paper) + 0.05) / (Math.min(ink, paper) + 0.05);
+}
 function point(el) { const r = el.getBoundingClientRect(); return { bubbles: true, cancelable: true, button: 0, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }; }
+async function doubleClick(el) {
+  for (const detail of [1, 2]) {
+    const at = { ...point(el), detail };
+    el.dispatchEvent(new PointerEvent('pointerdown', at)); el.dispatchEvent(new MouseEvent('mousedown', at));
+    el.dispatchEvent(new PointerEvent('pointerup', at)); el.dispatchEvent(new MouseEvent('mouseup', at)); el.dispatchEvent(new MouseEvent('click', at));
+    await wait(35);
+  }
+  el.dispatchEvent(new MouseEvent('dblclick', { ...point(el), detail: 2 }));
+}
 async function pickBox(name) { const m = box(name), el = $(`.x6-node[data-cell-id="${m.id}"] path`), p = point(el); el.dispatchEvent(new MouseEvent('mousedown', p)); document.dispatchEvent(new MouseEvent('mouseup', p)); el.dispatchEvent(new MouseEvent('click', p)); await wait(240); }
 async function editShape(id) { const el = $(`.x6-node[data-cell-id="${id}"] [data-text]`) ?? $(`.x6-node[data-cell-id="${id}"] path`); el.dispatchEvent(new MouseEvent('dblclick', point(el))); await wait(350); }
 async function value(label, text) { await input(`.inspector [aria-label="${label}"]`, text); await key($(`.inspector [aria-label="${label}"]`), 'Enter'); }
@@ -45,7 +62,7 @@ async function liveCard(name, keepSelection = false) {
   if (!keepSelection) await pickBox(name);
   const m = box(name), part = m.parts.find(p => p.texts.some(t => t.text.includes('Please contact')));
   const text = $(`.x6-node[data-cell-id="${m.id}"] [data-part="${part.part}"] [data-text]`);
-  text.dispatchEvent(new MouseEvent('dblclick', point(text))); await wait(300);
+  await doubleClick(text); await wait(300);
   return part.part;
 }
 async function boundValue(token, text) {
@@ -55,6 +72,7 @@ async function boundValue(token, text) {
   document.execCommand('insertText', false, text); await wait(160); return host;
 }
 async function run() {
+  if (new URLSearchParams(location.search).get('stop') === 'simple-fields') { await wait(500); await simpleFieldScopes(); return; }
   await wait(500); await click('.chartmenu'); await menu('New chart'); await click('[data-card="blank"]'); await input('dialog input[aria-label="Name"]', 'Project notes'); await click(button('Begin', 'dialog button')); await wait(300);
   await click('.dc-empty .design-card'); const drawing = shape().id; await editShape(drawing);
   check('A mixed text box opens directly on the canvas with an atomic field chip', visible(editor()) && editor().querySelector('[data-token="Name"]'));
@@ -106,12 +124,15 @@ async function run() {
   await liveValues();
   if (new URLSearchParams(location.search).get('stop') === 'live') return;
   await panelScopes();
+  await simpleFieldScopes();
 }
 async function liveValues() {
   const part = await liveCard('Maya'), source = box('Maya').design.value.parts.find(p => p.id === part).text;
   check('Ordinary paragraph editing displays resolved values without entering the design sandbox', !!editor()?.querySelector('[data-token="Project"] [data-bound-value]') && editor().textContent.includes('the launch') && !Designs.editing.peek());
-  await boundValue('Project', 'the revised launch');
-  check('Typing in a bound value highlights its panel row and mirrors the live draft', !!$('.inspector .row.lit') && $('.inspector .live-value')?.textContent.includes('the revised launch') && $('.bound-field-status')?.textContent.includes('Project'));
+  check('Ordinary prose remains readable against the live editor background', contrast(editor()) >= 4.5, String(contrast(editor())));
+  const draftEvents = [], stopDraftEvents = preactSignals.effect(() => { const focus = CanvasBindings.focus.value, draft = CanvasBindings.draft.value; draftEvents.push({ focus: focus?.token, draft: draft && { token: draft.token, text: draft.text } }); });
+  await boundValue('Project', 'the revised launch'); stopDraftEvents();
+  check('Typing in a bound value highlights its panel row and mirrors the live draft', !!$('.inspector .row.lit') && $('.inspector .live-value')?.textContent.includes('the revised launch') && $('.bound-field-status')?.textContent.includes('Project'), JSON.stringify(draftEvents));
   if (new URLSearchParams(location.search).get('stop') === 'live') return;
   afterText('Notes: '); await wait(200);
   check('Leaving a bound value updates its record while preserving the template and other record', readText('Maya').includes('the revised launch') && readText('Noah').includes('the review') && box('Maya').design.value.parts.find(p => p.id === part).text === source);
@@ -139,8 +160,8 @@ async function liveValues() {
   check('Clearing a live value retains the binding and schema for entering it again', !!editor()?.querySelector('[data-token="Project"]') && box('Maya').design.value.parts.find(p => p.id === part).text.includes('{Project}') && !Tree.entryAt(App.state.peek(), box('Maya').record, 'Project'));
   await boundValue('Project', 'the restored launch'); await key(editor(), 'Enter', { ctrlKey: true });
   check('An empty bound span accepts a new value into the same field', readText('Maya').includes('the restored launch'));
-  await click('[data-fb="like"]'); await liveCard('Maya');
-  check('A broader scope is explicit before a live value is changed', CanvasBindings.focus.peek()?.scope?.recordIds.length === 2 || FormatBar.scope(true)?.own === false);
+  await liveCard('Maya'); await click('[data-fb="like"]'); await liveCard('Maya', true);
+  check('A broad scope chosen while editing survives reopening the same paragraph with full clicks', CanvasBindings.active.peek()?.scope?.recordIds.length === 2 && FormatBar.scope(true)?.own === false);
   await boundValue('Project', 'the shared programme'); await key(editor(), 'Enter', { ctrlKey: true });
   check('A scoped bound-value edit changes both records while retaining their individual names', ['Maya', 'Noah'].every(n => readText(n).includes('the shared programme') && readText(n).includes(n)));
   await click('[aria-label="Undo"]'); await wait(200);
@@ -156,7 +177,14 @@ async function panelScopes() {
   await click('[data-fb="own"]'); await value('Project', 'the separate task');
   const names = ['Maya', 'Noah', 'Rowan'], before = Object.fromEntries(names.map(name => [name, readText(name)]));
   await pickBox('Maya'); await click('[data-fb="like"]');
-  check('The record panel announces a deliberately broadened data scope', $('.object-data-label')?.textContent.includes('For 3 objects'));
+  check('The record panel announces the broad data scope and whose current values are shown', $('.object-data-label')?.textContent.includes('For 3 objects') && $('.object-data-label')?.textContent.includes('Showing Maya’s values'));
+  await key($('.inspector [aria-label="Project"]'), 'Enter');
+  check('Focusing a broad panel field and pressing Enter does not copy its displayed value', names.every(name => readText(name) === before[name]));
+  const anchorValue = App.state.peek()[Tree.entryAt(App.state.peek(), box('Maya').record, 'Project')].value;
+  await value('Project', anchorValue);
+  check('Deliberately retyping the displayed panel value applies it to the explicit scope', names.every(name => App.state.peek()[Tree.entryAt(App.state.peek(), box(name).record, 'Project')]?.value === anchorValue));
+  await click('[aria-label="Undo"]'); await wait(220);
+  check('One Undo restores peers after retyping the anchor value in a broad panel field', names.every(name => readText(name) === before[name]));
   await value('Project', 'the panel programme');
   check('One panel value edit reaches the explicit full scope and preserves each name', names.every(name => readText(name).includes('the panel programme') && readText(name).includes(name)));
   await click('[aria-label="Undo"]'); await wait(220);
@@ -175,10 +203,92 @@ async function panelScopes() {
   const second = box('Noah'), el = $(`.x6-node[data-cell-id="${second.id}"] path`), p = { ...point(el), shiftKey: true };
   el.dispatchEvent(new MouseEvent('mousedown', p)); document.dispatchEvent(new MouseEvent('mouseup', p)); el.dispatchEvent(new MouseEvent('click', p)); await wait(220);
   check('Shift selection captures two objects without broadening to their type', Shell.selection.peek().length === 2 && FormatBar.scope(true)?.own && FormatBar.scope(true).records.length === 2);
-  await liveCard('Maya', true); afterText('Notes: '); await type('Selected pair. '); await key(editor(), 'Enter', { ctrlKey: true });
-  check('A live literal edit follows the two-object selection and excludes an unselected matching object', ['Maya', 'Noah'].every(name => readText(name).includes('Selected pair.')) && !readText('Rowan').includes('Selected pair.') && ['Maya', 'Noah'].every(name => readText(name).includes(name)));
+  await liveCard('Maya', true); const capturedScope = CanvasBindings.active.peek()?.scope, selectedForEdit = Shell.selection.peek(); afterText('Notes: '); await type('Selected pair. '); await key(editor(), 'Enter', { ctrlKey: true });
+  check('A live literal edit follows the two-object selection and excludes an unselected matching object', ['Maya', 'Noah'].every(name => readText(name).includes('Selected pair.')) && !readText('Rowan').includes('Selected pair.') && ['Maya', 'Noah'].every(name => readText(name).includes(name)), JSON.stringify({ records: capturedScope?.recordIds, selected: selectedForEdit, texts: Object.fromEntries(names.map(name => [name, readText(name)])) }));
   await click('[aria-label="Undo"]'); await wait(220);
   check('One Undo restores both selected paragraphs and leaves the third untouched', names.every(name => readText(name) === before[name]));
+  await liveCard('Rowan', true); const singleScope = CanvasBindings.active.peek()?.scope; afterText('Notes: '); await type('Only Rowan. '); await key(editor(), 'Enter', { ctrlKey: true });
+  check('Double-clicking an unselected object starts a single-object edit instead of reusing an old selection', singleScope?.recordIds.length === 1 && singleScope.recordIds[0] === box('Rowan').record && readText('Rowan').includes('Only Rowan.') && ['Maya', 'Noah'].every(name => readText(name) === before[name]));
+  await click('[aria-label="Undo"]'); await wait(220);
+  check('Undo after changing the clicked object restores its paragraph and keeps the prior selection untouched', names.every(name => readText(name) === before[name]));
+}
+async function simpleFieldScopes() {
+  await click('.chartmenu'); await menu('New chart'); await click('[data-card="org-chart"]'); await input('dialog input[aria-label="Name"]', 'Native field scopes'); await click(button('Begin', 'dialog button')); await wait(300);
+  for (const [name, title] of [['Arden', 'Engineer'], ['Blair', 'Designer']]) {
+    await click('[data-fb="add-object"]'); await input('dialog [aria-label="Name"]', name); await input('dialog [aria-label="Object type"]', 'Person'); await click(button('Add', 'dialog button')); await wait(220);
+    await value('Title', title);
+  }
+  const ids = ['Arden', 'Blair'].map(name => box(name).record);
+  const values = edge => ids.map(id => App.state.peek()[Tree.entryAt(App.state.peek(), id, edge)]?.value);
+  const native = async (name, edge, scope) => {
+    await pickBox(name); await click(`[data-fb="${scope}"]`);
+    const m = box(name), it = m.texts.find(t => App.state.peek()[t.id]?.edge === edge || t.blank?.edge === edge);
+    if (!it) throw Error('No rendered native field: ' + edge);
+    const text = $(`.x6-node[data-cell-id="${m.id}"] [data-text="${it.id}"]`);
+    await doubleClick(text); await wait(220);
+    return $('.dc-edit');
+  };
+  const typeNative = async text => {
+    const ed = $('.dc-edit'); if (!ed) throw Error('Native editor did not open');
+    ed.focus(); const r = document.createRange(); r.selectNodeContents(ed); getSelection().removeAllRanges(); getSelection().addRange(r);
+    document.execCommand('insertText', false, text); await key(ed, 'Enter'); await wait(200);
+  };
+  await native('Arden', 'Title', 'like');
+  check('An ordinary field opens its native canvas editor with explicit shared scope', visible($('.dc-edit')) && !editor() && !FormatBar.scope(true).own);
+  await key($('.dc-edit'), 'Enter');
+  check('Enter without input closes a broad native editor without copying its value', !$('.dc-edit') && JSON.stringify(values('Title')) === JSON.stringify(['Engineer', 'Designer']));
+  await native('Arden', 'Title', 'like');
+  const otherCard = $(`.x6-node[data-cell-id="${box('Blair').id}"] path`);
+  otherCard.dispatchEvent(new PointerEvent('pointerdown', point(otherCard))); await pickBox('Blair');
+  check('Clicking another object without typing leaves all scoped native values unchanged', !$('.dc-edit') && JSON.stringify(values('Title')) === JSON.stringify(['Engineer', 'Designer']));
+  await native('Arden', 'Title', 'like');
+  await typeNative('Team lead');
+  check('Typing an ordinary canvas field updates every explicitly scoped record', values('Title').every(x => x === 'Team lead'));
+  await click('[aria-label="Undo"]'); await wait(220);
+  check('One Undo restores distinct original values after a native scoped edit', JSON.stringify(values('Title')) === JSON.stringify(['Engineer', 'Designer']));
+  await native('Arden', 'Title', 'own'); await typeNative('Architect');
+  check('The native selected-only field editor leaves the other record unchanged', JSON.stringify(values('Title')) === JSON.stringify(['Architect', 'Designer']));
+  await click('[aria-label="Undo"]'); await wait(220);
+  await native('Arden', 'Title', 'like'); await typeNative('Engineer');
+  check('Keeping the anchor value still applies that value to a deliberately broader scope', values('Title').every(x => x === 'Engineer'));
+  await click('[aria-label="Undo"]'); await wait(220);
+  await pickBox('Arden'); await click('[data-fb="own"]'); await value('Title', '');
+  await native('Arden', 'Title', 'like');
+  check('A shown blank schema field can be edited directly in the canvas', visible($('.dc-edit')) && !Tree.entryAt(App.state.peek(), ids[0], 'Title'));
+  await key($('.dc-edit'), 'Enter');
+  check('Leaving an untouched blank field does not clear a filled scoped peer', values('Title')[0] === undefined && values('Title')[1] === 'Designer');
+  const blankEditor = await native('Arden', 'Title', 'like');
+  document.execCommand('insertText', false, 'Temporary');
+  const blankRange = document.createRange(); blankRange.selectNodeContents(blankEditor); getSelection().removeAllRanges(); getSelection().addRange(blankRange); document.execCommand('delete');
+  await key(blankEditor, 'Enter'); await wait(200);
+  check('Explicitly typing then clearing a blank anchor clears the filled scoped peer', values('Title').every(x => x === undefined));
+  await click('[aria-label="Undo"]'); await wait(220);
+  check('One Undo of a blank-anchor scoped clear restores the peer and original absence', values('Title')[0] === undefined && values('Title')[1] === 'Designer');
+  await native('Arden', 'Title', 'like');
+  await typeNative('Coordinator');
+  check('A blank native field fills every record in its explicit scope', values('Title').every(x => x === 'Coordinator'));
+  await click('[aria-label="Undo"]'); await wait(220);
+  check('Undo of a scoped blank fill restores both absence and the other original value', values('Title')[0] === undefined && values('Title')[1] === 'Designer');
+  await pickBox('Arden'); await click('[data-fb="like"]'); await click('[data-fb="design"]'); await click('.picker.designs button.tile[aria-label="Name rule"]'); await wait(250);
+  await native('Arden', 'Name', 'like');
+  check('A stock single-token design retains native value editing', visible($('.dc-edit')) && !editor() && box('Arden').design.value.parts.some(p => p.text === '{Name}'));
+  await typeNative('Shared name');
+  check('A stock single-token design applies a value edit to the chosen broad scope', values('Name').every(x => x === 'Shared name'));
+  await click('[aria-label="Undo"]'); await wait(220);
+  check('One Undo restores the individual names after a shared single-token edit', JSON.stringify(values('Name')) === JSON.stringify(['Arden', 'Blair']));
+  await native('Arden', 'Name', 'own'); await typeNative('Arden Bell');
+  check('The same single-token design honors selected-only value edits', JSON.stringify(values('Name')) === JSON.stringify(['Arden Bell', 'Blair']));
+  await pickBox('Arden Bell'); await click('.inspector .add-entry'); await menu('New value'); await input('.draft [aria-label="Name"]', 'Review date'); await key($('.draft [aria-label="Name"]'), 'Enter');
+  await input('.draft .v input, .draft .v textarea', '2026-11-01'); await key($('.draft .v input, .draft .v textarea'), 'Enter'); await wait(220);
+  await click($('.inspector [aria-label="Review date"]').closest('.row').querySelector('[aria-label="Show on chart"]'));
+  const ed = await native('Arden Bell', 'Review date', 'own');
+  ed.focus(); const selection = document.createRange(); selection.selectNodeContents(ed); getSelection().removeAllRanges(); getSelection().addRange(selection); document.execCommand('insertText', false, 'not a date');
+  const chartMenu = $('.chartmenu'), pointer = new PointerEvent('pointerdown', point(chartMenu));
+  const allowed = chartMenu.dispatchEvent(pointer); chartMenu.click(); await wait(220);
+  check('An invalid native date blocks the outside action and retains its editable draft', !allowed && $('.dc-edit') === ed && ed.getAttribute('aria-invalid') === 'true' && ed.textContent === 'not a date' && !$('.float .menu-item') && values('Review date')[0] === '2026-11-01');
+  await typeNative('2026-11-02'); await click('.chartmenu');
+  check('Correcting the native draft releases the outside action normally', !$('.dc-edit') && values('Review date')[0] === '2026-11-02' && !!$('.float .menu-item'));
+  await key(document.activeElement, 'Escape');
 }
 addEventListener('error', e => out.push({ name: 'No browser error', ok: false, detail: e.error?.stack ?? e.message }));
 addEventListener('unhandledrejection', e => out.push({ name: 'No unhandled rejection', ok: false, detail: e.reason?.stack ?? String(e.reason) }));

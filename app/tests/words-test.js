@@ -88,4 +88,28 @@ async function extraRun(){
  openBound('Original {Name}.');await wait(30);selectWord('Original');document.execCommand('insertText',false,'Changed');denySource=true;const before=writes,closed=CanvasWords.close();await wait(30);
  check('Rejected literal writes retain the draft and block closing',closed===false&&state.value.text==='Original {Name}.'&&editor().textContent.startsWith('Changed')&&document.querySelector('[role="alert"]')?.textContent==='Resolve the pending edit first.');denySource=false;CanvasWords.close();await wait(30);check('A retained literal draft can be saved exactly once after the rejection clears',state.value.text==='Changed {Name}.'&&writes===before+1&&!CanvasWords.active.peek());
 }
-run().then(boundRun).then(extraRun).catch(e=>results.push({name:e.stack,ok:false})).finally(()=>{const failed=results.filter(x=>!x.ok).length;document.querySelector('#out').textContent=`${results.length-failed} passed, ${failed} failed\n`+results.map(x=>(x.ok?'pass ':'FAIL ')+x.name).join('\n');});
+async function sameValueRun(){
+ const originalPut=bindingAdapter.putValue;let peerRole='Designer',scopedWrites=0,reject=false;
+ bindingAdapter.putValue=(token,text,target)=>{if(reject)return{error:'The scoped value cannot be saved yet.'};const result=originalPut(token,text,target);if(!result?.error&&token==='Role'){peerRole=text;scopedWrites++;}return result;};
+ try{
+  recordValues.value={...recordValues.peek(),Role:'Engineer'};openBound('Team {Role}.');await wait(30);inField('Role',2);selectWord('Team');await wait(30);
+  check('Focusing and leaving an unchanged bound value does not write to its broader scope',scopedWrites===0&&peerRole==='Designer');
+  await valueEdit('Role','Engineer');selectWord('Team');await wait(30);
+  check('Explicitly retyping the same value applies it to other values in scope',scopedWrites===1&&peerRole==='Engineer'&&state.value.text==='Team {Role}.');CanvasWords.close();
+  peerRole='Designer';openBound('Team {Role}.');await wait(30);await valueEdit('Role','Engineer');document.execCommand('undo');selectWord('Team');await wait(30);
+  check('Native Undo before leaving cancels a same-value edit without writing the scope',scopedWrites===1&&peerRole==='Designer');CanvasWords.close();
+  openBound('Team {Role}.');await wait(30);await valueEdit('Role','Engineer');reject=true;const closed=CanvasWords.close();await wait(30);
+  check('A rejected same-value scoped edit keeps its draft and blocks closing',closed===false&&!!CanvasWords.active.peek()&&scopedWrites===1&&peerRole==='Designer'&&document.querySelector('[role="alert"]')?.textContent==='The scoped value cannot be saved yet.');
+  reject=false;CanvasWords.flush();CanvasWords.flush();CanvasWords.close();await wait(30);
+  check('Retrying a same-value scoped edit writes once and then clears its edit intent',scopedWrites===2&&peerRole==='Engineer'&&!CanvasWords.active.peek());
+  peerRole='Designer';openBound('Team {Role}.');await wait(30);inField('Role',0,8);const transfer=new DataTransfer();transfer.setData('text/plain','Engineer');BoundWords.valueElement(fieldNode('Role')).dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:transfer}));selectWord('Team');await wait(30);
+  check('Pasting the same displayed value is also an explicit scoped edit',scopedWrites===3&&peerRole==='Engineer'&&state.value.text==='Team {Role}.');CanvasWords.close();
+ }finally{bindingAdapter.putValue=originalPut;}
+}
+async function switchRun(){
+ recordValues.value={...recordValues.peek(),Role:'Engineer',Count:'2'};openBound('Team {Role}. Seats: {Count}.');await wait(30);inField('Count',1);
+ const before=recordWrites,host=BoundWords.valueElement(fieldNode('Role')),range=document.createRange();host.focus();range.selectNodeContents(host);getSelection().removeAllRanges();getSelection().addRange(range);document.execCommand('insertText',false,'Principal');await wait(30);
+ check('Moving directly between values publishes only the field that actually received input',mirrored?.token==='Role'&&mirrored.text==='Principal'&&recordWrites===before&&recordValues.peek().Count==='2');
+ selectWord('Team');await wait(30);check('Leaving the new field commits it once without rewriting the previously focused field',recordWrites===before+1&&recordValues.peek().Role==='Principal'&&recordValues.peek().Count==='2');CanvasWords.close();
+}
+run().then(boundRun).then(extraRun).then(sameValueRun).then(switchRun).catch(e=>results.push({name:e.stack,ok:false})).finally(()=>{const failed=results.filter(x=>!x.ok).length;document.querySelector('#out').textContent=`${results.length-failed} passed, ${failed} failed\n`+results.map(x=>(x.ok?'pass ':'FAIL ')+x.name).join('\n');});

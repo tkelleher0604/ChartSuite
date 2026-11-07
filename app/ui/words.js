@@ -93,8 +93,8 @@ function Editor({ text = '', runs = EMPTY, put, offered = EMPTY, createField, re
     if (reset) history.current = { entries: [draft.current], at: 0, manual: false };
   };
   const read = () => content(box.current, formula).source;
-  const sync = inputType => {
-    bound?.capture(box.current, inputType);
+  const sync = (inputType, inputTarget) => {
+    bound?.capture(box.current, inputType, inputTarget);
     const t = read(), values = bound?.snapshot(), was = draft.current, h = history.current, sameValues = v => JSON.stringify(v) === JSON.stringify(values);
     const step = inputType === 'historyUndo' ? -1 : inputType === 'historyRedo' ? 1 : 0;
     if (step) for (let i = h.at + step; i >= 0 && i < h.entries.length; i += step) {
@@ -233,7 +233,7 @@ function Editor({ text = '', runs = EMPTY, put, offered = EMPTY, createField, re
     else if (ev.key === 'Escape') { ev.stopPropagation(); if (list) setList(null); else if (finish) { ev.preventDefault(); finish(); } else { paint(text, runs); box.current.blur(); } }
   };
   return html`<span class="part-words">
-    <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" data-ph="Type text, or insert a field…" contenteditable=${readOnly ? 'false' : 'plaintext-only'} spellcheck=${false} onBeforeInput=${ev => { if (bound?.beforeInput(ev)) { sync(); history.current.manual = true; tell(); } }} onPaste=${ev => { if (bound?.paste(ev)) { sync(); history.current.manual = true; tell(); } }} onInput=${ev => { setSourceIssue(null); sync(ev.inputType); tell(); look(); }} onKeyDown=${key} onKeyUp=${tell} onMouseUp=${tell} onClick=${clicked} onDragStart=${ev => { remember(); const selection = selectionInfo(); if (selection?.literal && selection.text) dragSelection?.(ev, selection); }} onBlur=${() => { remember(); setList(null); commit(); }} />
+    <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" data-ph="Type text, or insert a field…" contenteditable=${readOnly ? 'false' : 'plaintext-only'} spellcheck=${false} onBeforeInput=${ev => { if (bound?.beforeInput(ev)) { sync(); history.current.manual = true; tell(); } }} onPaste=${ev => { if (bound?.paste(ev)) { sync(); history.current.manual = true; tell(); } }} onInput=${ev => { setSourceIssue(null); sync(ev.inputType, ev.target); tell(); look(); }} onKeyDown=${key} onKeyUp=${tell} onMouseUp=${tell} onClick=${clicked} onDragStart=${ev => { remember(); const selection = selectionInfo(); if (selection?.literal && selection.text) dragSelection?.(ev, selection); }} onBlur=${() => { remember(); setList(null); commit(); }} />
     ${bindingIssue || sourceIssue ? html`<div class="bound-error" role="alert">${bindingIssue ?? sourceIssue}</div>` : null}
     ${list ? html`<div class="dc-complete" role="listbox">${list.items.map((l, i) => html`<div class=${'menu-item' + (i === list.on ? ' on' : '')} role="option" onPointerDown=${ev => { ev.preventDefault(); take(l); }}>${l}</div>`)}</div>` : null}
     ${readOnly || formula ? null : html`<button type="button" class="btn ghost add-field" onMouseDown=${ev => { ev.preventDefault(); remember(); }} onClick=${ev => Shell.menu(ev.currentTarget, fields(null, -1), { search: true })}>${Shell.icon('plus')}Merge field</button>`}

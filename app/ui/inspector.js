@@ -402,10 +402,17 @@ function Field({ r, datatype, put, rule, preview, fx, over, id, auto, ph, cls = 
   const doc = datatype === 'document', shown = r ? T.format(r.field, r.value) : '', raw = r ? (doc ? r.value : shown) : '';
   // What's typed, null while nothing is; kept in a ref too, as a blur can come after the record has gone. `held`, what
   // was typed, pending (App.put): shown as typed is, till it's made or discarded, and typed over again.
-  const [text, setText] = useState(null), [bad, setBad] = useState(false), ref = useRef(), typed = useRef(null), clicked = useRef(false), previewed = useRef(null), now = text ?? held;
+  const [text, setText] = useState(null), [bad, setBad] = useState(false), ref = useRef(), typed = useRef(null), entered = useRef(false), clicked = useRef(false), previewed = useRef(null), now = text ?? held;
   // What text typed keeps: its output, null where it's cleared, undefined where it doesn't read; false where it's as it was.
   const outOf = t => {
-    if (t === null || t === T.clean(raw)) return false;
+    if (t === null) return false;
+    if (t === T.clean(raw)) {
+      const owner = entered.current && held === null && id && r?.at && T.objectOf(recs(), r.at);
+      const scope = owner && typeof CanvasBindings !== 'undefined' && CanvasBindings.recordScope(owner);
+      // Deliberately entering the displayed value can set other scoped records to it.
+      // Keep its exact stored value: parsing a rounded display would lose precision.
+      return scope && (!scope.own || scope.recordIds.length > 1) ? { field: r.field, value: r.value } : false;
+    }
     // (What a new value is, by what's typed; a year alone, under a name that says an act, is its date: Divorced, 1979.)
     const dt = datatype ?? (label && /^\d{4}$/.test(t) && /(\w+ed|born|date|day|year)$/i.test(T.clean(label)) ? 'date' : T.classify(t)), read = reads ?? (x => T.parse(dt, x));
     // (Its own name said before it isn't refused: "divorced 1979", in Divorced.)
@@ -473,8 +480,8 @@ function Field({ r, datatype, put, rule, preview, fx, over, id, auto, ph, cls = 
       value=${now ?? (title ? Scene.bind(shown) : shown)} placeholder=${ph ?? ' '} disabled=${looks ? !App.canAsk() : App.readOnly.value} spellcheck=${false} autocomplete="off" aria-invalid=${bad ? 'true' : null} data-why=${bad ? typeof bad === 'string' ? bad : T.notA(datatype ?? T.classify(T.clean(now ?? ''))) : null}
       aria-label=${label ? label + (due ? `, ${DUE[due]}` : '') : ph} data-tour=${fx ? 'computed' : null} data-fx=${fx ? '' : null}
       onPointerDown=${e => { clicked.current = document.activeElement !== e.currentTarget; }} onMouseUp=${e => { if (clicked.current) e.preventDefault(); clicked.current = false; }}
-      onFocus=${e => { const el = e.currentTarget; if (doc) { type(raw); setTimeout(() => el.select()); } else el.select(); if (fx) emit('why-open', id); }}
-      onInput=${e => { type(e.target.value); setBad(false); }} onKeyDown=${key} onBlur=${() => done()}
+      onFocus=${e => { entered.current = false; const el = e.currentTarget; if (doc) { type(raw); setTimeout(() => el.select()); } else el.select(); if (fx) emit('why-open', id); }}
+      onInput=${e => { entered.current = true; type(e.target.value); setBad(false); }} onKeyDown=${key} onBlur=${() => done()}
       onCopy=${title ? e => { const el = e.currentTarget; e.clipboardData.setData('text/plain', el.value.slice(el.selectionStart, el.selectionEnd).replace(/\u00a0/g, ' ')); e.preventDefault(); } : null} /></span>
     ${doc && r && text === null ? html`<a class="btn icon open" href=${SharePoint.href(r.value)} target="_blank" rel="noopener" aria-label="Open" data-tip="Open">${OPEN}</a>` : null}
     ${dirty ? null : children}
@@ -1656,7 +1663,8 @@ function RecordDesign({ id }) {
   };
   const scope = typeof CanvasBindings !== 'undefined' ? CanvasBindings.recordScope(id) : null;
   return html`<div class="object-editor-actions">
-    <span class="object-data-label"><strong>Data</strong><small>${scope && scope.recordIds.length > 1 ? `For ${scope.recordIds.length} objects` : 'For this object'}</small></span>
+    <span class="object-data-label"><strong>Data</strong><small>${scope && scope.recordIds.length > 1 ? `For ${scope.recordIds.length} objects` : 'For this object'}</small>
+      ${scope && scope.recordIds.length > 1 ? html`<small>Showing ${nameOf(id)}’s values</small>` : null}</span>
     <div class="object-design-actions"><button class="btn" aria-label="Edit shared design" disabled=${App.readOnly.value} onClick=${edit}>${icon('LayoutTemplate')}<span>Edit shared design</span></button>
       ${Designs.canUseShared(m) ? html`<button class="btn ghost" disabled=${App.readOnly.value} onClick=${() => { select([id]); Designs.useShared(m); }}>Use shared design</button>` : null}</div>
   </div>`;
