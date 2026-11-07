@@ -71,6 +71,20 @@ const index = recs => kept(recs, 'index', () => {
   return { entries, relations, kinds };
 });
 
+// A record and its owned entries, nearest first. Relations are not ownership: following
+// them here would make another object's fields appear to belong to this one. Keep each
+// location once, even while an imported or partially edited record set contains a cycle.
+function within(recs, id) {
+  const byId = kept(recs, 'within', () => new Map());
+  if (!byId.has(id)) {
+    const ids = recs[id] ? [id] : [], seen = new Set(ids), { entries } = index(recs);
+    for (let i = 0; i < ids.length; i++) for (const child of entries.get(ids[i]) ?? [])
+      if (!seen.has(child)) { seen.add(child); ids.push(child); }
+    byId.set(id, ids);
+  }
+  return byId.get(id);
+}
+
 // The records located at these, at any depth, and these.
 function dependents(recs, ids) {
   const { entries, relations } = index(recs), all = new Set(ids), todo = [...ids];
@@ -423,7 +437,7 @@ return {
   nameOfFile,
   clean, norm, same,
   isObject, isField, isTag, isChoice, isRelation, isView, typeOf, argsOf, rootLabel,
-  treeOf, index, dependents, pathOf, objectOf, entryAt, KIND, sideKey, isSide, valuesAt, passes, onPage,
+  treeOf, index, within, dependents, pathOf, objectOf, entryAt, KIND, sideKey, isSide, valuesAt, passes, onPage,
   specOf, bare, key, paramKey, shapeOf, weight, narrower, fits, idsIn, renamed, rename, lift, OPEN, isOpen,
   // A record's parameterization key, as formulas.js keys what a definition covers.
   parameterization: (recs, id) => { const t = treeOf(recs, id); return t && paramKey(t); },

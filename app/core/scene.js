@@ -2476,26 +2476,62 @@ const oneOf = w => { const one = Tree.singular(w); return Tree.same(Tree.plural(
 // "Owner's name", as it's said, is what's offered and what's read: Owner.Name says the same.
 const OWNED = /^(.+?)(?:\.|['’]s\s+)(.+)$/;
 // What a record's words can read, by name, as a person says it: its entries, then, of each list of its relatives, what's said of one of them ("Owner's name", "Owner's Jurisdiction"), and a relation's sides.
-// → [{ label, of }], `of` the list a relative's is from, `first` its name, what a list shows first. Each label is the token that reads it.
-const readings = new WeakMap();
+// → [{ label, paths?, of }], `paths` an own field's source path even when its short label is enough;
+// `of` the list a relative's is from, `first` its name, what a list shows first. Each label is a readable token.
+const readings = new WeakMap(), readingSchemas = new WeakMap();
+// Match field declarations only against locations of the same shape. A classification adds
+// owned locations, not another full schema scan per location; open patterns remain candidates.
+function readingSchema(schema) {
+  if (!readingSchemas.has(schema)) {
+    const specs = Object.values(schema), fields = new Map(), open = [];
+    for (const s of specs) if (s.args?.length === 1) {
+      const loc = s.args[0].loc;
+      if (Tree.isOpen(loc)) open.push(s);
+      else { const key = Tree.shapeOf(loc); (fields.get(key) ?? fields.set(key, []).get(key)).push(s); }
+    }
+    readingSchemas.set(schema, { specs, fields, open });
+  }
+  return readingSchemas.get(schema);
+}
 function readable(state, N, schema, at) {
-  const t = treeOf(state, at), specs = Object.values(schema);
+  const t = treeOf(state, at);
   if (!t) return [];
   // (Asked of as a panel's drawn, once for each of its lists: kept for as long as what it's worked out from is the same.)
-  const byState = readings.get(N) ?? readings.set(N, new WeakMap()).get(N), kept = byState.get(state) ?? byState.set(state, new Map()).get(state);
+  const byState = readings.get(N) ?? readings.set(N, new WeakMap()).get(N), bySchema = byState.get(state) ?? byState.set(state, new WeakMap()).get(state), kept = bySchema.get(schema) ?? bySchema.set(schema, new Map()).get(schema);
   if (kept.has(at)) return kept.get(at);
-  const own = new Map();
-  for (const e of Tree.index(state).entries.get(at) ?? []) if (!N.check(bare(treeOf(state, e)))) own.set(Tree.norm(state[e].edge), state[e].edge);
-  for (const x of specs) if (x.args?.length === 1 && Tree.narrower(t, x.args[0].loc) && !N.check(bare(x))) own.set(Tree.norm(x.args[0].edge), x.args[0].edge);
+  const { specs, fields, open } = readingSchema(schema), ids = Tree.within(state, at), locs = ids.map(id => treeOf(state, id)).filter(Boolean), paths = new Map([[at, []]]), own = new Map();
+  const fieldsAt = loc => [...fields.get(Tree.shapeOf(loc)) ?? [], ...open].filter(x => Tree.narrower(loc, x.args[0].loc) && !N.check(bare(x)));
+  const applicable = locations => [...new Set(locations.flatMap(fieldsAt))];
+  const add = path => own.set(JSON.stringify(path.map(Tree.norm)), path);
+  for (const id of ids) {
+    const loc = treeOf(state, id);
+    if (!loc) continue;
+    if (id !== at) {
+      const path = [...paths.get(state[id].at) ?? [], state[id].edge]; paths.set(id, path);
+      if (!N.check(bare(loc))) add(path);
+    }
+    for (const x of fieldsAt(loc)) add([...paths.get(id) ?? [], x.args[0].edge]);
+  }
+  const leaves = new Map();
+  for (const path of own.values()) { const key = Tree.norm(path.at(-1)); leaves.set(key, (leaves.get(key) ?? 0) + 1); }
+  // Short labels stay short. Only an ambiguous leaf needs its path; both entered and blank
+  // applicable fields count, so filling a value never silently changes which field is offered.
+  const labels = new Map([...own.values()].map(path => [leaves.get(Tree.norm(path.at(-1))) > 1 ? path.join(' › ') : path.at(-1), path]));
   const byOrder = (edges, loc) => { const order = e => same(e, 'Name') ? -1 : N.order({ args: [{ edge: e, loc }] }) ?? Infinity; return [...edges].sort((a, b) => order(a) - order(b) || a.localeCompare(b)); };
-  const offered = byOrder(own.values(), t).map(label => ({ label }));
-  // (Of one at a side or in a list: its name, then what its kind has. No document's own list: what evidences a thing isn't over it.)
-  const whose = (noun, locs, of) => { const es = new Map([['name', 'name']]), kinds = locs.map(l => l.kind).filter(Boolean); for (const x of specs) if (x.args?.length === 1 && !x.args[0].loc.args && kinds.some(k => same(x.args[0].loc.kind ?? '', k)) && !N.check(bare(x)) && !same(x.args[0].edge, 'Name') && !('tag' in x.out)) es.set(Tree.norm(x.args[0].edge), x.args[0].edge); return byOrder(es.values(), locs[0] ?? {}).map(e => ({ label: `${noun}'s ${e}`, of, ...(e === 'name' && { first: true }) })); };
-  for (const a of state[at]?.args ?? []) offered.push(...whose(a.edge, [treeOf(state, Tree.objectOf(state, a.at) ?? a.at) ?? {}], a.edge));
+  const offered = byOrder(labels.keys(), t).map(label => ({ label, paths: labels.get(label) }));
+  // A constrained side can be a choice entry. Its fields and its owning object's
+  // common fields are both readable; another choice's fields are not implied.
+  const ancestors = loc => { const out = []; for (let t = loc; t; t = t.args?.length === 1 ? t.args[0].loc : null) out.push(t); return out; };
+  const whose = (noun, locations, of) => {
+    const es = new Map([['name', 'name']]), places = locations.flatMap(ancestors);
+    for (const x of applicable(places)) if (!same(x.args[0].edge, 'Name') && !('tag' in x.out)) es.set(Tree.norm(x.args[0].edge), x.args[0].edge);
+    return byOrder(es.values(), places[0] ?? {}).map(e => ({ label: `${noun}'s ${e}`, of, ...(e === 'name' && { first: true }) }));
+  };
+  for (const a of state[at]?.args ?? []) offered.push(...whose(a.edge, [treeOf(state, a.at) ?? {}], a.edge));
   const lists = new Map(), isDoc = loc => !!loc.kind && specs.some(s => s.out?.field === 'document' && s.args?.length === 1 && same(s.args[0].loc.kind ?? '', loc.kind));
   for (const s of specs) if (s.args?.length === 2 && ('tag' in s.out || 'choice' in s.out) && !N.resolve('Formula', bare(s))) for (const sm of s.args) {
     const sl = s.args.find(a => a !== sm);
-    if (!sl || !Tree.narrower(t, sm.loc) || isDoc(sl.loc)) continue;
+    if (!sl || !locs.some(loc => Tree.narrower(loc, sm.loc)) || ancestors(sl.loc).some(isDoc)) continue;
     const name = N.listName(bare(s), sl.edge);
     const l = lists.get(Tree.norm(name));
     if (l) l.locs.push(sl.loc); else lists.set(Tree.norm(name), { name, locs: [sl.loc], edge: sl.edge });
@@ -2509,7 +2545,7 @@ function readable(state, N, schema, at) {
 // one; `A › B`, an entry of an entry; `Side's Entry` or `Side.Entry`, that entry of the record at a relation's side, or of everyone in a list of its relatives, by the list's name or one of them ("Owner's name");
 // a list's name, or one of them, the names of the relatives it lists (Holdings); and `|initials`, its words' first letters. → { text, id }, id the entry read.
 function reader(state, N, computed, day) {
-  const below = (at, label) => { const { entries } = Tree.index(state), k = Tree.norm(label); for (let todo = [at], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { if (Tree.norm(state[e].edge) === k) return e; todo.push(e); } return null; };
+  const below = (at, label) => Tree.entryAt(state, at, label) ?? Tree.within(state, at).find(id => id !== at && same(state[id].edge, label)) ?? null;
   const objectAt = at => Tree.objectOf(state, at) ?? at;
   // Who a word names among what's over a record: a relation's side, or its list of relatives, by the list's name, one of them, or the side.
   // Older designs may contain a guessed singular such as Spous.Name. Still read it, but offer only the shared English.
@@ -2589,6 +2625,9 @@ const tintOf = (c, k = 0.14) => { const m = /^#([0-9a-f]{6})$/i.exec(String(c));
 // A fill given the box beyond the design's own is the band's whole, and a tint of it on a white panel over the box, so a fill is seen where the eye looks. A shape in a colour lost on the dark it stands on (a navy avatar on a navy box) turns white.
 function partFormat(b, { p, item, shares = p }, s, parts) {
   const f = { ...p.format }, src = item?.settings ?? b.settings, given = l => (src[l]?.note ? src[l].value : undefined);
+  // The design editor materializes automatic ink for its free text rows. Re-resolve it
+  // against the live card/panels while that temporary value remains untouched.
+  if (p.named?.Color?.[0] === null && f.Color === p.named.Color[1]) delete f.Color;
   for (const [k, v] of Object.entries(f)) { const m = typeof v === 'string' && /^\{(\w+)\}$/.exec(v); if (m) { const o = b.settings[m[1]]?.value; if (o === undefined) delete f[k]; else f[k] = m[1] === 'Weight' ? o * s : o; } }
   const fill = b.settings.Fill, panel = panels(shares);
   if (f.Fill === WHITE && panel && fill?.note && fill.note !== b.design?.note?.note && !none(fill.value)) f.Fill = tintOf(fill.value);
@@ -2648,7 +2687,7 @@ function sizeDesigned(b, squeeze, at, grow = 1) {
     for (const it of b.texts) w = Math.max(w, rest ? (longestWord(it) + restIn.l + restIn.r + 1) / (rest.w || 1) : (longestWord(it) + 2 * INSET + 1) / textArea(shape));
   }
   // What each frame's words need beyond it, by the share its foot is at.
-  const more = new Map(), wants = (p, h) => { const had = p.h * tall; if (h > had + 0.01) { const foot = +(p.y + p.h).toFixed(4); more.set(foot, Math.max(more.get(foot) ?? 0, h - had)); } };
+  const more = new Map(), needs = new Map(), wants = (p, h) => { needs.set(p, h); const had = p.h * tall; if (h > had + 0.01) { const foot = +(p.y + p.h).toFixed(4); more.set(foot, Math.max(more.get(foot) ?? 0, h - had)); } };
   for (const pp of parts) if (pp.text && !pp.p.rest) {
     const row = partRow(b, pp, w, tall, s), m = freeShape({ ...row, ...(row.geometry === 'text' && { h: 1 }) }, pp.text, 1), it = m.texts[0];
     // (A table is as tall as its rows, all it needs.)
@@ -2663,11 +2702,40 @@ function sizeDesigned(b, squeeze, at, grow = 1) {
   const tb = blockHeight(b.texts);
   if (b.texts.length && rest) wants(rest, tb + restIn.t + restIn.b);
   const feet = [...more].sort((p, q) => p[0] - q[0]), grown = feet.reduce((n, [, v]) => n + v, 0);
-  let need = tall + grown;
+  // An unused plain overflow slot need not leave a hole above explicit text. Collapse only
+  // a clear vertical band: avatars, panels and other independently placed artwork protect it.
+  const emptyRest = rest?.geometry === 'text' && !b.texts.length && !parts.some(({ p }) => p !== rest && p.y < rest.y + rest.h - 1e-4 && p.y + p.h > rest.y + 1e-4);
+  const removed = emptyRest ? rest.h * tall : 0, removedAt = v => emptyRest ? Math.min(removed, Math.max(0, (v - rest.y) * tall)) : 0;
+  const position = v => {
+    let y = v * tall;
+    for (const [foot, g] of feet) if (v >= foot - 1e-4) y += g;
+    return y - removedAt(v);
+  };
+  const height = Math.max(1, tall + grown - removed);
+  let need = height;
   if (b.texts.length && !rest) need = Math.max(need, shape === 'oval' || shape === 'diamond' ? tb / (shape === 'oval' ? 0.74 : 0.5) + 2 * PAD : tb + 2 * PAD + 8);
-  // A share as it falls in the box as grown, the box's foot where it was the design's.
-  const down = v => { let y = v * tall; for (const [foot, g] of feet) if (v >= foot - 1e-4) y += g; return y / (tall + grown); };
-  for (const pp of parts) pp.down = grown ? down : null;
+  // Saved designs can already have overlapping text frames. Flow text in each column by
+  // its original top, keeping intentional gaps, rather than assuming its next frame began
+  // below its original foot. This also handles one record's longer substituted values.
+  const flowed = [], offsets = new Map();
+  const textParts = parts.filter(({ p, text }) => !p.rotate && (p.geometry === 'text' || p.geometry === undefined || (text && p.format?.Fill === 'none' && p.format?.Outline === 'none')) && (text || (p.rest && b.texts.length))).sort((a, c) => a.p.y - c.p.y);
+  for (const pp of textParts) {
+    // Another overlapping frame's growth can cross this frame's old footprint. It moves
+    // this text down, but must not also enlarge it and bake a second gap into an edit.
+    const p = pp.p, top = position(p.y), h = Math.max(p.h * tall, needs.get(p) ?? 0);
+    let y = top;
+    for (const prev of flowed) {
+      const q = prev.p, overlap = Math.min(p.x + p.w, q.x + q.w) - Math.max(p.x, q.x);
+      if (q.y < p.y - 1e-4 && overlap > Math.min(p.w, q.w) * 0.5)
+        y = Math.max(y, prev.y + prev.h + Math.max(0, (p.y - q.y - q.h) * tall - removedAt(p.y) + removedAt(q.y + q.h)));
+    }
+    offsets.set(pp, { y, h }); flowed.push({ p, y, h }); need = Math.max(need, y + h);
+  }
+  for (const pp of parts) {
+    const flow = offsets.get(pp), p = pp.p;
+    pp.down = flow ? v => (flow.y + (p.h ? (v - p.y) / p.h : 0) * flow.h) / need
+      : grown || removed || need !== tall ? v => (position(v) + (v >= 1 - 1e-4 ? need - height : 0)) / need : null;
+  }
   const given = b.pos && !b.pos.kept ? b.pos.h : null;
   b.need = need;
   b.spills = !!b.exact && given != null && !b.pos.soft && given < need;
@@ -2727,19 +2795,26 @@ function swatchParts(sw, box, u = 1) {
 // ---- A table on the page (dendra.md, A table on the page) ----
 
 // What a record's lists hold, by the names its panel gives them: for each relation at it, the record at its other side. → [{ name, edge, items: [{ rid, obj }] }]
+const relativeLists = new WeakMap();
 function listsAt(state, N, at) {
-  const lists = new Map();
-  for (const rid of Tree.index(state).relations.get(at) ?? []) {
-    const rel = state[rid], t = treeOf(state, rid), mine = rel?.args?.find(a => a.at === at);
+  const byState = relativeLists.get(N) ?? relativeLists.set(N, new WeakMap()).get(N), kept = byState.get(state) ?? byState.set(state, new Map()).get(state);
+  if (kept.has(at)) return kept.get(at);
+  const lists = new Map(), seen = new Set(), { relations } = Tree.index(state);
+  for (const loc of Tree.within(state, at)) for (const rid of relations.get(loc) ?? []) {
+    if (seen.has(rid)) continue;
+    const rel = state[rid], t = treeOf(state, rid), mine = rel?.args?.find(a => a.at === loc);
     if (!t || !mine || rel.tag === false) continue;
     const other = N.edges(t).filter(e => !Tree.same(e, mine.edge)).map(e => rel.args.find(a => a !== mine && Tree.same(a.edge, e)))[0];
     if (!other) continue;
+    seen.add(rid);
     const name = N.listName(t, other.edge);
-    (lists.get(name) ?? lists.set(name, { name, edge: other.edge, items: [] }).get(name)).items.push({ rid, obj: other.at });
+    (lists.get(name) ?? lists.set(name, { name, edge: other.edge, items: [] }).get(name)).items.push({ rid, obj: Tree.objectOf(state, other.at) ?? other.at });
   }
   for (const l of lists.values()) { l.items.sort((a, b) => N.nameOf(state, a.obj).localeCompare(N.nameOf(state, b.obj))); l.worked = l.items.every(it => state[it.rid].computed); }
   // (What's entered first, what a formula gives after it.)
-  return [...lists.values()].sort((a, b) => a.worked - b.worked || a.name.localeCompare(b.name));
+  const result = [...lists.values()].sort((a, b) => a.worked - b.worked || a.name.localeCompare(b.name));
+  kept.set(at, result);
+  return result;
 }
 // An {Entry} of a record, as a text in its box reads it (see reader, what every {Entry} is read by).
 const entryOf = (state, N, at, label) => state[at] ? reader(state, N)(at, label).text : '';

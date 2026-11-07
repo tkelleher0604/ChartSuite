@@ -39,7 +39,8 @@ function fields(parts, schema, { kind = null, readable = [] } = {}) {
   const named = new Map(), specs = values(schema);
   for (const label of ['Name', ...parts.flatMap(p => TextTemplate.fields(p.text))]) if (!named.has(Tree.norm(label))) named.set(Tree.norm(label), label);
   return [...named.values()].map(label => {
-    const paths = label.split(/\s*›\s*/).map(Tree.clean);
+    const ownField = readable.find(r => !r.of && Tree.same(r.label, label));
+    const paths = ownField?.paths ?? label.split(/\s*›\s*/).map(Tree.clean);
     let candidates = specs.filter(s => {
       const steps = chain(s), source = root(s);
       return s.out && steps.length === paths.length && steps.every((step, i) => Tree.same(step.args[0].edge, paths[i])) && (!kind || Tree.same(source.kind, kind));

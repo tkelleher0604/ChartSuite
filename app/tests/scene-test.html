@@ -1865,8 +1865,67 @@ function aboutAnything() {
   check('… plurals of a person and a child are said right', Tree.plural('Person') === 'People' && Tree.plural('Child') === 'Children' && Tree.plural('Entity') === 'Entities');
 }
 
+function savedDesignFlow() {
+  // Persist the formerly overlapping geometry directly: opening an existing workbook must
+  // repair its rendering, without a design edit, new layout metadata or a data migration.
+  const wb = Log.open(), chart = 'saved-flow', view = 'page', kind = { kind: 'Person' };
+  const write = fn => { const tx = wb.edit({ chart, who: WHO }); fn(tx); const c = tx.commit(); if (typeof c === 'string') throw Error(c); };
+  const draw = (book = wb) => Scene.of(book, chart, view, DAY, { state: book.asOf(chart, DAY) });
+  const format = { Size: 12, Inset: { l: 3, r: 3, t: 2, b: 2 }, Valign: 'top' };
+  const summary = { id: 'summary', geometry: 'text', x: 0, y: .1, w: 1, h: .3, text: 'Team member\n{Name}\n{Title}', format };
+  const focus = { id: 'focus', geometry: 'text', x: 0, y: .3, w: 1, h: .15, text: '{Focus}', format };
+  const design = { id: 'saved-person', w: 170, h: 120, base: {}, parts: [summary, focus] };
+  write(tx => {
+    tx.add('chart', { name: 'Saved card flow' }, chart); tx.add('record', { kind: 'View' }, view);
+    for (const [id, name, title] of [['a', 'Parker', 'Research Lead'], ['b', 'Sam', 'Director of Research and Development for International Programmes']]) {
+      tx.add('record', { kind: 'Person' }, id);
+      for (const [edge, value] of [['Name', name], ['Title', title], ['Focus', 'Discovery']]) tx.add('record', { at: id, edge, field: 'text', value }, `${id}-${edge}`);
+    }
+    tx.note('Shown', kind, true, { view }); tx.note('Design', kind, design, { view });
+  });
+  const part = (s, id, name) => s.byId.get(id).parts.find(p => p.part === name);
+  const clear = (s, id) => part(s, id, 'focus').y >= part(s, id, 'summary').y + part(s, id, 'summary').h - .1;
+  const before = JSON.stringify(wb), first = draw();
+  check('saved overlapping card text flows clear for short and long record values', ['a', 'b'].every(id => clear(first, id)));
+  check('rendering repairs saved card geometry without writing to the workbook', JSON.stringify(wb) === before);
+  const instances = ['a', 'b'].map(id => Scene.instance(first, id, design, wb.notes(chart)));
+  const focusHeights = instances.map(b => b.parts.find(p => p.part === 'focus').h);
+  check('a long preceding field moves the following field without stretching its own frame', Math.abs(focusHeights[0] - focusHeights[1]) < .1, focusHeights.join(', '));
+  write(tx => tx.update('a-Title', { value: 'Research Director of International Science and Development' }));
+  const longer = draw();
+  check('ordinary record edits wrap to more lines and keep the following field clear', clear(longer, 'a') && part(longer, 'a', 'summary').texts[0].lines.length > part(first, 'a', 'summary').texts[0].lines.length);
+  const reopened = draw(Log.open(wb.toJSON()));
+  check('reopening the same saved design retains runtime separation', ['a', 'b'].every(id => clear(reopened, id)));
+
+  // A promoted backing used to retain its original shape geometry with no paint.
+  write(tx => tx.note('Design', kind, { ...design, parts: [{ ...summary, geometry: 'rounded', format: { ...format, Fill: 'none', Outline: 'none' } }, focus] }, { view }));
+  check('existing transparent shaped text participates in card flow', clear(draw(), 'a'));
+
+  const band = { id: 'band', geometry: 'rect', x: 0, y: 0, w: 1, h: .05, format: { Fill: '#225577', Outline: 'none' } };
+  const rest = { id: 'rest', rest: true, geometry: 'text', x: 0, y: .05, w: 1, h: .45 };
+  const spaced = { ...design, h: 200, parts: [band, rest, { ...summary, y: .5, h: .3 }, { ...focus, y: .8, h: .2 }] };
+  write(tx => tx.note('Design', kind, spaced, { view }));
+  const compact = draw(), gap = s => part(s, 'a', 'summary').y - part(s, 'a', 'band').y - part(s, 'a', 'band').h;
+  check('an empty Other fields band collapses after its fields move to explicit layers', part(compact, 'a', 'rest').texts.length === 0 && gap(compact) < 1 && clear(compact, 'a'), gap(compact));
+  write(tx => tx.note('Design', kind, { ...spaced, parts: [band, { id: 'avatar', geometry: 'ellipse', x: .4, y: .15, w: .2, h: .2 }, ...spaced.parts.slice(1)] }, { view }));
+  const protectedBand = draw();
+  check('independent artwork protects an otherwise empty overflow band', gap(protectedBand) > 50 && part(protectedBand, 'a', 'avatar').y < part(protectedBand, 'a', 'summary').y, gap(protectedBand));
+
+  const columns = { ...design, parts: [{ ...summary, w: .45, h: .65 }, { ...focus, x: .55, y: .2, w: .45 }, { ...focus, id: 'stamp', y: .2, rotate: 30 }] };
+  write(tx => tx.note('Design', kind, columns, { view }));
+  const independent = draw(), left = part(independent, 'a', 'summary'), right = part(independent, 'a', 'focus'), stamp = part(independent, 'a', 'stamp');
+  check('side-by-side text retains its independent vertical placement', right.x >= left.x + left.w && right.y < left.y + left.h);
+  check('rotated text overlays are not treated as stacked text', stamp.y < left.y + left.h && stamp.rotate === 30);
+  write(tx => {
+    tx.note('Design', kind, design, { view });
+    tx.note('Position', { id: 'a', kind: 'Person' }, { x: 100, y: 100, w: 170, h: 20, hand: true }, { view });
+  });
+  const fixed = draw().byId.get('a');
+  check('a user-fixed card height remains exact and reports overflowing text', fixed.h === 20 && fixed.need > 20 && fixed.spills);
+}
+
 if (location.search.includes('fresh')) window.drawFresh = json => drawAll(Log.open(json))[1];
-else Promise.resolve().then(run).then(drawnAgain).then(freeDrawing).then(groupDesigns).then(aboutAnything)
+else Promise.resolve().then(run).then(drawnAgain).then(freeDrawing).then(groupDesigns).then(aboutAnything).then(savedDesignFlow)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);

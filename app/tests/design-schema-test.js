@@ -35,6 +35,10 @@ const status = infer('{Status}', { kind: 'Person' }).find(f => f.label === 'Stat
 check('Inference uses the source type', status.datatype === 'choice' && status.outputs.map(o => o.choice).join() === 'Active,Away');
 check('Unrelated choice options are not combined without a source type', infer('{Status}').find(f => f.label === 'Status').datatype === 'text');
 check('Inference resolves the whole nested path', infer('{Address › Since}', { kind: 'Person' }).find(f => f.label.includes('Since')).datatype === 'date');
+const shortNested = infer('{Since}', { kind: 'Person', readable: [{ label: 'Since', paths: ['Address', 'Since'] }] }).find(f => f.label === 'Since');
+check('A short readable label retains its nested schema path', shortNested.datatype === 'date' && shortNested.paths.join(' › ') === 'Address › Since');
+const copiedShort = D.declarations(schema, ['Worker'], [shortNested]);
+check('Reusing a short nested label declares it at its original depth', !copiedShort.error && copiedShort.trees.some(s => s.args?.[0].edge === 'Since' && s.args[0].loc.args?.[0].edge === 'Address') && !copiedShort.trees.some(s => s.args?.[0].edge === 'Since' && s.args[0].loc.kind === 'Worker'));
 check('An unrelated root field does not type an unknown nested path', infer('{Unknown › Since}', { kind: 'Person' }).find(f => f.label.includes('Since')).datatype === 'text');
 check('Modifiers and repeated labels do not create extra fields', infer('{Status|initials} {status}').length === 2);
 check('Literal braces and formula strings do not become declarations', D.fields([{ text: TextTemplate.literal('{Fake}') }, { text: '="{Also fake}"' }], schema).length === 1);
