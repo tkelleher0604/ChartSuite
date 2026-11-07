@@ -82,6 +82,53 @@ async function object(name, type) {
   await click(button('Add', 'dialog button')); await wait(300);
   check('Add object creates ' + name + ' as ' + type, named(name)?.[1].kind === type);
 }
+async function showView(id) {
+  const tab = $(`#tab-${id}`), r = tab.getBoundingClientRect();
+  tab.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: r.x + 8, clientY: r.y + 8 }));
+  window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, clientX: r.x + 8, clientY: r.y + 8 }));
+  await wait(400);
+}
+async function selectBox(name, context = false) {
+  const m = box(name), el = $(`.x6-node[data-cell-id="${m.id}"] path`), r = el.getBoundingClientRect();
+  const opts = { bubbles: true, cancelable: true, button: 0, clientX: r.x + 8, clientY: r.y + 8 };
+  el.dispatchEvent(new MouseEvent('mousedown', opts));
+  document.dispatchEvent(new MouseEvent('mouseup', opts));
+  el.dispatchEvent(new MouseEvent(context ? 'contextmenu' : 'click', opts));
+  await wait(200);
+}
+async function sharedDesignAcrossViews() {
+  const staffView = App.scene.peek().view;
+  await click('[aria-label="New view"]'); await menu('Blank chart');
+  await input('.sheets input[aria-label="Name"]', 'Companies');
+  await key($('.sheets input[aria-label="Name"]'), 'Enter'); await wait(300);
+  const companyView = App.scene.peek().view;
+  await object('Acme', 'Company');
+  await click('[data-fb="design"]'); await click('.picker.designs button.tile[aria-label="Staff card"]');
+  const sharedId = box('Acme')?.design?.value.id;
+  check('Another object type can reuse a saved design through the gallery', !!sharedId && box('Acme').design.value.name === 'Staff card');
+  await showView(staffView);
+  if (box('Acme')) { await selectBox('Acme', true); await menu('More'); await menu('Hide in this view'); }
+  check('The other type is absent from the page being edited', !box('Acme'));
+  await selectBox('Alex'); await editDesign();
+  const part = shapes().find(m => rowOf(m.id)?.text?.startsWith('Team'));
+  await click(`.part-rows [data-part="${part.id}"]`); await field('Team code', true);
+  await click(button('Done', '.dc-designbar button')); await wait(400);
+  const hasCode = kind => specs(kind).some(s => s.args[0].edge === 'Team code');
+  const saysCode = view => App.notes.peek().notes('Design').some(n => n.view === view && n.value?.id === sharedId && n.value.parts?.some(p => TextTemplate.fields(p.text).includes('Team code')));
+  check('Done declares a shared new field on an off-page object type', hasCode('Staff') && hasCode('Company'));
+  check('Both views receive the shared design change', saysCode(staffView) && saysCode(companyView));
+  await click('[aria-label="Undo"]'); await wait(300);
+  check('One Undo removes both declarations and both design changes', !hasCode('Staff') && !hasCode('Company') && !saysCode(staffView) && !saysCode(companyView));
+  await click('[aria-label="Redo"]'); await wait(300);
+  check('Redo restores the complete shared change', hasCode('Staff') && hasCode('Company') && saysCode(staffView) && saysCode(companyView));
+  await showView(companyView); await selectBox('Acme'); await value('Team code', 'ACME');
+  check('The off-page type exposes the new field and renders its own value', drawnText(box('Acme')).includes('ACME'));
+  await editDesign();
+  const companyPart = shapes().find(m => rowOf(m.id)?.text?.startsWith('Team'));
+  await click(`.part-rows [data-part="${companyPart.id}"]`); await field('Discarded shared field', true);
+  await click(button('Discard', '.dc-designbar button')); await wait(300);
+  check('Discard does not leak a field to either kind', ['Staff', 'Company'].every(kind => !specs(kind).some(s => s.args[0].edge === 'Discarded shared field')));
+}
 async function run() {
   await wait(500);
   await chart('Team');
@@ -169,6 +216,7 @@ async function run() {
   check('Reopening retains both objects and their merged text', !!named('Alex') && !!named('Staff') && drawnText(box('Alex')).includes('Product'));
   check('Reopening retains a valid schema and reusable design', !Tree.schemaError(App.schema.peek()) && specs('Staff').some(s => s.args[0].edge === 'Department') && box('Staff')?.design?.value.name === 'Staff card');
   if (stop === 'finished') return;
+  await sharedDesignAcrossViews();
 }
 Shell.ready.then(run).catch(e => out.push({ name: 'GUI flow finishes', ok: false, detail: e.stack ?? String(e) })).finally(() => {
   const failed = out.filter(x => !x.ok);

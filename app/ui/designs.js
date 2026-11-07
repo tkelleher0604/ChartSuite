@@ -179,11 +179,13 @@ function whom(m, s, marks) {
 }
 // A design at a note's pattern, every view and every note of it moving with it. On tx: the design as it's now, `was`, its id before.
 function rewrite(tx, d, was, patterns, v) {
-  const N = App.notes.peek(), same = was ? N.notes('Design').filter(n => Scene.wholeDesign(n.value) && n.value.id === was) : [];
-  for (const n of same) { const { over } = n.value; tx.note('Design', n.pattern, { ...d, ...(over && { over }) }, { view: n.view, ...(n.param && { param: n.param }) }); }
-  for (const p of patterns) if (!same.some(n => n.view === v && Tree.key(n.pattern) === Tree.key(p))) { const { over } = N.notes('Design').find(n => n.view === v && Tree.key(n.pattern) === Tree.key(p))?.value ?? {}; tx.note('Design', p, { ...d, ...(over && { over }) }, { view: v }); }
+  for (const n of rewriteTargets(was, patterns, v)) { const { over } = n.value ?? {}; tx.note('Design', n.pattern, { ...d, ...(over && { over }) }, { view: n.view, ...(n.param && { param: n.param }) }); }
   const list = inChart(), at = list.findIndex(x => x.id === was || x.id === d.id);
   tx.note('Designs', LIBRARY, { list: at < 0 ? [...list, d] : list.map((x, i) => i === at ? d : x) });
+}
+function rewriteTargets(was, patterns, v) {
+  const notes = App.notes.peek().notes('Design');
+  return DesignSchema.targets(notes.filter(n => Scene.wholeDesign(n.value)), was, patterns, v, notes);
 }
 // ---- Make a design: from what's selected, shapes or a group, with the box they're for if it's among them ----
 function makeable(ms) {
@@ -197,38 +199,8 @@ const frameOf = qs => { const x = Math.min(...qs.map(q => q.x)), y = Math.min(..
 // A drawing's explicitly named fields become the form for a new object type. Existing definitions
 // supply their datatype/options; unknown fields start as text and can be changed in the save dialog.
 function fieldsOf(parts, record = null) {
-  const named = new Map();
-  for (const label of ['Name', ...parts.flatMap(p => TextTemplate.fields(p.text))]) if (!named.has(Tree.norm(label))) named.set(Tree.norm(label), label);
-  const labels = [...named.values()];
-  const schema = Object.values(App.schema.peek());
-  const readable = record ? Scene.readable(App.state.peek(), App.notes.peek(), App.schema.peek(), record) : [];
-  const relativeName = label => label.replace(/^(.+?)(?:\.|['’]s\s+)(.+)$/, "$1's $2");
-  return labels.map(label => {
-    const paths = label.split(/\s*›\s*/), edge = paths.at(-1);
-    const candidates = schema.filter(s => s.args?.length === 1 && Tree.same(s.args[0].edge, edge) && s.out);
-    const types = new Set(candidates.map(s => 'field' in s.out ? s.out.field : 'choice' in s.out ? 'choice' : 'tag'));
-    const datatype = Tree.same(label, 'Name') ? 'text' : types.size === 1 ? [...types][0] : 'text';
-    const own = readable.some(r => !r.of && Tree.same(r.label, label));
-    const linked = !own && readable.some(r => r.of && (Tree.same(relativeName(r.label), relativeName(label)) || Tree.same(r.of, label) || (r.first && Tree.same(r.label.replace(/['’]s\s+name$/i, ''), label))));
-    return { label, paths, datatype, outputs: candidates.map(s => s.out), linked };
-  });
-}
-function defineFields(tx, kind, fields) {
-  const schema = [...Object.values(App.schema.peek())], known = new Set(schema.map(Tree.key));
-  const add = tree => { const key = Tree.key(tree); if (!known.has(key)) { tx.add('spec', { tree }); known.add(key); schema.push(tree); } };
-  add({ kind });
-  for (const f of fields) {
-    if (f.linked) continue;
-    let loc = { kind };
-    f.paths.forEach((edge, i) => {
-      const last = i === f.paths.length - 1;
-      const outputs = last && ['choice', 'tag'].includes(f.datatype) ? f.outputs : [{ field: last ? f.datatype : 'text' }];
-      const existing = schema.filter(s => s.args?.length === 1 && Tree.same(s.args[0].edge, edge) && Tree.key(s.args[0].loc) === Tree.key(loc));
-      const trees = existing.length ? existing : outputs.map(out => ({ out, args: [{ edge, loc }] }));
-      trees.forEach(add);
-      loc = trees[0];
-    });
-  }
+  const state = App.state.peek(), schema = App.schema.peek();
+  return DesignSchema.fields(parts, schema, { kind: state[record]?.kind, readable: record ? Scene.readable(state, App.notes.peek(), schema, record) : [] });
 }
 // Shapes that stand within a box are where they stand on it. Any other is fitted to the box it's for, what it draws as shares of its own frame, its words' sizes scaled down with it, never pasted and dragged into place. → one change, the shapes gone.
 function make(ms = canvas().selected(), { asType = false } = {}) {
@@ -277,10 +249,12 @@ function make(ms = canvas().selected(), { asType = false } = {}) {
       id: Log.newId(), name: Tree.clean(name) || (f?.fresh ? kind : 'New design'), w: round(W), h: round(H), base: { Shape: target?.shape ?? 'rect', ...(target?.shape === 'rounded' && { Corner: target.settings.Corner.value }) }, parts,
     };
     const said = f?.fresh ? `Saved ${d.name} as the design for ${kind}` : `Made the design ${d.name}${f?.none ? '' : ` for ${whom(target, s, s?.marks?.size)}`}`;
+    const declarations = DesignSchema.declarations(App.schema.peek(), f?.fresh ? [kind] : [], fields);
+    if (declarations.error) return Shell.toast(declarations.error);
     let made = null;
     const change = App.change(tx => {
       if (f?.fresh) {
-        defineFields(tx, kind, fields);
+        declarations.trees.forEach(tree => tx.add('spec', { tree }));
         // The drawing becomes its first object, so the result can immediately be filled in and edited.
         made = tx.add('record', { kind });
         tx.add('record', { at: made, edge: 'Name', field: 'text', value: kind });
@@ -324,6 +298,8 @@ function edit(m, given) {
   const n = group ? group.marks.size : note ? sc.marks.filter(b => b.type === 'box' && b.design?.note.note === note.note).length : pen?.marks?.size;
   const said = group ?? (note && !Tree.idsIn(patterns[0]).size ? { outputs: patterns, caption: Scene.captionOf(N, patterns[0], v) } : pen?.outputs?.length ? pen : null);
   const where = c.whereNow(), rows0 = new Set(App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r && r.view === v).map(r => r.shape)), own = new Map(ownLooks(App.shown.peek().rows(App.chart.peek()), v, m.record).map(r => [r.label, JSON.stringify(r.value)]));
+  const wasId = given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id;
+  const kinds = DesignSchema.kinds(rewriteTargets(wasId, patterns, v), App.schema.peek(), App.state.peek());
   // (As large as it stands, or one from the gallery as large as it would, with these words; each part where it falls in that, and the box held so, whatever its rank's height.)
   const like = given ? Scene.instance(sc, m.id, d, N, App.computed.peek()) : m, W = round(like.w), H = round(like.h), o = sc.page.placed ? sc.page.offset : { x: 0, y: 0 }, dx = m.x - like.x, dy = m.y - like.y, stands = new Map();
   App.sandbox(takes(m.record));
@@ -357,8 +333,7 @@ function edit(m, given) {
   words.textContent = `Editing the design of ${who}`;
   discard.onclick = () => leave(false);
   done.onclick = () => leave(true);
-  const kinds = [...new Set([App.state.peek()[m.record]?.kind, ...sc.marks.filter(q => q.type === 'box' && q.design?.value.id === d.id).map(q => App.state.peek()[q.record]?.kind)].filter(Boolean))];
-  editing.value = { box, record: m.record, d, wasId: given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id, patterns, view: v, rows0, where, bar, called, whom: who, stands, W, H, own, kinds, newFields: new Map() };
+  editing.value = { box, record: m.record, d, wasId, patterns, view: v, rows0, where, bar, called, whom: who, stands, W, H, own, kinds, newFields: new Map() };
 }
 function leave(keep) {
   const e = editing.peek();
@@ -385,6 +360,12 @@ function leave(keep) {
     const plain = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([p], [q]) => p < q ? -1 : 1)) : x);
     if (e.wasId && plain({ ...d, id: 0 }) === plain({ ...e.d, id: 0 }) && !Object.keys(looks).length) keep = null;
   }
+  // Plan before leaving the sandbox: a conflicting field keeps the editable draft on screen.
+  // Only explicitly created fields are declared; relative and nested tokens keep their meaning.
+  const used = new Set((d?.parts ?? []).flatMap(p => TextTemplate.fields(p.text)).map(Tree.norm));
+  const added = keep ? [...e.newFields.values()].filter(f => used.has(Tree.norm(f.label))) : [];
+  const declarations = DesignSchema.declarations(App.schema.peek(), added.length ? e.kinds : [], added);
+  if (declarations.error) return Shell.toast(declarations.error);
   e.bar.remove();
   editing.value = null;
   c.designing(null);
@@ -396,10 +377,7 @@ function leave(keep) {
   if (keep === null) return Shell.toast('The design is as it was', { ms: 2500 });
   if (!keep) return Shell.toast('Discarded the changes to the design', { ms: 2500 });
   const said = `Changed the design of ${e.whom}`;
-  // Only fields explicitly created in this editor become schema entries. Existing tokens can read
-  // relatives or nested entries; declaring those as own fields would silently change their meaning.
-  const used = new Set(d.parts.flatMap(p => TextTemplate.fields(p.text)).map(Tree.norm)), added = [...e.newFields.values()].filter(f => used.has(Tree.norm(f.label)));
-  App.change(tx => { if (added.length) for (const kind of e.kinds) defineFields(tx, kind, added); rewrite(tx, d, e.wasId, e.patterns, e.view); for (const [l, v] of Object.entries(looks)) for (const p of e.patterns) tx.note(l, p, v, { view: e.view }); tx.says(said); },
+  App.change(tx => { declarations.trees.forEach(tree => tx.add('spec', { tree })); rewrite(tx, d, e.wasId, e.patterns, e.view); for (const [l, v] of Object.entries(looks)) for (const p of e.patterns) tx.note(l, p, v, { view: e.view }); tx.says(said); },
     { dated: false, say: said, empty: () => Shell.toast('The design is as it was', { ms: 2500 }) });
 }
 // The parts stood on the page, as the scene draws them, the topmost first.
