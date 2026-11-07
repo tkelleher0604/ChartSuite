@@ -315,15 +315,18 @@ function spansIn(it, u) {
   const raw = String(it.text), same = (a, b) => a === b || (/\s/.test(a) && /\s/.test(b));
   let at = 0;
   for (const l of it.lines) {
-    const clean = l.cut ? l.text.slice(0, -1) : l.text;
+    const clean = l.cut ? l.text.slice(0, -1) : l.text, pieces = [];
     while (at < raw.length && /\s/.test(raw[at]) && !same(raw[at], clean[0] ?? '')) at++;
-    const from = at;
-    for (let i = 0; i < clean.length && at < raw.length; i++) if (same(raw[at], clean[i])) at++;
-    const cuts = [...new Set([from, at, ...it.runs.flatMap(r => [r.from, r.to]).filter(c => c > from && c < at)])].sort((a, b) => a - b), spans = [];
-    for (let i = 0; i < cuts.length - 1; i++) {
-      const r = it.runs.find(x => x.from <= cuts[i] && x.to >= cuts[i + 1]), text = l.text.slice(cuts[i] - from, cuts[i + 1] - from), look = r ? spanLook(it.look, r, u) : it.look;
-      spans.push({ text, look, ...(r?.Base && { base: r.Base }), own: !!r });
+    for (let i = 0; i < clean.length; i++) {
+      // Layout may fold several source spaces into one. A displayed character's style belongs
+      // to its source position, not its shorter position within the laid-out line.
+      if (!/\s/.test(clean[i])) while (at < raw.length && /\s/.test(raw[at])) at++;
+      const r = it.runs.find(x => x.from <= at && x.to > at), last = pieces.at(-1);
+      if (last && last.r === r) last.text += clean[i]; else pieces.push({ r, text: clean[i] });
+      if (same(raw[at], clean[i])) at++;
     }
+    if (l.cut && pieces.length) pieces.at(-1).text += l.text.slice(clean.length);
+    const spans = pieces.map(({ r, text }) => ({ text, look: r ? spanLook(it.look, r, u) : it.look, ...(r?.Base && { base: r.Base }), own: !!r }));
     if (spans.length) { l.spans = spans; l.w = spans.reduce((s, x) => s + measure(x.text, x.look), 0); }
   }
 }
@@ -723,7 +726,8 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   const shapeRows = [...masterRows, ...read.shapes.get(view)];
   // (A look that hides only keeps the page as it stands; one wider than the page's own rule (`seen.widens`) has more to draw than that page holds, and lays it out, as it would be if kept.)
   const wider = !!opts.seen?.widens, preview = !wider && !!(opts.keep || opts.reveal?.length || opts.seen?.size), drawnAs = `${chart}|${view}`;
-  const said = new Map(shapeRows.map(r => [r.id, r.role === 'date' && wb.moment ? Log.stoodText(wb.moment) : shapeText(r, opts.computed, day, opts.state, wb.notes(chart))]));
+  const shapeWords = new Map(shapeRows.map(r => [r.id, shapeText(r, opts.computed, day, opts.state, wb.notes(chart))]));
+  const said = new Map(shapeRows.map(r => [r.id, r.role === 'date' && wb.moment ? Log.stoodText(wb.moment) : shapeWords.get(r.id).text]));
   // (A Key is drawn from where it's kept or held, either being one: so what its change made was laid out ahead for, and a
   // Key kept elsewhere since is drawn there, as it would be from nothing.)
   const boxesHeld = opts.holds?.size ? [...opts.holds].filter(([id]) => !shapeRows.some(r => r.shape === id)) : [];
@@ -1053,12 +1057,10 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
   function freeText(h) {
     const c = freeOf.get(h.id), v = c?.value;
     if (!v || typeof v !== 'object') return [];
-    const text = TextTemplate.render(v.text, l => reads(h.record, l).text);
+    const { text, runs } = TextTemplate.renderRuns(v.text, l => reads(h.record, l).text, v.runs);
     const given = {};
     for (const label of TEXT_PROPS) given[label] = label !== 'Format' && label in v ? { value: v[label], note: c.note } : h.settings[label];
     const settings = besideName(h, given);
-    // (Its runs are of the letters as typed: where an {Entry} or a space taken out moved them, each by where it now falls.)
-    const runs = v.runs?.length ? (text === v.text ? v.runs : runsAfter(String(v.text), text, v.runs)) : null;
     return text ? [{ id: `text@${h.id}`, type: 'text', settings, look: look(settings), text, free: { note: c.note.note, text: v.text, ...(v.runs && { runs: v.runs }) }, ...(runs?.length && { runs }), computed: false, shownBy: c.note }] : [];
   }
   // A text that says otherwise now than it did on the day compared with has what it said before it, struck, in the look of
@@ -1176,15 +1178,21 @@ function* drawing(wb, chart, view, day = Log.today(), opts = {}) {
         continue;
       }
       if (r.geometry === 'table') said.set(r.id, reads.table(r, editing.record));
-      else if (r.text) said.set(r.id, TextTemplate.formula(r.text) ? reads.formula(r.text, editing.record) : TextTemplate.render(r.text, l => { const q = reads(editing.record, l), it = !l.includes('|') && editing.fields.find(x => x.id === q.id); return (it ? it.text : q.text) || TextTemplate.label(l); }));
+      else if (r.text) {
+        const words = TextTemplate.formula(r.text) ? { text: reads.formula(r.text, editing.record) } : TextTemplate.renderRuns(r.text, l => { const q = reads(editing.record, l), it = !l.includes('|') && editing.fields.find(x => x.id === q.id); return (it ? it.text : q.text) || TextTemplate.label(l); }, r.runs);
+        said.set(r.id, words.text); shapeWords.set(r.id, words);
+        if (words.runs) onPage[i] = { ...r, runs: words.runs };
+      }
       // (Drawn since it began too: as it will be, a part.)
       if (r.part || wb.made(r.shape) > editing.design.value.begun) {
         const item = editing.fields.find(it => tokensIn(r.text).some(t => Tree.same(t, state[it.id]?.edge ?? ''))), one = TextTemplate.single(r.text), unfilled = one && !reads(editing.record, one).text, t = said.get(r.id) ?? '';
         // (One whose field has none yet stands faint, by its name, as a blank does.)
-        onPage[i] = { ...r, reads: true, ...(unfilled && t && { runs: [{ from: 0, to: t.length, Bold: false, Italic: true, Color: '#8a8f8c' }] }), format: partFormat(editing, { p: r, item, shares: sharesOf(r) }, kept, standing) };
+        onPage[i] = { ...onPage[i], reads: true, ...(unfilled && t && { runs: [{ from: 0, to: t.length, Bold: false, Italic: true, Color: '#8a8f8c' }] }), format: partFormat(editing, { p: r, item, shares: sharesOf(r) }, kept, standing) };
       }
     }
   }
+  // Only drawing rows receive projected ranges; stored shapes keep the editor's source offsets.
+  for (let i = 0; i < onPage.length; i++) { const r = onPage[i], runs = shapeWords.get(r.id)?.runs; if (!r.reads && r.runs?.length && runs) onPage[i] = { ...r, runs }; }
 
   // Positions: entered ones win, and those a change pending `holds` (where the boxes it doesn't place stand now,
   // as making it enters them: see the canvas). A loose position, where a box was made on the chart before it was
@@ -2423,12 +2431,13 @@ function freeShape(row, text, u = 1, k = 1) {
   }
   return m;
 }
-// A free shape's text: what its row says, or a formula's value, @AsOf being the view's day. A table's, each cell's as it reads, as one string, so a scene is drawn again as what it reads changes.
+// A free shape's text and projected runs, or a formula's value, @AsOf being the view's day. A
+// table's cells stay serialized so a scene is drawn again when any cell's text or formatting changes.
 function shapeText(row, computed, day, state, N) {
-  if (row.geometry === 'table') return JSON.stringify(tableRead(row, computed, day, state, N));
+  if (row.geometry === 'table') return { text: JSON.stringify(tableRead(row, computed, day, state, N)) };
   const text = row.text ?? '';
-  if (/^\s*=/.test(text)) return computed ? Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } })) : text;
-  return row.role ? text : TextTemplate.render(text, TextTemplate.label);
+  if (/^\s*=/.test(text)) return { text: computed ? Formulas.text(computed, Formulas.evaluateAt(computed, text, null, { '@AsOf': { t: 'date', iso: day } })) : text };
+  return row.role ? { text } : TextTemplate.renderRuns(text, TextTemplate.label, row.runs);
 }
 
 // ---- Group designs (dendra.md, Group designs) ----
@@ -2536,17 +2545,21 @@ function designIn(b, read, hidden, hasEntry) {
     if (p.geometry === 'table') return { p, text: read.table(p, b.record) };
     const raw = String(p.text ?? ''), one = TextTemplate.single(raw);
     let item = null, id = null, blank = null;
-    let text = TextTemplate.formula(raw) ? read.formula(raw, b.record) : TextTemplate.render(raw, l => {
+    const sourceIds = new Set();
+    const formula = TextTemplate.formula(raw), words = formula ? { text: read.formula(raw, b.record) } : TextTemplate.renderRuns(raw, l => {
       const r = read(b.record, l);
       if (!r.id) return r.text;
       const it = of(r.id);
       if (it) { named.add(it); item ??= it; }
       id ??= r.id;
-      return hidden(r.id) ? '' : it && !l.includes('|') ? it.text : r.text;
-    });
+      if (hidden(r.id)) return '';
+      sourceIds.add(r.id);
+      return it && !l.includes('|') ? it.text : r.text;
+    }, p.runs);
+    let text = words.text;
     if (one && !text.trim() && !id && hasEntry(one.trim())) { blank = { at: b.record, edge: one.trim() }; text = blank.edge; }
-    const runs = p.runs?.length ? (text === raw ? p.runs : runsAfter(raw, text, p.runs)) : null;
-    return { p, text, item, ...(one && id && text && !one.includes('|') && { id }), ...(blank && { blank }), ...(runs?.length && { runs }) };
+    const runs = formula && p.runs?.length ? runsAfter(raw, text, p.runs) : words.runs;
+    return { p, text, item, sourceIds: [...sourceIds], ...(one && id && text && !one.includes('|') && { id }), ...(blank && { blank }), ...(runs?.length && { runs }) };
   });
   const rest = value.parts?.find(p => p.rest && !p.hidden);
   // (Words typed in the part the fields go in stand under those fields, in the look it gives them; a field they name isn't said twice.)
@@ -2732,16 +2745,21 @@ function listsAt(state, N, at) {
 const entryOf = (state, N, at, label) => state[at] ? reader(state, N)(at, label).text : '';
 // What SUM(ABOVE) adds up: the figures over it in its column, a percentage's sign kept, as Word's table says it.
 const figure = s => { const m = /^\s*\$?(-?[\d,]*\.?\d+)\s*%?\s*$/.exec(s ?? ''); return m ? +m[1].replace(/,/g, '') : null; };
-// A table's cells as they read: each row of the table's, or for one that says `each`, one row for each relative in that list, its {Entry} read at the relation, what's beside a {Name} at the relative; a formula worked out at its row's record, or the table's. → [{ src, of, cells: [text] }]
+// A table's cells as they read: each row of the table's, or for one that says `each`, one row for each relative in that list, its {Entry} read at the relation, what's beside a {Name} at the relative; a formula worked out at its row's record, or the table's. → [{ src, of, cells: [text], runs?: [ranges] }]
 function tableRead(row, computed, day, state = {}, N = null) {
   const t = row.table ?? { rows: [] }, out = [], names = { '@AsOf': { t: 'date', iso: day } };
-  const read = (text, at, up) => {
+  const read = (text, at, up, runs) => {
     const s = String(text ?? '');
-    if (/^\s*=\s*SUM\(\s*ABOVE\s*\)\s*$/i.test(s)) { const vs = up.filter(x => figure(x) !== null), n = vs.reduce((a, x) => a + figure(x), 0); return vs.length ? `${+n.toFixed(4)}${vs.some(x => /%/.test(x)) ? '%' : ''}` : ''; }
-    if (/^\s*=/.test(s)) return computed ? Formulas.text(computed, Formulas.evaluateAt(computed, s, at ?? t.of ?? null, names)) : s;
-    return N ? TextTemplate.render(s, l => entryOf(state, N, at ?? t.of, l)) : s;
+    if (!TextTemplate.formula(s)) return N ? TextTemplate.renderRuns(s, l => entryOf(state, N, at ?? t.of, l), runs) : { text: s, ...(runs && { runs }) };
+    let value;
+    if (/^\s*=\s*SUM\(\s*ABOVE\s*\)\s*$/i.test(s)) { const vs = up.filter(x => figure(x) !== null), n = vs.reduce((a, x) => a + figure(x), 0); value = vs.length ? `${+n.toFixed(4)}${vs.some(x => /%/.test(x)) ? '%' : ''}` : ''; }
+    else value = computed ? Formulas.text(computed, Formulas.evaluateAt(computed, s, at ?? t.of ?? null, names)) : s;
+    return { text: value, ...(runs?.length && { runs: runsAfter(s, value, runs) }) };
   };
-  const push = (r, src, of) => { const i = out.length, cells = (r.cells ?? []).map((c, k) => read(c?.text, of ?? r.of, out.slice(t.header === false ? 0 : 1, i).map(x => x.cells[k]))); out.push({ src, ...(of && { of }), cells }); };
+  const push = (r, src, of) => {
+    const i = out.length, cells = (r.cells ?? []).map((c, k) => read(c?.text, of ?? r.of, out.slice(t.header === false ? 0 : 1, i).map(x => x.cells[k]), c?.runs));
+    out.push({ src, ...(of && { of }), cells: cells.map(c => c.text), ...(r.cells?.some(c => c?.runs?.length) && { runs: cells.map(c => c.runs ?? null) }) });
+  };
   (t.rows ?? []).forEach((r, src) => {
     if (!r.each) return push(r, src);
     const l = N && listsAt(state, N, r.each.of).find(x => Tree.same(x.name, r.each.list));
@@ -2776,7 +2794,7 @@ function tableOf(m, row, text, t, u) {
     const src = srcOf(r), head = header && i === 0;
     const cells = cols.map((w, c) => {
       const over = covered.has(`${i},${c}`), f = src.cells?.[c]?.format ?? {}, look = lookOf(src, c, i), a = over ? 1 : acrossOf(r, c), wide = cols.slice(c, c + a).reduce((x, y) => x + y, 0);
-      const fill = over ? 'none' : f.Fill ?? (head ? t.Fill : banded && i % 2 === (header ? 1 : 0) ? band : 'none'), said = over ? '' : r.cells[c] ?? '', runs = said ? runsOf(src, c, said) : null;
+      const fill = over ? 'none' : f.Fill ?? (head ? t.Fill : banded && i % 2 === (header ? 1 : 0) ? band : 'none'), said = over ? '' : r.cells[c] ?? '', runs = said ? r.runs?.[c] ?? runsOf(src, c, said) : null;
       const it = { id: `${m.id}·${i}·${c}`, type: 'text', look, settings: m.settings, text: said, lines: said ? breakLines(said, runs?.some(x => x.Bold) && !look.Bold ? { ...look, Bold: true } : look, Math.max(4 * u, wide - 2 * inX), false) : [], cell: [r.src, c], ...(runs?.length && { runs }) };
       return { c, x: xs[c], w: wide, fill, it, ...(over && { covered: true }), ...(a > 1 && { across: a }), ...(Object.keys(f).length && { own: f }) };
     });

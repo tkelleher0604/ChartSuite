@@ -40,6 +40,20 @@ check('replacing a chip shifts following literal formatting', same(T.editRuns('{
 const first = T.editRuns('Hello world', 'New Hello world', bold), second = T.editRuns('New Hello world', 'New Hello world!', first);
 check('separate edits preserve the formatted text between them', same(second, [{ from: 10, to: 15, Bold: true }]));
 check('run mapping never changes its input', same(bold, [{ from: 6, to: 11, Bold: true }]));
+const repeated = '{Name} echo echo  ', selected = [{ from: 12, to: 18, Bold: true }];
+for (const name of ['Al', 'Alexandra the Great', 'echo', '']) {
+  const shown = T.renderRuns(repeated, () => name, selected), from = name.length + 6;
+  check('projection keeps the second repeated word for ' + JSON.stringify(name), shown.text === name + ' echo echo  ' && same(shown.runs, [{ from, to: from + 6, Bold: true }]));
+}
+check('a whole-token style covers the entire replacement', same(T.renderRuns('A{Name}Z', () => 'Long name', [{ from: 1, to: 7, Italic: true }]).runs, [{ from: 1, to: 10, Italic: true }]));
+check('a partial-token style does not style replacement characters', !T.renderRuns('A{Name}Z', () => 'Long name', [{ from: 2, to: 6, Italic: true }]).runs.length);
+check('a style spanning a token keeps both literals and its full value', same(T.renderRuns('A{Name}Z', () => 'Long name', [{ from: 0, to: 8, Bold: true }]).runs, [{ from: 0, to: 11, Bold: true }]));
+check('empty substitutions close the gap between matching ranges', same(T.renderRuns('A{Name}Z', () => '', [{ from: 0, to: 8, Bold: true }]).runs, [{ from: 0, to: 2, Bold: true }]));
+check('projection uses decoded literal offsets', same(T.renderRuns(T.literal('{literal}\\ ') + '{Name} tail', () => 'Al', [{ from: 18, to: 22, Bold: true }]).runs, [{ from: 14, to: 18, Bold: true }]));
+let reads = 0;
+T.renderRuns('{Name}', () => { reads++; return '{Other}'; }, [{ from: 0, to: 6, Bold: true }]);
+check('a token is read once and replacement text is never parsed again', reads === 1);
+check('projection leaves source runs untouched', same(selected, [{ from: 12, to: 18, Bold: true }]));
 const failed = out.filter(c => !c.ok);
 document.title = `text test: ${out.length - failed.length} pass, ${failed.length} fail`;
 document.getElementById('out').textContent = [`${out.length - failed.length} passed, ${failed.length} failed`, ...out.map(c => `${c.ok ? 'pass' : 'FAIL'} ${c.name}`)].join('\n');

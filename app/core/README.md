@@ -8,6 +8,8 @@ Rich text `runs` use character offsets in the editor's text, before `TextTemplat
 
 `characters(source)` returns that offset text, leaving field token spellings intact. `editRuns(before, after, runs)` maps one contiguous edit by its unchanged prefix and suffix: retained characters keep their formatting, new or replacement characters are unformatted, and deleted characters lose their ranges. The shared [WordsEditor](../ui/words.js) applies this after each input and emits source plus runs together. Its adapter supplies offered fields, field creation, read-only state and persistence; the control has no record/schema lookup or transaction access.
 
+`renderRuns(source, read, runs)` substitutes tokens and projects their formatting in the same pass. Literal ranges map by position, so repeated words remain distinct. A range covering a whole token formats its entire replacement value; a partial-token range does not format that value. Empty values contribute no range. Scene uses these transient projected ranges for drawings, designs, annotations and table cells; source ranges remain unchanged in the workbook. Formula results retain the existing fallback. Design-part descriptors also expose transient `sourceIds` for visible resolved fields, so mixed text can report which fields it shows.
+
 ## Shapes
 
 **Records**, keyed by id in a state `{ [id]: record }`:

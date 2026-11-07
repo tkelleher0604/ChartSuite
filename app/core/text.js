@@ -54,5 +54,30 @@ function editRuns(before, after, runs = []) {
     return kept;
   });
 }
-return { parts, literal, field, render, fields, single, formula, label, append, characters, editRuns };
+// Project formatting while fields are substituted, never by searching for a matching word in
+// the result. A fully covered token styles its whole value; a partial token styles none of it.
+// Escapes have already been decoded by parts(), so every range uses the editor's coordinates.
+function renderRuns(source, read, runs = []) {
+  let text = '', at = 0;
+  const projected = [], looks = run => JSON.stringify({ ...run, from: 0, to: 0 });
+  const add = run => {
+    const last = projected.at(-1);
+    if (last && last.to === run.from && looks(last) === looks(run)) last.to = run.to;
+    else projected.push(run);
+  };
+  for (const part of parts(source)) {
+    const token = part.field !== undefined, before = token ? field(part.field) : part.text, after = String(token ? read(part.field) ?? '' : part.text);
+    for (const run of runs) {
+      if (token) {
+        if (after.length && run.from <= at && run.to >= at + before.length) add({ ...run, from: text.length, to: text.length + after.length });
+      } else {
+        const from = Math.max(at, run.from), to = Math.min(at + before.length, run.to);
+        if (to > from) add({ ...run, from: text.length + from - at, to: text.length + to - at });
+      }
+    }
+    at += before.length; text += after;
+  }
+  return { text, runs: projected };
+}
+return { parts, literal, field, render, fields, single, formula, label, append, characters, editRuns, renderRuns };
 })();

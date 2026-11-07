@@ -1575,6 +1575,24 @@ function groupDesigns() {
     const text = scene(w).byId.get(llcs[0].id).parts[0].texts[0], run = text.runs?.[0];
     check('literal escapes are decoded before a rich run follows a substituted field', run?.Italic && run.from === text.text.length - 4 && run.to === text.text.length, j(run));
   }
+  {
+    const w = Log.open(SAMPLE), source = '{Name}  echo echo  ', runs = [{ from: 13, to: 19, Bold: true }], at = Tree.treeOf(R0, llcs[0].record);
+    let table;
+    edit(w, tx => {
+      tx.note('Design', at, { id: 'rich-repeated', base: {}, parts: [{ id: 'words', geometry: 'text', x: 0, y: 0, w: 1, h: 1, text: source, runs }] }, { view: MAIN });
+      table = tx.add('shape', { view: MAIN, geometry: 'table', x: 50, y: 50, w: 400, h: 60, table: { of: llcs[0].record, header: false, cols: [1], rows: [{ cells: [{ text: source, runs }] }] } });
+    });
+    const s = scene(w), b = s.byId.get(llcs[0].id), text = b.parts[0].texts[0], name = w.notes(C).nameOf(R0, llcs[0].record), from = name.length + 7;
+    check('field substitution keeps a styled second repeated word by position', text.runs?.[0]?.from === from && text.runs[0].to === from + 6, j(text.runs));
+    check('collapsed layout spaces do not truncate or lose a later styled span', text.lines.flatMap(l => l.spans ?? []).some(p => p.text.trim() === 'echo' && p.look.Bold) && text.lines.every(l => (l.spans ?? []).map(p => p.text).join('') === l.text), j(text.lines));
+    const cell = s.byId.get(table).texts[0];
+    check('table-cell field substitution uses the same positional projection', cell.runs?.[0]?.from === from && cell.runs[0].to === from + 6, j(cell.runs));
+    const nameId = Tree.entryAt(R0, llcs[0].record, 'Name');
+    check('mixed design text exposes its visible source record', b.design.parts[0].sourceIds.includes(nameId));
+    edit(w, tx => tx.note('Shown', Tree.treeOf(R0, nameId), false, { view: MAIN }));
+    const hidden = scene(w).byId.get(llcs[0].id);
+    check('a hidden field leaves literal words but no visible source identity', !hidden.design.parts[0].sourceIds.includes(nameId) && hidden.parts[0].texts[0].text === '  echo echo  ');
+  }
   // At a group: every box it reaches has its parts, and no other does.
   const w1 = Log.open(SAMPLE);
   edit(w1, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); });

@@ -27,7 +27,7 @@ function content(el, formula) {
 }
 function caretOf(el, formula) {
   const s = getSelection();
-  if (!s.rangeCount || !el.contains(s.anchorNode) || !el.contains(s.focusNode)) return null;
+  if (!el || !s.rangeCount || !el.contains(s.anchorNode) || !el.contains(s.focusNode)) return null;
   const r = s.getRangeAt(0), offset = (node, at) => {
     const before = document.createRange(); before.selectNodeContents(el); before.setEnd(node, at);
     return content(before.cloneContents(), formula).length;
@@ -66,7 +66,7 @@ function Editor({ text = '', runs = EMPTY, put, offered = EMPTY, createField, re
     if (readOnly || read() !== text || JSON.stringify(draft.current.runs) !== JSON.stringify(runs)) paint(text, runs);
     else draft.current = { text, runs };
   }, [text, runs, readOnly]);
-  const commit = () => { if (readOnly) return; const d = sync(); if (d.text !== text || JSON.stringify(d.runs) !== JSON.stringify(runs)) put(d.text, d.runs); };
+  const commit = () => { if (readOnly || !box.current) return; const d = sync(); if (d.text !== text || JSON.stringify(d.runs) !== JSON.stringify(runs)) put(d.text, d.runs); };
   const remember = () => { const saved = caretOf(box.current, formula); if (saved) caret.current = saved; };
   const chipAt = i => box.current?.querySelectorAll('.word-chip')[i];
   const insert = (token, at = -1, saved = caret.current) => {
