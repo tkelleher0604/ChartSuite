@@ -1557,6 +1557,24 @@ function groupDesigns() {
     check('only inserted fields vary between instances', new Set(llcs.map(m => said(m.id))).size > 1);
     check('design source survives save and reopen', scene(Log.open(w.toJSON())).byId.get(llcs[0].id).parts[0].texts[0].text === said(llcs[0].id));
   }
+  // Rich runs count edited characters, not storage escapes. Repeated words and spaces must not
+  // be relocated by searching for the first matching substring when the literal text is unchanged.
+  for (const words of ['=Note {literal}\\  echo echo  ', 'A {brace}\\\n repeated repeated']) {
+    const w = Log.open(SAMPLE), from = words.lastIndexOf(words.includes('echo') ? 'echo' : 'repeated'), runs = [{ from, to: words.length, Bold: true }];
+    edit(w, tx => tx.note('Design', Tree.treeOf(R0, llcs[0].record), { id: 'rich-literal', base: {}, parts: [
+      { id: 'words', geometry: 'text', x: 0, y: 0, w: 1, h: 1, text: TextTemplate.literal(words), runs },
+    ] }, { view: MAIN }));
+    const text = scene(w).byId.get(llcs[0].id).parts[0].texts[0];
+    check('escaped rich literals retain text and exact ranges: ' + JSON.stringify(words), text.text === words && j(text.runs) === j(runs), j(text.runs));
+  }
+  {
+    const w = Log.open(SAMPLE), prefix = 'A {brace}\\ ', source = TextTemplate.literal(prefix) + '{Name} tail', from = prefix.length + '{Name} '.length;
+    edit(w, tx => tx.note('Design', Tree.treeOf(R0, llcs[0].record), { id: 'rich-field', base: {}, parts: [
+      { id: 'words', geometry: 'text', x: 0, y: 0, w: 1, h: 1, text: source, runs: [{ from, to: from + 4, Italic: true }] },
+    ] }, { view: MAIN }));
+    const text = scene(w).byId.get(llcs[0].id).parts[0].texts[0], run = text.runs?.[0];
+    check('literal escapes are decoded before a rich run follows a substituted field', run?.Italic && run.from === text.text.length - 4 && run.to === text.text.length, j(run));
+  }
   // At a group: every box it reaches has its parts, and no other does.
   const w1 = Log.open(SAMPLE);
   edit(w1, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); });

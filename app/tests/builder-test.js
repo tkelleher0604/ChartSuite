@@ -129,6 +129,34 @@ async function sharedDesignAcrossViews() {
   await click(button('Discard', '.dc-designbar button')); await wait(300);
   check('Discard does not leak a field to either kind', ['Staff', 'Company'].every(kind => !specs(kind).some(s => s.args[0].edge === 'Discarded shared field')));
 }
+async function richDrawingToType() {
+  await chart('Rich text');
+  await click('[data-fb="insert"]'); await click('.insert .shapes button[aria-label="Rectangle"]');
+  await key($('.dc'), 'Enter'); await value('Width', '340'); await value('Height', '70');
+  const shape = shapes()[0], text = '=Note {literal}\\  echo echo  ', from = text.lastIndexOf('echo');
+  await key($('.dc'), 'Enter');
+  const editor = $('.dc-edit');
+  if (!visible(editor)) throw new Error('Inline text editor unavailable');
+  editor.textContent = text; editor.dispatchEvent(new Event('input', { bubbles: true }));
+  const range = document.createRange(); range.setStart(editor.firstChild, from); range.setEnd(editor.firstChild, text.length);
+  getSelection().removeAllRanges(); getSelection().addRange(range);
+  await key(editor, 'b', { ctrlKey: true }); await key(editor, 'Enter', { ctrlKey: true });
+  const run = rowOf(shape.id)?.runs?.[0], source = rowOf(shape.id)?.text;
+  check('Inline bold uses the selected second word after literal braces and a backslash', source === TextTemplate.literal(text) && run?.from === from && run.to === text.length && run.Bold);
+  await key($('.dc'), 'Enter');
+  check('Reopening a literal leading equals sign retains rich text editing', $('.dc-edit')?.textContent === text && $('.dc-edit [data-run]')?.textContent === text.slice(from));
+  await key($('.dc-edit'), 'Enter', { ctrlKey: true });
+  await click(button('Save as object type…', '.inspector button'));
+  await input('dialog input[aria-label="Design name"]', 'Rich card'); await input('dialog input[aria-label="Object type"]', 'Rich card');
+  await click(button('Save', 'dialog button')); await wait(350);
+  const literalPart = name => box(name)?.parts?.find(p => p.texts?.some(t => t.text === text))?.texts[0];
+  const preserved = part => part?.runs?.length === 1 && part.runs[0].from === from && part.runs[0].to === text.length && part.runs[0].Bold;
+  check('Saving a drawing as a type preserves exact bold offsets and spaces', preserved(literalPart('Rich card')));
+  await object('Second card', 'Rich card');
+  check('The next object retains the same literal text and bold occurrence', preserved(literalPart('Second card')));
+  await click('.chartmenu'); await menu('Save as…'); await click('.chartmenu'); await menu('Open…'); await wait(400);
+  check('Saving and reopening retain the formatted literal text', preserved(literalPart('Second card')));
+}
 async function run() {
   await wait(500);
   await chart('Team');
@@ -217,6 +245,7 @@ async function run() {
   check('Reopening retains a valid schema and reusable design', !Tree.schemaError(App.schema.peek()) && specs('Staff').some(s => s.args[0].edge === 'Department') && box('Staff')?.design?.value.name === 'Staff card');
   if (stop === 'finished') return;
   await sharedDesignAcrossViews();
+  await richDrawingToType();
 }
 Shell.ready.then(run).catch(e => out.push({ name: 'GUI flow finishes', ok: false, detail: e.stack ?? String(e) })).finally(() => {
   const failed = out.filter(x => !x.ok);

@@ -1552,7 +1552,7 @@ function mount(el) {
     }
     if (!it) return;
     // Rich formatting belongs to a shape's literal words, not the Key's title or a formula's source.
-    const parts = m.type === 'shape' && m.geometry !== 'legend' && !m.role && !/^\s*=/.test(raw ?? '') && !rowOf(m.id)?.rest;
+    const parts = m.type === 'shape' && m.geometry !== 'legend' && !m.role && !TextTemplate.formula(rowOf(m.id)?.text) && !rowOf(m.id)?.rest;
     openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape', ...(parts && { rich: { runs: typed !== undefined ? [] : rowOf(m.id)?.runs ?? [] } }) });
   }
   // The box a free shape stands on, by its middle: the topmost.

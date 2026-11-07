@@ -303,6 +303,11 @@ function runsWith(runs, from, to, label, value, base = {}) {
 }
 // Runs of a text as typed, on the text it reads as: what's the same before and after each run's letters says where they now are.
 function runsAfter(raw, now, runs) {
+  // Inline rich text offsets count the characters the user edited, before literal escapes were
+  // encoded for storage. Keep field spellings while decoding those escapes. Unchanged text keeps
+  // its exact ranges, including spaces and a later occurrence of repeated words.
+  if (!TextTemplate.formula(raw)) raw = TextTemplate.render(raw, TextTemplate.field);
+  if (raw === now) return runs;
   return runs.flatMap(r => { const part = raw.slice(r.from, r.to).trim(), at = part ? now.indexOf(part) : -1; return at < 0 ? [] : [{ ...r, from: at, to: at + part.length }]; });
 }
 // A text's lines given its spans, once its sizes are settled: the letters of each line found in what was typed, in order.
