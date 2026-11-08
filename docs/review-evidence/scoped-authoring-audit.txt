@@ -1,0 +1,40 @@
+Independent source-blind GUI retest — audit-third (6740f80)
+2026-11-07, 18:23:30–18:32:12 local; about 9 minutes including harness observations and troubleshooting. Org saved/reloaded by 18:24:11. These are audit wall times, not an estimate of ordinary human completion time.
+
+Method
+Same existing isolated profile and file URL origin in chartsuite-redesign-authoring/org. Actions selected from rendered controls/DOM and screenshots only. No product source, docs, tests, model API access, or manual geometry/font repair. Earlier evidence preserved. Virtual-time runner initially; real-time runner from third-14 onward (root supplied it to exclude animation capture artifacts).
+
+Verdict
+The previous persistent shared-editor sizing failure is fixed in this existing workbook. All requested mixed-prose creation/edit/scope/Undo/reload tasks passed. No blocking defect found. Usability friction remains, especially active inline-text contrast and the scope explanation for data changes.
+
+1. Existing Harbor Team acceptance
+Starting state: recovered Team member + Name + Title mixed layer, separate Focus; Olivia's title Senior Product Designer for Customer Experience; Parker Research Lead with unique gold fill.
+Selected Olivia -> Edit shared design -> Team member layer -> searched Manager's name -> Insert Manager's name -> Done -> browser restart.
+PASS: short peers remain compact/readable; long Olivia text and Focus do not collide; Manager names resolve correctly; Parker remains gold. Card proportions do not inherit an oversized long-record frame. No geometry/font repair.
+Evidence: third-00-start.png, third-01-editor.png, third-02-manager-done.png, third-03-manager-reload.png.
+The faded large duplicate after Done in third-02 was NOT reproduced with real time. Reopened Harbor Team, selected Olivia, Edit shared design -> Team member -> Done -> waited 1.8 seconds: clean result in third-28-org-real-done.png. Treat the earlier faded duplicate as a virtual-time capture artifact, not an app bug.
+
+2. Separate blank chart from scratch
+New chart -> Blank -> named Project Briefs -> Begin. The empty page's Design a reusable card entry was easy to find.
+Starter supplied a rounded rectangle and Name merge field. In sidebar Text, inserted literal Prepared by before Name and for after it. Merge field -> New field -> Project -> Insert field. Save as object type -> Brief, first object Avery Chen -> Save. Filled Project with Harbor Launch through Data. Add brief -> Blake Ortiz; Project Ridge Survey.
+PASS: rendered paragraphs resolve names/values separately, and later objects use the same authored prose. Save-as-type explanation distinguishes plain text and fields well.
+Evidence: third-05-blank.png, third-06-reusable.png, third-07-merge-menu.png, third-09-save-type.png, third-10-created-object.png, third-12-two-briefs.png.
+
+3. Resolved-value editing and explicit scope
+Double-clicked Ridge Survey within Blake's paragraph. The value became editable in place and sidebar identified Project / Blake Ortiz / Editing this record. Changed it to Coastal Research Program; clicked outside with a complete pointer sequence.
+PASS: Blake changed, Avery retained Harbor Launch; paragraph wrapping remained readable. Restart retained the edit. Evidence third-19-direct-pointer.png and subsequent captures.
+Selected All 2 briefs. Sidebar said For 2 objects. Changed Project in Data to Shared Launch: both rendered cards changed. Clicked toolbar Undo: both original distinct values returned. Evidence third-21-broad-value-undo.json records before/after visible SVG text; matching PNG shows restored values and Undo toast.
+Then Edit shared design -> Prepared by Name for Project layer -> replaced literal prefix with Project owner: -> Done.
+PASS: both cards get new literal wording while preserving Avery/Harbor Launch and Blake/Coastal Research Program. Browser restart preserves result. Evidence third-23-shared-prose.png, third-24-shared-prose-done.png, third-25-briefs-reload.png.
+
+Remaining friction
+- Medium: while editing a resolved Project value, the inline editor uses a dark navy backdrop with dark surrounding prose. The active selected value is legible, but nearby words are hard to read. This reproduces in real time: third-16-direct-saved.png and third-18-direct-enter.png. The card is white before editing; overall app theme is Light.
+- Medium: after explicitly selecting All 2 briefs, top hint says Shared style for matching objects even though Data edits now modify both records. The sidebar For 2 objects is accurate, but the style-only wording can give the wrong expectation. Also Project displays only Blake's Coastal Research Program while Avery has Harbor Launch; a mixed-value indication would make bulk editing clearer. Evidence third-20-broad-scope.png and third-21 notes.
+- Mild: broad literal-text editing is most discoverable through Edit shared design. Clicking All 2 briefs while the direct editor is open closes that editor; double-clicking the paragraph again returns to This box. I used the explicit shared-design control successfully, but that is an extra mode transition to learn.
+- Mild: object type / merge field terminology is understandable with the helpful explanatory copy but still requires more concept learning than ordinary slide text. The benefit becomes clear once the second card resolves independent data. The tested reusable-card and data-edit flow is promising, but these remaining scope/contrast issues prevent an unqualified claim that every step feels easier than a slide editor.
+
+Harness observations excluded from product defects
+Synthetic clicks without pointerdown/up did not commit the inline editor; complete pointer sequence did. A selector initially targeted the noneditable field wrapper rather than its editable child; corrected from rendered DOM. Real-time output-file read briefly raced a Chrome output handle; root added retry. None of those attempts mutated data or constitute product failures.
+
+Final preserved state
+Harbor Team active with Manager's name added and long Olivia title intact; Parker gold. Project Briefs separately saved with Project owner: prose, Avery/Harbor Launch and Blake/Coastal Research Program. actions.js reset to no-op. Browser slot released to root. Prior artifacts unchanged.
