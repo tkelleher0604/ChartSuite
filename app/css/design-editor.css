@@ -57,8 +57,8 @@
 .bound-field-status { display: grid; gap: 3px; padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--selected); font-size: 12px; }
 .bound-field-status > span, .bound-field-status > small { color: var(--ink-2); }
 .bound-field-status > p { margin: 3px 0 0; }
-.canvas-text-handoff.live-value { display: block; padding: 0; }
-.live-value > .cell { display: block; width: 100%; text-align: left; }
+.canvas-text-handoff.live-value { display: block; flex: 1; min-width: 0; padding: 0; }
+.live-value > .cell { display: block; width: 100%; height: auto; min-height: var(--row); text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 1100px) {
   .design-field-palette { padding: 12px; }
   .design-field-list { max-height: 144px; }

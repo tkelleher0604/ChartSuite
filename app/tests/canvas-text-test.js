@@ -132,7 +132,8 @@ async function liveValues() {
   check('Ordinary prose remains readable against the live editor background', contrast(editor()) >= 4.5, String(contrast(editor())));
   const draftEvents = [], stopDraftEvents = preactSignals.effect(() => { const focus = CanvasBindings.focus.value, draft = CanvasBindings.draft.value; draftEvents.push({ focus: focus?.token, draft: draft && { token: draft.token, text: draft.text } }); });
   await boundValue('Project', 'the revised launch'); stopDraftEvents();
-  check('Typing in a bound value highlights its panel row and mirrors the live draft', !!$('.inspector .row.lit') && $('.inspector .live-value')?.textContent.includes('the revised launch') && $('.bound-field-status')?.textContent.includes('Project'), JSON.stringify(draftEvents));
+  const liveCell = $('.inspector .live-value .cell'), nextRow = $('.inspector [aria-label="Due date"]')?.closest('.row');
+  check('Typing in a bound value highlights its panel row and mirrors the live draft without overlapping the next row', !!$('.inspector .row.lit') && liveCell?.textContent.includes('the revised launch') && $('.bound-field-status')?.textContent.includes('Project') && liveCell.getBoundingClientRect().bottom <= nextRow?.getBoundingClientRect().top + 1, JSON.stringify(draftEvents));
   if (new URLSearchParams(location.search).get('stop') === 'live') return;
   afterText('Notes: '); await wait(200);
   check('Leaving a bound value updates its record while preserving the template and other record', readText('Maya').includes('the revised launch') && readText('Noah').includes('the review') && box('Maya').design.value.parts.find(p => p.id === part).text === source);
