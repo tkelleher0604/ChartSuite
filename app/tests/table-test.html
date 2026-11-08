@@ -503,7 +503,10 @@ async function run() {
     check('Text that finds no option is never kept: it stays in the cell, outlined, "Not an option", with "New option: …" its own item, not lit',
       N() === n0 + 2 && i.isConnected && i.classList.contains('bad') && $('.float.pick .menu-none')?.textContent === 'Not an option' && !lit() && $('.float.pick .menu-item')?.textContent === 'New option: Exempted Co', `${N() - n0} ${i.className} ${$('.float.pick')?.textContent}`);
     const row0 = Table.grid.getRows('active').indexOf(rowOf(halvard));
-    key(i, 'ArrowDown'); key(i, 'Enter'); await tick(150);
+    key(i, 'ArrowDown'); key(i, 'Enter');
+    // Adding an option can rebuild the grid before its deferred keyboard move resumes.
+    // Wait for that observable move, rather than assuming it finishes within 150 ms.
+    await until(() => Table.grid.getRows('active').indexOf(Table.grid.modules.selectRange.getActiveCell()?.row.getComponent()) === row0 + 1);
     check('… chosen, the new option is the cell’s, redlined, and Enter goes down, as from text', App.pending.peek()?.typed?.[0]?.out.choice === 'Exempted Co' && N() === n0 + 2
       && Table.grid.getRows('active').indexOf(Table.grid.modules.selectRange.getActiveCell()?.row.getComponent()) === row0 + 1, `${choiceOf("Vehicle Type")} ${row0} ${Table.grid.getRows("active").indexOf(Table.grid.modules.selectRange.getActiveCell()?.row.getComponent())} ${Table.grid.modules.selectRange.getActiveCell()?.column.getDefinition().title}`);
     App.commit(); await tick(150);
@@ -513,6 +516,7 @@ async function run() {
     key(i, 'Escape'); await tick(100);
     check('… and Esc leaves it as it was', choiceOf('Vehicle Type') === 'Portfolio Company' && !$('.float.pick') && N() === n0 + 4, choiceOf('Vehicle Type'));
   }
+  if (Q.get('stop') === 'choices') return;
 
   // A tag's box flips: attested, ruled out, blank.
   const good = rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Good Standing');

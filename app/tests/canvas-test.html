@@ -2358,6 +2358,7 @@ async function stillAsMade() {
 async function format() {
   // (This page is near the suite's budget: less of a wait here, what's waited for being drawn by then.)
   const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.6));
+  const openLook = async () => { const toggle = $('.insp section[data-key="look"] .fold[aria-expanded="false"]'); if (toggle) { toggle.click(); await tick(100); } };
   await until(() => App.views.peek().length && sc(), 15000);
   const wbPart = Shell.parts.peek().workbook, sample = App.wb.charts().find(c => /Calder Ridge/.test(c.name));
   if (App.chart.peek() !== sample.chart) { wbPart.open(sample.chart); await until(() => App.chart.peek() === sample.chart); await tick(300); }
@@ -2575,6 +2576,7 @@ async function format() {
   await closeMenus();
   check('… Find has it', !!acts().find(a => a.id === 'look.differs')?.names.includes('One-offs'));
   Shell.select(['blocker']); await tick(200); FormatBar.pen.level.value = { own: true }; await tick(40);
+  await openLook();
   check('… and the box’s panel says it under This box, with Reset', $$('.insp .row.src .k').some(k => txt(k) === 'This box') && !!$('.insp .reset'), $$('.insp .row.src .k').map(txt).join());
   Shell.parts.peek().undo.undo(); await tick(300);
   Shell.select([]); await tick(150);
@@ -2590,6 +2592,7 @@ async function format() {
   // A line's arrow its style leaves Auto is said so, on the line.
   const sideways = sc().marks.find(m => m.type === 'line' && m.settings.Arrow.value === 'end' && m.settings.Arrow.note?.value === 'auto');
   Shell.select([sideways.id]); await tick(200);
+  await openLook();
   check('a line’s arrow its style leaves Auto is said so in its panel', $$('.insp .row').some(r => /Arrow/.test(txt(r.querySelector('.k'))) && /Auto/.test(txt(r.querySelector('.v')))), $$('.insp .row').map(r => txt(r)).join(' | ').slice(0, 300));
   // A line's own look is its own, as a box's is: no row of its own in Styles, and its row says it keeps it.
   const rowsWere = Scene.groupsOf(App.notes.peek(), stE.id).length;
@@ -2836,6 +2839,7 @@ async function format() {
   const live = handle(); live.dispatchEvent(new PointerEvent('pointermove', opts({ clientX: hx + 24, clientY: hy }))); live.dispatchEvent(new PointerEvent('pointerup', opts({ clientX: hx + 24, clientY: hy }))); await tick(300);
   const dragged = ownCorner().value;
   check('… dragged, it rounds the shape', dragged > Scene.CORNER && !!ownCorner().note, dragged);
+  await openLook();
   $('[data-fb="shape"]').click(); await tick(150);
   const roundingField = $('.float .slider input[aria-label="Rounding"]:not([type=range])');
   check('the Shape menu says the number the panel does, in one unit', +roundingField.value === Math.round(dragged) && $$('.insp .row .k').some(e => txt(e) === 'Rounding') && $$('.insp .row').some(r => txt(r) === `Rounding${Math.round(dragged)}%`), `${roundingField.value} ${$$('.insp .row').map(txt).filter(t => /Rounding/.test(t))}`);
@@ -2887,6 +2891,7 @@ async function format() {
     check('… pointed at, drawn on the chart, changing nothing', !!sc().byId.get('northpine').settings.Glow?.value && App.scene.peek().byId.get('northpine').settings.Glow?.value === wasFill && t.dataset.tip === txt(t.querySelector('.label')), t.dataset.tip);
     await closeMenus(); await tick(100);
     check('… and the menu’s words are the deck’s no longer: no preset’s name for what a picture says', words.length > 30 && !words.some(w => /Relaxed|Cool slant|Art deco|Accent \d/.test(w)), words.join(' | '));
+    await openLook();
     const lookRow = $$('section[data-key="look"] .row .sel.dd')[0], lookAt = lookRow?.getBoundingClientRect();
     lookRow?.click(); await tick(150);
     const hung = $('.float .pop')?.getBoundingClientRect();
@@ -3088,6 +3093,7 @@ async function designing(st) {
   // From a selection with no box in it: fitted to the box it's for, by shares of what it draws.
   let bigRect = null, word = null, gr = null;
   App.change(tx => { bigRect = tx.add('shape', { view: st.id, geometry: 'rect', x: 30, y: 30, w: 300, h: 120, format: { Fill: '#ddeeff' } }); word = tx.add('shape', { view: st.id, geometry: 'text', x: 60, y: 40, text: '{Name}' }); }, { dated: false }); await tick(250);
+  const drawnFrame = sc().byId.get(bigRect), drawnWords = sc().byId.get(word), authoredWords = [(drawnWords.x - drawnFrame.x) / drawnFrame.w, (drawnWords.y - drawnFrame.y) / drawnFrame.h, drawnWords.w / drawnFrame.w, drawnWords.h / drawnFrame.h].map(n => +n.toFixed(4));
   Shell.select([bigRect, word]); await tick(150);
   const m1 = changes(), tiles1 = (() => { $('[data-fb="design"]').click(); return null; })(); await tick(250);
   check('shapes alone: the Design control offers to make one of them', [...$$('.float .picker.designs .btn')].some(b => b.textContent.startsWith('Make a design') && !b.disabled), [...$$('.float .picker.designs .btn')].map(b => b.textContent).join());
@@ -3097,7 +3103,7 @@ async function designing(st) {
   $('dialog.dlg input').value = 'Fitted'; $('dialog.dlg input').dispatchEvent(new Event('input', { bubbles: true }));
   [...$$('dialog.dlg button')].find(b => b.textContent === 'Make').click(); await tick(500);
   const fitted = sc().marks.find(m => m.design?.value.name === 'Fitted');
-  check('… made, one change, it lands by shares of what it drew, at the box’s size, its name a field across it', changes() === m1 + 1 && !!fitted && fitted.design.value.parts[0].w === 1 && fitted.design.value.parts[0].h === 1 && fitted.design.value.parts[1].text === '{Name}' && fitted.design.value.parts[1].w === 1 && fitted.w < 300 && fitted.parts.every(p => p.x >= fitted.x - 0.5 && p.x + p.w <= fitted.x + fitted.w + 0.5), fitted && JSON.stringify(fitted.design.value.parts.map(p => [p.x, p.y, p.w, p.h])));
+  check('… made, one change, the free drawing fits the box and preserves its field’s authored placement', changes() === m1 + 1 && !!fitted && fitted.design.value.layout === 'free' && fitted.design.value.parts[0].w === 1 && fitted.design.value.parts[0].h === 1 && fitted.design.value.parts[1].text === '{Name}' && JSON.stringify([fitted.design.value.parts[1].x, fitted.design.value.parts[1].y, fitted.design.value.parts[1].w, fitted.design.value.parts[1].h]) === JSON.stringify(authoredWords) && fitted.w < 300 && fitted.parts.every(p => p.x >= fitted.x - 0.5 && p.x + p.w <= fitted.x + fitted.w + 0.5), fitted && JSON.stringify(fitted.design.value.parts.map(p => [p.x, p.y, p.w, p.h])));
   undo(); await tick(300);
   // What's over a box, offered and shown by name.
   Shell.select(['northpine']); await tick(150);
@@ -3882,9 +3888,10 @@ window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').p
 const framed = async which => {
   const f = document.body.appendChild(Object.assign(document.createElement('iframe'), { src: `${location.pathname.split('/').pop()}?${which}` }));
   f.style.cssText = 'position:fixed;left:0;top:0;width:1440px;height:900px;z-index:-1;border:0';
-  await until(() => f.contentWindow.__done, 200000);
+  const completed = await until(() => f.contentWindow.__done, 200000);
   out.push(...(f.contentWindow.__out ?? []));
   f.remove();
+  if (!completed) throw new Error(`Timed out waiting for the ${which} canvas checks to finish`);
 };
 window.__out = out;
 Shell.ready.then(() => location.search.includes('format') ? format().finally(() => { window.__done = true; }) : location.search.includes('entering') ? entering().catch(e => check('the entering checks run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : location.search.includes('templates') ? templates().catch(e => check('the templates run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : location.search.includes('craft') ? craft().catch(e => check('the craft checks run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : run().then(() => framed('format')).then(() => framed('templates')).then(() => framed('craft')))
