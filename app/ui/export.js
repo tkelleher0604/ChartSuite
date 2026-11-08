@@ -1316,6 +1316,7 @@ if (typeof Shell !== 'undefined' && typeof App !== 'undefined') {
   // `format` is 'pptx', 'pdf' or 'ics', or a table's by its name ('Excel'); or else the one last exported, or what the
   // view shown offers first where it's a table, then a chart's slides.
   async function open(format) {
+    if (typeof Designs !== 'undefined' && Designs.editing.peek()) { Shell.toast('Finish the design first: Done or Discard'); return; }
     readable = await mayRead();
     const shown = Shell.view.peek(), list = charts(), others = Shell.parts.peek().export ?? [], was = recalled();
     const here = list.find(v => v.id === shown) ?? list[0] ?? null, other = name => { const i = others.findIndex(x => x.name === name); return i < 0 ? null : `x${i}`; };

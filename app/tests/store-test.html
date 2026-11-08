@@ -131,7 +131,98 @@ async function browser() {
   check('… and one here, there', await until(() => has(twb, e)));
   check('… and each is kept once', await until(async () => await db.changes.where('book').equals(book.id).count() === again.changes().length));
   check('the sample has no disagreements', !Store.wb.disagreements(C).length, JSON.stringify(Store.wb.disagreements(C)));
+  // Opening resolves only once the seed and its book entry have committed together.
+  const seededId = 'atomic-seed', seeded = await Store.open({ id: seededId, sample: SAMPLE });
+  check('a new workbook is named and fully persisted when opening resolves',
+    (await db.books.get(seededId))?.name === seeded.charts()[0].name && await db.changes.where('book').equals(seededId).count() === seeded.changes().length);
+  const failedId = 'atomic-seed-failure', put = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function(value, ...args) {
+    if (this.name === 'books' && value?.id === failedId) throw new DOMException('Simulated storage failure', 'QuotaExceededError');
+    return put.call(this, value, ...args);
+  };
+  let unsaved;
+  try { unsaved = await Store.open({ id: failedId, sample: SAMPLE }); }
+  finally { IDBObjectStore.prototype.put = put; }
+  check('a failed creation leaves neither an empty workbook nor orphan changes',
+    !(await db.books.get(failedId)) && await db.changes.where('book').equals(failedId).count() === 0);
+  check('the failed seed stays complete in memory with an honest storage status',
+    unsaved.changes().length === SAMPLE.changes.length && Store.status().text === 'Not kept · browser storage is full');
+  // A rename must not publish metadata separately while the log is still failing to save.
+  IDBObjectStore.prototype.put = function(value, ...args) {
+    if (this.name === 'changes' && value?.book === failedId) throw new DOMException('Simulated log failure', 'QuotaExceededError');
+    return put.call(this, value, ...args);
+  };
+  try {
+    const rename = unsaved.edit({ chart: C, who: 'Dana Jordan' });
+    rename.set(C, { name: 'Recovered chart' }); rename.commit();
+    await Store.sync();
+    check('a rename during storage failure leaves no empty workbook entry',
+      !(await db.books.get(failedId)) && await db.changes.where('book').equals(failedId).count() === 0);
+    check('a failed rename remains available in memory and reports unsaved',
+      Store.where().name === 'Recovered chart' && Store.status().text === 'Not kept · browser storage is full');
+  } finally { IDBObjectStore.prototype.put = put; }
+  set(unsaved, 'fund_ein', '55-5555555');
+  await Store.sync();
+  check('a later successful write recovers the whole seed, not just the latest edit',
+    !!(await db.books.get(failedId)) && await db.changes.where('book').equals(failedId).count() === unsaved.changes().length && saved(Store.status()));
+  const recovered = await Store.open({ id: failedId });
+  check('the recovered workbook reopens with its original chart and latest edit',
+    ids(recovered) === ids(unsaved) && recovered.asOf(C).fund_ein.value === '55-5555555'
+      && recovered.charts()[0].name === 'Recovered chart' && (await db.books.get(failedId))?.name === 'Recovered chart');
+  for (const name of ['Renamed once', 'Renamed twice']) {
+    const rename = recovered.edit({ chart: C, who: 'Dana Jordan' });
+    rename.set(C, { name }); rename.commit();
+  }
+  await Store.sync();
+  check('successive renames persist the last name with all chart changes',
+    (await db.books.get(failedId))?.name === 'Renamed twice'
+      && await db.changes.where('book').equals(failedId).count() === recovered.changes().length);
+  await delayedRename(failedId, recovered, t);
+  await t.Store.open({ id: book.id });
+  await Store.open({ id: book.id });
   return t;
+}
+
+// A change is broadcast before its local write finishes. A later rename in another tab must not
+// be overwritten when the earlier tab finally persists its captured name.
+async function delayedRename(id, wb, other) {
+  const theirs = await other.Store.open({ id }), transaction = Dexie.prototype.transaction;
+  const rename = (w, name, who) => { const tx = w.edit({ chart: C, who }); tx.set(C, { name }); return tx.commit(); };
+  let held = false, release;
+  const gate = new Promise(resolve => { release = resolve; });
+  Dexie.prototype.transaction = function(...args) {
+    if (!held && this.name === 'dendra-test' && args[0] === 'rw' && args[1]?.name === 'books' && args[2]?.name === 'changes') {
+      held = true;
+      // The other tab has its own Dexie; restore this window before either tab continues.
+      Dexie.prototype.transaction = transaction;
+      return gate.then(() => transaction.apply(this, args));
+    }
+    return transaction.apply(this, args);
+  };
+  try {
+    const first = rename(wb, 'Earlier tab name', 'Dana Jordan');
+    const ready = await until(() => held && has(theirs, first));
+    check('another tab receives a rename while its local transaction is held', ready);
+    if (!ready) return;
+    const second = rename(theirs, 'Later tab name', 'Ann Lee');
+    await other.Store.sync();
+    const heard = await until(() => has(wb, second) && Store.where().name === 'Later tab name');
+    check('the later rename is received and persisted before the earlier write is released',
+      heard && (await db.books.get(id))?.name === 'Later tab name');
+    if (!heard) return;
+    release();
+    await Store.sync();
+    check('a delayed earlier write preserves the later name and both tabs\' chart changes',
+      (await db.books.get(id))?.name === 'Later tab name' && ids(wb) === ids(theirs)
+      && await db.changes.where('book').equals(id).count() === wb.changes().length);
+  } finally {
+    Dexie.prototype.transaction = transaction;
+    release();
+    await Store.sync();
+  }
+  const reopened = await Store.open({ id });
+  check('reopening after delayed cross-tab renames keeps workbook and chart names consistent',
+    Store.where().name === 'Later tab name' && reopened.charts()[0].name === 'Later tab name');
 }
 
 function disagreements() {

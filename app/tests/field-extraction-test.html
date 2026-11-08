@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Dendra field extraction test</title>
+<pre id="out">Running…</pre>
+<script>
+addEventListener('error', event => {
+  document.title = 'field extraction test: 0 pass, 1 fail';
+  document.getElementById('out').textContent += '\n0 passed, 1 failed\n' + (event.error?.stack ?? event.message);
+});
+</script>
+<script src="../../vendor/elkjs/elk.bundled.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../core/layout.js"></script>
+<script src="../core/shapes.js"></script>
+<script src="../core/text.js"></script>
+<script src="../core/scene.js"></script>
+<script src="../core/bound-text.js"></script>
+<script src="../core/design-schema.js"></script>
+<script src="../ui/field-extraction.js"></script>
+<script src="field-extraction-test.js"></script>
+</html>

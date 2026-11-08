@@ -1,0 +1,590 @@
+{
+    "checked_on":  "2026-11-07",
+    "code_revision":  "1a61211f627282386a4afc749d6e64430db0ad38",
+    "browser":  "156.0.8078.48",
+    "method":  "Real-time headless Chrome, isolated profiles, rendered controls driven by DOM mouse/keyboard/selection/input events. Latest successful result for each registered suite; unaffected core results retained. Alternate presentations are additional checks, not counted twice.",
+    "passed":  4051,
+    "failed":  0,
+    "suite_count":  31,
+    "suites":  [
+                   {
+                       "suite":  "text",
+                       "passed":  45,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  0.93,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "core",
+                       "passed":  173,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  1.78,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "engine",
+                       "passed":  284,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  7.94,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "scene",
+                       "passed":  406,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  102.69,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "export",
+                       "passed":  221,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  23.68,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "inspector",
+                       "passed":  439,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  73.48,
+                       "evidence_set":  "scoped-final"
+                   },
+                   {
+                       "suite":  "canvas",
+                       "passed":  791,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  null,
+                       "evidence_set":  "canvas-composite-final",
+                       "components":  [
+                                          {
+                                              "mode":  "main",
+                                              "passed":  379,
+                                              "failed":  0,
+                                              "source":  "C:\\Users\\thoma\\AppData\\Local\\Temp\\chartsuite-redesign\\design-geometry-canvas-final\\canvas\\dom.html",
+                                              "extracted_checks":  "C:\\Users\\thoma\\AppData\\Local\\Temp\\chartsuite-redesign\\canvas-composite-final\\main.txt",
+                                              "first_check":  "pass  at 1024×768 every view opens on its whole page, as large as fits\r",
+                                              "last_check":  "pass  … and undone, it stands where it stood\r"
+                                          },
+                                          {
+                                              "mode":  "templates",
+                                              "passed":  62,
+                                              "failed":  0,
+                                              "source":  "C:\\Users\\thoma\\AppData\\Local\\Temp\\chartsuite-redesign\\design-geometry-canvas-final\\canvas\\dom.html",
+                                              "extracted_checks":  "C:\\Users\\thoma\\AppData\\Local\\Temp\\chartsuite-redesign\\canvas-composite-final\\templates.txt",
+                                              "first_check":  "pass  the fund template is the sample’s chart less its records, so the two can’t drift\r",
+                                              "last_check":  "pass  the chart it was begun from stands as it was\r"
+                                          },
+                                          {
+                                              "mode":  "craft",
+                                              "passed":  18,
+                                              "failed":  0,
+                                              "source":  "C:\\Users\\thoma\\AppData\\Local\\Temp\\chartsuite-redesign\\design-geometry-canvas-final\\canvas\\dom.html",
+                                              "extracted_checks":  "C:\\Users\\thoma\\AppData\\Local\\Temp\\chartsuite-redesign\\canvas-composite-final\\craft.txt",
+                                              "first_check":  "pass  the bar holds still as a box is selected\r",
+                                              "last_check":  "pass  a template’s own type is a face the deck can carry, and the legal ones say nothing"
+                                          },
+                                          {
+                                              "mode":  "format",
+                                              "passed":  332,
+                                              "failed":  0,
+                                              "source":  "C:\\Users\\thoma\\AppData\\Local\\Temp\\chartsuite-redesign\\canvas-format-final\\canvas\\dom.html",
+                                              "results":  "C:\\Users\\thoma\\AppData\\Local\\Temp\\chartsuite-redesign\\canvas-format-final\\results.json",
+                                              "seconds":  112.78
+                                          }
+                                      ]
+                   },
+                   {
+                       "suite":  "canvas-entering",
+                       "passed":  30,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  7.65,
+                       "evidence_set":  "regression-gui-final"
+                   },
+                   {
+                       "suite":  "table",
+                       "passed":  589,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  240.25,
+                       "evidence_set":  "table-final-synchronized"
+                   },
+                   {
+                       "suite":  "store",
+                       "passed":  88,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  26.26,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "tour",
+                       "passed":  161,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  36.49,
+                       "evidence_set":  "regression-gui-final"
+                   },
+                   {
+                       "suite":  "skill",
+                       "passed":  19,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  2.45,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "perf",
+                       "passed":  27,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  29.39,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "builder",
+                       "passed":  87,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  59.28,
+                       "evidence_set":  "regression-gui-final"
+                   },
+                   {
+                       "suite":  "design-editor",
+                       "passed":  99,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  97.57,
+                       "evidence_set":  "design-geometry-validation"
+                   },
+                   {
+                       "suite":  "canvas-text",
+                       "passed":  68,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  60.2,
+                       "evidence_set":  "full-click-selection-fixed"
+                   },
+                   {
+                       "suite":  "design-schema",
+                       "passed":  32,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  1.01,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "design-geometry",
+                       "passed":  17,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  0.82,
+                       "evidence_set":  "design-geometry-validation"
+                   },
+                   {
+                       "suite":  "edit-scope",
+                       "passed":  15,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  0.94,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "bound-text",
+                       "passed":  36,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  1.16,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "put-batch",
+                       "passed":  25,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  3.27,
+                       "evidence_set":  "scoped-final"
+                   },
+                   {
+                       "suite":  "pending-bindings",
+                       "passed":  11,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  20.11,
+                       "evidence_set":  "presentation-light-live"
+                   },
+                   {
+                       "suite":  "live-field-create",
+                       "passed":  13,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  12.79,
+                       "evidence_set":  "live-field-create-review"
+                   },
+                   {
+                       "suite":  "words",
+                       "passed":  52,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  3.61,
+                       "evidence_set":  "mirror-fixed"
+                   },
+                   {
+                       "suite":  "field-extraction",
+                       "passed":  19,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  1.12,
+                       "evidence_set":  "regression-gui-final"
+                   },
+                   {
+                       "suite":  "field-extraction-gui",
+                       "passed":  10,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  13.08,
+                       "evidence_set":  "review-fixes"
+                   },
+                   {
+                       "suite":  "formatting",
+                       "passed":  23,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  0.99,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "classification",
+                       "passed":  36,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  1.31,
+                       "evidence_set":  "regression-core-final"
+                   },
+                   {
+                       "suite":  "classification-gui",
+                       "passed":  13,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  15.67,
+                       "evidence_set":  "regression-gui-final"
+                   },
+                   {
+                       "suite":  "formulabar",
+                       "passed":  201,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  41.54,
+                       "evidence_set":  "regression-gui-final"
+                   },
+                   {
+                       "suite":  "formulabar-rules",
+                       "passed":  21,
+                       "failed":  0,
+                       "status":  "pass",
+                       "seconds":  4.92,
+                       "evidence_set":  "regression-gui-final"
+                   }
+               ],
+    "alternate_presentations":  [
+                                    {
+                                        "evidence_set":  "variant-light-final",
+                                        "suites":  [
+                                                       {
+                                                           "suite":  "design-editor",
+                                                           "passed":  99,
+                                                           "failed":  0,
+                                                           "status":  "pass",
+                                                           "seconds":  99.28
+                                                       },
+                                                       {
+                                                           "suite":  "canvas-text",
+                                                           "passed":  68,
+                                                           "failed":  0,
+                                                           "status":  "pass",
+                                                           "seconds":  60.53
+                                                       },
+                                                       {
+                                                           "suite":  "field-extraction-gui",
+                                                           "passed":  10,
+                                                           "failed":  0,
+                                                           "status":  "pass",
+                                                           "seconds":  12.92
+                                                       }
+                                                   ]
+                                    },
+                                    {
+                                        "evidence_set":  "variant-dark-1440",
+                                        "suites":  [
+                                                       {
+                                                           "suite":  "design-editor",
+                                                           "passed":  99,
+                                                           "failed":  0,
+                                                           "status":  "pass",
+                                                           "seconds":  98.58
+                                                       },
+                                                       {
+                                                           "suite":  "canvas-text",
+                                                           "passed":  68,
+                                                           "failed":  0,
+                                                           "status":  "pass",
+                                                           "seconds":  60.64
+                                                       },
+                                                       {
+                                                           "suite":  "field-extraction-gui",
+                                                           "passed":  10,
+                                                           "failed":  0,
+                                                           "status":  "pass",
+                                                           "seconds":  13.09
+                                                       }
+                                                   ]
+                                    },
+                                    {
+                                        "evidence_set":  "presentation-light-live-final",
+                                        "suites":  [
+                                                       {
+                                                           "suite":  "canvas-text",
+                                                           "passed":  21,
+                                                           "failed":  0,
+                                                           "status":  "pass",
+                                                           "seconds":  19.43
+                                                       }
+                                                   ]
+                                    },
+                                    {
+                                        "evidence_set":  "presentation-dark-live-final",
+                                        "suites":  [
+                                                       {
+                                                           "suite":  "canvas-text",
+                                                           "passed":  21,
+                                                           "failed":  0,
+                                                           "status":  "pass",
+                                                           "seconds":  19.16
+                                                       }
+                                                   ]
+                                    },
+                                    {
+                                        "evidence_set":  "presentation-light-palette",
+                                        "suites":  [
+                                                       {
+                                                           "suite":  "design-editor",
+                                                           "passed":  21,
+                                                           "failed":  0,
+                                                           "status":  "pass",
+                                                           "seconds":  15.57
+                                                       }
+                                                   ]
+                                    },
+                                    {
+                                        "evidence_set":  "presentation-dark-palette",
+                                        "suites":  [
+                                                       {
+                                                           "suite":  "design-editor",
+                                                           "passed":  21,
+                                                           "failed":  0,
+                                                           "status":  "pass",
+                                                           "seconds":  15.87
+                                                       }
+                                                   ]
+                                    }
+                                ],
+    "gui_audit":  {
+                      "revision":  "6740f80",
+                      "report":  "scoped-authoring-audit.txt",
+                      "images":  [
+                                     "scoped-org-chart.png",
+                                     "mixed-record-paragraphs.png"
+                                 ],
+                      "method":  "Source-blind agent used rendered controls in a persistent profile; saved and reloaded an existing org chart and a newly authored mixed-paragraph chart."
+                  },
+    "notes":  [
+                  "Earlier live-text failures exposed stale-field input intent and loss of multi-selection during complete double-click sequences. The final canvas-text flow covers both fixes.",
+                  "A canvas regression started while geometry dependencies were being extracted loaded a mixture of old HTML and new scripts in nested frames. Its incomplete 459-pass/1-failure result was superseded on frozen product source. Subsequent fixture updates open the collapsed Look section and verify preserved free geometry; component reruns account for the complete canvas suite without double counting.",
+                  "The table choice test now waits for observable keyboard navigation after a grid rebuild instead of assuming it completes within 150 ms. Its exact data and navigation assertion is unchanged.",
+                  "The narrow design flow exposed an inaccessible Paragraph control. Final alternate runs include its responsive-toolbar fix.",
+                  "The current prose/field editor contrast and scope labels supersede the usability issues recorded in the earlier source-blind audit.",
+                  "Pending-edit tests seed historical records to exercise date confirmation; ordinary chart-authoring acceptance flows create their charts and records through the GUI.",
+                  "These results do not establish trusted hardware-input behavior, complete PowerPoint feature parity, or a human task-time comparison."
+              ],
+    "source_files":  [
+                         {
+                             "file":  "app/core/bound-text.js",
+                             "sha256":  "43834e44530617181d37731932867e0ab9c7a30e66d21e3cdec959f5d3f74d65"
+                         },
+                         {
+                             "file":  "app/core/design-geometry.js",
+                             "sha256":  "08d024305313803a88ba8163f977702ecad994a25a47db4d9a897ff70f296229"
+                         },
+                         {
+                             "file":  "app/core/design-schema.js",
+                             "sha256":  "78b7cfdeed154cdf2c750ff1e405b2341d7bbd7aa5d09a9b0213e75ccd9998e2"
+                         },
+                         {
+                             "file":  "app/core/edit-scope.js",
+                             "sha256":  "f352f61931b4bb9b2616eefcf87a5f441d275d70ed77b7e39c85d6737377531b"
+                         },
+                         {
+                             "file":  "app/core/formatting.js",
+                             "sha256":  "7a20a13ebffe7b18a5f5abeb16cd47ae32fcbab567c7be28e6bf6d1b065c057c"
+                         },
+                         {
+                             "file":  "app/core/formulas.js",
+                             "sha256":  "022d059f7819487d2ff9791bfbef44fb3d1da24b49b5e810e1675caa1c8dc127"
+                         },
+                         {
+                             "file":  "app/core/layout.js",
+                             "sha256":  "e42f19b4dab1702c7e69fbe750bb8d0f67d96bcd3a4dfe941e25e57dde6d651e"
+                         },
+                         {
+                             "file":  "app/core/log.js",
+                             "sha256":  "d70e637ea44821fa356b8865f330c91325b550cdfa879adb85dfe54725d3b52e"
+                         },
+                         {
+                             "file":  "app/core/notes.js",
+                             "sha256":  "495c102e3663a3e3e1847a4585770d4ced6cfedbc557c5f3526c8d93c50fe0e0"
+                         },
+                         {
+                             "file":  "app/core/scene.js",
+                             "sha256":  "0965f551c999c9402985fc330b2e02bff05b9633f639df6fc57f4664a8423591"
+                         },
+                         {
+                             "file":  "app/core/shapes.js",
+                             "sha256":  "f06d50f134eab45db5b4ed76675013daf213e180ed062e93e6edfe4eced777ad"
+                         },
+                         {
+                             "file":  "app/core/sharepoint.js",
+                             "sha256":  "5bd3901bbccbb7c2e4580983ad3c26644e4f5a7708eb0b0963164aaf03a6919b"
+                         },
+                         {
+                             "file":  "app/core/store.js",
+                             "sha256":  "bcbd35fcc5689587acc90cf369e3b2b7dc46c341db6697dcb51e6ec5ad5d5d45"
+                         },
+                         {
+                             "file":  "app/core/templates.js",
+                             "sha256":  "0a77804f7aacc8eeadef502cb67ef62f101154f234be9b1134e3e80273327e7f"
+                         },
+                         {
+                             "file":  "app/core/text.js",
+                             "sha256":  "cbe6b751eb22ee0591f727b7c9271f70102ee1728de6044a255bc5b5a5c20c61"
+                         },
+                         {
+                             "file":  "app/core/tree.js",
+                             "sha256":  "cf3a898fddfd74bb21f860d5746324b69c6fdbbc5e3b077e04fa45b3bf19304a"
+                         },
+                         {
+                             "file":  "app/css/canvas.css",
+                             "sha256":  "236128fa2ab44c6f48b878488f0401f62824051b164eb00b1c82131c1663ca0b"
+                         },
+                         {
+                             "file":  "app/css/dendra.css",
+                             "sha256":  "1db1826eab0d93046cb6400607ac2e07a73e8d0744154cc2be64e99695b852ea"
+                         },
+                         {
+                             "file":  "app/css/design-editor.css",
+                             "sha256":  "0312f1259b6058b68ad5c8ce8a97b4d0c3249f2a9e275611ece136d34224de4f"
+                         },
+                         {
+                             "file":  "app/css/formulabar.css",
+                             "sha256":  "68d3eee5c97ef75d146993fe35cb91d9bedc7e62de8d4fa5e525b08ac5f1bfac"
+                         },
+                         {
+                             "file":  "app/css/inspector.css",
+                             "sha256":  "7e750f378818ea5f85237fc00736d9c6af97a034de0cecacf9b8219971db7fc8"
+                         },
+                         {
+                             "file":  "app/css/table.css",
+                             "sha256":  "df42527aacf9c8d7d955ab0342bf50396791b9477cd028480f11d5bf65a0f1c5"
+                         },
+                         {
+                             "file":  "app/index.html",
+                             "sha256":  "cb5b7c65c564093017e088172a5195b7c7907961e0fb6ad657bfb195c1b2aed1"
+                         },
+                         {
+                             "file":  "app/ui/app.js",
+                             "sha256":  "a8c552f2414984ce4d04295234564b2a968856d3afaf9762c41448365a0735c4"
+                         },
+                         {
+                             "file":  "app/ui/bound-words.js",
+                             "sha256":  "5ba53d40e310837da63d27a0e9f7acf75196f7bf540f43c7ea9429f66a0161bb"
+                         },
+                         {
+                             "file":  "app/ui/canvas-bindings.js",
+                             "sha256":  "a144b08767991e69a514b52b68d59e680acc86b71e22de79cc8f38a5e8301da7"
+                         },
+                         {
+                             "file":  "app/ui/canvas-words.js",
+                             "sha256":  "a783e7a8be3c50220a3cc9d14fe40f18e6b27746f47dd633f85748c893bc2bd6"
+                         },
+                         {
+                             "file":  "app/ui/canvas.js",
+                             "sha256":  "0f5bacbffa5e933693c32c54a1abb3de6eb4dbb06c335b054b8e927c0d9872e4"
+                         },
+                         {
+                             "file":  "app/ui/designs.js",
+                             "sha256":  "ecd580c864566dde946bc30998a3bdef571cf04cf62b87e611a45f1b1d500a9b"
+                         },
+                         {
+                             "file":  "app/ui/drawing.js",
+                             "sha256":  "a0cc50ddd03a2a21dd898c472b1fa1d1d4e5f38cf8e885d66557b4cadab2375b"
+                         },
+                         {
+                             "file":  "app/ui/export.js",
+                             "sha256":  "63d55251c8d34db5d6545a6b32136ff539f1a636ea9cec2dfddd09fc09fe5c45"
+                         },
+                         {
+                             "file":  "app/ui/field-extraction.js",
+                             "sha256":  "5c5b0c4806d15e2177be21d1a9b8a64db6beb440d4efb24d29e548a98cd4fa23"
+                         },
+                         {
+                             "file":  "app/ui/field-palette.js",
+                             "sha256":  "33ee5afe2fd9c7ed5c4f074d12014d05d7b599c5c15ec0f91532886e59746921"
+                         },
+                         {
+                             "file":  "app/ui/formatbar.js",
+                             "sha256":  "fdd030512aa69963fe903318951334313120425f8efbc870f14149bbafc06e9c"
+                         },
+                         {
+                             "file":  "app/ui/formulabar.js",
+                             "sha256":  "e5ecb589479d205888f8ae5962fb6f2839c18fb38d53666af6a9aa5d1fd12fd6"
+                         },
+                         {
+                             "file":  "app/ui/gallery.js",
+                             "sha256":  "7350b1a2ad00394cccee22b3fe355e63838bbfda424ddfa2c2cab743058bf650"
+                         },
+                         {
+                             "file":  "app/ui/inspector.js",
+                             "sha256":  "66f576ba390e54b9b984384914d22280802fc3a436eeadffc7831c7c75036a03"
+                         },
+                         {
+                             "file":  "app/ui/shell.js",
+                             "sha256":  "8ba412ed99f5ab1c8b202f288c36383adb607fa1062104841b5f4d554d162e35"
+                         },
+                         {
+                             "file":  "app/ui/splash.js",
+                             "sha256":  "04207affc7c0b38aead2ef74a60f80ecd15658c0e91811dca1a1442bd47867af"
+                         },
+                         {
+                             "file":  "app/ui/table.js",
+                             "sha256":  "9ce260a491ccda08fd57f968e606d9080bc3a8a649d806dd00188f45d8306033"
+                         },
+                         {
+                             "file":  "app/ui/time.js",
+                             "sha256":  "467014df9467e48ce1433b9e474ec7457b10eb1066276c02d183c84331ace95c"
+                         },
+                         {
+                             "file":  "app/ui/tour.js",
+                             "sha256":  "9aac01f1c3287f17f2646b277aa31cc54252a16e3fe9516be73a9ceb8a62b0e6"
+                         },
+                         {
+                             "file":  "app/ui/words.js",
+                             "sha256":  "0c00801ee342e38302f4984161d7b34397956fb2eb009cb61c19a361e14f947e"
+                         }
+                     ]
+}

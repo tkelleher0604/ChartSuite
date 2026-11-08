@@ -1,0 +1,65 @@
+/* The visual editor keeps fields within reach while a layer is selected. */
+.design-field-palette { padding: 14px 16px 12px; border-bottom: 1px solid var(--rule); }
+.design-reach { padding: 14px 16px 12px; border-bottom: 1px solid var(--rule); background: var(--surface); }
+.design-reach strong { display: block; font-size: 13px; }
+.design-reach p { margin: 5px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.45; }
+.design-layout { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--rule); font-size: 12px; }
+.design-layout > span { flex: 1; color: var(--ink-2); }
+.design-layout select { max-width: 150px; }
+.edit-scope-summary { padding: 5px 8px; color: var(--ink-2); font-size: 11px; line-height: 1.4; }
+.design-section-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.design-section-title h3 { margin: 0; font: var(--th); }
+.design-section-title > .btn { height: 26px; padding: 0 6px; font-size: 12px; color: var(--accent-ink); }
+.design-help { margin: 6px 0 10px; color: var(--ink-3); font-size: 12px; line-height: 1.45; }
+.field-search { width: 100%; height: 30px; padding: 4px 9px; border: 1px solid var(--edge); border-radius: 5px; background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; }
+.field-search:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.design-field-list { margin: 6px -4px 0; max-height: 176px; overflow: auto; overscroll-behavior: contain; }
+.design-field { width: 100%; display: flex; align-items: center; gap: 7px; min-height: 42px; padding: 6px 7px; text-align: left; border: 0; border-radius: 5px; color: var(--ink); background: transparent; cursor: grab; }
+.design-field:hover, .design-field:focus-visible { background: var(--selected); }
+.design-field:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.design-field:disabled { opacity: .55; cursor: default; }
+.field-grip { flex: none; color: var(--ink-3); font-size: 15px; }
+.field-copy { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.field-name { color: var(--accent-ink); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.field-sample { color: var(--ink-2); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field-sample.empty { color: var(--ink-3); font-style: italic; }
+.field-add, .field-used { color: var(--accent-ink); font-size: 14px; }
+.field-state { color: var(--ink-3); border: 1px solid var(--edge); border-radius: 3px; padding: 1px 4px; font-size: 10px; }
+.field-group { padding: 9px 7px 3px; color: var(--ink-3); font-size: 11px; font-weight: 600; }
+.design-empty { padding: 8px 7px; color: var(--ink-3); font-size: 12px; line-height: 1.4; }
+.parts-of .part-rows { max-height: 148px; }
+.parts-of .part-rows > .row { min-height: 30px; }
+.parts-of .part-rows > .row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.parts-of .part-rows > .row.on { background: var(--selected); }
+.part-words > .words-in { min-height: 58px; padding: 7px 8px; border: 1px solid var(--edge); border-radius: 5px; background: var(--surface); }
+.part-words > .words-in:empty::before { font-size: 12px; }
+.part-words .word-chip { margin: 1px 2px; border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); border-radius: 4px; }
+.design-type-intro { margin: 0 0 14px; line-height: 1.5; color: var(--ink-2); font-size: 13px; }
+.design-save .design-fields > .head { margin-top: 16px; }
+.design-save .design-fields > .muted { margin: 6px 0 12px; font-size: 12px; line-height: 1.45; }
+.design-field-create .field-options { margin-top: 4px; }
+.dc-designbar .design-scope { font-size: 12px; }
+.dc-text-editor { padding: 0; border-radius: 3px; box-shadow: 0 3px 12px #0002; background: var(--canvas-edit-paper, #fff); }
+.dc-text-editor .part-words { display: block; }
+.dc-text-editor .words-in { min-height: inherit; padding: 7px 8px; border: 0; border-radius: 3px; background: var(--canvas-edit-paper, #fff); color: inherit; font: inherit; line-height: inherit; text-align: inherit; overflow-wrap: break-word; }
+.dc-text-editor .word-chip { display: inline; padding: 0 3px; font-size: .9em; white-space: nowrap; background: #e9f0ff; color: #244c85; }
+.dc-text-editor .add-field { position: absolute; top: calc(100% + 5px); left: 0; height: 28px; padding: 3px 8px; border: 1px solid var(--rule-2); border-radius: 5px; background: var(--surface); color: var(--accent-ink); font: var(--t12); white-space: nowrap; box-shadow: 0 2px 6px #0001; }
+.canvas-text-handoff { display: grid; justify-items: start; gap: 5px; padding: 5px 0; font-size: 12px; }
+.dc-text-editor .word-bound { border-radius: 2px; }
+.dc-text-editor .word-bound:hover { background: #dbeafe66; }
+.dc-text-editor .word-bound.active { background: #dbeafe; color: #172b4d; outline: 1px solid #93b7ea; }
+.dc-text-editor .bound-value { outline: none; }
+.dc-text-editor .word-bound.empty > .bound-value { display: inline-block; min-width: 1ch; }
+.dc-text-editor .word-bound.empty > .bound-value::before { content: attr(data-placeholder); color: #73849b; font-style: italic; }
+.dc-text-editor .word-bound[aria-readonly="true"] { text-decoration: underline dotted #93a2b8; text-underline-offset: 3px; }
+.dc-text-editor .word-bound[aria-invalid="true"] { outline: 2px solid #b93838; }
+.bound-error { padding: 6px 8px; color: #9b2626; background: #fff0ef; font: var(--t12); text-align: left; }
+.bound-field-status { display: grid; gap: 3px; padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--selected); font-size: 12px; }
+.bound-field-status > span, .bound-field-status > small { color: var(--ink-2); }
+.bound-field-status > p { margin: 3px 0 0; }
+.canvas-text-handoff.live-value { display: block; flex: 1; min-width: 0; padding: 0; }
+.live-value > .cell { display: block; width: 100%; height: auto; min-height: var(--row); text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  .design-field-palette { padding: 12px; }
+  .design-field-list { max-height: 144px; }
+}

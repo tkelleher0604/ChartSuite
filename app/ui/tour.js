@@ -63,7 +63,13 @@ const Tour = (() => {
   // Ended, the keys go to the chart, where they can be seen.
   function end() { if (at.peek() < 0) return; if (at.peek() < STEPS.length) done(); at.value = -1; setTimeout(() => { const a = document.activeElement; if (!a || a === document.body || !a.isConnected) Shell.enter('view'); }, 30); }
   for (const [i, s] of STEPS.entries()) if (s.event) on(s.event, d => { if (at.peek() === i && (!s.when || s.when(d))) next(); });
-  Shell.launched.then(() => { if (store.get('toured') !== '1' && Shell.parts.peek().canvas) start(); });
+  // Creation comes before instruction. The example and optional Tour remain available without
+  // making a first-time author complete a walkthrough of someone else's chart.
+  Shell.launched.then(() => {
+    if (store.get('toured') === '1' || !Shell.parts.peek().canvas) return;
+    store.set('toured', '1');
+    Gallery.open({ workbook: true, first: true, title: 'Create your first chart' });
+  });
   document.addEventListener('keydown', e => {
     if (at.peek() < 0 || at.peek() >= STEPS.length || e.defaultPrevented) return;
     const typing = e.target.closest?.('input, textarea, select, [contenteditable], .CodeMirror');

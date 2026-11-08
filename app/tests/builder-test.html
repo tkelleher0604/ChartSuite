@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dendra builder test</title>
+<script>
+  // Isolate preferences as well as workbook storage; opening this test must not clear app settings.
+  const memoryStorage = () => {
+    const data = new Map();
+    return { getItem: k => data.get(String(k)) ?? null, setItem: (k, v) => data.set(String(k), String(v)),
+      removeItem: k => data.delete(String(k)), clear: () => data.clear(), key: i => [...data.keys()][i] ?? null, get length() { return data.size; } };
+  };
+  Object.defineProperty(window, 'localStorage', { value: memoryStorage() });
+  Object.defineProperty(window, 'sessionStorage', { value: memoryStorage() });
+  sessionStorage.setItem('dendra.launched', '1'); localStorage.setItem('dendra.toured', '1');
+  localStorage.setItem('dendra.theme', new URLSearchParams(location.search).get('theme') || 'light');
+  document.documentElement.dataset.theme = localStorage.getItem('dendra.theme');
+</script>
+<link rel="stylesheet" href="../../vendor/tabulator/tabulator.min.css">
+<link rel="stylesheet" href="../../vendor/codemirror/codemirror.css">
+<link rel="stylesheet" href="../../vendor/codemirror/show-hint.css">
+<link rel="stylesheet" href="../../vendor/codemirror/lint.css">
+<link rel="stylesheet" href="../css/dendra.css">
+<link rel="stylesheet" href="../css/canvas.css">
+<link rel="stylesheet" href="../css/design-editor.css">
+<link rel="stylesheet" href="../css/inspector.css">
+<link rel="stylesheet" href="../css/formulabar.css">
+<link rel="stylesheet" href="../css/table.css">
+<style>
+  #out { position: fixed; z-index: 99; left: 8px; top: 8px; max-width: 900px; max-height: 90vh; overflow: auto; margin: 0; padding: 10px 12px;
+    background: #111; color: #e6e4df; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; pointer-events: none; }
+  #out .fail { color: #ff8a80; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<pre id="out">Running…</pre>
+<script src="../../vendor/preact/preact.min.umd.js"></script>
+<script src="../../vendor/preact/hooks.umd.js"></script>
+<script src="../../vendor/htm/htm.umd.js"></script>
+<script src="../../vendor/signals/signals-core.min.js"></script>
+<script src="../../vendor/signals/signals.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.core.umd.min.js"></script>
+<script src="../../vendor/floating-ui/floating-ui.dom.umd.min.js"></script>
+<script src="../../vendor/tinykeys/tinykeys.umd.js"></script>
+<script src="../../vendor/lucide/lucide.min.js"></script>
+<script src="../../vendor/ufuzzy/uFuzzy.iife.min.js"></script>
+<script src="../../vendor/x6/x6.min.js"></script>
+<script src="../../vendor/tabulator/tabulator.min.js"></script>
+<script src="../../vendor/elkjs/elk.bundled.js"></script>
+<script src="../../vendor/codemirror/codemirror.js"></script>
+<script src="../../vendor/codemirror/simple.js"></script>
+<script src="../../vendor/codemirror/show-hint.js"></script>
+<script src="../../vendor/codemirror/lint.js"></script>
+<script src="../../vendor/codemirror/matchbrackets.js"></script>
+<script src="../../vendor/msal/msal-browser.min.js"></script>
+<script src="../core/tree.js"></script>
+<script src="../core/edit-scope.js"></script>
+<script src="../core/notes.js"></script>
+<script src="../core/formatting.js"></script>
+<script src="../core/log.js"></script>
+<script src="../core/formulas.js"></script>
+<script src="../core/sharepoint.js"></script>
+<script>
+// The workbook opened at once, in memory: nothing is kept.
+const kept = new Map();
+let savedFile = null;
+const Store = { open: async ({ sample }) => Log.open(sample), who: () => 'Dana Jordan', status: () => ({ text: '' }), subscribe: () => () => {}, books: async () => [], where: () => null,
+  // Replace only native file picking/writing. The UI still saves and reopens a serialized workbook.
+  openFile: async () => savedFile && Log.open(JSON.parse(savedFile)), saveAs: async () => { savedFile = JSON.stringify(App.wb); }, download() {}, fix() {},
+  houseStyles: async () => [...kept.values()], keepHouseStyle: async s => { kept.set(s.id, s); }, forgetHouseStyle: async id => { kept.delete(id); } };
+</script>
+<script src="../sample/calder-ridge.js"></script>
+<script src="../core/templates.js"></script>
+<script src="../templates/blank.js"></script>
+<script src="../templates/org-chart.js"></script>
+<script src="../templates/family-tree.js"></script>
+<script src="../templates/company.js"></script>
+<script src="../templates/fund-structure.js"></script>
+<script src="../ui/shell.js"></script>
+<script src="../ui/app.js"></script>
+<script src="../core/layout.js"></script>
+<script src="../core/shapes.js"></script>
+<script src="../core/text.js"></script>
+<script src="../core/design-schema.js"></script>
+<script src="../core/design-geometry.js"></script>
+<script src="../core/scene.js"></script>
+<script src="../core/bound-text.js"></script>
+<script src="../ui/drawing.js"></script>
+<script src="../ui/canvas.js"></script>
+<script src="../ui/formatbar.js"></script>
+<script src="../ui/bound-words.js"></script>
+<script src="../ui/words.js"></script>
+<script src="../ui/canvas-words.js"></script>
+<script src="../ui/canvas-bindings.js"></script>
+<script src="../ui/field-palette.js"></script>
+<script src="../ui/designs.js"></script>
+<script src="../ui/field-extraction.js"></script>
+<script src="../ui/inspector.js"></script>
+<script src="../ui/table.js"></script>
+<script src="../ui/time.js"></script>
+<script src="../ui/formulabar.js"></script>
+<script src="../ui/export.js"></script>
+<script src="../ui/gallery.js"></script>
+<script>
+// Static fixture dispatch: both authoring flows use this same isolated app shell.
+(() => { const flows = { 'design-editor': 'design-editor-test.js', 'canvas-text': 'canvas-text-test.js', 'put-batch': 'put-batch-test.js', 'pending-bindings': 'pending-bindings-test.js', 'live-field-create': 'live-field-create-test.js', 'field-extraction': 'field-extraction-gui-test.js', classification: 'classification-gui-test.js' }, test = document.createElement('script'); test.src = flows[new URLSearchParams(location.search).get('flow')] ?? 'builder-test.js'; document.body.append(test); })();
+</script></body></html>

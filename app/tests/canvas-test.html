@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="../../vendor/codemirror/lint.css">
 <link rel="stylesheet" href="../css/dendra.css">
 <link rel="stylesheet" href="../css/canvas.css">
+<link rel="stylesheet" href="../css/design-editor.css">
 <link rel="stylesheet" href="../css/inspector.css">
 <link rel="stylesheet" href="../css/formulabar.css">
 <link rel="stylesheet" href="../css/table.css">
@@ -45,7 +46,9 @@
 <script src="../../vendor/codemirror/matchbrackets.js"></script>
 <script src="../../vendor/msal/msal-browser.min.js"></script>
 <script src="../core/tree.js"></script>
+<script src="../core/edit-scope.js"></script>
 <script src="../core/notes.js"></script>
+<script src="../core/formatting.js"></script>
 <script src="../core/log.js"></script>
 <script src="../core/formulas.js"></script>
 <script src="../core/sharepoint.js"></script>
@@ -67,11 +70,21 @@ const Store = { open: async ({ sample }) => Log.open(sample), who: () => 'Dana J
 <script src="../ui/app.js"></script>
 <script src="../core/layout.js"></script>
 <script src="../core/shapes.js"></script>
+<script src="../core/text.js"></script>
+<script src="../core/design-schema.js"></script>
+<script src="../core/design-geometry.js"></script>
 <script src="../core/scene.js"></script>
+<script src="../core/bound-text.js"></script>
 <script src="../ui/drawing.js"></script>
 <script src="../ui/canvas.js"></script>
 <script src="../ui/formatbar.js"></script>
+<script src="../ui/bound-words.js"></script>
+<script src="../ui/words.js"></script>
+<script src="../ui/canvas-words.js"></script>
+<script src="../ui/canvas-bindings.js"></script>
+<script src="../ui/field-palette.js"></script>
 <script src="../ui/designs.js"></script>
+<script src="../ui/field-extraction.js"></script>
 <script src="../ui/inspector.js"></script>
 <script src="../ui/table.js"></script>
 <script src="../ui/time.js"></script>
@@ -95,6 +108,8 @@ const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAl
 // Position, on a box's page, is folded till it's asked for.
 const placeOpened = async () => { $('.insp section[data-key="place"] > .sect > .fold[aria-expanded="false"]')?.click(); await tick(60); };
 const txt = el => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+// Shared toolbar buttons explicitly say All; compare their count/name separately from that cue.
+const scopeText = el => txt(el).replace(/^All /, '');
 const cv = () => Canvas.active.peek(), sc = () => cv().scene();
 const charts = () => App.views.peek().filter(v => v.layout === 'chart');
 const show = async v => { Shell.show(v.id); await until(() => sc()?.view === v.id); await tick(120); };
@@ -157,19 +172,15 @@ async function run() {
   // ---- The scope, in two parts: the selection, as in PowerPoint, and all like it, the narrowest group that
   // reaches it; its ▾ offers every group that does: the Styles rows, as the Key says them, under each style's
   // name, then the selection's own groups, its kind and its options and tags, each by its reach ----
-  const ownPart = () => txt($('[data-fb="own"]')), like = () => txt($('[data-fb="like"]'));
-  const chip = () => txt($('[data-fb="scope"] [aria-pressed="true"]'));
+  const ownPart = () => txt($('[data-fb="own"]')), like = () => scopeText($('[data-fb="like"]'));
+  const chip = () => scopeText($('[data-fb="scope"] [aria-pressed="true"]'));
   const dulled = () => $$('.dc .x6-cell.dc-dull').map(e => e.getAttribute('data-cell-id'));
-  // (The pen goes by itself: these are of a pen put at the title, a hand putting it there at each box as a new selection lets it go. Its own checks are after them: see The pen.)
-  const toTitle = () => { FormatBar.pen.level.value = { own: true }; }, penHome = FormatBar.pen.home;
-  FormatBar.pen.home = () => { const had = penHome(); toTitle(); return had; };
-  let handAtTitle = true;
-  const handing = () => { if (handAtTitle && !FormatBar.pen.level.peek()) toTitle(); };
-  preactSignals.effect(() => { Shell.selection.value; handing(); queueMicrotask(handing); });
-  window.handsOff = () => { handAtTitle = false; FormatBar.pen.home = penHome; };
-  toTitle();
+  // A fresh selection uses the real selected-only default. Explicitly returning from a shared
+  // scope uses the same visible control a person uses; no fixture-wide scope override is installed.
+  const toTitle = () => $('[data-fb="own"]')?.click();
   Shell.select(['northpine']); await tick(120);
   check('one box selected, a format goes to “This box”, with all like it beside it', chip() === 'This box' && ownPart() === 'This box' && /^\d+ \S/.test(like()),`${ownPart()} | ${like()}`);
+  check('shared formatting is visibly labeled All before it is selected', /^All \d+ /.test(txt($('[data-fb="like"]'))) && $('[data-fb="like"]').getAttribute('aria-pressed') === 'false');
   check('… and nothing on the chart is dulled', !dulled().length, dulled().join());
   Shell.select(['northpine', 'halvard', 'fund']); await tick(120);
   check('three, to “These 3 boxes”', chip() === 'These 3 boxes', chip());
@@ -1558,7 +1569,7 @@ async function reloaded() {
   // Every mark, as it's drawn: where, how large, its route, its label, its words; `chartOnly`, its boxes and lines.
   const drawn = (s, chartOnly = false) => JSON.stringify([...s.marks.filter(m => !chartOnly || m.type === 'box' || m.type === 'line').map(m => [m.id, ...xs(m.x, m.y, m.w, m.h), m.points?.flat().map(round2), m.labelAt && xs(m.labelAt.x, m.labelAt.y), (m.texts ?? []).map(it => (it.lines ?? []).map(l => l.text))]), chartOnly ? 0 : s.page.scale]);
   const frame = document.body.appendChild(Object.assign(document.createElement('iframe'), { style: 'position:fixed;left:-2000px;width:800px;height:600px' }));
-  frame.srcdoc = `<!doctype html><script src="../../vendor/elkjs/elk.bundled.js"><\/script>${['tree', 'notes', 'log', 'formulas', 'layout', 'shapes', 'scene'].map(f => `<script src="../core/${f}.js"><\/script>`).join('')}<script>
+  frame.srcdoc = `<!doctype html><script src="../../vendor/elkjs/elk.bundled.js"><\/script>${['tree', 'notes', 'log', 'formulas', 'layout', 'shapes', 'text', 'scene'].map(f => `<script src="../core/${f}.js"><\/script>`).join('')}<script>
     window.fresh = (json, c, view, day) => { const wb = Log.open(json), N = wb.notes(c), S = wb.schema(c), R = Formulas.computeState(wb.asOf(c, day), N.definitions(S), { relations: N.relations(S), schema: S }); return Scene.of(wb, c, view, day, { state: R.records, computed: R }); };<\/script>`;
   await until(() => frame.contentWindow?.fresh, 8000);
   const fresh = d => frame.contentWindow.fresh(JSON.stringify(App.wb.toJSON()), App.chart.peek(), App.scene.peek().view, d);
@@ -2050,7 +2061,7 @@ async function readingOnly() {
   check('A Styles row aimed at is lit, and what comes next takes it', !!lit && lit.marks.size > 1 && cv().canShowOnly(), `${lit?.marks.size}`);
   cv().selectLike(); await tick(250);
   check('Select all like this takes what’s lit', JSON.stringify(Shell.selection.peek().slice().sort()) === JSON.stringify([...lit.marks].sort()), Shell.selection.peek().join());
-  { const said = txt($('[data-fb="scope"]') ?? document.body), [, a] = /These (\d+) boxes/.exec(said) ?? [], [, b] = /boxes(\d+)/.exec(said) ?? [];
+  { const said = txt($('[data-fb="scope"]') ?? document.body), [, a] = /These (\d+) boxes/.exec(said) ?? [], [, b] = /^(\d+)/.exec(scopeText($('[data-fb="like"]'))) ?? [];
     check('… and the scope’s two counts agree', !!a && a === b && +a === lit.marks.size, said); }
   Shell.select([]); await tick(150);
   FormatBar.aim(funds); await tick(200);
@@ -2347,6 +2358,7 @@ async function stillAsMade() {
 async function format() {
   // (This page is near the suite's budget: less of a wait here, what's waited for being drawn by then.)
   const tick = (ms = 40) => new Promise(r => setTimeout(r, ms * 0.6));
+  const openLook = async () => { const toggle = $('.insp section[data-key="look"] .fold[aria-expanded="false"]'); if (toggle) { toggle.click(); await tick(100); } };
   await until(() => App.views.peek().length && sc(), 15000);
   const wbPart = Shell.parts.peek().workbook, sample = App.wb.charts().find(c => /Calder Ridge/.test(c.name));
   if (App.chart.peek() !== sample.chart) { wbPart.open(sample.chart); await until(() => App.chart.peek() === sample.chart); await tick(300); }
@@ -2564,6 +2576,7 @@ async function format() {
   await closeMenus();
   check('… Find has it', !!acts().find(a => a.id === 'look.differs')?.names.includes('One-offs'));
   Shell.select(['blocker']); await tick(200); FormatBar.pen.level.value = { own: true }; await tick(40);
+  await openLook();
   check('… and the box’s panel says it under This box, with Reset', $$('.insp .row.src .k').some(k => txt(k) === 'This box') && !!$('.insp .reset'), $$('.insp .row.src .k').map(txt).join());
   Shell.parts.peek().undo.undo(); await tick(300);
   Shell.select([]); await tick(150);
@@ -2579,6 +2592,7 @@ async function format() {
   // A line's arrow its style leaves Auto is said so, on the line.
   const sideways = sc().marks.find(m => m.type === 'line' && m.settings.Arrow.value === 'end' && m.settings.Arrow.note?.value === 'auto');
   Shell.select([sideways.id]); await tick(200);
+  await openLook();
   check('a line’s arrow its style leaves Auto is said so in its panel', $$('.insp .row').some(r => /Arrow/.test(txt(r.querySelector('.k'))) && /Auto/.test(txt(r.querySelector('.v')))), $$('.insp .row').map(r => txt(r)).join(' | ').slice(0, 300));
   // A line's own look is its own, as a box's is: no row of its own in Styles, and its row says it keeps it.
   const rowsWere = Scene.groupsOf(App.notes.peek(), stE.id).length;
@@ -2688,12 +2702,12 @@ async function format() {
   // ---- The Styles panel aims the ribbon: a row or its swatch clicked is the scope, what it reaches lit ----
   Shell.select([]); await tick(150);
   const row = capt => $$('.row.out').find(r => txt(r.querySelector('.cap')) === capt), cap = capt => row(capt).querySelector('.cap');
-  const barOn = () => !$('[data-fb="font"]').disabled, likeSays = () => txt($('[data-fb="like"]')), dull = () => $$('.dc .x6-cell.dc-dull').length;
+  const barOn = () => !$('[data-fb="font"]').disabled, likeSays = () => scopeText($('[data-fb="like"]')), dull = () => $$('.dc .x6-cell.dc-dull').length;
   check('with nothing selected, the ribbon’s font and size aim at All text, the rest off', barOn() && !$('[data-fb="size"]').disabled && !!$('[data-fb="all"]') && txt($('[data-fb="all"]')) === 'All text' && $('[data-fb="bold"]').disabled && $('[data-fb="fill"]').disabled);
   const scopeAt0 = $('[data-fb="scope"]').getBoundingClientRect(), fontAt0 = $('[data-fb="font"]').getBoundingClientRect();
   cap('Funds').click(); await tick(150);
   check('a Styles row clicked moves the pen there: what it reaches outlined, nothing else touched', barOn() && /^5 funds/.test(likeSays()) && dull() === 0 && $$('.dc-marks path.dc-reach').length === 5 && cap('Funds').classList.contains('on') && !Shell.selection.peek().length, `${likeSays()} ${dull()}`);
-  check('… the bar’s controls where they were', Math.abs($('[data-fb="scope"]').getBoundingClientRect().left - scopeAt0.left) < 0.5 && Math.abs($('[data-fb="scope"]').getBoundingClientRect().width - scopeAt0.width) < 0.5 && Math.abs($('[data-fb="font"]').getBoundingClientRect().left - fontAt0.left) < 0.5);
+  check('… the scope stays in its row and formatting controls do not move as its label grows', Math.abs($('[data-fb="scope"]').getBoundingClientRect().left - scopeAt0.left) < 0.5 && Math.abs($('[data-fb="scope"]').getBoundingClientRect().top - scopeAt0.top) < 0.5 && Math.abs($('[data-fb="font"]').getBoundingClientRect().left - fontAt0.left) < 0.5 && Math.abs($('[data-fb="font"]').getBoundingClientRect().top - fontAt0.top) < 0.5);
   const fundBox = () => sc().byId.get('feeder');
   $('[data-fb="fill"]').click(); await tick(120);
   const hexIn = $('.float .palette .hex > input');
@@ -2825,6 +2839,7 @@ async function format() {
   const live = handle(); live.dispatchEvent(new PointerEvent('pointermove', opts({ clientX: hx + 24, clientY: hy }))); live.dispatchEvent(new PointerEvent('pointerup', opts({ clientX: hx + 24, clientY: hy }))); await tick(300);
   const dragged = ownCorner().value;
   check('… dragged, it rounds the shape', dragged > Scene.CORNER && !!ownCorner().note, dragged);
+  await openLook();
   $('[data-fb="shape"]').click(); await tick(150);
   const roundingField = $('.float .slider input[aria-label="Rounding"]:not([type=range])');
   check('the Shape menu says the number the panel does, in one unit', +roundingField.value === Math.round(dragged) && $$('.insp .row .k').some(e => txt(e) === 'Rounding') && $$('.insp .row').some(r => txt(r) === `Rounding${Math.round(dragged)}%`), `${roundingField.value} ${$$('.insp .row').map(txt).filter(t => /Rounding/.test(t))}`);
@@ -2876,6 +2891,7 @@ async function format() {
     check('… pointed at, drawn on the chart, changing nothing', !!sc().byId.get('northpine').settings.Glow?.value && App.scene.peek().byId.get('northpine').settings.Glow?.value === wasFill && t.dataset.tip === txt(t.querySelector('.label')), t.dataset.tip);
     await closeMenus(); await tick(100);
     check('… and the menu’s words are the deck’s no longer: no preset’s name for what a picture says', words.length > 30 && !words.some(w => /Relaxed|Cool slant|Art deco|Accent \d/.test(w)), words.join(' | '));
+    await openLook();
     const lookRow = $$('section[data-key="look"] .row .sel.dd')[0], lookAt = lookRow?.getBoundingClientRect();
     lookRow?.click(); await tick(150);
     const hung = $('.float .pop')?.getBoundingClientRect();
@@ -3018,7 +3034,7 @@ async function designing(st) {
     for (const k of ['mousedown', 'mouseup', 'click']) el?.dispatchEvent(new MouseEvent(k, { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 0, buttons: k === 'mousedown' ? 1 : 0, view: window })); await tick(150); };
   await pressName(box('fund'));
   const forBox = FormatBar.scope(true), forName = FormatBar.scope();
-  check('a name picked, the box’s scope isn’t the name’s', !!cv().field() && Tree.same(App.state.peek()[cv().field().it.id].edge, 'Name') && !forName.own && forBox.caption !== forName.caption, `${forBox.caption} / ${forName.caption}`);
+  check('a name picked keeps both field and box changes local until a shared scope is chosen', !!cv().field() && Tree.same(App.state.peek()[cv().field().it.id].edge, 'Name') && forName.own && forBox.own, `${forBox.caption} / ${forName.caption}`);
   FormatBar.apply('Design', header); await tick(400);
   const gaveTo = sc().marks.filter(m => m.parts?.length).map(m => m.id);
   check('… and a design given then goes there, not to every name', gaveTo.includes('fund') && (forBox.own ? gaveTo.length === 1 : gaveTo.length === forBox.marks.size) && !App.notes.peek().notes('Design').some(n => Tree.same(n.pattern.args?.[0]?.edge ?? '', 'Name')), `${gaveTo.length}; ${forBox.caption}`);
@@ -3042,7 +3058,7 @@ async function designing(st) {
   Designs.edit(box('northpine')); await Promise.resolve();
   const flew = document.getAnimations().some(a => cv().root.contains(a.effect?.target)); await tick(500);
   check('Edit design moves in, from the box, no jump cut', flew);
-  check('Edit design stands its parts on the page as free shapes, with a bar', rows() === r0 + 2 && /^Editing the design of/.test($('.dc-designbar span')?.textContent ?? '') && [...$$('.dc-designbar button')].map(b => b.textContent).join() === 'Discard,Done', $('.dc-designbar span')?.textContent);
+  check('Edit design stands its parts on the page as free shapes, with its selected-only scope stated', rows() === r0 + 2 && /^Design · Northpine Software, LLC only$/.test($('.dc-designbar span')?.textContent ?? '') && [...$$('.dc-designbar button')].map(b => b.textContent).join() === 'Discard,Done', $('.dc-designbar span')?.textContent);
   check('… the box selected, so its rows are beside it to drag onto the parts', Shell.selection.peek().includes('northpine'), Shell.selection.peek().join());
   check('… the rest of the chart dulled and out of reach', cv().root.querySelector('[data-cell-id="fund"]')?.classList.contains('dc-locked') && !cv().root.querySelector('[data-cell-id="northpine"]')?.classList.contains('dc-locked'));
   const refused = App.change(tx => tx.add('record', { kind: 'Entity' }), { dated: false });
@@ -3064,25 +3080,30 @@ async function designing(st) {
   Shell.select(['northpine', shape]); await tick(200);
   const m0 = changes();
   Designs.make(); await tick(200);
+  const makeFor = $('dialog.dlg select[aria-label="For"]'), portfolioFor = [...makeFor.options].find(o => /portfolio companies/i.test(o.textContent));
+  makeFor.value = portfolioFor.value; makeFor.dispatchEvent(new Event('change', { bubbles: true })); await tick(80);
   $('dialog.dlg input').value = 'Mine';
   $('dialog.dlg input').dispatchEvent(new Event('input', { bubbles: true }));
   [...$$('dialog.dlg button')].find(b => b.textContent === 'Make').click(); await tick(500);
   const mine = sc().marks.filter(m => m.design?.value.name === 'Mine'), first = mine.find(m => m.id === 'northpine');
   check('Make a design: the shapes become its parts, one change, at the box’s group', changes() === m0 + 1 && mine.length > 1 && !App.shown.peek().item(App.chart.peek(), shape).length && first?.design.value.parts.some(p => p.rest) && first?.design.value.parts.length === 2, mine.length);
-  check('… the words kept as tokens where they read as a field', first?.design.value.parts[0].text === '{Name}', first?.design.value.parts[0].text);
+  check('… typed words stay literal even when they match a record name, in every box in scope', mine.every(m => m.design.value.parts[0].text === App.notes.peek().nameOf(App.state.peek(), 'northpine') && m.parts[0].texts[0].text === App.notes.peek().nameOf(App.state.peek(), 'northpine')), first?.design.value.parts[0].text);
   check('… and it’s in the gallery for the chart', App.notes.peek().value('Designs', { kind: 'View' })?.list.some(d => d.name === 'Mine'));
   undo(); await tick(300);
   // From a selection with no box in it: fitted to the box it's for, by shares of what it draws.
   let bigRect = null, word = null, gr = null;
-  App.change(tx => { bigRect = tx.add('shape', { view: st.id, geometry: 'rect', x: 30, y: 30, w: 300, h: 120, format: { Fill: '#ddeeff' } }); word = tx.add('shape', { view: st.id, geometry: 'text', x: 60, y: 40, text: 'Name' }); }, { dated: false }); await tick(250);
+  App.change(tx => { bigRect = tx.add('shape', { view: st.id, geometry: 'rect', x: 30, y: 30, w: 300, h: 120, format: { Fill: '#ddeeff' } }); word = tx.add('shape', { view: st.id, geometry: 'text', x: 60, y: 40, text: '{Name}' }); }, { dated: false }); await tick(250);
+  const drawnFrame = sc().byId.get(bigRect), drawnWords = sc().byId.get(word), authoredWords = [(drawnWords.x - drawnFrame.x) / drawnFrame.w, (drawnWords.y - drawnFrame.y) / drawnFrame.h, drawnWords.w / drawnFrame.w, drawnWords.h / drawnFrame.h].map(n => +n.toFixed(4));
   Shell.select([bigRect, word]); await tick(150);
   const m1 = changes(), tiles1 = (() => { $('[data-fb="design"]').click(); return null; })(); await tick(250);
   check('shapes alone: the Design control offers to make one of them', [...$$('.float .picker.designs .btn')].some(b => b.textContent.startsWith('Make a design') && !b.disabled), [...$$('.float .picker.designs .btn')].map(b => b.textContent).join());
   [...$$('.float .picker.designs .btn')].find(b => b.textContent.startsWith('Make a design')).click(); await tick(200);
+  const fittedFor = $('dialog.dlg select[aria-label="For"]'), existingGroup = [...fittedFor.options].find(o => /^All /i.test(o.textContent));
+  fittedFor.value = existingGroup.value; fittedFor.dispatchEvent(new Event('change', { bubbles: true })); await tick(80);
   $('dialog.dlg input').value = 'Fitted'; $('dialog.dlg input').dispatchEvent(new Event('input', { bubbles: true }));
   [...$$('dialog.dlg button')].find(b => b.textContent === 'Make').click(); await tick(500);
   const fitted = sc().marks.find(m => m.design?.value.name === 'Fitted');
-  check('… made, one change, it lands by shares of what it drew, at the box’s size, its name a field across it', changes() === m1 + 1 && !!fitted && fitted.design.value.parts[0].w === 1 && fitted.design.value.parts[0].h === 1 && fitted.design.value.parts[1].text === '{Name}' && fitted.design.value.parts[1].w === 1 && fitted.w < 300 && fitted.parts.every(p => p.x >= fitted.x - 0.5 && p.x + p.w <= fitted.x + fitted.w + 0.5), fitted && JSON.stringify(fitted.design.value.parts.map(p => [p.x, p.y, p.w, p.h])));
+  check('… made, one change, the free drawing fits the box and preserves its field’s authored placement', changes() === m1 + 1 && !!fitted && fitted.design.value.layout === 'free' && fitted.design.value.parts[0].w === 1 && fitted.design.value.parts[0].h === 1 && fitted.design.value.parts[1].text === '{Name}' && JSON.stringify([fitted.design.value.parts[1].x, fitted.design.value.parts[1].y, fitted.design.value.parts[1].w, fitted.design.value.parts[1].h]) === JSON.stringify(authoredWords) && fitted.w < 300 && fitted.parts.every(p => p.x >= fitted.x - 0.5 && p.x + p.w <= fitted.x + fitted.w + 0.5), fitted && JSON.stringify(fitted.design.value.parts.map(p => [p.x, p.y, p.w, p.h])));
   undo(); await tick(300);
   // What's over a box, offered and shown by name.
   Shell.select(['northpine']); await tick(150);
@@ -3096,9 +3117,32 @@ async function designing(st) {
   App.change(tx => tx.note('Design', t(), Shapes.DESIGNS.find(d => d.id === 'person'), { view: st.id }), { dated: false }); await tick(300);
   Designs.edit(box('northpine')); await tick(500);
   const partRows = $$('.parts-of .part-rows .row');
-  check('Edit design: the panel lists the parts, called what they are, the box last', partRows.map(r => txt(r.querySelector('.nm'))).join() === 'Other fields,Name,Name, as initials,The box', partRows.map(r => txt(r.querySelector('.nm'))).join());
+  check('Edit design: the panel lists the parts, called what they are, the background last', partRows.map(r => txt(r.querySelector('.nm'))).join() === 'Other fields,Name,Name, as initials,Card background', partRows.map(r => txt(r.querySelector('.nm'))).join());
   partRows[2].click(); await tick(200);
   check('… a click selects one, its words a chip that says what it is, never its token', txt($('.words-in .word-chip')) === 'Name, as initials' && !/\{/.test(txt($('.words-in'))), txt($('.words-in')));
+  {
+    const id = partRows[2].dataset.part, row = () => App.shown.peek().item(App.chart.peek(), id).at(-1), original = row().text;
+    const editor = $('.words-in'), literal = '  Name {Name} = text  ';
+    editor.focus(); editor.textContent = literal;
+    editor.dispatchEvent(new Event('input', { bubbles: true })); editor.blur();
+    partRows[1].click(); await tick(150);
+    check('leaving a part immediately keeps its literal text and spaces', row().text === TextTemplate.literal(literal), row().text);
+    partRows[2].click(); await tick(150);
+    check('literal braces reopen as text, without a field chip', $('.words-in').textContent === literal && !$('.words-in .word-chip'), $('.words-in').textContent);
+    const words = $('.words-in'); words.focus(); words.textContent = 'Before  after';
+    const range = document.createRange(); range.setStart(words.firstChild, 7); range.collapse(true);
+    getSelection().removeAllRanges(); getSelection().addRange(range);
+    words.dispatchEvent(new Event('input', { bubbles: true }));
+    $('.part-words .add-field').click(); await tick(150);
+    $$('.float .menu-item').find(el => txt(el) === 'Name').click(); await tick(150);
+    check('Field inserts at the saved caret after the menu takes focus', row().text === 'Before {Name} after', row().text);
+    check('literal words and the selected field stay in order', $('.words-in').textContent === 'Before Name after' && $('.words-in .word-chip')?.dataset.token === 'Name');
+    words.blur(); await tick(50);
+    Designs.dropped(sc().byId.get(id), 'Jurisdiction', null); await tick(200);
+    check('dropping another field preserves the existing text and field', row().text === 'Before {Name} after\n{Jurisdiction}', row().text);
+    check('dropping on a live part also adds without replacing a field', Designs.tokenIn({ design: { value: { parts: [{ id: 'p', text: '{Jurisdiction}' }] } } }, 'p', 'Name') === '{Jurisdiction}\n{Name}');
+    App.change(tx => tx.update(id, { text: original }), { dated: false }); await tick(150);
+  }
   partRows[0].click(); await tick(200);
   check('… the part the rest go in says which they are', [...$$('.held-fields .word-chip')].some(b => txt(b) === 'Jurisdiction'), [...$$('.held-fields .word-chip')].map(txt).join());
   const restMark = sc().marks.find(m => App.shown.peek().item(App.chart.peek(), m.id)?.[0]?.rest);
@@ -3113,6 +3157,9 @@ async function designing(st) {
     const on = sc().marks.filter(m => m.type === 'box').map(m => [m.id, Canvas.groupsAt(sc(), m).find(g => g.outputs.length > 1 && g.marks.size > 1)]).find(([, g]) => g), group9 = on?.[1], tiers = Shapes.DESIGNS.find(d => d.id === 'rule');
     App.change(tx => { for (const p of group9.outputs) tx.note('Design', p, tiers, { view: st.id }); }, { dated: false }); await tick(300);
     const c10 = changes();
+    Shell.select([on[0]]); await tick(150);
+    $('[data-fb="groups"]').click(); await tick(120);
+    $$('.float .menu-item').find(el => txt(el) === `${group9.caption} (${group9.marks.size})`).click(); await tick(150);
     Designs.edit(sc().byId.get(on[0])); await tick(500);
     const says9 = txt($('.dc-designbar span'));
     $('.dc-designbar input').value = 'All of them';
@@ -3145,13 +3192,16 @@ async function designing(st) {
 }
 
   // ---- The pen (dendra.md, The pen): one scope, a location in the schema, in the panel's gutter ----
-  window.handsOff?.();
-  { const P = FormatBar.pen, onTop = () => txt($('[data-fb="scope"] [aria-pressed="true"]')), outlined = () => $$('.dc-marks path.dc-reach').length, dulls = () => $$('.dc .x6-cell.dc-dull').length;
+  { const P = FormatBar.pen, onTop = () => scopeText($('[data-fb="scope"] [aria-pressed="true"]')), outlined = () => $$('.dc-marks path.dc-reach').length, dulls = () => $$('.dc .x6-cell.dc-dull').length;
   const here = () => $$('.insp .pen.here'), rowHere = () => here()[0]?.closest('.row, .sect, .ih-at, .path'), labelOf = el => txt(el?.querySelector?.('.lbl, .k') ?? el);
   P.home(); Shell.select([]); await tick(150);
   Shell.select(['feeder']); await tick(200);
-  check('a box clicked: the pen goes by itself to the Styles row that fills it, one pen, in that row’s gutter', onTop() === '5 funds' && here().length === 1 && /Vehicle Type/.test(labelOf(rowHere())), `${onTop()} ${here().length} ${labelOf(rowHere())}`);
-  check('… what’s in reach has a thin outline, and nothing’s dulled', outlined() === 5 && dulls() === 0, `${outlined()} ${dulls()}`);
+  check('a box clicked starts at its own title, without silently selecting the style it inherited', onTop() === 'This box' && here().length === 1 && !!here()[0].closest('.ih-at'), `${onTop()} ${here().length} ${labelOf(rowHere())}`);
+  check('… no other objects are outlined or dulled by a fresh selection', outlined() === 0 && dulls() === 0, `${outlined()} ${dulls()}`);
+  const beforeLocalFill = new Map(sc().marks.filter(m => m.type === 'box' && m.id !== 'feeder').map(m => [m.id, m.settings.Fill.value]));
+  FormatBar.apply('Fill', '#fce4d6'); await tick(250);
+  check('formatting a freshly selected box leaves every other object unchanged', sc().byId.get('feeder').settings.Fill.value === '#fce4d6' && [...beforeLocalFill].every(([id, value]) => sc().byId.get(id).settings.Fill.value === value));
+  Shell.parts.peek().undo.undo(); await tick(180);
   const rowPen = name => $$('.insp .ent > .row').find(r => txt(r.querySelector('.lbl')) === name)?.querySelector('.pen');
   const titlePen = () => $('.insp .ih-at > .pen'), kindPen = () => $('.insp .path > .pen');
   rowPen('Entity Type').dispatchEvent(new PointerEvent('pointerenter')); await tick(120);
@@ -3161,7 +3211,7 @@ async function designing(st) {
   titlePen().click(); titlePen().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
   check('a click on the title’s pen moves it there: this box', onTop() === 'This box' && titlePen().classList.contains('here') && outlined() === 0 && here().length === 1, onTop());
   Shell.select(['fund']); await tick(200);
-  check('… and a new selection starts where the pen goes by itself: at the title it reached that box alone', P.level.peek() === null, onTop());
+  check('… and a new selection starts at that box alone', P.level.peek() === null && onTop() === 'This box', onTop());
   // A place a hand put it holds for a next box only while that's one it reaches.
   Shell.select(['blocker']); await tick(200);
   rowPen('Entity Type').click(); await tick(120);
@@ -3172,7 +3222,7 @@ async function designing(st) {
   Shell.select([other]); await tick(200);
   check('… which holds for a next box it reaches', onTop() === corp && P.level.peek() !== null, `${onTop()} ${corp}`);
   Shell.select(['inv_us']); await tick(200);
-  check('… and no scope follows a person to a box it doesn’t reach: it goes by itself', P.level.peek() === null && !!onTop() && onTop() !== corp && here().length <= 1, onTop());
+  check('… and an explicit shared scope ends on selecting an object it does not reach', P.level.peek() === null && onTop() === 'This box' && here().length <= 1, onTop());
   Shell.select(['blocker']); await tick(200);
   check('… nor comes back after, at a box it would have reached', P.level.peek() === null, onTop());
   kindPen().click(); kindPen().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
@@ -3181,7 +3231,16 @@ async function designing(st) {
   cv().root.focus(); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await tick(150);
   check('Esc with nothing selected brings it home', P.level.peek() === null, JSON.stringify(P.level.peek()));
   Shell.select(['feeder']); await tick(200);
-  check('… and it goes by itself again', onTop() === '5 funds', onTop());
+  check('… and the next box again starts selected-only', onTop() === 'This box', onTop());
+  const chooseFunds = async () => {
+    $('[data-fb="like"]').click(); await tick(120);
+    if (onTop() !== '5 funds') {
+      await closeMenus(); rowPen('Vehicle Type').click(); await tick(120);
+      $$('.float .menu-item').find(el => txt(el) === '5 funds').click(); await tick(150);
+    }
+  };
+  await chooseFunds();
+  check('the visible scope controls explicitly select the shared fund style', onTop() === '5 funds' && outlined() === 5 && /Vehicle Type/.test(labelOf(rowHere())), onTop());
   // A row whose answer a Styles row says wider: its places in a small list at the pen, the current one ticked, each pointed at dimming the chart to it.
   const vt = () => rowPen('Vehicle Type');
   vt().dispatchEvent(new PointerEvent('pointerenter')); await tick(100);
@@ -3210,10 +3269,17 @@ async function designing(st) {
   // Fields by the pen: the eye says for whom, and shows it there.
   P.home(); Shell.select([]); await tick(100); Shell.select(['feeder']); await tick(200);
   const eye = () => $$('.insp .ent > .row').find(r => txt(r.querySelector('.lbl')) === 'EIN')?.querySelector('.onchart');
-  eye().dispatchEvent(new PointerEvent('pointerenter')); await tick(60);
-  check('the eye says for whom', eye().dataset.tip === 'Show in all 5 funds', eye().dataset.tip);
-  eye().click(); eye().dispatchEvent(new PointerEvent('pointerleave')); await tick(300);
   const einsShown = ids => ids.filter(id => sc().byId.get(id).texts.some(it => it.blank?.edge === 'EIN' || /^\d\d-\d{7}$/.test(it.text ?? ''))).length;
+  const otherBoxes = sc().marks.filter(m => m.type === 'box' && m.id !== 'feeder').map(m => m.id), otherEins = einsShown(otherBoxes);
+  eye().dispatchEvent(new PointerEvent('pointerenter')); await tick(60);
+  check('the field eye defaults to this box', eye().dataset.tip === 'Show in this box', eye().dataset.tip);
+  eye().click(); eye().dispatchEvent(new PointerEvent('pointerleave')); await tick(250);
+  check('showing a field on a fresh selection leaves other objects unchanged', einsShown(['feeder']) === 1 && einsShown(otherBoxes) === otherEins);
+  Shell.parts.peek().undo.undo(); await tick(180);
+  await chooseFunds();
+  eye().dispatchEvent(new PointerEvent('pointerenter')); await tick(60);
+  check('after choosing all-like, the eye says the shared scope', eye().dataset.tip === 'Show in all 5 funds', eye().dataset.tip);
+  eye().click(); eye().dispatchEvent(new PointerEvent('pointerleave')); await tick(300);
   check('… and shows it at the pen', einsShown([...FormatBar.scope().marks]) === 5, einsShown([...FormatBar.scope().marks]));
   Shell.parts.peek().undo.undo(); await tick(200);
   // A row carried over the chart: what the pen reaches lit, and dropped on one of those, it goes to all of them; on another, that one.
@@ -3230,14 +3296,17 @@ async function designing(st) {
   check('… and it goes to that one', einsShown(['halvard']) === 1 && einsShown([...FormatBar.scope().marks]) === 0);
   Shell.parts.peek().undo.undo(); await tick(200);
   // What's said of one thing goes on that thing, unless a hand moved the pen for this selection.
+  $('[data-fb="own"]').click(); await tick(120);
+  const otherFree = new Map(otherBoxes.map(id => [id, JSON.stringify(sc().byId.get(id).texts.filter(it => it.free).map(it => it.free.text))]));
   cv().fields.addText('feeder', 'Only here'); await tick(300);
-  check('a free text begun on a box goes on that box, the pen where it goes by itself', sc().byId.get('feeder').texts.some(it => it.free?.text === 'Only here') && ![...FormatBar.scope().marks].some(id => id !== 'feeder' && sc().byId.get(id).texts.some(it => it.free)) && /^Added text to /.test(txt($$('.toast').at(-1))) && !/all 5/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  check('a free text begun on one box leaves every other object’s annotations unchanged', sc().byId.get('feeder').texts.some(it => it.free?.text === 'Only here') && [...otherFree].every(([id, value]) => JSON.stringify(sc().byId.get(id).texts.filter(it => it.free).map(it => it.free.text)) === value) && /^Added text to /.test(txt($$('.toast').at(-1))) && !/all 5/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
   Shell.parts.peek().undo.undo(); await tick(200);
+  const otherFeet = new Map(otherBoxes.map(id => [id, JSON.stringify((sc().byId.get(id).feet ?? []).map(f => f.text))]));
   cv().fields.addFoot('feeder', 'Only this one'); await tick(300);
-  check('… and so does a footnote, the toast naming it', sc().byId.get('feeder').feet?.length === 1 && ![...FormatBar.scope().marks].some(id => id !== 'feeder' && sc().byId.get(id).feet?.length) && /Added a footnote to /.test(txt($$('.toast').at(-1))) && !/all 5/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
+  check('… and a footnote also leaves every other object unchanged', sc().byId.get('feeder').feet?.length === 1 && [...otherFeet].every(([id, value]) => JSON.stringify((sc().byId.get(id).feet ?? []).map(f => f.text)) === value) && /Added a footnote to /.test(txt($$('.toast').at(-1))) && !/all 5/.test(txt($$('.toast').at(-1))), txt($$('.toast').at(-1)));
   Shell.parts.peek().undo.undo(); await tick(200);
-  // Free text at the pen a hand moved, `{Entry}` reading each box's own. (It's where it stands by itself: its list, and the place ticked there, is a hand's.)
-  $('[data-fb="like"]').click(); await tick(150); $('.float .menu-item[aria-checked="true"]').click(); await tick(150);
+  // Free text at an explicitly chosen shared scope reads each object's own field values.
+  await chooseFunds();
   cv().fields.addText('feeder', 'In {Jurisdiction}'); await tick(300);
   const inJ = id => sc().byId.get(id).texts.find(it => it.free)?.text;
   check('a free text from the panel goes to what the pen reaches, each box reading its own', inJ('feeder') === 'In Cayman Islands' && [...FormatBar.scope().marks].some(id => /^In Delaware/.test(inJ(id) ?? '')) && $$('.toast').some(t => /Added text to all 5 funds/.test(txt(t))), `${inJ('feeder')} ${txt($$('.toast').at(-1))}`);
@@ -3246,11 +3315,11 @@ async function designing(st) {
   check('… and deleted there, it goes from all the pen reaches', !inJ('feeder') && ![...FormatBar.scope().marks].some(id => inJ(id)));
   Shell.parts.peek().undo.undo(); await tick(200); Shell.parts.peek().undo.undo(); await tick(200);
   // Footnotes: at the pen, a marker on each, one line for one text, numbered in reading order.
-  P.level.value = { own: true }; Shell.select(['feeder']); await tick(200);
+  Shell.select(['feeder']); await tick(200); $('[data-fb="own"]').click(); await tick(100);
   cv().fields.addFoot('feeder', 'Offshore only'); await tick(300);
   const foots = () => sc().marks.find(m => m.role === 'footnotes'), mk = id => sc().byId.get(id).texts.flatMap(it => it.lines ?? []).flatMap(l => l.spans ?? []).filter(s => s.foot).map(s => s.text).join();
   check('a footnote at the title: that box has a superscript marker, and the page a line of it', mk('feeder') === '1' && !mk('fund') && foots()?.texts[0].lines.length === 1 && foots().texts[0].lines[0].spans[0].base === 'up' && /Offshore only/.test(foots().texts[0].text), `${mk('feeder')} ${foots()?.texts[0].text}`);
-  P.level.value = { kind: true }; await tick(150);
+  kindPen().click(); kindPen().dispatchEvent(new PointerEvent('pointerleave')); await tick(150);
   cv().fields.addFoot('feeder', 'An entity'); await tick(300);
   const numbered = sc().marks.filter(m => m.type === 'box' && m.feet?.some(f => f.text === 'An entity'));
   check('at the kind, one number for one text, however many carry it', numbered.length > 5 && new Set(numbered.map(m => m.feet.find(f => f.text === 'An entity').n)).size === 1 && foots().texts[0].text.split('\n').length === 2, `${numbered.length} ${foots()?.texts[0].text}`);
@@ -3310,7 +3379,7 @@ async function designing(st) {
     shownRow().click(); await tick(120);
     FormatBar.apply('Fill', '#ffe699'); await tick(250);
     const own = App.notes.peek().notes('Fill').filter(n => n.view === v && n.value === '#ffe699');
-    check('… which goes to those, each by its own tree', onTop() === 'The 3 shown' && own.length === 3 && own.every(n => n.pattern.id) && /^Filled the 3 shown/.test(toast()), `${onTop()} ${own.length} ${toast()}`);
+    check('… which goes to those, each by its own tree, and says that it changes only these objects', txt($('[data-fb="like"]')) === 'The 3 shown' && txt($('.fb-context-hint')) === 'Only these objects change' && own.length === 3 && own.every(n => n.pattern.id) && /^Filled the 3 shown/.test(toast()), `${onTop()} ${own.length} ${toast()}`);
     await undo(); App.showAll(v); await tick(250); }
   // Choices and tags: a look for each.
   { P.home(); Shell.select(['fund']); await tick(200);
@@ -3506,13 +3575,15 @@ async function templates() {
   // Blank's first page isn't an error, and a chart with no relation works throughout.
   const esc = el => el?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
   App.begin({ template: 'blank', name: 'Nothing yet' }); await tick(500);
-  check('Begin lands naming the first box, no Add a box to find; nothing to attend to, and no box till it’s named', !!$('.dc-edit') && !App.needs.peek().length && !sc().marks.some(m => m.type === 'box'), JSON.stringify(App.needs.peek()));
+  check('Begin offers Add object on the empty canvas, without opening an editor', !$('.dc-edit') && !$('.dc-empty').hidden && !App.needs.peek().length && !sc().marks.some(m => m.type === 'box'), JSON.stringify(App.needs.peek()));
   check('a chart that keeps no dated record says so, and Blank’s page has no As of line', !App.isDated.peek() && !sc().marks.some(m => m.role === 'date'));
-  esc($('.dc-edit')); await tick(150);
-  check('… and Esc leaves Add a box', !!$('.empty.void button') && txt($('.empty.void button')) === 'Add a box');
+  $('.dc-empty button').click(); await tick(150);
+  check('Add object asks for a name and an object type', !!$('dialog input[aria-label="Name"]') && !!$('dialog input[aria-label="Object type"]'));
+  [...$$('dialog button')].find(b => txt(b) === 'Cancel').click(); await tick(150);
   const blankChart = App.chart.peek();
-  $('.empty.void button').click(); await tick(200);
-  check('with one kind, Add a box begins it, naming it', !!$('.dc-edit') && !!$('.dc-kind') && txt($('.dc-kind')) === 'Box');
+  $('[data-fb="insert"]').click(); await tick(100);
+  [...$$('.insert .rows button')].find(b => txt(b) === 'Box').click(); await tick(200);
+  check('Insert Box still offers quick inline creation', !!$('.dc-edit') && !!$('.dc-kind') && txt($('.dc-kind')) === 'Box');
   // Its kind typed on the chip: a new one, and the keys back in the name.
   $('.dc-kind').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })); await tick(60);
   const typedKind = $('.dc-newkind');
@@ -3612,7 +3683,7 @@ async function templates() {
   const ada = Object.keys(App.state.peek()).find(id => App.notes.peek().nameOf(App.state.peek(), id) === 'Ada Hale' && App.state.peek()[id].kind), fromBoth = [she, he].map(p => sc().marks.find(m => m.type === 'line' && m.from === p && m.to === ada));
   check('… one change, a line from each, drawn as one', fromBoth.every(Boolean) && j2(fromBoth[0].points.slice(1)) === j2(fromBoth[1].points.slice(1)), j2(fromBoth.map(l => l?.points)));
   // What the format bar counts counts the one just added by a redline, whose scene is the one the change, made, draws.
-  check('… and the format bar counts the one just added', txt($('[data-fb=like]')) === '3 people', txt($('[data-fb=like]')));
+  check('… and the format bar counts the one just added', txt($('[data-fb=like]')) === 'All 3 people', txt($('[data-fb=like]')));
   // A dot dropped on a marriage: a child of both, one stem, at once.
   let kid; App.change(tx => { kid = tx.add('record', { kind: 'Person' }); tx.add('record', { at: kid, edge: 'Name', field: 'text', value: 'Ben Hale' }); }); await tick(250);
   const marriage = Object.keys(App.state.peek()).find(id => App.state.peek()[id].args?.some(a => a.edge === 'Spouse'));
@@ -3647,7 +3718,7 @@ async function entering() {
   const wb = () => App.wb, st = () => App.state.peek(), sc = () => App.scene.peek(), one = id => App.notes.peek().nameOf(st(), id), toastNow = () => txt($$('.toast').at(-1)), press = (key, el) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   const person = (tx, kind, name) => { const id = tx.add('record', { kind }); tx.add('record', { at: id, edge: 'Name', field: 'text', value: name }); return id; };
   const typeIn = async q => { const f = $('.float .menu-find'); f.textContent = q; f.dispatchEvent(new Event('input', { bubbles: true })); await tick(80); };
-  const plusOf = async (id, list) => { Shell.select([id]); await tick(200); $$('.insp .btn.icon').find(b => b.getAttribute('aria-label') === `Add to ${list}`).click(); await tick(100); };
+  const plusOf = async (id, list) => { Shell.select([id]); await tick(200); $$('.insp .btn[aria-label]').find(b => b.getAttribute('aria-label') === `Add ${Tree.singular(list).toLowerCase()}`).click(); await tick(100); };
   const linesOf = (x, edge) => Object.keys(st()).filter(id => st()[id].args?.some(a => a.at === x && a.edge === edge));
   // June's: a blank chart, a Mother Of and a Father Of made by a person, each with its list of children.
   App.begin({ template: 'blank', name: 'June' }); await tick(500); esc($('.dc-edit')); await tick(100);
@@ -3753,11 +3824,13 @@ async function craft() {
   Shell.select([fund.id]); await tick(250);
   const barHolds = () => [fontAt(), $('[data-fb="zoom"]').getBoundingClientRect().left, $('[data-fb="tidy"]').getBoundingClientRect().left].every((x, i) => Math.abs(x - noneAt[i]) < 0.5);
   check('the bar holds still as a box is selected', barHolds(), `${fontAt()} of ${noneAt[0]}`);
+  check('a fresh selection has no implied shared-style reach rings', !$('[data-fb="like"][aria-pressed="true"]') && !$$('.dc-marks path.dc-reach').length);
+  check('only the freshly selected object names its blanks', !$$('.dc .x6-cell.dc-on').some(el => el.getAttribute('data-cell-id') !== fund.id && !el.getAttribute('data-cell-id')?.startsWith(`${fund.id}·`)), $$('.dc .x6-cell.dc-on').map(el => el.getAttribute('data-cell-id')).join());
+  like().click(); await tick(120);
   const reachers = $$('.dc-marks path.dc-reach');
-  check('what the pen reaches is a thin ring, no fill laid over it', reachers.length > 1 && reachers.every(p => getComputedStyle(p).fill === 'none' && parseFloat(getComputedStyle(p).strokeWidth) <= 1.01), reachers.map(p => getComputedStyle(p).fill).join());
+  check('an explicitly chosen shared scope has thin rings, no fill laid over it', reachers.length > 1 && reachers.every(p => getComputedStyle(p).fill === 'none' && parseFloat(getComputedStyle(p).strokeWidth) <= 1.01), reachers.map(p => getComputedStyle(p).fill).join());
   const ring = $('.dc-marks path.dc-shaped');
   check('what’s selected has the one strong ring, and its grips at rest', !!ring && parseFloat(getComputedStyle(ring).strokeWidth) >= 2 && $$('.x6-widget-transform-resize').filter(e => getComputedStyle(e).display !== 'none').some(e => +getComputedStyle(e).opacity === 1), ring && getComputedStyle(ring).strokeWidth);
-  check('… and only what’s selected names its blanks, the pen having gone by itself', !$$('.dc .x6-cell.dc-on').some(el => el.getAttribute('data-cell-id') !== fund.id && !el.getAttribute('data-cell-id')?.startsWith(`${fund.id}·`)), $$('.dc .x6-cell.dc-on').map(el => el.getAttribute('data-cell-id')).join());
   // The trigger gone from under the pointer: the bar's part, a pen in the panel, an eye.
   enter(like()); await tick(80);
   check('a place pointed at dulls the rest', dull() > 0 && cued() > 0, `${dull()} ${cued()}`);
@@ -3777,6 +3850,9 @@ async function craft() {
   if (fieldRow) { enter(fieldRow); await tick(80); const lit = $$('.dc-field.lit').length; Shell.select([]); await tick(200); check('… and a row that lights its field on the box', lit > 0 && !$$('.dc-field.lit').length, `${lit} ${$$('.dc-field.lit').length}`); }
   // The pair: the one the pen isn't at takes it; the one it's at opens what else it could go to.
   Shell.select([fund.id]); await tick(250);
+  $('[data-fb="own"]').click(); await tick(120);
+  like().click(); await tick(120);
+  check('selected-only scope switches to shared formatting after clicking all-like', like().getAttribute('aria-pressed') === 'true' && !$('.float .menu-item'));
   like().click(); await tick(120);
   check('a click on the place the pen’s at opens its list, the place ticked', !!$('.float .menu-item[aria-checked="true"]') && txt($('.float .menu-item[aria-checked="true"]')).length > 0);
   await closeMenus();
@@ -3812,9 +3888,10 @@ window.onerror = (m, s, l, c, e) => check(`error: ${m} (${(s || '').split('/').p
 const framed = async which => {
   const f = document.body.appendChild(Object.assign(document.createElement('iframe'), { src: `${location.pathname.split('/').pop()}?${which}` }));
   f.style.cssText = 'position:fixed;left:0;top:0;width:1440px;height:900px;z-index:-1;border:0';
-  await until(() => f.contentWindow.__done, 200000);
+  const completed = await until(() => f.contentWindow.__done, 200000);
   out.push(...(f.contentWindow.__out ?? []));
   f.remove();
+  if (!completed) throw new Error(`Timed out waiting for the ${which} canvas checks to finish`);
 };
 window.__out = out;
 Shell.ready.then(() => location.search.includes('format') ? format().finally(() => { window.__done = true; }) : location.search.includes('entering') ? entering().catch(e => check('the entering checks run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : location.search.includes('templates') ? templates().catch(e => check('the templates run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : location.search.includes('craft') ? craft().catch(e => check('the craft checks run', false, e.stack ?? e)).finally(() => { window.__done = true; }) : run().then(() => framed('format')).then(() => framed('templates')).then(() => framed('craft')))

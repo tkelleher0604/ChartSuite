@@ -503,7 +503,10 @@ async function run() {
     check('Text that finds no option is never kept: it stays in the cell, outlined, "Not an option", with "New option: …" its own item, not lit',
       N() === n0 + 2 && i.isConnected && i.classList.contains('bad') && $('.float.pick .menu-none')?.textContent === 'Not an option' && !lit() && $('.float.pick .menu-item')?.textContent === 'New option: Exempted Co', `${N() - n0} ${i.className} ${$('.float.pick')?.textContent}`);
     const row0 = Table.grid.getRows('active').indexOf(rowOf(halvard));
-    key(i, 'ArrowDown'); key(i, 'Enter'); await tick(150);
+    key(i, 'ArrowDown'); key(i, 'Enter');
+    // Adding an option can rebuild the grid before its deferred keyboard move resumes.
+    // Wait for that observable move, rather than assuming it finishes within 150 ms.
+    await until(() => Table.grid.getRows('active').indexOf(Table.grid.modules.selectRange.getActiveCell()?.row.getComponent()) === row0 + 1);
     check('… chosen, the new option is the cell’s, redlined, and Enter goes down, as from text', App.pending.peek()?.typed?.[0]?.out.choice === 'Exempted Co' && N() === n0 + 2
       && Table.grid.getRows('active').indexOf(Table.grid.modules.selectRange.getActiveCell()?.row.getComponent()) === row0 + 1, `${choiceOf("Vehicle Type")} ${row0} ${Table.grid.getRows("active").indexOf(Table.grid.modules.selectRange.getActiveCell()?.row.getComponent())} ${Table.grid.modules.selectRange.getActiveCell()?.column.getDefinition().title}`);
     App.commit(); await tick(150);
@@ -513,6 +516,7 @@ async function run() {
     key(i, 'Escape'); await tick(100);
     check('… and Esc leaves it as it was', choiceOf('Vehicle Type') === 'Portfolio Company' && !$('.float.pick') && N() === n0 + 4, choiceOf('Vehicle Type'));
   }
+  if (Q.get('stop') === 'choices') return;
 
   // A tag's box flips: attested, ruled out, blank.
   const good = rowOf(halvard).getCells().find(c => c.getColumn().getDefinition().title === 'Good Standing');
@@ -2193,7 +2197,68 @@ async function run() {
   back?.click(); await tick(300);
   check('… and it goes back', !Shell.wide.peek() && !$('.inspector > .back'));
   await tablesG3();
+  await familyColumns();
   check('Nothing threw along the way, the ruler measuring itself included', !errors.length, errors.join(' / '));
+}
+
+// One list named on both sides is one editable column, including records stored in either direction. Old views
+// already have role-specific column notes; opening them must not hide a spouse or merge Parents with Children.
+async function familyColumns() {
+  const pair = (a, b) => ({ args: [{ edge: a, loc: {} }, { edge: b, loc: {} }] });
+  const married = pair('Spouse', 'Partner'), parent = pair('Parent', 'Child'), people = {};
+  App.change(tx => {
+    for (const name of ['Pat Morgan', 'Lee Morgan', 'Robin Morgan', 'Casey Morgan']) {
+      const id = people[name] = tx.add('record', { kind: 'Person' });
+      tx.add('record', { at: id, edge: 'Name', field: 'text', value: name });
+    }
+    tx.add('record', { args: [{ edge: 'Spouse', at: people['Pat Morgan'] }, { edge: 'Partner', at: people['Lee Morgan'] }], tag: true });
+    tx.add('record', { args: [{ edge: 'Spouse', at: people['Robin Morgan'] }, { edge: 'Partner', at: people['Pat Morgan'] }], tag: true });
+    tx.add('record', { args: [{ edge: 'Parent', at: people['Pat Morgan'] }, { edge: 'Child', at: people['Casey Morgan'] }], tag: true });
+    tx.note('Name', married, 'Married To');
+    for (const param of ['Spouse', 'Partner']) tx.note('Name', married, 'Spouses', { param });
+    tx.note('Name', parent, 'Parent Of');
+    tx.note('Name', parent, 'Parents', { param: 'Parent' }); tx.note('Name', parent, 'Children', { param: 'Child' });
+  }, { dated: false }); await tick(200);
+  await addTable('Records', 'People');
+  const view = Shell.view.peek(), cols = () => Table.model(view).cols;
+  const spouses = () => cols().find(c => c.title === 'Spouses');
+  const cell = (name, title) => rowOf(people[name] ?? named(name)).getCells().find(c => c.getColumn().getDefinition().title === title);
+  const offered = async () => { $$('.tbar .btn').find(b => b.textContent === 'Columns').click(); await tick(80); };
+  const tickColumn = async title => { $$('.cols .colrow').find(r => r.textContent.trim() === title).querySelector('input').click(); await tick(250); };
+  await offered();
+  check('The People Columns list offers one Spouses column and separate Parents and Children',
+    $$('.cols .colrow').filter(r => r.textContent.trim() === 'Spouses').length === 1
+    && ['Parents', 'Children'].every(t => $$('.cols .colrow').some(r => r.textContent.trim() === t)), $$('.cols .colrow').map(r => r.textContent.trim()).join());
+  Shell.closeAll();
+  App.change(tx => {
+    tx.note('Shown', married, false, { view, param: 'Partner' }); tx.note('Shown', married, true, { view, param: 'Spouse' });
+    tx.note('Order', married, 5, { view, param: 'Partner' }); tx.note('Order', married, 2, { view, param: 'Spouse' });
+    for (const param of ['Parent', 'Child']) tx.note('Shown', parent, true, { view, param });
+  }, { dated: false }); await tick(300);
+  check('Legacy notes on either spouse role keep the single column shown at the earlier saved position',
+    !!column('Spouses') && cols().filter(c => c.title === 'Spouses').length === 1 && spouses().place === 2);
+  check('Spouses reads both directions together, while Parents and Children keep their direction',
+    cell('Pat Morgan', 'Spouses').getValue() === 'Lee Morgan; Robin Morgan'
+    && cell('Lee Morgan', 'Spouses').getValue() === 'Pat Morgan' && cell('Robin Morgan', 'Spouses').getValue() === 'Pat Morgan'
+    && cell('Pat Morgan', 'Children').getValue() === 'Casey Morgan' && !cell('Pat Morgan', 'Parents').getValue()
+    && cell('Casey Morgan', 'Parents').getValue() === 'Pat Morgan' && !cell('Casey Morgan', 'Children').getValue());
+  const n = N(), editing = cell('Pat Morgan', 'Spouses'); editing.edit(true); await tick();
+  const input = editing.getElement().querySelector('input'); input.value = 'Lee Morgan; Dana Morgan'; press('Enter', input); await previewed();
+  $('.pendbar .btn.primary').click(); await tick(300);
+  check('Editing the combined list keeps an existing spouse, removes the reverse-side spouse and adds one Person',
+    N() === n + 1 && st()[named('Dana Morgan')]?.kind === 'Person' && cell('Pat Morgan', 'Spouses').getValue() === 'Dana Morgan; Lee Morgan'
+    && !cell('Robin Morgan', 'Spouses').getValue() && cell('Dana Morgan', 'Spouses').getValue() === 'Pat Morgan');
+  undo(); await tick(300);
+  check('One Undo restores spouses recorded in both directions', !named('Dana Morgan') && cell('Pat Morgan', 'Spouses').getValue() === 'Lee Morgan; Robin Morgan');
+  Table.grid.moveColumn(column('Spouses').getField(), column('Name').getField(), true); await tick(200);
+  const N0 = App.notes.peek(), order = param => N0.value('Order', married, view, param);
+  check('Moving the merged column updates both legacy role orders together', Number.isFinite(order('Spouse')) && order('Spouse') === order('Partner'));
+  await offered(); await tickColumn('Spouses');
+  check('Hiding Spouses hides its entire column, including the legacy shown direction', !column('Spouses') && !spouses().shown);
+  $('.cols .col-keep').click(); await tick(250); Shell.closeAll();
+  check('Keep these stores both spouse roles as hidden for an older saved view', ['Spouse', 'Partner'].every(param => App.notes.peek().value('Shown', married, view, param) === false));
+  const elsewhere = views().find(v => v.id !== view).id; Shell.show(elsewhere); await tick(100); Shell.show(view); await tick(250);
+  check('The saved People view reopens with one hidden spouse column and its directional columns intact', !column('Spouses') && cols().filter(c => c.title === 'Spouses').length === 1 && !!column('Parents') && !!column('Children'));
 }
 
 // ---- Columns stay as set, what's untested says so, a computed tick is no click from a false fact, Why, rows that stay, no

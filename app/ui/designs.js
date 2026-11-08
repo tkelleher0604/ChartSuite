@@ -14,7 +14,7 @@ const canvas = () => Canvas.active.peek();
 const view = () => canvas().scene().view;
 const treeOf = id => Tree.treeOf(App.state.peek(), id);
 const round = v => Math.round(v * 2) / 2;
-const share = v => +v.toFixed(4);
+const roundUp = v => Math.ceil((v - 1e-8) * 2) / 2;
 const LIBRARY = { kind: 'View' };
 
 // ---- The gallery's designs: the app's, this chart's, and each house style's ----
@@ -97,7 +97,7 @@ function Gallery({ close }) {
     <div class="acts">
       <button type="button" class="btn" disabled=${ro} onClick=${() => { close(); FormatBar.preview(); edit(m); }}>Edit design</button>
       ${makes}
-      <button type="button" class="btn" disabled=${ro || !m.design?.overs.length} onClick=${() => { close(); reset(m); }}>Reset to design</button>
+      ${canUseShared(m) ? html`<button type="button" class="btn" disabled=${ro} onClick=${() => { close(); useShared(m); }}>Use shared design</button>` : html`<button type="button" class="btn" disabled=${ro || !m.design?.overs.length} onClick=${() => { close(); reset(m); }}>Reset to design</button>`}
       <button type="button" class="btn" disabled=${!now} onClick=${() => { close(); saveToHouse(now); }}>Save to house style…</button>
     </div>
   </div>`;
@@ -125,17 +125,34 @@ function open(at, close) {
 // ---- What's said over a design at the pen, only what's different; and that taken away ----
 // On tx (a change, or a look being tried), at a scope { own } or { outputs }: of a part, its `format`, `text` or `hidden`. A whole design there keeps it beside its parts, which stand as they are.
 function say(tx, m, part, what, s = Canvas.scope()) {
-  const v = canvas().scene().view, N = App.notes.peek();
-  for (const p of s.own ? [treeOf(m.record)] : s.outputs) {
+  const v = s.view ?? canvas()?.scene()?.view, N = App.notes.peek();
+  // A delayed data gesture can be confirmed on another view/date. Captured presentation
+  // patterns and the original view stay authoritative when its literal edit is appended.
+  const targets = s.outputs ?? EditScope.resolve(App.state.peek(), s, m.record).patterns;
+  // An explicitly emptied rich-text range must survive JSON persistence and clear inherited
+  // runs. Omitting the property would make the original design's formatting reappear.
+  const changes = Object.hasOwn(what, 'runs') ? { ...what, runs: what.runs ?? [] } : what;
+  for (const p of targets) {
     const at = (tx.noteAt ? tx.noteAt('Design', p, { view: v }) : N.notes('Design').find(n => n.view === v && Tree.key(n.pattern) === Tree.key(p)))?.value ?? {};
-    const parts = at.over?.parts ?? {}, was = parts[part] ?? {}, now = { ...was, ...what, ...(what.format && { format: { ...was.format, ...what.format } }) };
+    const parts = at.over?.parts ?? {}, was = parts[part] ?? {}, now = { ...was, ...changes, ...(changes.format && { format: { ...was.format, ...changes.format } }) };
     tx.note('Design', p, { ...at, over: { ...at.over, parts: { ...parts, [part]: now } } }, { view: v });
   }
+  return targets.length;
 }
-// A row dropped on a part: its token takes the place of the one entry a tag reads, or goes under the words a part has (a name stays). → the part's words now.
+// Capture this at each editing gesture. The selected scope may change while a paragraph stays open.
+function scope(m, requested = FormatBar.scope(true), operation = 'Edit text') {
+  const chosen = requested ?? { own: true }, resolved = EditScope.resolve(App.state.peek(), chosen, m?.record), n = resolved.recordIds.length;
+  const reach = resolved.own ? n === 1 ? `${App.notes.peek().nameOf(App.state.peek(), resolved.recordIds[0])} only` : `${n} selected objects`
+    : chosen.says?.(n) ?? `${chosen.caption ?? 'Matching objects'} (${n} ${n === 1 ? 'object' : 'objects'})`;
+  return { ...chosen, view: chosen.view ?? canvas()?.scene()?.view, own: resolved.own, records: resolved.recordIds, recordIds: resolved.recordIds, outputs: resolved.patterns, summary: `${operation} · ${reach}` };
+}
+function ScopeSummary({ mark, operation = 'Edit text', chosen }) {
+  App.state.value; Shell.selection.value;
+  return html`<div class="edit-scope-summary" role="status">${scope(mark, chosen, operation).summary}</div>`;
+}
+// A row dropped on a part adds a field without replacing its existing words or fields.
 function tokenIn(m, part, edge) {
-  const raw = String(m.design.value.parts.find(p => p.id === part)?.text ?? '').trim(), one = /^\{([^{}\n]+)\}$/.exec(raw);
-  return !raw || (one && !Tree.same(one[1].split('|')[0].trim(), 'Name')) ? `{${edge}}` : `${raw}\n{${edge}}`;
+  return TextTemplate.append(m.design.value.parts.find(p => p.id === part)?.text, edge);
 }
 // A shape, or how round its corners are, given at a design's own pattern is said over that design, so it's seen and Reset to design takes it back; given elsewhere it's a note, as ever. → whether it's done.
 function atPen(tx, sc, scope, marks, label, value) {
@@ -155,33 +172,9 @@ function reset(m, s = Canvas.scope()) {
 }
 
 // ---- Parts from shapes: a free shape on the page as a part of a design over box b ----
-function partFrom(r, q, b, text = r.text) {
-  const { id, shape, view: _, x, y, w, h, kept, ends, points, part, rest, format, text: t, named, ...more } = r;
-  const at = (px, py) => [share((px - b.x) / b.w), share((py - b.y) / b.h)], [px, py] = at(q.x, q.y);
-  // (A look it took from the box while it stood on the page, left as it was, is the box's still; and where it stands among them is its place in the list.)
-  const { Layer: __, ...look } = { ...format };
-  for (const [k, [ref, v]] of Object.entries(named ?? {})) if (JSON.stringify(look[k]) === JSON.stringify(v)) look[k] = ref;
-  return { ...more, id: part ?? Log.newId(), geometry: r.geometry ?? 'rect', x: px, y: py, w: share(q.w / b.w), h: share(q.h / b.h), ...(rest && { rest: true }), ...(text && { text }), ...(Object.keys(look).length && { format: look }),
-    ...(q.points && { points: q.points.map(([u, v]) => at(u, v)) }) };
-}
-// A part's row as it stands on the page: a look it takes from the box, as that is, what it was said as kept beside it.
-function standing(format, m, scale) {
-  const out = { ...format }, named = {};
-  for (const [k, v] of Object.entries(format ?? {})) { const ref = typeof v === 'string' && /^\{(\w+)\}$/.exec(v); if (ref) { const o = m.settings[ref[1]]?.value; out[k] = ref[1] === 'Weight' ? +(o * scale).toFixed(3) : o; named[k] = [v, out[k]]; } }
-  return { format: out, ...(Object.keys(named).length && { named }) };
-}
-// The words of a shape, where they read as a field of the box's record, kept as that field's token: "Fund III" is {Name}; and a word that's only a field's own name ("Name") stands for it.
-function tokened(text, record) {
-  if (!text || /^\s*=/.test(text) || !record) return text;
-  const st = App.state.peek(), N = App.notes.peek(), read = Scene.reader(st, N, App.computed.peek(), App.day.peek()), { entries } = Tree.index(st), seen = new Map();
-  for (let todo = [record], i = 0; i < todo.length; i++) for (const e of entries.get(todo[i]) ?? []) { const w = read(record, st[e].edge).text; if (w && !seen.has(w)) seen.set(w, st[e].edge); todo.push(e); }
-  let out = text;
-  for (const [w, edge] of [...seen].sort((a, b) => b[0].length - a[0].length)) if (out.includes(w)) out = out.split(w).join(`{${edge}}`);
-  const labels = Scene.readable(st, N, App.schema.peek(), record).map(x => x.label);
-  return out.split('\n').map(l => { const k = labels.find(x => Tree.same(x, l.trim())); return k ? `{${k}}` : l; }).join('\n');
-}
+const partFrom = (row, mark, frame, text = row.text) => DesignGeometry.part(row, mark, frame, { id: row.part ?? Log.newId(), text });
 // Where a design goes for a box: what the scope says; and how that's said ("all 5 limited partnerships", "Holdco").
-const patternsAt = (m, s) => (s?.outputs?.length ? s.outputs : [treeOf(m.record)]);
+const patternsAt = (m, s) => s?.outputs?.length ? s.outputs : s?.own && s.records?.length ? s.records.map(treeOf).filter(Boolean) : [treeOf(m.record)];
 function whom(m, s, marks) {
   const sc = canvas().scene(), N = App.notes.peek();
   if (!s?.outputs?.length) return N.nameOf(App.state.peek(), m.record);
@@ -189,12 +182,15 @@ function whom(m, s, marks) {
   return lowered(FormatBar.allOf({ caption, outputs: s.outputs }, n));
 }
 // A design at a note's pattern, every view and every note of it moving with it. On tx: the design as it's now, `was`, its id before.
-function rewrite(tx, d, was, patterns, v) {
-  const N = App.notes.peek(), same = was ? N.notes('Design').filter(n => Scene.wholeDesign(n.value) && n.value.id === was) : [];
-  for (const n of same) { const { over } = n.value; tx.note('Design', n.pattern, { ...d, ...(over && { over }) }, { view: n.view, ...(n.param && { param: n.param }) }); }
-  for (const p of patterns) if (!same.some(n => n.view === v && Tree.key(n.pattern) === Tree.key(p))) { const { over } = N.notes('Design').find(n => n.view === v && Tree.key(n.pattern) === Tree.key(p))?.value ?? {}; tx.note('Design', p, { ...d, ...(over && { over }) }, { view: v }); }
+function rewrite(tx, d, was, patterns, v, { library = true, preserveOverrides = true } = {}) {
+  for (const n of rewriteTargets(was, patterns, v)) { const over = preserveOverrides && n.value?.over; tx.note('Design', n.pattern, { ...d, ...(over && { over }) }, { view: n.view, ...(n.param && { param: n.param }) }); }
+  if (!library) return;
   const list = inChart(), at = list.findIndex(x => x.id === was || x.id === d.id);
   tx.note('Designs', LIBRARY, { list: at < 0 ? [...list, d] : list.map((x, i) => i === at ? d : x) });
+}
+function rewriteTargets(was, patterns, v) {
+  const notes = App.notes.peek().notes('Design');
+  return DesignSchema.targets(notes.filter(n => Scene.wholeDesign(n.value)), was, patterns, v, notes);
 }
 // ---- Make a design: from what's selected, shapes or a group, with the box they're for if it's among them ----
 function makeable(ms) {
@@ -205,8 +201,26 @@ function makeable(ms) {
 }
 // (The frame of what's drawn.)
 const frameOf = qs => { const x = Math.min(...qs.map(q => q.x)), y = Math.min(...qs.map(q => q.y)); return { x, y, w: Math.max(1, Math.max(...qs.map(q => q.x + q.w)) - x), h: Math.max(1, Math.max(...qs.map(q => q.y + q.h)) - y) }; };
+// A full-card background belongs to the design's existing base, so it grows with the card.
+// Geometry affecting the text inset stays on its transparent text layer; paint is kept only once.
+const BODY_FORMATS = Object.keys(Scene.DEFAULTS.box).filter(k => !(k in Scene.DEFAULTS.text) && !['Shown', 'Shape', 'Valign', 'Frame', 'Layer', 'Design', 'Alt Text'].includes(k));
+const paintKeys = new Set(BODY_FORMATS.filter(k => !['Corner', 'Tail', 'Points'].includes(k)));
+const withoutPaint = format => ({ ...Object.fromEntries(Object.entries(format ?? {}).filter(([key]) => !paintKeys.has(key))), Fill: 'none', Outline: 'none', Weight: 0 });
+function backingOf(free, sc, drawn, rowOf) {
+  const full = free.filter(q => Shapes.ids.includes(q.geometry) && !q.rotate && !q.flip && !rowOf(q.id)?.link && !rowOf(q.id)?.alt
+    && Math.abs(q.x - drawn.x) < 0.01 && Math.abs(q.y - drawn.y) < 0.01 && Math.abs(q.w - drawn.w) < 0.01 && Math.abs(q.h - drawn.h) < 0.01);
+  const first = sc.marks.find(q => free.some(p => p.id === q.id));
+  return full.length === 1 && first?.id === full[0].id ? full[0] : null;
+}
+// A drawing's explicitly named fields become the form for a new object type. Existing definitions
+// supply their datatype/options; unknown fields start as text and can be changed in the save dialog.
+function fieldsOf(parts, record = null) {
+  const state = App.state.peek(), schema = App.schema.peek();
+  return DesignSchema.fields(parts, schema, { kind: state[record]?.kind, readable: record ? Scene.readable(state, App.notes.peek(), schema, record) : [] });
+}
 // Shapes that stand within a box are where they stand on it. Any other is fitted to the box it's for, what it draws as shares of its own frame, its words' sizes scaled down with it, never pasted and dragged into place. → one change, the shapes gone.
-function make(ms = canvas().selected()) {
+function make(ms = canvas().selected(), { asType = false } = {}) {
+  if (typeof CanvasWords !== 'undefined' && CanvasWords.close() === false) return;
   const it = makeable(ms);
   if (!it) return Shell.toast('Select shapes, or a group, to make a design of first', { ms: 3000 });
   if (App.readOnly.peek()) return Shell.toast(App.whyNot());
@@ -218,30 +232,79 @@ function make(ms = canvas().selected()) {
   const boxesOf = b => Canvas.groupsAt(sc, b).filter(g => g.marks.size > 1 && g.outputs.every(p => !p.args || p.out));
   // (Boxes a part by share means something in first: a triangle's are last.)
   const seen = new Set(), every = [...sc.marks.filter(b => b.type === 'box' && Shapes.boxy(b.shape)), ...sc.marks.filter(b => b.type === 'box' && !Shapes.boxy(b.shape))].flatMap(b => boxesOf(b).filter(g => { const k = g.outputs.map(p => Tree.key(p)).join(); if (seen.has(k)) return false; seen.add(k); return true; }));
-  const fors = under ? [{ key: 'own', label: `Just ${N.nameOf(App.state.peek(), under.record)}`, s: null }, ...boxesOf(under).map(one)] : [...every.map(one), { key: 'none', label: 'This chart’s gallery alone', s: null, none: true }];
-  let name = '', chosen = fors.find(f => f.s)?.key ?? fors[0].key;
-  Shell.dialog({ title: 'Make a design', width: 380, actions: [{ label: 'Cancel', value: false }, { label: 'Make', value: true, primary: true }],
-    body: () => html`<div class="settings">
-      <label class="field"><span>Name</span><input aria-label="Name" placeholder="New design" spellcheck="false" autocomplete="off" autofocus onInput=${e => { name = e.target.value; }} /></label>
-      <label class="field"><span>For</span><select aria-label="For" onChange=${e => { chosen = e.target.value; }}>${fors.map(f => html`<option value=${f.key} selected=${f.key === chosen}>${f.label}</option>`)}</select></label>
-    </div>` }).then(ok => {
+  const fors = [...(under ? [{ key: 'own', label: `Just ${N.nameOf(App.state.peek(), under.record)}`, s: null }, ...boxesOf(under).map(one)] : every.map(one)), { key: 'new', label: 'A new object type', fresh: true }, { key: 'none', label: 'This chart’s gallery alone', s: null, none: true }];
+  const fields = fieldsOf(free.map(q => rows.item(App.chart.peek(), q.id)[0]), under?.record);
+  let name = '', kind = '', firstName = '', chosen = asType ? 'new' : fors.find(f => f.s)?.key ?? (under ? 'own' : 'new');
+  const chart = App.chart.peek(), oldView = sc.view;
+  const kindError = value => !Tree.clean(value) ? 'Enter an object type.' : Tree.same(value, 'View') || Object.values(App.schema.peek()).some(s => s.kind && Tree.same(s.kind, value)) ? 'This object type already exists. Choose a new name.' : '';
+  function SaveDesign() {
+    const [target, setTarget] = useState(chosen);
+    return html`<div class="settings design-save">
+      ${asType ? html`<p class="design-type-intro">Use this drawing for a new type of object. Each object will keep this design and show its own field values.</p>` : html`
+        <label class="field"><span>Design name</span><input aria-label="Design name" placeholder="New design" spellcheck="false" autocomplete="off" autofocus onInput=${e => { name = e.target.value; }} /></label>
+        <label class="field"><span>For</span><select aria-label="For" value=${target} onChange=${e => { chosen = e.target.value; setTarget(chosen); }}>${fors.map(f => html`<option value=${f.key}>${f.label}</option>`)}</select></label>`}
+      ${target === 'new' ? html`<label class="field"><span>Object type</span><input aria-label="Object type" placeholder="e.g. Person or Room" required autofocus=${asType} autocomplete="off" value=${kind} onInput=${e => { kind = Tree.clean(e.target.value); e.target.setCustomValidity(kindError(kind)); }} /></label>
+        <label class="field"><span>First object name</span><input aria-label="First object name" placeholder="e.g. Alice or Cedar" autocomplete="off" value=${firstName} onInput=${e => { firstName = e.target.value; }} /></label>
+        <div class="design-fields"><div class="head">Fields</div><p class="muted">These fields become entries on every object of this type. Plain text stays the same.</p>${fields.map(f => html`<label class="field"><span>${f.label}</span>${f.linked ? html`<span class="muted">Linked field</span>` : html`<select aria-label=${`Type of ${f.label}`} disabled=${Tree.same(f.label, 'Name')} value=${f.datatype} onChange=${e => { f.datatype = e.target.value; }}>
+          ${Object.entries(Tree.DATATYPES).map(([key, label]) => html`<option value=${key}>${label}</option>`)}${['choice', 'tag'].includes(f.datatype) ? html`<option value=${f.datatype}>${f.datatype === 'choice' ? 'Choice' : 'Yes / No'}</option>` : null}
+        </select>`}</label>`)}${fields.some(f => f.linked) ? html`<p class="muted">Linked fields need matching relationships on the new type.</p>` : null}</div>` : null}
+    </div>`;
+  }
+  Shell.dialog({ title: asType ? 'Save as object type' : 'Make a design', width: 420, actions: [{ label: 'Cancel', value: false }, { label: asType ? 'Save' : 'Make', value: true, primary: true }],
+    body: () => html`<${SaveDesign} />` }).then(ok => {
     if (!ok) return;
-    const f = fors.find(x => x.key === chosen), s = f?.s, v = sc.view, target = under ?? (s ? [...s.marks].map(id => sc.byId.get(id)).find(b => b?.type === 'box') : null), inside = under && free.every(q => q.x >= under.x - 1 && q.y >= under.y - 1 && q.x + q.w <= under.x + under.w + 1 && q.y + q.h <= under.y + under.h + 1);
-    const within = inside ? under : drawn, W = target?.w ?? drawn.w, H = target?.h ?? drawn.h, k = inside ? 1 : Math.min(1, W / drawn.w, H / drawn.h), record = under?.record ?? target?.record ?? null;
+    if (App.readOnly.peek() || App.chart.peek() !== chart || view() !== oldView || (chosen === 'new' && kindError(kind))) return;
+    const f = fors.find(x => x.key === chosen), s = f?.s, v = sc.view, target = f?.fresh ? null : under ?? (s ? [...s.marks].map(id => sc.byId.get(id)).find(b => b?.type === 'box') : null), inside = !f?.fresh && under && free.every(q => q.x >= under.x - 1 && q.y >= under.y - 1 && q.x + q.w <= under.x + under.w + 1 && q.y + q.h <= under.y + under.h + 1);
+    const within = inside ? under : drawn, W = target?.w ?? drawn.w, H = target?.h ?? drawn.h, k = inside ? 1 : Math.min(1, W / drawn.w, H / drawn.h);
+    const rowOf = id => rows.item(App.chart.peek(), id)[0], backing = !target && backingOf(free, sc, drawn, rowOf);
+    // A starter card follows its text. An assembled drawing keeps the arrangement the user made.
+    const layout = free.length === 1 && (backing || free[0].geometry === 'text') ? 'stack' : 'free';
     // A field's words take the width of the box, as they'll be longer than whatever stood for them, at the size the chart gives that field; words of its own, as they were, scaled with the drawing. What it doesn't name goes under the last that it does.
-    const parts = free.map(q => {
-      const r = rows.item(App.chart.peek(), q.id)[0], size = q.texts?.[0]?.look.Size, typed = r.format?.Size, text = tokened(r.text, record), reads = (r.geometry ?? 'rect') === 'text' && /\{[^{}\n]+\}/.test(text ?? ''), { Size: _, ...look } = r.format ?? {};
+    const parts = free.flatMap(q => {
+      const row = rowOf(q.id), promoted = q.id === backing?.id;
+      if (promoted && !row.text) return [];
+      const format = promoted ? withoutPaint(row.format) : row.format, rectangular = promoted && Shapes.boxy(q.geometry);
+      if (rectangular) {
+        // The backing now lives in base. Its label is a text layer, with the old shape's
+        // inset folded into text margins so its position and wrapping stay the same.
+        const rect = Scene.textRect(q.geometry, q.w, q.h, q.look.Corner), u = sc.page.scale / Scene.PT, inset = format.Inset ?? {};
+        format.Inset = { l: (inset.l ?? 7.2) + (rect.x + (rect.shift ?? 0)) * u, r: (inset.r ?? 7.2) + (rect.x - (rect.shift ?? 0)) * u, t: (inset.t ?? 3.6) + rect.top * u, b: (inset.b ?? 3.6) + rect.bottom * u };
+        for (const label of ['Shape', 'Corner', 'Tail', 'Points']) delete format[label];
+      }
+      const r = promoted ? { ...row, ...(rectangular && { geometry: 'text' }), format } : row;
+      const size = q.texts?.[0]?.look.Size, typed = r.format?.Size, text = r.text, reads = layout === 'stack' && !promoted && (r.geometry ?? 'rect') === 'text' && TextTemplate.fields(text).length > 0, { Size: _, ...look } = r.format ?? {};
       if (reads) return { ...partFrom({ ...r, part: null, format: { Align: 'center', Valign: 'middle', ...look, ...(inside && typed !== undefined && { Size: typed }) } }, q, within, text), x: 0, w: 1 };
       return partFrom({ ...r, part: null, format: { ...r.format, ...(size && { Size: +((typed ?? size * sc.page.scale) * k).toFixed(2) }) } }, q, within, text);
     });
     const foot = Math.min(1, Math.max(0, ...parts.filter(p => p.geometry === 'text' && p.text).map(p => p.y + p.h)));
-    parts.push({ id: Log.newId(), rest: true, geometry: 'text', x: 0, y: foot, w: 1, h: Math.max(0.05, 1 - foot), format: { Align: 'center', Valign: foot ? 'top' : 'middle' } });
-    const patterns = f?.none ? [] : patternsAt(target, s), d = {
-      id: Log.newId(), name: Tree.clean(name) || 'New design', w: round(W), h: round(H), base: { Shape: target?.shape ?? 'rect', ...(target?.shape === 'rounded' && { Corner: target.settings.Corner.value }) }, parts,
+    // An empty footer must not enlarge an assembled drawing's authored frame. Its
+    // content can grow the card later, without rescaling the existing arrangement.
+    parts.push({ id: Log.newId(), rest: true, geometry: 'text', x: 0, y: foot, w: 1, h: Math.max(layout === 'free' ? 0 : 0.05, 1 - foot), format: { Align: 'center', Valign: foot ? 'top' : 'middle' } });
+    const base = target ? { Shape: target.shape, ...(target.shape === 'rounded' && { Corner: target.settings.Corner.value }) }
+      : backing ? { Shape: backing.geometry, ...Object.fromEntries(BODY_FORMATS.filter(label => backing.look[label] != null).map(label => [label, backing.look[label]])), Weight: backing.look.Weight * sc.page.scale }
+      : { Shape: 'rect', Fill: 'none', Outline: 'none' };
+    const patterns = f?.fresh ? [{ kind }] : f?.none ? [] : patternsAt(target, s), d = {
+      id: Log.newId(), name: Tree.clean(name) || (f?.fresh ? kind : 'New design'), w: round(W), h: round(H), layout, base, parts,
     };
-    const said = `Made the design ${d.name}${f?.none ? '' : ` for ${whom(target, s, s?.marks?.size)}`}`;
-    App.change(tx => { for (const q of free) tx.remove(q.id); for (const g of sc.marks) if (g.geometry === 'group' && g.members.every(id => free.some(q => q.id === id))) tx.remove(g.id); rewrite(tx, d, null, patterns, v); tx.says(said); }, { dated: false, say: said });
-    Shell.select(target ? [target.id] : []);
+    const said = f?.fresh ? `Saved ${d.name} as the design for ${kind}` : `Made the design ${d.name}${f?.none ? '' : ` for ${whom(target, s, s?.marks?.size)}`}`;
+    const declarations = DesignSchema.declarations(App.schema.peek(), f?.fresh ? [kind] : [], fields);
+    if (declarations.error) return Shell.toast(declarations.error);
+    let made = null;
+    const change = App.change(tx => {
+      if (f?.fresh) {
+        declarations.trees.forEach(tree => tx.add('spec', { tree }));
+        // The drawing becomes its first object, so the result can immediately be filled in and edited.
+        made = tx.add('record', { kind });
+        tx.add('record', { at: made, edge: 'Name', field: 'text', value: Tree.clean(firstName) || kind });
+        const o = sc.page.offset ?? { x: 0, y: 0 };
+        tx.note('Position', { id: made, kind }, { x: drawn.x - o.x, y: drawn.y - o.y, w: drawn.w, h: drawn.h, loose: true }, { view: v });
+        App.showMade(tx, [made], v);
+      }
+      for (const q of free) tx.remove(q.id);
+      for (const g of sc.marks) if (g.geometry === 'group' && g.members.every(id => free.some(q => q.id === id))) tx.remove(g.id);
+      rewrite(tx, d, null, patterns, v); tx.says(said);
+    }, { dated: false, say: said });
+    if (change) { if (f?.fresh) Shell.store.set('kind', kind); Shell.select(made ? [made] : target ? [target.id] : []); }
   });
 }
 
@@ -258,32 +321,90 @@ function takes(record) {
   };
 }
 const ownLooks = (rows, v, record) => rows.filter(r => 'note' in r && r.view === v && r.pattern?.id === record && Notes.FORMATS.has(r.label) && !['Design', 'Shown'].includes(r.label));
-function edit(m, given) {
+const { heightFlow } = DesignGeometry;
+// Whole designs may be attached to an object's kind or to any of its entries (for example,
+// Building North). Find those entries, retaining the scene's precedence between shared styles.
+function designsFor(m) {
+  const sc = canvas().scene(), state = App.state.peek(), entries = Tree.index(state).entries, ids = new Map([[m.record, 0]]), todo = [m.record];
+  while (todo.length) { const id = todo.shift(); for (const child of entries.get(id) ?? []) if (!ids.has(child)) { ids.set(child, ids.get(id) + 1); todo.push(child); } }
+  const trees = [...ids].map(([id, depth]) => ({ tree: Tree.treeOf(state, id), depth })), order = new Map(sc.styles.map((s, i) => [s.key, i]));
+  return App.notes.peek().notes('Design').filter(n => n.view === sc.view && Scene.wholeDesign(n.value)).flatMap(note => {
+    const matches = trees.filter(t => t.tree && Tree.narrower(t.tree, note.pattern));
+    return matches.length ? [{ note, depth: Math.min(...matches.map(t => t.depth)) }] : [];
+  }).sort((a, b) => Tree.idsIn(b.note.pattern).size - Tree.idsIn(a.note.pattern).size || !!b.note.param - !!a.note.param
+    || Tree.weight(b.note.pattern) - Tree.weight(a.note.pattern)
+    || (order.get(Tree.key(Tree.bare(b.note.pattern))) ?? -1) - (order.get(Tree.key(Tree.bare(a.note.pattern))) ?? -1) || a.depth - b.depth);
+}
+const ownDesign = m => m && App.notes.peek().notes('Design').find(n => n.view === view() && Tree.key(n.pattern) === Tree.key(treeOf(m.record)));
+const widerDesign = m => designsFor(m).find(({ note }) => !Tree.idsIn(note.pattern).size)?.note;
+const canUseShared = m => !!(m?.design && ownDesign(m) && widerDesign(m));
+function useShared(m) {
+  if (App.readOnly.peek()) return Shell.toast(App.whyNot());
+  if (!canUseShared(m)) return;
+  if (typeof CanvasWords !== 'undefined' && CanvasWords.close() === false) return;
+  const own = ownDesign(m), said = `Returned ${App.notes.peek().nameOf(App.state.peek(), m.record)} to its shared design`;
+  App.change(tx => { tx.note('Design', own.pattern, undefined, { view: own.view, ...(own.param && { param: own.param }) }); tx.says(said); }, { dated: false, say: said });
+  FormatBar.pen.home();
+}
+// The dedicated shared-design action follows the existing pattern, never widening a Funds
+// design to every Entity. A single-object fork leads back to its nearest shared design.
+function editShared(m) {
+  if (!m) return;
+  if (typeof CanvasWords !== 'undefined' && CanvasWords.close() === false) return;
+  let note = m.design?.note;
+  if (!note) { FormatBar.pen.put({ kind: true }); return edit(m); }
+  // Preset IDs identify a starting appearance, not a user-owned shared design. Applying Header
+  // separately to people and companies must not link those groups just because the IDs match.
+  const linkedTo = (n, source) => n === source || (source.value.id && !Shapes.DESIGNS.some(d => d.id === source.value.id) && n.value.id === source.value.id);
+  const linked = App.notes.peek().notes('Design').filter(n => Scene.wholeDesign(n.value) && linkedTo(n, note));
+  // A duplicated view may carry the same private fork. It is shared only when another pattern
+  // uses it; repeating this object's exact pattern on another page does not change its scope.
+  if (note === ownDesign(m) && linked.every(n => Tree.key(n.pattern) === Tree.key(note.pattern))) note = widerDesign(m) ?? note;
+  const sc = canvas().scene(), notes = App.notes.peek().notes('Design').filter(n => n.view === sc.view && Scene.wholeDesign(n.value) && linkedTo(n, note));
+  const outputs = [...new Map(notes.map(n => [Tree.key(n.pattern), n.pattern])).values()], keys = new Set(outputs.map(Tree.key));
+  const marks = new Set(sc.marks.filter(q => q.type === 'box' && designsFor(q).some(x => keys.has(Tree.key(x.note.pattern)))).map(q => q.id));
+  const caption = outputs.every(p => p.id) ? outputs.map(p => App.notes.peek().nameOf(App.state.peek(), p.id)).join(', ')
+    : outputs.map(p => Scene.captionOf(App.notes.peek(), p, sc.view)).join(', ');
+  return edit(m, undefined, undefined, { note, scope: { own: false, outputs, marks, caption } });
+}
+function edit(m, given, partId, chosen = {}) {
   const c = canvas();
   if (!c || !m || editing.peek()) return;
   if (App.readOnly.peek()) return Shell.toast(App.whyNot());
   if (App.pending.peek()) return Shell.toast('Make or discard the change pending first');
-  const sc = c.scene(), v = sc.view, N = App.notes.peek(), pen = given || !m.design ? FormatBar.scope(true) : null, note = m.design && !given ? m.design.note : null;
-  // (A design given to a group stands at each of its patterns, and it's the group's that's edited.)
-  const standsAt = p => N.notes('Design').some(n => n.view === v && Tree.key(n.pattern) === Tree.key(p) && n.value?.id === note.value.id), group = note && Canvas.groupsAt(sc, m).find(g => g.outputs.length > 1 && g.outputs.some(p => Tree.key(p) === Tree.key(note.pattern)) && g.outputs.every(standsAt));
-  const patterns = group ? group.outputs : note ? [note.pattern] : patternsAt(m, pen);
+  if (typeof CanvasWords !== 'undefined' && CanvasWords.close() === false) return;
+  const sc = c.scene(), v = sc.view, N = App.notes.peek(), scope = chosen.scope ?? FormatBar.scope(true) ?? { own: true }, note = chosen.note ?? (m.design && !given ? m.design.note : null);
+  const patterns = patternsAt(m, scope);
+  // The visible scope is authoritative. A narrower edit forks the resolved appearance; it cannot
+  // silently rewrite the broader shared design. Shared edits retain their cross-view identity.
+  const shared = note && !scope.own && patterns.some(p => Tree.narrower(note.pattern, p));
   // (Editing what's there, the design and not what's said over it; or one from the gallery; or, for a box with none, its fields in one part to begin from.)
-  const { over: _, ...there } = m.design?.note.value ?? {};
+  const { over: _, ...there } = (shared ? note.value : m.design?.value) ?? {};
   const d = given ?? (m.design ? there : { id: Log.newId(), name: 'New design', w: round(m.w), h: round(m.h), base: { Shape: m.shape }, parts: [{ id: Log.newId(), rest: true, geometry: 'text', x: 0, y: 0, w: 1, h: 1, format: { Align: 'center', Valign: 'middle' } }] });
-  const n = group ? group.marks.size : note ? sc.marks.filter(b => b.type === 'box' && b.design?.note.note === note.note).length : pen?.marks?.size;
-  const said = group ?? (note && !Tree.idsIn(patterns[0]).size ? { outputs: patterns, caption: Scene.captionOf(N, patterns[0], v) } : pen?.outputs?.length ? pen : null);
   const where = c.whereNow(), rows0 = new Set(App.shown.peek().rows(App.chart.peek()).filter(r => 'shape' in r && r.view === v).map(r => r.shape)), own = new Map(ownLooks(App.shown.peek().rows(App.chart.peek()), v, m.record).map(r => [r.label, JSON.stringify(r.value)]));
+  const wasId = !shared || given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id;
+  const targets = rewriteTargets(wasId, patterns, v), kinds = DesignSchema.kinds(targets, App.schema.peek(), App.state.peek());
+  const who = scope.own ? scope.records?.length > 1 ? `${scope.records.length} selected objects` : `${N.nameOf(App.state.peek(), m.record)} only` : whom(m, scope, scope.marks?.size);
+  const affectedViews = [...new Set(targets.map(t => t.view))].map(id => App.views.peek().find(x => x.id === id)?.name ?? (id ? 'Another view' : 'All views'));
+  const linked = targets.filter(t => t.view !== v || !patterns.some(p => Tree.key(p) === Tree.key(t.pattern)))
+    .map(t => `${Scene.captionOf(N, t.pattern, t.view)} in ${App.views.peek().find(x => x.id === t.view)?.name ?? 'another view'}`);
+  const reach = scope.own ? `Changes apply to ${scope.records?.length > 1 ? 'these selected objects' : `${N.nameOf(App.state.peek(), m.record)} only`} in ${App.views.peek().find(x => x.id === v)?.name ?? 'this view'}.`
+    : `Shared by ${who}${kinds.length ? ` (${kinds.join(', ')})` : ''} in ${affectedViews.join(', ')}.${linked.length ? ` Also used by ${[...new Set(linked)].join('; ')}.` : ''}`;
   // (As large as it stands, or one from the gallery as large as it would, with these words; each part where it falls in that, and the box held so, whatever its rank's height.)
-  const like = given ? Scene.instance(sc, m.id, d, N, App.computed.peek()) : m, W = round(like.w), H = round(like.h), o = sc.page.placed ? sc.page.offset : { x: 0, y: 0 }, dx = m.x - like.x, dy = m.y - like.y, stands = new Map();
+  const like = given || shared ? Scene.instance(sc, m.id, d, N, App.computed.peek()) : m, W = round(like.w), H = round(like.h), o = sc.page.placed ? sc.page.offset : { x: 0, y: 0 }, dx = m.x - like.x, dy = m.y - like.y, stands = new Map();
   App.sandbox(takes(m.record));
   const stood = App.change(tx => {
-    tx.note('Design', treeOf(m.record), { id: d.id, name: d.name, w: W, h: H, base: d.base ?? {}, strip: true, editing: true, begun: new Date().toISOString() }, { view: v });
+    tx.note('Design', treeOf(m.record), { id: d.id, name: d.name, w: W, h: H, base: d.base ?? {}, ...(d.layout && { layout: d.layout }), strip: true, editing: true, begun: new Date().toISOString() }, { view: v });
     tx.note('Position', treeOf(m.record), { x: round(m.x - o.x), y: round(m.y - o.y), w: W, h: H, hand: true }, { view: v });
     for (const p of d.parts ?? []) {
       const { id, x, y, w, h, points, format, ...row } = p, q = like.parts?.find(q2 => q2.part === id);
       const at = { x: round(q ? q.x + dx : m.x + x * W), y: round(q ? q.y + dy : m.y + y * H), w: round(q ? q.w : w * W), h: round(q ? q.h : h * H), ...(points && { points: (q?.points?.map(([a, b]) => [a + dx, b + dy]) ?? points.map(([a, b]) => [m.x + a * W, m.y + b * H])).map(([a, b]) => [round(a), round(b)]) }) };
       stands.set(id, at);
-      tx.add('shape', { ...row, ...standing(format, m, sc.page.scale), view: v, part: id, ...at });
+      const shown = DesignGeometry.standing(format, m.settings, sc.page.scale), color = q?.texts?.[0]?.look.Color;
+      // Free shapes do not know the card beneath them. Keep automatic text contrast while
+      // editing, then restore automatic color unless the user explicitly changes it.
+      if (format?.Color === undefined && color) { shown.format.Color = color; shown.named = { ...shown.named, Color: [null, color] }; }
+      tx.add('shape', { ...row, ...shown, view: v, part: id, ...at });
     }
   }, { dated: false });
   if (!stood) { App.unsandbox(); return; }
@@ -302,88 +423,122 @@ function edit(m, given) {
   called.setAttribute('aria-label', 'Name of the design');
   called.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') called.blur(); if (e.key === 'Escape') { called.value = d.name ?? ''; called.blur(); } });
   // (A design of this chart's given at other patterns too moves there as well, and it's said.)
-  const also = note && !Shapes.DESIGNS.some(x => x.id === d.id) ? sc.marks.filter(b => b.type === 'box' && b.design?.value.id === d.id && b.design.note.note !== note.note && !group?.marks.has(b.id)).length : 0, who = `${whom(m, said, n)}${also ? ` and ${also} more` : ''}`;
-  words.textContent = `Editing the design of ${who}`;
+  words.className = 'design-scope'; words.textContent = `Design · ${who}`; words.title = reach;
   discard.onclick = () => leave(false);
   done.onclick = () => leave(true);
-  editing.value = { box, record: m.record, d, wasId: given || Shapes.DESIGNS.some(x => x.id === d.id) ? null : d.id, patterns, view: v, rows0, where, bar, called, whom: who, stands, W, H, own };
+  editing.value = { box, record: m.record, d, wasId, patterns, scope, reach, existing: !!m.design && !given, view: v, rows0, where, bar, called, whom: who, stands, W, H, own, kinds, newFields: new Map() };
+  if (partId) requestAnimationFrame(() => {
+    const e = editing.peek(); if (e?.box !== box) return;
+    const part = partsNow(c.scene(), e).find(q => App.shown.peek().item(App.chart.peek(), q.id).at(-1)?.part === partId);
+    if (part) { Shell.select([part.id]); requestAnimationFrame(() => c.edit(part.id)); }
+  });
 }
 function leave(keep) {
   const e = editing.peek();
   if (!e) return;
+  if (typeof CanvasWords !== 'undefined' && CanvasWords.close({ commit: keep !== false }) === false) return;
   const c = canvas(), sc = c.scene(), b = sc.byId.get(e.box);
   // What the page holds now, as the design it says.
-  let d = null, looks = {};
+  let d = null, looks = {}, unchanged = false;
   if (keep && b) {
     const rows = App.shown.peek().rows(App.chart.peek()), mine = new Map(rows.filter(r => 'shape' in r && r.view === e.view && !e.rows0.has(r.shape)).map(r => [r.shape, r]));
-    const parts = [], same = (a, c) => a && Math.abs(a.x - c.x) < 0.01 && Math.abs(a.y - c.y) < 0.01 && Math.abs(a.w - c.w) < 0.01 && Math.abs(a.h - c.h) < 0.01 && JSON.stringify(a.points ?? null) === JSON.stringify(c.points ?? null);
-    // (Words that have run on past the box's foot take the box with them: it holds what's in it.)
-    const foot = Math.max(b.y + b.h, ...sc.marks.filter(q => mine.has(q.id) && q.geometry === 'text' && q.x < b.x + b.w && q.x + q.w > b.x && q.y < b.y + b.h).map(q => q.y + q.h)), held = { ...b, h: foot - b.y };
-    const resized = Math.abs(held.w - e.W) > 0.5 || Math.abs(held.h - e.H) > 0.5;
-    // (In the order they're drawn in; a group's own row isn't a part, its shapes are. One no hand has moved keeps the share it had, and the box no hand has sized the size the design said.)
-    for (const q of sc.marks) { const r = mine.get(q.id); if (r && q.geometry !== 'group') { const was = !resized && r.part && same(e.stands.get(r.part), r) && e.d.parts?.find(p => p.id === r.part), part = partFrom(r, q, held); parts.push(was ? { ...part, x: was.x, y: was.y, w: was.w, h: was.h, ...(was.points && { points: was.points }) } : part); } }
+    const position = App.notes.peek().resolve('Position', treeOf(e.record), e.view)?.value ?? {};
+    const nominal = { ...sc, page: { ...sc.page, scale: 1 } }, standingRows = [...mine.values()];
+    const { parts, dimensions } = DesignGeometry.capture({ design: e.d, initial: { w: e.W, h: e.H }, box: b, position, stands: e.stands,
+      entries: sc.marks.filter(mark => mine.has(mark.id) && mark.geometry !== 'group').map(mark => ({ mark, row: mine.get(mark.id) })), newId: Log.newId,
+      measure: (row, w) => Scene.shapeOf({ ...row, w, h: 0, text: TextTemplate.render(row.text ?? '', () => 'M') || 'M', format: draftFormat(row, b, sc, standingRows) }, nominal).h });
     // (What's given the box itself since it began: what it had of its own before stays its own.)
     looks = Object.fromEntries(ownLooks(rows, e.view, e.record).filter(r => e.own.get(r.label) !== JSON.stringify(r.value)).map(r => [r.label, r.value]));
     const { Shape, Corner, ...others } = looks;
     looks = others;
-    d = { ...e.d, name: Tree.clean(e.called.value) || e.d.name, ...(resized || e.d.w == null ? { w: round(held.w), h: round(held.h) } : {}), base: { ...e.d.base, ...(Shape && { Shape }), ...(Corner !== undefined && { Corner }) }, parts };
+    d = { ...e.d, name: Tree.clean(e.called.value) || e.d.name, ...dimensions, ...(b.design?.value.layout && { layout: b.design.value.layout }), base: { ...e.d.base, ...(Shape && { Shape }), ...(Corner !== undefined && { Corner }) }, parts };
     delete d.editing; delete d.strip; delete d.over;
     if (!e.wasId) d.id = Log.newId();
     // (As it was, it's nothing to write.)
     const plain = v => JSON.stringify(v, (k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([p], [q]) => p < q ? -1 : 1)) : x);
-    if (e.wasId && plain({ ...d, id: 0 }) === plain({ ...e.d, id: 0 }) && !Object.keys(looks).length) keep = null;
+    unchanged = e.existing && plain({ ...d, id: 0 }) === plain({ ...e.d, id: 0 }) && !Object.keys(looks).length;
   }
+  // Plan before leaving the sandbox: a conflicting field keeps the editable draft on screen.
+  // Only explicitly created fields are declared; relative and nested tokens keep their meaning.
+  const used = new Set((d?.parts ?? []).flatMap(p => TextTemplate.fields(p.text)).map(Tree.norm));
+  const added = keep ? [...e.newFields.values()].filter(f => used.has(Tree.norm(f.label))) : [];
+  const declarations = DesignSchema.declarations(App.schema.peek(), added.length ? e.kinds : [], added);
+  if (declarations.error) return Shell.toast(declarations.error);
+  if (keep && unchanged && !declarations.trees.length) keep = null;
   e.bar.remove();
   editing.value = null;
   c.designing(null);
   Shell.select([]);
   App.unsandbox();
   c.goBack(e.where);
+  FormatBar.pen.home();
   // (Back on the box it was over, where the keys and the eye left off.)
   Shell.select([e.box]);
   if (keep === null) return Shell.toast('The design is as it was', { ms: 2500 });
   if (!keep) return Shell.toast('Discarded the changes to the design', { ms: 2500 });
   const said = `Changed the design of ${e.whom}`;
-  App.change(tx => { rewrite(tx, d, e.wasId, e.patterns, e.view); for (const [l, v] of Object.entries(looks)) for (const p of e.patterns) tx.note(l, p, v, { view: e.view }); tx.says(said); },
+  App.change(tx => { declarations.trees.forEach(tree => tx.add('spec', { tree })); rewrite(tx, d, e.wasId, e.patterns, e.view, { library: !e.scope.own, preserveOverrides: !!e.wasId }); for (const [l, v] of Object.entries(looks)) for (const p of e.patterns) tx.note(l, p, v, { view: e.view }); tx.says(said); },
     { dated: false, say: said, empty: () => Shell.toast('The design is as it was', { ms: 2500 }) });
 }
 // The parts stood on the page, as the scene draws them, the topmost first.
 const partsNow = (sc, e) => sc.marks.filter(q => q.type === 'shape' && q.geometry !== 'group' && !q.role && !q.master && !e.rows0.has(q.id));
 // (A frame's margin, as it prints, however the page is scaled; and what words take in a frame: their lines, the margins over and under them.)
 const margin = (sc, i, by) => (i != null ? i * Scene.PT : by) / (sc.page.scale || 1);
-const tallIn = (sc, read, look, w, inset) => Math.ceil(Scene.measure(read || 'M', look) / Math.max(1, w - margin(sc, inset?.l, 9.6) - margin(sc, inset?.r, 9.6))) * Scene.lineHeight(look) + margin(sc, inset?.t, 4.8) + margin(sc, inset?.b, 4.8);
+const tallIn = (sc, read, look, w, inset) => Scene.breakLines(read || 'M', look, Math.max(1, w - margin(sc, inset?.l, 9.6) - margin(sc, inset?.r, 9.6)), false).length * Scene.lineHeight(look) + margin(sc, inset?.t, 4.8) + margin(sc, inset?.b, 4.8);
+// Resolve the upcoming source text exactly as the sandbox renderer will, including a merge
+// field that changes inherited typography (for example, inserting Name into a plain label).
+function draftFormat(row, box, sc, standing) {
+  const tokens = TextTemplate.fields(row.text), state = App.state.peek(), item = box.fields?.find(it => tokens.some(t => Tree.same(t, state[it.id]?.edge ?? '')));
+  return Scene.designPartFormat(box, { p: row, item, shares: { ...row, w: row.w / box.w, h: row.h / box.h } }, sc.page.scale, standing);
+}
 // New words on a box being edited, so they fit: in the column the other fields stand in, or else the box's, aligned with them; in the free band they were dropped at where that holds them, or else under the last words, the box growing as far as they need; and any frame they'd stand in stops above them, so what's in it pushes them down as it runs on. On tx. → the new part's id.
 function addPart(tx, sc, e, b, at, text) {
   const shown = App.shown.peek(), chart = App.chart.peek(), rowOf = id => shown.item(chart, id).at(-1), parts = partsNow(sc, e), rest = parts.find(q => rowOf(q.id)?.rest), col = rest ?? b, inCol = p => p.x < col.x + col.w && p.x + p.w > col.x;
   // (What words take, as far as the margin under them, a frame being no shorter than that.)
   const under = p => margin(sc, rowOf(p.id)?.format?.Inset?.b, 4.8), inset = rest && rowOf(rest.id)?.format?.Inset;
-  const taken = parts.filter(p => inCol(p) && p.texts?.some(t => t.lines?.length)).map(p => { const t = p.texts[0], ys = t.lines.map(l => l.y - Scene.baseline(t.look)); return [p.y + Math.min(...ys), p.y + Math.max(...ys) + Scene.lineHeight(t.look) + under(p)]; }).sort((m, n) => m[0] - n[0]), gaps = [];
+  const taken = parts.filter(p => inCol(p) && p.texts?.some(t => t.lines?.length)).map(p => { const t = p.texts[0], ys = t.lines.map(l => l.y - Scene.baseline(t.look)); return { part: rowOf(p.id)?.part, top: p.y + Math.min(...ys), foot: p.y + Math.max(...ys) + Scene.lineHeight(t.look) + under(p) }; }).sort((m, n) => m.top - n.top), gaps = [];
   let from = b.y;
-  for (const [top, foot] of taken) { if (top > from) gaps.push([from, top]); from = Math.max(from, foot); }
+  for (const { top, foot } of taken) { if (top > from) gaps.push([from, top]); from = Math.max(from, foot); }
   if (b.y + b.h > from) gaps.push([from, b.y + b.h]);
   // (Its height by what it reads at this box, at the size the page gives what's beside a name.)
   const read = text ? Scene.readWords(text, e.record, Scene.reader(App.state.peek(), App.notes.peek(), App.computed.peek(), App.day.peek())) : '', need = tallIn(sc, read, { ...Scene.DEFAULTS.text, Size: 8 }, col.w, inset), y0 = at?.y;
   const band = (y0 != null && gaps.find(([u, v]) => v - u >= need && y0 >= u && y0 <= v)) || [from, Math.max(from + need, b.y + b.h)];
-  if (band[1] > b.y + b.h) { const v = App.notes.peek().resolve('Position', treeOf(e.record), e.view)?.value; if (v) tx.note('Position', treeOf(e.record), { ...v, h: round(b.h + band[1] - (b.y + b.h)) }, { view: e.view }); }
-  for (const p of parts) { const r = rowOf(p.id); if (r?.geometry === 'text' && inCol(p) && p.y < band[0] && p.y + p.h > band[0]) tx.update(p.id, { h: round(band[0] - p.y) }); }
-  return tx.add('shape', { view: e.view, geometry: 'text', part: Log.newId(), x: round(col.x), y: round(band[0]), w: round(col.w), h: round(Math.max(need, band[1] - band[0])), text, format: { Align: rest?.look.Align ?? 'center', Valign: 'top', ...(inset && { Inset: inset }) } });
+  if (band[1] > b.y + b.h) { const v = App.notes.peek().resolve('Position', treeOf(e.record), e.view)?.value; if (v) { const h = round(b.h + band[1] - (b.y + b.h)); tx.note('Position', treeOf(e.record), { ...v, h, flow: heightFlow(v, e.H, h) }, { view: e.view }); } }
+  if (b.design?.value.layout !== 'free') for (const p of parts) { const r = rowOf(p.id); if (r?.geometry === 'text' && inCol(p) && p.y < band[0] && p.y + p.h > band[0]) { const h = round(band[0] - p.y); tx.update(p.id, { h, flow: heightFlow(r, e.stands.get(r.part)?.h ?? r.h, h) }); } }
+  const x = round(col.x), y = round(band[0]), w = round(col.w), h = round(Math.max(need, band[1] - band[0])), anchor = taken.filter(p => p.part && p.foot <= band[0] + 0.5).sort((a, b) => b.foot - a.foot)[0];
+  return tx.add('shape', { view: e.view, geometry: 'text', part: Log.newId(), x, y, w, h, text, flow: { created: { x, y, w, h, ...(anchor && { anchor: anchor.part, gap: Math.max(0, band[0] - anchor.foot) }) }, height: { after: h } }, format: { Align: rest?.look.Align ?? 'center', Valign: 'top', ...(inset && { Inset: inset }) } });
 }
-// Words typed in a part: the box being edited taller where they'd run on past its foot, in the same change, so it holds what's in it. On tx.
+// Text grows as the renderer measures it. Following text in the same column moves with it,
+// in the same Undo step; independently positioned decorative shapes keep their geometry.
 function holdWords(tx, id, text) {
   const e = editing.peek(), sc = canvas()?.scene(), b = sc?.byId.get(e?.box), q = sc?.byId.get(id);
   if (!b || q?.geometry !== 'text' || q.y >= b.y + b.h) return;
-  const look = q.texts?.[0]?.look ?? { ...Scene.DEFAULTS.text, Size: 8 }, read = /^\s*=/.test(text ?? '') ? '' : Scene.readWords(text ?? '', e.record, Scene.reader(App.state.peek(), App.notes.peek(), App.computed.peek(), App.day.peek()));
-  const foot = q.y + tallIn(sc, read, look, q.w, App.shown.peek().item(App.chart.peek(), id).at(-1)?.format?.Inset), v = App.notes.peek().resolve('Position', treeOf(e.record), e.view)?.value;
-  if (foot > b.y + b.h && v) tx.note('Position', treeOf(e.record), { ...v, h: round(foot - b.y) }, { view: e.view });
+  const row = App.shown.peek().item(App.chart.peek(), id).at(-1), read = Scene.readWords(text ?? '', e.record, Scene.reader(App.state.peek(), App.notes.peek(), App.computed.peek(), App.day.peek()));
+  if (Scene.textFit(row.format, row.geometry) !== 'grow') return;
+  const standing = partsNow(sc, e).map(p => App.shown.peek().item(App.chart.peek(), p.id).at(-1)), format = draftFormat({ ...row, text }, b, sc, standing);
+  const height = roundUp(Scene.shapeOf({ ...row, x: q.x, y: q.y, w: q.w, text: read, format }, sc).h), growth = Math.max(0, height - q.h);
+  const following = growth > 0.01 && b.design?.value.layout !== 'free' ? partsNow(sc, e).filter(p => p.id !== id && p.geometry === 'text' && p.y >= q.y + q.h - 1 && p.x < q.x + q.w && p.x + p.w > q.x) : [];
+  // Font metrics are fractional while authored coordinates use half units. Round growth
+  // outward and retain a nonnegative gap, so successive edits cannot detach a following row.
+  const moved = following.map(p => ({ p, y: roundUp(Math.max(p.y + growth, q.y + height)) }));
+  if (growth > 0.01) {
+    tx.update(id, { h: height, flow: heightFlow(row, e.stands.get(row.part)?.h ?? row.h, height) });
+    for (const { p, y } of moved) { const r = App.shown.peek().item(App.chart.peek(), p.id).at(-1); tx.update(p.id, { y, flow: { ...r.flow, y: (r.flow?.y ?? 0) + y - r.y } }); }
+  }
+  const foot = Math.max(q.y + height, ...moved.map(({ p, y }) => y + p.h)), v = App.notes.peek().resolve('Position', treeOf(e.record), e.view)?.value;
+  if (foot > b.y + b.h && v) { const h = roundUp(foot - b.y); tx.note('Position', treeOf(e.record), { ...v, h, flow: heightFlow(v, e.H, h) }, { view: e.view }); }
 }
 // A row dropped on what's being edited: on a part, its token; on the box, a new text part, at the size the page gives that field.
 function dropped(q, edge, at) {
   const e = editing.peek();
   if (!e) return null;
-  const token = `{${edge}}`, row = App.shown.peek().item(App.chart.peek(), q.id)[0];
-  if (q.type === 'shape' && row && !row.rest) return App.change(tx => tx.update(q.id, { text: row.text ? `${row.text}\n${token}` : token }), { dated: false, say: `Put ${edge} in the part` });
+  const token = TextTemplate.field(edge), row = App.shown.peek().item(App.chart.peek(), q.id)[0];
+  if (acceptsField(q, row)) return App.change(tx => { const text = TextTemplate.append(row.text, edge); tx.update(q.id, { text }); holdWords(tx, q.id, text); }, { dated: false, say: `Put ${edge} in the part` });
   const sc = canvas().scene(), b = sc.byId.get(e.box);
-  return App.change(tx => { addPart(tx, sc, e, b, at, token); }, { dated: false, say: `Put ${edge} in the design` });
+  let made;
+  const change = App.change(tx => { made = addPart(tx, sc, e, b, at, token); }, { dated: false, say: `Put ${edge} in the design` });
+  if (change && made) Shell.select([made]);
+  return change;
 }
 // Words begun on the box being edited (Text in this box, its right-click, a double-click in its room, Insert's text box): one more part, typed straight in; left empty, it goes.
 function addWords() {
@@ -398,6 +553,7 @@ function addWords() {
 // ---- The panel, while a design is edited: its parts by name, a click from each, dragged to reorder; and a part's words ----
 // A part as it stands on the page, in shares of its box, so it's called what it is.
 const nameOf = (row, b) => Scene.partName({ ...row, w: (row.w ?? 0) / (b?.w || 1), h: (row.h ?? 0) / (b?.h || 1) });
+const acceptsField = (q, row) => q?.type === 'shape' && row && !row.rest && !TextTemplate.formula(row.text) && !['line', 'picture', 'group', 'legend', 'table'].includes(q.geometry);
 function Parts() {
   App.scene.value;
   const e = editing.value, c = canvas(), sc = c?.scene(), [naming, setNaming] = useState(null), [drop, setDrop] = useState(null), self = useRef(null);
@@ -406,7 +562,7 @@ function Parts() {
   if (!e || !sc) return null;
   const keys = Shell.selection.value, b = sc.byId.get(e.box), shown = App.shown.peek(), chart = App.chart.peek();
   const rowOf = id => shown.item(chart, id).at(-1), list = [...partsNow(sc, e)].reverse();
-  const pick = q => { Shell.select([q.id]); c.root.focus({ preventScroll: true }); };
+  const pick = q => { if (typeof CanvasWords !== 'undefined' && CanvasWords.close() === false) return; Shell.select([q.id]); c.root.focus({ preventScroll: true }); };
   const name = (q, v) => { setNaming(null); const t = Tree.clean(v ?? ''); if (t !== (rowOf(q.id)?.name ?? '')) App.change(tx => tx.update(q.id, { name: t || undefined }), { dated: false, say: t ? `Named the part ${t}` : 'Took the part’s name off' }); };
   const grab = (ev, q) => {
     if (ev.button !== 0 || ev.target.closest('button, input')) return;
@@ -417,60 +573,129 @@ function Parts() {
     addEventListener('pointermove', move, true); addEventListener('pointerup', up, true);
   };
   const drawn = q => q.geometry === 'text' ? 'T' : null;
-  return html`<div class="insp parts-of" role="region" aria-label="Parts" ref=${self}>
-    <h3 class="sect"><span class="fold-ish">Parts</span></h3>
+  const layout = b?.design?.value.layout ?? 'stack', setLayout = value => App.change(tx => {
+    const at = treeOf(e.record), was = App.notes.peek().resolve('Design', at, e.view)?.value;
+    if (was?.editing) tx.note('Design', at, { ...was, layout: value }, { view: e.view });
+  }, { dated: false, say: `Changed the card layout to ${value === 'free' ? 'free position' : 'stack text'}` });
+  return html`<div class="insp parts-of" role="region" aria-label="Design editor" ref=${self}>
+    <div class="design-reach"><strong>${e.whom}</strong><p>${e.reach}</p></div>
+    <label class="design-layout"><span>Layout</span><select class="cell" aria-label="Card layout" value=${layout} disabled=${App.readOnly.value} onChange=${ev => setLayout(ev.target.value)}><option value="stack">Stack text</option><option value="free">Free position</option></select></label>
+    <${Fields} />
+    <h3 class="sect"><span class="fold-ish">Layers</span><button type="button" class="btn ghost" onClick=${addWords}>Add text</button></h3>
     <div class="dc-panerows part-rows" role="list">
-      ${list.map(q => { const row = rowOf(q.id) ?? {}, said = nameOf(row, b); return html`<div class=${'row' + (keys.includes(q.id) ? ' on' : '') + (drop?.on === q.id ? (drop.after ? ' dropabove' : ' dropbelow') : '')} data-part=${q.id} role="listitem" key=${q.id} onClick=${() => pick(q)} onPointerDown=${ev => grab(ev, q)} onDblClick=${() => setNaming(q.id)}>
+      ${list.map(q => { const row = rowOf(q.id) ?? {}, said = nameOf(row, b); return html`<div class=${'row' + (keys.includes(q.id) ? ' on' : '') + (drop?.on === q.id ? (drop.after ? ' dropabove' : ' dropbelow') : '')} data-part=${q.id} role="listitem" tabindex="0" aria-label=${`Select ${said}`} key=${q.id} onClick=${() => pick(q)} onPointerDown=${ev => grab(ev, q)} onDblClick=${() => setNaming(q.id)} onKeyDown=${ev => { if (ev.target.matches('input')) return; if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(q); } else if (ev.key === 'F2') { ev.preventDefault(); setNaming(q.id); } }}>
         <span class="glyph" aria-hidden="true">${drawn(q) ?? html`<svg viewBox="0 0 14 14"><path d=${Scene.path(q.geometry === 'line' ? 'rect' : q.geometry, 12, q.geometry === 'line' ? 0.1 : 10)} transform="translate(1 2)" fill="none" stroke="currentColor" /></svg>`}</span>
         ${naming === q.id ? html`<input class="cell" value=${said} aria-label="Name" ref=${el => el && !el.dataset.on && (el.dataset.on = 1, el.focus(), el.select())} onBlur=${x => name(q, x.target.value)} onKeyDown=${x => { x.stopPropagation(); if (x.key === 'Enter') x.target.blur(); if (x.key === 'Escape') setNaming(null); }} />` : html`<span class="nm">${said}</span>`}
       </div>`; })}
-      <div class=${'row base' + (keys.includes(e.box) ? ' on' : '')} role="listitem" onClick=${() => { Shell.select([e.box]); c.root.focus({ preventScroll: true }); }}><span class="glyph" aria-hidden="true"><svg viewBox="0 0 14 14"><path d=${Scene.path(b?.shape ?? 'rect', 12, 10)} transform="translate(1 2)" fill="none" stroke="currentColor" /></svg></span><span class="nm">The box</span></div>
+      <div class=${'row base' + (keys.includes(e.box) ? ' on' : '')} role="listitem" tabindex="0" aria-label="Select card background" onClick=${() => pick(b)} onKeyDown=${ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); pick(b); } }}><span class="glyph" aria-hidden="true"><svg viewBox="0 0 14 14"><path d=${Scene.path(b?.shape ?? 'rect', 12, 10)} transform="translate(1 2)" fill="none" stroke="currentColor" /></svg></span><span class="nm">Card background</span></div>
     </div>
   </div>`;
 }
+// Fields remain available when a layer is selected. The list reads the same resolver as the canvas,
+// and insertion uses the existing text editor or canvas drop command instead of a second binding path.
+function Fields() {
+  App.scene.value; Shell.selection.value;
+  const e = editing.value, c = canvas(), sc = c?.scene(), b = sc?.byId.get(e?.box);
+  if (!e || !b) return null;
+  const rowOf = id => App.shown.peek().item(App.chart.peek(), id).at(-1);
+  const all = Scene.readable(App.state.peek(), App.notes.peek(), App.schema.peek(), e.record);
+  const used = new Set(partsNow(sc, e).flatMap(q => TextTemplate.fields(rowOf(q.id)?.text)).map(x => Tree.norm(x.split('|')[0])));
+  const read = Scene.reader(App.state.peek(), App.notes.peek(), App.computed.peek(), App.day.peek());
+  const labels = new Map(all.map(f => [Tree.norm(f.label), f]));
+  for (const f of e.newFields.values()) if (!labels.has(Tree.norm(f.label))) labels.set(Tree.norm(f.label), { label: f.label, fresh: true });
+  const fields = [...labels.values()].map(f => ({ ...f, related: !!f.of, value: read(e.record, f.label).text, used: used.has(Tree.norm(f.label)) }));
+  const selected = c.selected().find(q => acceptsField(q, rowOf(q.id)));
+  const inline = () => typeof CanvasWords !== 'undefined' && CanvasWords.active.peek();
+  const insert = label => {
+    if (App.readOnly.peek() || editing.peek() !== e) return;
+    if (selected && inline()?.id === selected.id && CanvasWords.insert(label)) return;
+    const editor = selected && document.querySelector('.inspector .words-in');
+    if (editor && !editor.dispatchEvent(new CustomEvent('dendra:insert-field', { detail: label, cancelable: true }))) return;
+    dropped(selected ?? b, label, null);
+  };
+  const drag = (ev, field) => {
+    if (ev.button !== 0 || App.readOnly.peek()) return;
+    ev.preventDefault();
+    const x0 = ev.clientX, y0 = ev.clientY;
+    let ghost = null, over = null;
+    const clear = () => { removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', cancel); removeEventListener('keydown', escape, true); ghost?.remove(); document.body.classList.remove('carrying'); c.fields.over(null); };
+    const move = x => {
+      if (!ghost && Math.hypot(x.clientX - x0, x.clientY - y0) < 4) return;
+      if (!ghost) { if (inline()) CanvasWords.flush(); else document.querySelector('.inspector .words-in')?.dispatchEvent(new CustomEvent('dendra:commit-text')); }
+      ghost ??= document.body.appendChild(Object.assign(document.createElement('div'), { className: 'drag-field', textContent: field.label }));
+      const on = !!document.elementFromPoint(x.clientX, x.clientY)?.closest('.dc');
+      ghost.hidden = !on; Object.assign(ghost.style, { left: `${x.clientX + 12}px`, top: `${x.clientY + 10}px` });
+      document.body.classList.toggle('carrying', on); over = on ? c.fields.over(x.clientX, x.clientY) : (c.fields.over(null), null);
+    };
+    const up = point => {
+      if (editing.peek() === e) {
+        const active = inline(), inside = active?.element.contains(document.elementFromPoint(point.clientX, point.clientY));
+        if (!(inside && selected?.id === active.id && CanvasWords.insert(field.label, { x: point.clientX, y: point.clientY })) && over) c.fields.drop(field.label);
+      }
+      clear();
+    };
+    const cancel = () => clear(), escape = x => { if (x.key === 'Escape') { x.preventDefault(); x.stopPropagation(); clear(); } };
+    addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', cancel); addEventListener('keydown', escape, true);
+  };
+  return html`<${FieldPalette} fields=${fields} insert=${insert} drag=${drag} create=${async query => { const label = await createField(query); if (label) insert(label); }} readOnly=${App.readOnly.value} target=${selected ? 'the selected text' : 'a new text layer'} />`;
+}
 // What a part's words can read, the box's it's being edited over.
-const offeredNow = () => { const e = editing.peek(); return e ? Scene.readable(App.state.peek(), App.notes.peek(), App.schema.peek(), e.record).map(x => x.label) : []; };
+const offeredNow = () => {
+  const e = editing.peek(), record = e?.record ?? boxNow()?.record;
+  const labels = record ? Scene.readable(App.state.peek(), App.notes.peek(), App.schema.peek(), record).map(x => x.label) : ['Name', ...Object.values(App.schema.peek()).filter(s => s.args?.length === 1 && s.args[0].loc.kind).map(s => s.args[0].edge)];
+  return [...new Set([...labels, ...[...e?.newFields?.values() ?? []].map(f => f.label)])];
+};
 // The same for a list to pick from: its name, then who's over it that it has, by name, for that's what's hard to guess; then all else.
 const pickNow = () => {
-  const e = editing.peek(); if (!e) return [];
+  const e = editing.peek(); if (!e) return offeredNow();
   const st = App.state.peek(), N = App.notes.peek(), all = Scene.readable(st, N, App.schema.peek(), e.record), has = new Set(Scene.listsAt(st, N, e.record).map(l => Tree.norm(l.name)));
-  const own = all.filter(x => !x.of).map(x => x.label), near = all.filter(x => x.first && has.has(Tree.norm(x.of))).map(x => x.label), far = all.filter(x => x.of && !near.includes(x.label)).map(x => x.label);
+  const own = [...all.filter(x => !x.of).map(x => x.label), ...[...e.newFields.values()].map(f => f.label)], near = all.filter(x => x.first && has.has(Tree.norm(x.of))).map(x => x.label), far = all.filter(x => x.of && !near.includes(x.label)).map(x => x.label);
   return [...own.slice(0, 1), ...near, { head: 'Its own' }, ...own.slice(1), ...(far.length ? [{ head: 'Over it' }, ...far] : [])];
 };
-const TOKENS = /(\{[^{}\n]+\})/;
-const chipOf = token => { const el = document.createElement('span'); el.className = 'word-chip'; el.contentEditable = 'false'; el.dataset.token = token; el.textContent = Scene.partName({ text: `{${token}}` }); return el; };
-// The words of what's being edited: each field in them a chip that says what it is ("Name, as initials"), clicked for a list of what else it could be, or taken out; words typed between, and a `{` typed offers the fields in reach; Field beside them adds one. What's left says what's kept. A formula is its text, as typed.
-function Words({ text, put, label = 'Text' }) {
-  const box = useRef(null), [list, setList] = useState(null), still = App.readOnly.value;
-  const formula = /^\s*=/.test(text ?? '');
-  const paint = t => { const el = box.current; if (!el) return; el.replaceChildren(...(/^\s*=/.test(t) ? [t] : String(t).split(TOKENS)).filter(Boolean).map(s => TOKENS.test(s) && !/^\s*=/.test(t) ? chipOf(s.slice(1, -1)) : document.createTextNode(s))); };
-  const read = () => { let out = ''; const walk = n => { for (const k of n.childNodes) { if (k.nodeType === 3) out += k.data; else if (k.dataset?.token) out += `{${k.dataset.token}}`; else if (k.nodeName === 'BR') out += '\n'; else { if (out && !out.endsWith('\n')) out += '\n'; walk(k); } } }; walk(box.current); return out.replace(/\n+$/, ''); };
-  useLayoutEffect(() => { if (document.activeElement !== box.current) paint(text ?? ''); }, [text]);
-  const commit = () => { const t = read(); if (t.trim() !== String(text ?? '').trim()) put(t.trim()); };
-  // A field chosen: for a chip (by its place among them, as it may have been drawn again), in its place; else at the caret, or at the end.
-  const chipAt = i => box.current?.querySelectorAll('.word-chip')[i];
-  const insert = (label, at = -1) => {
-    const el = box.current, one = chipOf(label);
-    if (at >= 0) chipAt(at)?.replaceWith(one);
-    else { const s = getSelection(), r = s.rangeCount && el.contains(s.anchorNode) ? s.getRangeAt(0) : null; if (r) { r.deleteContents(); r.insertNode(one); r.setStartAfter(one); r.collapse(true); s.removeAllRanges(); s.addRange(r); } else el.append(one); }
-    commit();
+// Record/schema work stays in this adapter. The editor itself knows only offered labels and text.
+async function createField(suggested, live = null) {
+  let name = suggested ?? '', datatype = 'text', options = '';
+  const session = editing.peek(), chart = App.chart.peek();
+  const target = live ?? session, staged = target?.newFields;
+  const schema = () => live?.schema ?? App.schema.peek();
+  const optionsOf = () => [...new Map(options.split(',').map(Tree.clean).filter(Boolean).map(x => [Tree.norm(x), x])).values()];
+  const described = label => staged?.get(Tree.norm(label)) ?? (live
+    ? DesignSchema.fields([{ text: TextTemplate.field(label) }], schema(), { kind: live.state[live.record]?.kind, readable: Scene.readable(live.state, live.notes, schema(), live.record) })
+    : fieldsOf([{ text: TextTemplate.field(label) }], session?.record)).find(f => Tree.same(f.label, label));
+  const adopt = () => { const f = described(Tree.clean(name)); if (f?.templates?.length || f?.linked || staged?.has(Tree.norm(name))) { datatype = f.datatype; options = (f.outputs ?? []).filter(o => 'choice' in o).map(o => o.choice).join(', '); } };
+  const plan = () => {
+    const label = Tree.clean(name), known = described(label), outputs = datatype === 'choice' ? optionsOf().map(choice => ({ choice })) : datatype === 'tag' ? [{ tag: true }, { tag: false }] : [{ field: datatype }];
+    const field = { ...known, label, paths: known?.paths ?? [label], datatype, outputs,
+      ...(known?.templates?.length && { templates: known.templates.flatMap(t => outputs.map(out => ({ ...t, out }))) }) };
+    const error = !label ? 'Enter a field name.' : /[{}|\n]/.test(name) ? 'Use a name without braces or a vertical bar.'
+      : name.includes('›') && !known?.templates?.length && !known?.linked ? 'Choose an existing nested field from Fields.'
+      : datatype === 'choice' && !outputs.length ? 'Enter at least one option.'
+      : target ? DesignSchema.declarations(schema(), target.kinds, [...staged.values()].filter(f => !Tree.same(f.label, label)).concat(field)).error : null;
+    return { field, error };
   };
-  const fields = (now, at) => q => { const k = Tree.norm(q ?? ''), bare = now?.split('|')[0].trim(), row = l => l.head ? l : ({ label: l, ...(now && { checked: Tree.same(l, bare) }), run: () => insert(now?.includes('|') ? `${l}|initials` : l, at) }); return [...(now && !k ? [{ label: 'As initials', checked: now.includes('|initials'), run: () => insert(now.includes('|') ? bare : `${bare}|initials`, at) }, { label: 'Take it out', run: () => { chipAt(at)?.remove(); commit(); } }, '-'] : []), ...pickNow().filter(l => l.head ? !k : Tree.norm(l).includes(k)).map(row)]; };
-  const clicked = ev => { const chip = ev.target.closest?.('.word-chip'); if (!chip || still) return; ev.preventDefault(); const r = chip.getBoundingClientRect(), all = [...box.current.querySelectorAll('.word-chip')]; Shell.menu({ x: r.left, y: r.bottom + 2 }, fields(chip.dataset.token, all.indexOf(chip)), { search: true }); };
-  // A `{` typed: the fields in reach, narrowed as it goes on, the arrows moving in them, Enter or Tab putting one in.
-  const typedBefore = () => { const s = getSelection(); if (!s.rangeCount || !box.current.contains(s.anchorNode) || s.anchorNode.nodeType !== 3) return null; const m = /\{([^{}\n]*)$/.exec(s.anchorNode.data.slice(0, s.anchorOffset)); return m ? { node: s.anchorNode, at: s.anchorOffset, m } : null; };
-  const look = () => { const b = typedBefore(); if (!b) return setList(null); const q = Tree.norm(b.m[1]), items = offeredNow().filter(l => Tree.norm(l).includes(q)); setList(items.length ? { items, on: 0 } : null); };
-  const take = l => { const b = typedBefore(); if (!b) return setList(null); const r = document.createRange(); r.setStart(b.node, b.at - b.m[0].length); r.setEnd(b.node, b.at); r.deleteContents(); const one = chipOf(l); r.insertNode(one); r.setStartAfter(one); r.collapse(true); const s = getSelection(); s.removeAllRanges(); s.addRange(r); setList(null); };
-  const key = ev => {
-    if (list && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')) { ev.preventDefault(); setList({ ...list, on: (list.on + (ev.key === 'ArrowDown' ? 1 : list.items.length - 1)) % list.items.length }); }
-    else if (list && (ev.key === 'Enter' || ev.key === 'Tab')) { ev.preventDefault(); take(list.items[list.on]); }
-    else if (ev.key === 'Escape') { ev.stopPropagation(); if (list) setList(null); else { paint(text ?? ''); box.current.blur(); } }
-  };
-  return html`<span class="part-words">
-    <div class="cell words-in" ref=${box} role="textbox" aria-label=${label} aria-multiline="true" data-ph="Text" contenteditable=${still ? 'false' : 'plaintext-only'} spellcheck="false" onInput=${look} onKeyDown=${key} onClick=${clicked} onBlur=${() => setTimeout(() => { if (document.activeElement !== box.current && !box.current?.closest('.part-words')?.querySelector('.dc-complete:hover')) { setList(null); if (box.current) commit(); } })} />
-    ${list ? html`<div class="dc-complete" role="listbox">${list.items.map((l, i) => html`<div class=${'menu-item' + (i === list.on ? ' on' : '')} role="option" onPointerDown=${ev => { ev.preventDefault(); take(l); }}>${l}</div>`)}</div>` : null}
-    ${still || formula ? null : html`<button type="button" class="btn ghost add-field" onMouseDown=${ev => ev.preventDefault()} onClick=${ev => Shell.menu(ev.currentTarget, fields(null, -1), { search: true })}>${Shell.icon('plus')}Field</button>`}
-  </span>`;
+  adopt();
+  function NewField() {
+    const [, refresh] = useState(0), input = useRef(null), { field, error } = plan(), redraw = () => refresh(n => n + 1);
+    useLayoutEffect(() => { input.current?.setCustomValidity(error ?? ''); }, [error]);
+    return html`<div class="settings design-field-create"><label class="field"><span>Field name</span><input ref=${input} aria-label="Field name" required autofocus autocomplete="off" placeholder="e.g. Role or Capacity" value=${name} onInput=${e => { name = e.target.value; adopt(); redraw(); }} /></label>
+      ${target ? html`<label class="field"><span>Type</span><select aria-label="Field type" disabled=${field.linked} value=${datatype} onChange=${e => { datatype = e.target.value; redraw(); }}>${Object.entries(Tree.DATATYPES).map(([key, label]) => html`<option value=${key}>${label}</option>`)}<option value="choice">Choice</option><option value="tag">Yes / No</option></select></label>
+        ${datatype === 'choice' ? html`<label class="field field-options"><span>Options</span><input aria-label="Field options" required disabled=${field.linked} placeholder="e.g. North, South" value=${options} onInput=${e => { options = e.target.value; redraw(); }} /></label><p class="design-help">Separate choices with commas. Existing options are kept.</p>` : null}
+        <p class="design-help">${field.linked ? 'This field reads a related object. Its definition stays with that object.' : live ? 'The field definition and its place in this paragraph are saved together.' : 'The field is saved with the design when you choose Done.'}</p>
+        ${live?.summary ? html`<p class="design-help">${live.summary}</p>` : null}` : html`<p class="design-help">Choose its data type when you save this drawing as an object type.</p>`}
+      ${error && Tree.clean(name) ? html`<p class="err" role="alert">${error}</p>` : null}
+    </div>`;
+  }
+  const ok = await Shell.dialog({ title: 'New merge field', width: 360, actions: [{ label: 'Cancel', value: false }, { label: 'Insert field', value: true, primary: true }], body: () => html`<${NewField} />` });
+  if (!ok || App.readOnly.peek() || App.chart.peek() !== chart || editing.peek() !== session || (live && !live.valid())) return null;
+  const { field, error } = plan();
+  if (error) return null;
+  // Explicit reuse is a declaration request too: a design may also reach kinds missing this field.
+  // Relative fields only insert a token; they never become fields on the current object.
+  if (target && !field.linked) staged.set(Tree.norm(field.label), field);
+  return field.label;
+}
+function Words({ text, runs, put, label = 'Text', createField: create = createField, ...editorProps }) {
+  return h(WordsEditor, { ...editorProps, text, runs, put, label, offered: pickNow(), createField: create, readOnly: App.readOnly.value, fieldLabel: token => Scene.partName({ text: TextTemplate.field(token) }) });
 }
 // What the part the other fields go in holds now: each field no other part names, as a chip; and, clicked, given a part of its own.
 function Holds() {
@@ -533,5 +758,5 @@ for (const [id, name, names, run, enabled, why] of [
   ['design.discard', 'Discard the changes to the design', ['Cancel the design'], () => leave(false), () => !!editing.peek(), () => 'No design is being edited'],
 ]) Shell.register('action', { id, name, names, run, enabled, why });
 
-return { open, say, atPen, tokenIn, reset, edit, make, items, makes, dropped, addWords, holdWords, editRow, editing, leave, forRecord, Parts, Words, Holds, nameOf: row => { const e = editing.peek(), b = e && canvas()?.scene()?.byId.get(e.box); return nameOf(row, b); } };
+return { open, say, scope, ScopeSummary, atPen, tokenIn, reset, canUseShared, useShared, editShared, edit, make, items, makes, dropped, addWords, holdWords, editRow, editing, leave, forRecord, Parts, Words, Holds, createField, nameOf: row => { const e = editing.peek(), b = e && canvas()?.scene()?.byId.get(e.box); return nameOf(row, b); } };
 })();

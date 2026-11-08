@@ -868,10 +868,10 @@ const Shell = (() => {
   const naming = signal(null);
   let namedThen = null;
   const nameChart = o => { const id = part('workbook')?.current(); if (id && !App.readOnly.peek()) { closeAll(); namedThen = o?.then ?? null; naming.value = id; } };
-  // A chart just begun lands naming its first box, of its first kind, the chip beside it saying which: the way in, not a button to find. Esc leaves Add a box.
+  // A blank chart offers one clear starting action. Drawing tools remain immediately available.
   function firstBox(tries = 40) {
     const c = part('canvas'), drawn = c?.active?.()?.scene?.();
-    if (drawn && App.scene.peek() && current.peek()?.layout === 'chart' && drawn.view === current.peek().id) { if (!App.readOnly.peek() && !App.scene.peek().marks.some(m => m.type === 'box')) c.kinds?.()[0]?.run(); return; }
+    if (drawn && App.scene.peek() && current.peek()?.layout === 'chart' && drawn.view === current.peek().id) { if (!App.readOnly.peek() && !App.scene.peek().marks.some(m => m.type === 'box')) c.active().root.querySelector('.dc-empty button')?.focus({ preventScroll: true }); return; }
     if (tries) setTimeout(() => firstBox(tries - 1), 50);
   }
   effect(() => { const id = part('workbook')?.current(); if (naming.peek() && naming.peek() !== id) naming.value = null; });
@@ -920,7 +920,8 @@ const Shell = (() => {
     const u = part('undo'), t = time.value;
     return html`<header class="titlebar" data-region="title">
       <div class="left">${naming.value ? html`<${Naming} key=${naming.value} />` : html`<button class="btn ghost dd chartmenu" aria-haspopup="menu" onPointerOver=${whole}
-        ref=${el => { if (el && refocus) { refocus = false; el.focus(); } }} onClick=${e => menu(e.currentTarget, chartMenu)} onDblClick=${nameChart}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button>`}${part('keeping')?.render()}</div>
+        ref=${el => { if (el && refocus) { refocus = false; el.focus(); } }} onClick=${e => menu(e.currentTarget, chartMenu)} onDblClick=${nameChart}>${mark}<span class="name">${chartName.value || 'Dendra'}</span></button>`}${part('keeping')?.render()}
+        ${typeof Gallery !== 'undefined' ? html`<button class="btn ghost new-chart" aria-label="New chart" disabled=${App.readOnly.value || (typeof Designs !== 'undefined' && !!Designs.editing.value)} data-tip=${typeof Designs !== 'undefined' && Designs.editing.value ? 'Finish the design first: Done or Discard' : null} onClick=${() => Gallery.open()}>${icon('plus')}<span>New chart</span></button>` : null}</div>
       <button class="find" aria-haspopup="menu" ref=${el => { findButton = el; }} onClick=${() => find()}><span>Find</span><kbd>${keyLabel('$mod+KeyK')}</kbd></button>
       <div class="right">
         ${part('time') ? html`<span class=${'asof' + (t ? ' past' : '')}><button class="btn ghost dd" aria-haspopup="dialog" onClick=${e => popover(e.currentTarget, close => html`<${part('time').When} close=${close} />`, { placement: 'bottom-end' })}>${fmtTime(t)}</button>${part('time').away()
@@ -983,7 +984,7 @@ const Shell = (() => {
         <${Bar} kind="formulabar" />
         <${Host} kind="canvas" hidden=${layout !== 'chart'} />
         <${Host} kind="table" hidden=${layout !== 'table'} />
-        ${bare ? html`<div class="empty void">${kinds().length === 1 ? html`<button class="btn" onClick=${() => kinds()[0].run()}>Add a box</button>`
+        ${bare && layout !== 'chart' ? html`<div class="empty void">${kinds().length === 1 ? html`<button class="btn" onClick=${() => kinds()[0].run()}>Add a box</button>`
           : html`<button class="btn dd" aria-haspopup="menu" onClick=${e => menu(e.currentTarget, kinds(), { placement: 'bottom' })}>Add a box</button>`}</div>` : null}
         ${part('time') ? h(part('time').Band) : null}
         ${h(App.LookBand)}

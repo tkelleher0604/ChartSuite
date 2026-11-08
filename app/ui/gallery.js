@@ -74,14 +74,15 @@ const Gallery = (() => {
     </div>`;
   }
   // Begins what's chosen, on Blank till another is. `workbook`, in a workbook of its own, as it's asked; it says where it goes. → the change, or nothing where it's left.
-  async function open({ workbook = false, then = null, title = workbook ? 'New workbook' : 'New chart' } = {}) {
+  async function open({ workbook = false, then = null, first = false, title = workbook ? 'New workbook' : 'New chart' } = {}) {
+    if (typeof Designs !== 'undefined' && Designs.editing.peek()) { Shell.toast('Finish the design first: Done or Discard'); return; }
     if (!workbook && App.readOnly.peek()) return Shell.toast(App.whyNot());
-    const shown = !!App.chart.peek();
+    const shown = !!App.chart.peek() && !first;
     const cards = [...Templates.list().map(t => ({ id: t.id, name: t.name, draw: () => drawingOf(t) })), ...(shown ? [{ id: LIKE, name: 'Like this chart', draw: drawingOfShown }] : [])];
     const choice = { at: cards[0].id, name: '', style: null, workbook };
     const book = await App.bookName?.();
-    const go = await Shell.dialog({ title, width: 880, actions: [{ label: 'Cancel', value: false }, { label: 'Begin', value: true, primary: true }],
-      body: settle => html`<${Body} cards=${cards} choice=${choice} book=${App.readOnly.peek() ? null : book} begin=${() => settle(true)} />` });
+    const go = await Shell.dialog({ title, width: 880, actions: [{ label: first ? 'Explore the example' : 'Cancel', value: false }, { label: first ? 'Create chart' : 'Begin', value: true, primary: true }],
+      body: settle => html`${first ? html`<p class="gallery-intro">Start with a blank canvas, or choose a structure with fields and connections ready to use.</p>` : null}<${Body} cards=${cards} choice=${choice} book=${first || App.readOnly.peek() ? null : book} begin=${() => settle(true)} />` });
     if (!go) return;
     const style = choice.style && FormatBar.houseStyles().find(s => s.name === choice.style)?.look;
     const made = await App.begin({ template: choice.at === LIKE ? null : choice.at, style: style ?? null, name: choice.name, workbook: choice.workbook });

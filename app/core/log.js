@@ -341,15 +341,15 @@ function open(data) {
     };
     const tx = {
       reword,
-      add(type, payload, id = name()) { put({ id: newId(), [type]: id, ...payload, ...(type === 'record' && day && { since: day }) }); return id; },
-      set(id, payload) {
+      add(type, payload, id = name(), on = day) { put({ id: newId(), [type]: id, ...payload, ...(type === 'record' && on && { since: on }) }); return id; },
+      set(id, payload, on = day) {
         const rs = items.get(id);
         if (!rs) return;
         const type = typeOf(rs[0]), fresh = extra => put({ id: newId(), [type]: id, ...payload, ...extra });
         if (type !== 'record') { rs.slice().forEach(drop); return fresh({}); }
-        const r = rs.find(x => validOn(x, day ?? today())) ?? latest(rs);
+        const r = rs.find(x => validOn(x, on ?? today())) ?? latest(rs);
         drop(r);
-        if (day && validOn(r, day) && r.since !== day) { put({ ...r, id: newId(), before: day }); fresh({ since: day, ...(r.before && { before: r.before }) }); }
+        if (on && validOn(r, on) && r.since !== on) { put({ ...r, id: newId(), before: on }); fresh({ since: on, ...(r.before && { before: r.before }) }); }
         else fresh({ ...(r.since && { since: r.since }), ...(r.before && { before: r.before }) });
       },
       // Removing, on the transaction's day or on the day given (null for none): what a deletion that asks its own
@@ -421,13 +421,21 @@ function open(data) {
         if (label === 'Name' && !view && typeof old?.value === 'string' && typeof value === 'string') reword(old.value, value);
       },
       // A new version with these changes: of a record, the version in force on the day.
-      update(id, changes) {
+      update(id, changes, on = day) {
         const rs = items.get(id);
         if (!rs) return;
-        const type = typeOf(rs[0]), r = type === 'record' ? rs.find(x => validOn(x, day ?? today())) ?? latest(rs) : rs[0];
+        const type = typeOf(rs[0]), r = type === 'record' ? rs.find(x => validOn(x, on ?? today())) ?? latest(rs) : rs[0];
         const { id: _, [type]: __, since, before, ...p } = r;
-        tx.set(id, { ...p, ...changes });
+        tx.set(id, { ...p, ...changes }, on);
       },
+      // A local effective day, sharing this transaction's rows, identifiers and single Undo.
+      // Fixed facts can be corrected alongside dated values without changing the parent's day.
+      at(on) { return Object.assign(Object.create(tx), {
+        add: (type, payload, id) => tx.add(type, payload, id, on),
+        set: (id, payload) => tx.set(id, payload, on),
+        update: (id, changes) => tx.update(id, changes, on),
+        remove: (id, when = on) => tx.remove(id, when),
+      }); },
       // Settles a disagreement by keeping this row: the rows that disagree with it go.
       keep(rowId) {
         const g = disagreements(c).find(x => x.rows.some(y => y.row.id === rowId));

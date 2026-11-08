@@ -146,6 +146,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* Typing in place: over a mark; widening as it's typed, a text box nobody has sized; a new box, "New entity" till
    its name is typed, and its kind beside it, chosen there. */
 .dc-edit { position: absolute; z-index: 3; box-sizing: border-box; outline: 1px solid var(--accent); background: #fff; white-space: pre-wrap; overflow-wrap: break-word; cursor: text; }
+.dc-edit[aria-invalid="true"] { outline: 2px solid var(--no); }
 .dc-edit.grow { white-space: pre; overflow-wrap: normal; }
 .dc-edit-marks { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
 .dc-edit-marks > span { position: absolute; white-space: pre; }
@@ -167,6 +168,18 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 .linkform .row { display: grid; grid-template-columns: 72px 1fr; align-items: center; gap: 8px; }
 .linkform .acts { display: flex; justify-content: flex-end; gap: 6px; padding-top: 4px; }
 .dc-edit.new:empty::before { content: attr(data-ph); color: #8a8f8a; font-weight: 400; }
+.dc-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; pointer-events: none; }
+.dc-empty[hidden] { display: none; }
+.dc.drawing .dc-empty { display: none; }
+.dc-empty button { pointer-events: auto; padding: 9px 16px; border: 1px solid var(--rule-2); background: var(--surface); }
+.dc-empty .design-card { margin-top: 8px; padding: 4px 8px; border-color: transparent; background: transparent; color: var(--ink-2); }
+.dc-empty > span { color: var(--ink-3); font-size: 12px; }
+.fb .add-object { gap: 4px; }
+.design-save .design-fields { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--rule-2); }
+.design-save .design-fields .head { margin-bottom: 8px; font-weight: 600; }
+.design-prompt { padding: 12px 20px 0; }
+.design-prompt .btn { width: 100%; justify-content: center; border: 1px solid var(--rule-2); }
+.design-prompt p { margin: 8px 0 0; color: var(--ink-3); font-size: 12px; line-height: 1.4; }
 .dc-kind { position: absolute; z-index: 4; height: 26px; padding: 0 8px 0 10px; gap: 6px; font: var(--t12); background-color: var(--surface); }
 .dc-kinds { position: absolute; z-index: 5; min-width: 160px; }
 .dc-kinds > .menu-item:hover { background: var(--hover); }
@@ -220,7 +233,7 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 /* Each width a step, whatever's selected: the font list gives way first, then the scope a little, then what has a key or a place in Find. */
 @container (max-width: 1400px) { .fb .font { width: 104px; } .fb .arrange > span { display: none; } .fb .arrange > svg { display: block; } }
 @container (max-width: 1310px) { .fb > .sep { margin: 0 3px; } .fb .font { width: 84px; } .fb .scope { width: 208px; } .fb [data-fb="grow"], .fb [data-fb="shrink"] { display: none; } }
-@container (max-width: 1130px) { .fb .font { width: 64px; } .fb .scope { width: 176px; } .fb [data-fb="underline"], .fb [data-fb="strike"], .fb [data-fb="paragraph"] { display: none; } }
+@container (max-width: 1130px) { .fb .font { width: 64px; } .fb .scope { width: 176px; } .fb [data-fb="underline"], .fb [data-fb="strike"] { display: none; } }
 @container (max-width: 1010px) { .fb > .sep { margin: 0 2px; } .fb [data-fb="painter"], .fb [data-fb="clear"], .fb [data-fb="shape"] { display: none; } }
 @container (max-width: 880px) { .fb .font { width: 56px; } .fb .scope { width: 148px; } }
 /* A color's bar under its glyph: the paint bucket's, the pen's; the A's is its own baseline, in the color. */
@@ -241,6 +254,19 @@ path.dc-hl.pulse, .x6-edge.dc-hl.pulse > path + path { animation: dc-pulse 700ms
 @container (max-width: 1560px) { .fb [data-fb="tidy"] { width: 64px; } }
 .fb [data-fb="group"] { width: 76px; }
 .fb .zoom { margin-left: auto; width: 62px; justify-content: flex-end; position: sticky; right: 0; background-color: var(--paper); font-variant-numeric: tabular-nums; }
+
+/* Scope stays readable beside the selection instead of competing with font and drawing controls. */
+.fb-context { height: 36px; border-top: 1px solid var(--rule); background: var(--surface); gap: 10px; }
+.fb-context[hidden] { display: none; }
+.fb-wrap[data-empty] .fb > button:disabled { visibility: hidden; }
+.fb-wrap[data-empty] .fb > .sep { visibility: hidden; }
+.fb-context-label { color: var(--ink-2); font: var(--t12); flex: none; padding-left: 6px; }
+.fb-context .scope { width: auto; max-width: min(65vw, 540px); }
+.fb-context .scope > button { cursor: pointer; }
+.fb-context .scope > button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px var(--rule-2); }
+.fb-context .scope > [data-fb="own"], .fb-context .scope > [data-fb="like"] { min-width: 90px; }
+.fb-context-hint { margin-left: auto; padding-right: 6px; color: var(--ink-3); font: var(--t12); white-space: nowrap; }
+@container (max-width: 1000px) { .fb-context-hint { display: none; } }
 .fb .btn:disabled, .fb .btn[aria-disabled="true"] { color: var(--off); }
 /* The painter armed: the brush, everywhere on the chart. */
 .dc.painting, .dc.painting * { cursor: var(--brush) !important; }
@@ -538,7 +564,8 @@ input.cell.tabs { width: 88px; }
 .fb .design-now { width: 112px; justify-content: flex-start; }
 .fb .design-now > .named { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fb .design-now > .named:empty { display: none; }
-@container (max-width: 1400px) { .fb .design-now { width: auto; } .fb .design-now > .named { display: none; } }
+@container (max-width: 1560px) { .fb .design-now { width: auto; } .fb .design-now > .named { display: none; } }
+@container (max-width: 1130px) { .fb .add-object > span { display: none; } }
 /* The panel, while a design is edited: its parts, a click from each; a part's words, its fields as chips. */
 .parts-of { flex: none; }
 .parts-of > .sect { display: flex; }

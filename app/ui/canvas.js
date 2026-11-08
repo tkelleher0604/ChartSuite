@@ -64,7 +64,7 @@ function kinds(scene = App.scene.peek()) {
   const ks = [...all].filter(k => count.has(k) || !scene || N.value('Shown', { kind: k }, scene.view) !== false)
     .sort((a, b) => (count.get(b) ?? 0) - (count.get(a) ?? 0) || a.localeCompare(b));
   // (A kind of which there's none and of which nothing's said, as a blank chart's Box once its first box is a Person, isn't offered beside others.)
-  const said = ks.filter(k => count.has(k) || Tree.index(st).kinds.get(Tree.norm(k))?.length || Object.values(App.schema.peek()).some(s => s.args?.length === 1 && Tree.same(s.args[0].loc?.kind ?? '', k) && !Tree.same(s.args[0].edge, 'Name')));
+  const said = ks.filter(k => count.has(k) || Tree.index(st).kinds.get(Tree.norm(k))?.length || N.resolve('Design', { kind: k }, scene?.view) || Object.values(App.schema.peek()).some(s => s.args?.length === 1 && Tree.same(s.args[0].loc?.kind ?? '', k) && !Tree.same(s.args[0].edge, 'Name')));
   return said.length ? said : ks.length ? ks : ['Box'];
 }
 // The kind last added, while it can be; or the most drawn.
@@ -478,6 +478,12 @@ function mount(el) {
   const gEl = root.firstChild, over = root.lastChild;
   // What says the chart drawn is Tidy's preview (see restyle).
   const tidyLabel = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-previewing', textContent: 'Tidy preview', hidden: true }));
+  const empty = over.appendChild(Object.assign(document.createElement('div'), { className: 'dc-empty', hidden: true }));
+  const firstObject = empty.appendChild(Object.assign(document.createElement('button'), { className: 'btn', type: 'button', textContent: '+ Add object' }));
+  firstObject.addEventListener('click', () => newObject());
+  empty.appendChild(Object.assign(document.createElement('span'), { textContent: 'or double-click the page' }));
+  const firstCard = empty.appendChild(Object.assign(document.createElement('button'), { className: 'btn ghost design-card', type: 'button', textContent: 'Design a reusable card' }));
+  firstCard.addEventListener('click', () => startCard());
 
   let scene = null, viewShown = null, hl = null, red = null, ink = null, revealIds = null, entered = null, dragging = null, syncing = false;
   // The zoom said is the page's: 100% is the page at its size, whatever scale the chart is drawn at on it.
@@ -1096,6 +1102,7 @@ function mount(el) {
     return true;
   }
   graph.on('edge:mousedown', ({ e, edge }) => {
+    down = twice = null;
     const p = graph.clientToLocal(e.clientX, e.clientY);
     pressed = !pointed(edge) && edge.getData()?.kind === 'line' ? { id: edge.id, p: [p.x, p.y], was: Shell.selection.peek(), more: e.shiftKey || e.ctrlKey || e.metaKey } : null;
   });
@@ -1107,8 +1114,8 @@ function mount(el) {
   let down = null, twice = null;
   graph.on('node:mousedown', ({ e, node }) => {
     const k = node.getData()?.kind, id = k === 'label' ? node.getData().mark : node.id, cell = graph.getCellById(id), t = performance.now();
-    const now = { id, selected: !!cell && sel.isSelected(cell), x: e.clientX, y: e.clientY, t };
-    twice = down && down.id === id && t - down.t < 500 ? down : now;
+    const now = { id, selected: !!cell && sel.isSelected(cell), keys: [...Shell.selection.peek()], x: e.clientX, y: e.clientY, t };
+    twice = e.detail === 2 && down && down.id === id && t - down.t < 500 && Math.hypot(now.x - down.x, now.y - down.y) < 4 ? down : now;
     down = now;
     pressed = null;
     root.focus({ preventScroll: true });
@@ -1117,7 +1124,7 @@ function mount(el) {
     if (UNMARKED.has(k) || e.shiftKey || e.ctrlKey || e.metaKey) return;
     take(node);
   });
-  graph.on('blank:mousedown', () => { pressed = null; root.focus({ preventScroll: true }); });
+  graph.on('blank:mousedown', () => { pressed = null; down = twice = null; root.focus({ preventScroll: true }); });
   graph.on('node:click', ({ e, node }) => {
     const k = node.getData()?.kind;
     if (hold) return;
@@ -1444,7 +1451,7 @@ function mount(el) {
   }
   // A field typed over, in a box or on a line's label: a value, as entered; an option, from its list; a tag, ticked or
   // ruled out; a blank, its record made as it's typed; a free text, its words, {Entry} and all (see Fields).
-  function editField(m, it, typed) {
+  function editField(m, it, typed, point) {
     if (!it) return;
     if (still()) return Shell.toast(App.whyNot());
     // What's typed in is the field selected, so Tab goes on from it and its row stays lit.
@@ -1453,9 +1460,14 @@ function mount(el) {
     // A part's own words, typed over, are what's said over the design at the pen (Figma's override); a part with none, the design's own.
     if (it.of || (it.part && !it.blank && st()[it.id]?.edge === undefined)) {
       const part = partOf(m, it), raw = m.design.value.parts.find(p => p.id === part?.part)?.text ?? '';
+      if (part && !TextTemplate.formula(raw) && typeof CanvasBindings !== 'undefined' && !m.design.value.parts.find(p => p.id === part.part)?.rest) {
+        const bound = CanvasBindings.part(m, part.part, FormatBar.scope(true));
+        return openWords(part, typed, bound, m, point);
+      }
       // (What reads a field is said in Edit design, its fields as chips, and never by its token.)
-      if (!part || !part.texts.length || (typed === undefined && /\{[^{}\n]+\}/.test(raw))) return Designs.edit(m);
-      return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? raw, text => saidOfPart(`Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}`, tx => Designs.say(tx, m, part.part, { text: text.trim() }, scopeNow(canvas))), { multiline: true, selectAll: typed === undefined, complete: wordsOf(m), kept: true });
+      if (!part || !part.texts.length || (typed === undefined && TextTemplate.fields(raw).length)) return Designs.edit(m, undefined, part?.part);
+      const literal = !TextTemplate.formula(raw), shown = literal ? TextTemplate.render(raw, () => '') : raw;
+      return openEditor(it.of ? part.texts[0] : it, it.of ? fieldRect(m, m.texts.find(x => x.part === part.part)) : fieldRect(m, it), typed ?? shown, text => saidOfPart(`Changed the words of a part of ${whereSaid([m], scopeNow(canvas))}`, tx => Designs.say(tx, m, part.part, { text: literal ? TextTemplate.literal(text) : text }, scopeNow(canvas))), { multiline: true, selectAll: typed === undefined, kept: true });
     }
     const r = it.blank ? null : st()[it.id], kind = it.blank ? specOfField(m.record, it.blank.edge) : r && { type: Tree.typeOf(r), datatype: r.field };
     if (!kind || kind.type === 'object' || (r && r.args)) return;
@@ -1464,11 +1476,20 @@ function mount(el) {
     // The record, or a blank's: typed over where it's worked out, as the inspector enters one.
     // A blank of an entry its record's kind hasn't yet gives the kind the entry, as the inspector's Add does.
     // One that has one to replace goes as the inspector's does, asking from when where it has history to keep (App.put).
-    const put = (out, auto = true) => r ? App.put(it.id, r, out, { auto }) : App.change(tx => {
-      const { at, edge } = it.blank, spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: Tree.specOf(treeOf(at)) }] };
-      if (!App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
-      tx.add('record', { at, edge, ...out });
-    });
+    const put = (out, auto = true) => {
+      const scoped = typeof CanvasBindings !== 'undefined' && CanvasBindings.putPanel(r ? it.id : null, r ?? it.blank, out, { auto });
+      if (scoped?.handled) return scoped.result;
+      if (r) {
+        if (out && Object.entries(out).every(([key, value]) => r[key] === value)) return;
+        return App.put(it.id, r, out, { auto });
+      }
+      if (!out) return;
+      return App.change(tx => {
+        const { at, edge } = it.blank, spec = { out: 'field' in out ? { field: out.field } : 'choice' in out ? { choice: out.choice } : { tag: out.tag }, args: [{ edge, loc: Tree.specOf(treeOf(at)) }] };
+        if (!App.schema.peek()[Tree.key(spec)]) tx.add('spec', { tree: spec });
+        tx.add('record', { at, edge, ...out });
+      });
+    };
     // A menu under the field, from which Tab goes on to the next field, as from one typed in.
     const picker = (items, o = {}) => {
       let close = null;
@@ -1480,21 +1501,29 @@ function mount(el) {
     if (kind.type === 'choice') {
       const now = r?.choice, opts = optionsOf(r ? r.at : it.blank.at, r ? r.edge : it.blank.edge);
       const items = q => {
-        const k = Tree.norm(q ?? ''), xs = opts.filter(o => Tree.norm(o).includes(k)).map(o => ({ label: o, checked: !!now && Tree.same(o, now), run: () => !(now && Tree.same(o, now)) && put({ choice: o }) }));
+        const k = Tree.norm(q ?? ''), xs = opts.filter(o => Tree.norm(o).includes(k)).map(o => ({ label: o, checked: !!now && Tree.same(o, now), run: () => put({ choice: o }) }));
         return k && !opts.some(o => Tree.same(o, q)) ? [...xs, ...(xs.length ? ['-'] : []), { label: `New option: ${Tree.clean(q)}`, run: () => put({ choice: Tree.clean(q) }) }] : xs;
       };
       return picker(items, { search: true, query: typed ?? '' });
     }
-    if (kind.type === 'tag') return picker([{ label: r?.edge ?? it.blank.edge, checked: r?.tag === true, run: () => r?.tag !== true && put({ tag: true }) },
-      { label: `Not ${r?.edge ?? it.blank.edge}`, checked: r?.tag === false, run: () => r?.tag !== false && put({ tag: false }) }]);
-    const raw = r ? Tree.format(r.field, r.value) : '';
-    openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, (text, keys) => {
+    if (kind.type === 'tag') return picker([{ label: r?.edge ?? it.blank.edge, checked: r?.tag === true, run: () => put({ tag: true }) },
+      { label: `Not ${r?.edge ?? it.blank.edge}`, checked: r?.tag === false, run: () => put({ tag: false }) }]);
+    const pending = App.pending.peek(), held = pending?.chart === App.chart.peek() && (pending.typed ?? pending.boundValues)?.find(t => r ? t.id === it.id : !t.id && t.slot?.at === it.blank.at && Tree.same(t.slot.edge, it.blank.edge));
+    const raw = held ? held.out ? Tree.outputText(held.out) : '' : r ? Tree.format(r.field, r.value) : '';
+    // Opening a value is not an instruction to copy it to the other scoped records.
+    // Typing the same value deliberately still counts, unlike merely leaving the editor.
+    let changed = typed !== undefined;
+    const ed = openEditor(it.blank ? { ...it, look: { ...it.look } } : it, { ...rect, x: m.type === 'box' ? m.x : rect.x - 4, w: m.type === 'box' ? m.w : Math.max(rect.w + 8, 80) }, typed ?? raw, (text, keys) => {
+      if (!changed) return;
       // (= begins a rule, as in a spreadsheet, and never the words.)
       if (/^\s*=\s*\S/.test(text) && FormulaBar.typed(r?.at ?? it.blank.at, r?.edge ?? it.blank.edge, Tree.clean(text), kind.datatype)) return;
-      const v = Tree.parse(kind.datatype ?? Tree.classify(text), text);
-      if (v === undefined || Tree.clean(text) === '' || (r && v === r.value)) return;
-      put({ field: kind.datatype ?? Tree.classify(text), value: v }, !!keys);
-    }, { selectAll: typed === undefined, ph: it.blank?.edge, tab: d => stepField(d, true) });
+      if (Tree.clean(text) === '') return put(null, !!keys);
+      const datatype = kind.datatype ?? Tree.classify(text), v = Tree.parse(datatype, text);
+      if (v === undefined) return { error: Tree.notA(datatype) };
+      if (r && v === r.value && held) return put(false, !!keys);
+      return put({ field: datatype, value: v }, !!keys);
+    }, { selectAll: typed === undefined, ph: it.blank?.edge, tab: d => stepField(d, true), keepOnError: true });
+    ed?.addEventListener('input', () => { changed = true; });
   }
   function edit(key, target, typed) {
     const [id, rowKey] = keyParts(key);
@@ -1536,27 +1565,79 @@ function mount(el) {
       it = legend ? m.texts[0] : !row?.rest && m.texts[0] ? m.texts[0] : { look: m.look, text: '', lines: [] };
       rect = legend ? { x: m.x, y: m.y + 4, w: m.w, h: 18 } : { x: m.x, y: m.y, w: m.w, h: m.h };
       raw = legend ? m.title : row?.text;
-      // (While a design is edited, a part that reads a field is typed in the panel, its fields as chips, and never by its token.)
-      if (designing && typed === undefined && /\{[^{}\n]+\}/.test(raw ?? '')) { Shell.select([m.id]); return setTimeout(() => document.querySelector('.part-words .words-in')?.focus(), 30); }
+      // Templates are normal text boxes on the canvas. Their fields stay atomic chips while
+      // surrounding words, punctuation and paragraphs are edited in place.
+      if (!legend && !m.role && !row?.rest && !TextTemplate.formula(raw) && typeof CanvasWords !== 'undefined'
+        && (designing || TextTemplate.fields(raw).length)) return openWords(m, typed);
+      const literal = !legend && !m.role && !TextTemplate.formula(raw);
+      if (literal) raw = TextTemplate.render(raw ?? '', () => '');
       // A text box left empty goes, however it's left, as PowerPoint's does.
       const gone = tx => tx.remove(m.id);
-      save = (text, keys, runs) => { const said = App.change(tx => { if (m.geometry === 'text' && !text.trim() && !row?.rest) return gone(tx); tx.update(m.id, legend ? { title: text } : { text, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, text); }); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, text); };
+      save = (text, keys, runs, { handoff = false } = {}) => { const stored = literal ? TextTemplate.literal(text) : text; const said = App.change(tx => { if (m.geometry === 'text' && !text.trim() && !row?.rest && !designing && !handoff) return gone(tx); tx.update(m.id, legend ? { title: text } : { text: stored, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, stored); }); if (said && !legend && m.geometry === 'text' && !designing) askedOf(m.id, stored); };
       if (m.geometry === 'text' && !raw?.trim() && !row?.rest) escaped = () => App.change(gone);
     }
     if (!it) return;
-    // (Its words can be set part by part: a shape's own, not the Key's title or what a formula says. While a design is edited, a `{` offers what its box can read.)
-    const parts = m.type === 'shape' && m.geometry !== 'legend' && !m.role && !/^\s*=/.test(raw ?? '') && !rowOf(m.id)?.rest;
-    const reads = m.type === 'shape' && m.geometry !== 'legend' && !m.role ? (designing ? scene.byId.get(designing.box) : boxOver(m)) : null;
-    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape', ...(reads && { complete: wordsOf(reads) }), ...(parts && { rich: { runs: typed !== undefined ? [] : rowOf(m.id)?.runs ?? [] } }) });
+    // Rich formatting belongs to a shape's literal words, not the Key's title or a formula's source.
+    const parts = m.type === 'shape' && m.geometry !== 'legend' && !m.role && !TextTemplate.formula(rowOf(m.id)?.text) && !rowOf(m.id)?.rest;
+    openEditor(it, rect, typed ?? raw ?? it.text ?? '', save, { multiline: m.type === 'shape' && m.geometry !== 'legend', selectAll: typed === undefined, grow: !!m.auto, escaped, kept: m.type === 'shape', ...(parts && { rich: { runs: typed !== undefined ? [] : rowOf(m.id)?.runs ?? [] } }) });
+  }
+  function openWords(m, typed, bound = null, hostMark = m, point = null) {
+    if (CanvasWords.close() === false) return;
+    const chart = App.chart.peek(), view = viewOf(), z = graph.zoom(), p = graph.localToGraph(m.x, m.y), t = m.texts?.[0]?.look ?? m.look;
+    let overlay = null;
+    // Keeping a value can reflow its card or move the whole chart. Follow the current
+    // part, without replacing the editable DOM and its selection or Undo history.
+    const place = () => {
+      if (!overlay?.isConnected || App.chart.peek() !== chart || viewOf() !== view) return;
+      const host = scene?.byId.get(hostMark.id), part = bound ? host?.parts?.find(part => part.part === m.part) : host;
+      if (!part) return;
+      const zoom = graph.zoom(), at = graph.localToGraph(part.x, part.y), look = part.texts?.[0]?.look ?? part.look;
+      Object.assign(overlay.style, { left: `${at.x}px`, top: `${at.y}px`, width: `${Math.max(120, part.w * zoom)}px`, minHeight: `${Math.max(28, part.h * zoom)}px`,
+        font: `${look.Bold ? 700 : 400} ${look.Italic ? 'italic' : ''} ${Math.max(12, px(look.Size) * zoom)}px/${1.2 * (look.Spacing ?? 1)} ${Scene.fontFamily(look.Font)}` });
+      overlay.style.setProperty('--canvas-text-scale', zoom / pageScale());
+    };
+    const placementEvents = ['drawn', 'scale', 'translate'];
+    const base = { ...t, Size: t.Size * pageScale() };
+    if (typed !== undefined) { if (bound) bound.put(TextTemplate.literal(typed), []); else App.change(tx => tx.update(m.id, { text: TextTemplate.literal(typed), runs: undefined }), { dated: false }); }
+    const put = bound?.put ?? ((text, runs) => {
+      const was = rowOf(m.id);
+      if (App.chart.peek() !== chart || viewOf() !== view || !was) return { error: 'This text box is no longer open.' };
+      if ((was.text ?? '') === text && JSON.stringify(was.runs ?? []) === JSON.stringify(runs ?? [])) return true;
+      const saved = App.change(tx => { tx.update(m.id, { text, runs: runs?.length ? runs : undefined }); if (designing) Designs.holdWords(tx, m.id, text); }, { dated: false });
+      return saved ? true : { error: 'These words could not be saved. Your draft is still open.' };
+    });
+    const Words = props => {
+      App.scene.value; App.pending.value;
+      const r = bound ? bound.source() : App.shown.value.item(chart, m.id).at(-1);
+      return r ? preact.h(Designs.Words, { ...props, text: r.text ?? '', runs: r.runs, put, ...(bound && { bindings: bound.bindings, createField: bound.createField }) }) : null;
+    };
+    if (!bound || !Shell.selection.peek().includes(hostMark.id)) Shell.select([hostMark.id]);
+    tipFor(null);
+    const opened = CanvasWords.open({ id: hostMark.id, host: over, selectAll: false, point,
+      ...(bound && typeof FieldExtraction !== 'undefined' && { dragSelection: (event, selection) => FieldExtraction.drag(event, selection, bound) }),
+      style: { left: `${p.x}px`, top: `${p.y}px`, width: `${Math.max(120, m.w * z)}px`, minHeight: `${Math.max(28, m.h * z)}px`,
+        font: `${t.Bold ? 700 : 400} ${t.Italic ? 'italic' : ''} ${Math.max(12, px(t.Size) * z)}px/${1.2 * (t.Spacing ?? 1)} ${Scene.fontFamily(t.Font)}`, textAlign: t.Align ?? 'center', color: t.Color,
+        '--canvas-edit-paper': Scene.tooDark({ Fill: t.Color }) ? '#ffffff' : '#17324d', '--canvas-text-scale': z / pageScale() },
+      formatting: { base, apply: (runs, from, to, label, value) => Scene.runsWith(runs, from, to, label, value, base), changed: look => { rich.value = look; },
+        style: look => ({ ...(look.Bold !== undefined && { fontWeight: look.Bold ? '700' : '400' }), ...(look.Italic !== undefined && { fontStyle: look.Italic ? 'italic' : 'normal' }),
+          ...(look.Color && { color: look.Color }), ...(look.Font && { fontFamily: Scene.fontFamily(look.Font) }), ...(look.Size && { fontSize: `calc(${px(look.Size)}px * var(--canvas-text-scale))` }),
+          ...((look.Underline || look.Strike) && { textDecoration: [look.Underline && 'underline', look.Strike && 'line-through'].filter(Boolean).join(' ') }),
+          ...(look.Base && { verticalAlign: look.Base === 'up' ? 'super' : 'sub', fontSize: look.Size ? `calc(${px(look.Size) * .66}px * var(--canvas-text-scale))` : '.66em' }) }) },
+      render: props => preact.h(Words, props), finished: () => { placementEvents.forEach(name => graph.off(name, place)); bound?.leave(); if (root.isConnected) root.focus({ preventScroll: true }); } });
+    overlay = opened;
+    if (opened) { placementEvents.forEach(name => graph.on(name, place)); place(); }
+    if (opened && bound) bound.activate();
+    return opened;
   }
   // The box a free shape stands on, by its middle: the topmost.
   const boxOver = m => { const cx = m.x + m.w / 2, cy = m.y + m.h / 2; return [...scene.marks].reverse().find(b => b.type === 'box' && cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) ?? null; };
   // A text box that asks for a field reads the box it stands on, as text dropped there does; on none, it's said it won't print, and how it can.
   function askedOf(id, text) {
-    if (!/\{[^{}\n]+\}/.test(text) || /^\s*=/.test(text)) return;
+    const names = TextTemplate.fields(text);
+    if (!names.length) return;
     const m = scene.byId.get(id), b = m && boxOver(m);
     if (b) return joinText(m, b);
-    Shell.toast(`${text.match(/\{[^{}\n]+\}/)[0]} reads a box, so this won’t print here: drag it onto one`, { ms: 5000 });
+    Shell.toast(`${names[0]} reads a box, so this won’t print here: drag it onto one`, { ms: 5000 });
   }
   // A text box dropped on a box joins it, its free text at the pen, its words and its look kept; where it's a mistake, it can stand loose where it was dropped.
   function joinText(m, b, place = null) {
@@ -1574,7 +1655,8 @@ function mount(el) {
   // chosen beside it (see kindChooser) from `box.kinds`, `box.kind` first, each chosen told to `box.pick`.
   // `rich`, its words can be set part by part: what's selected in it takes a look from the format bar or its keys, and what it saves has its runs too.
   let richEdit = null;
-  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null, kept = false, rich = null } = {}) {
+  function openEditor(it, rect, text, save, { multiline = false, selectAll = false, grow = false, box = null, escaped = null, ph = null, complete = null, tab = null, kept = false, rich = null, keepOnError = false } = {}) {
+    if (typeof CanvasWords !== 'undefined' && CanvasWords.close() === false) return;
     over.querySelectorAll('.dc-edit, .dc-kind, .dc-kinds').forEach(x => x.remove());
     tipFor(null);
     const z = graph.zoom(), p = graph.localToGraph(rect.x, rect.y), t = it.look, size = px(t.Size) * z;
@@ -1597,11 +1679,39 @@ function mount(el) {
     range.selectNodeContents(ed);
     if (!selectAll) range.collapse(false);
     s.removeAllRanges(); s.addRange(range);
-    let done = false;
+    let done = false, blockedClick = null;
     const list = complete && completing(ed, complete), kind = box && kindChooser(ed, box, () => finish(true));
-    const finish = (ok, keys) => { if (done) return; done = true; list?.close(); kind?.close(); printed?.close(); const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, ''); parts?.close(); if (parts && richEdit === parts) richEdit = null; removeEventListener('pointerdown', outside, true); ed.remove(); root.focus({ preventScroll: true }); if (ok) save(v, keys, runs); else escaped?.(); };
+    const finish = (ok, keys, options = {}) => {
+      if (done) return;
+      done = true;
+      const runs = parts?.runs(), v = (parts ? ed.textContent : ed.innerText).replace(/\n$/, '');
+      if (ok && keepOnError) {
+        const result = save(v, keys, runs, options);
+        if (result?.error || result?.ok === false || result === false) {
+          done = false;
+          const message = result?.error ?? 'This value could not be saved. Your draft is still open.';
+          ed.setAttribute('aria-invalid', 'true'); ed.title = message; Shell.toast(message);
+          requestAnimationFrame(() => { if (ed.isConnected) ed.focus({ preventScroll: true }); });
+          return false;
+        }
+      }
+      list?.close(); kind?.close(); printed?.close(); parts?.close();
+      if (parts && richEdit === parts) richEdit = null;
+      removeEventListener('pointerdown', outside, true); removeEventListener('click', clicked, true); ed.remove();
+      if (options.focus !== false) root.focus({ preventScroll: true });
+      if (ok && !keepOnError) save(v, keys, runs, options); else if (!ok) escaped?.();
+    };
+    if (keepOnError) ed.addEventListener('input', () => { ed.removeAttribute('aria-invalid'); ed.removeAttribute('title'); });
     // (Going to the format bar's palette, it stays open, what's selected kept, till a press anywhere else.)
-    const outside = e => { if (!e.target.closest?.('.dc-edit, .fb, .float')) finish(true); };
+    const outside = e => {
+      blockedClick = null;
+      if (!e.target.closest?.(keepOnError ? '.dc-edit, .float' : '.dc-edit, .fb, .float') && finish(true) === false) {
+        blockedClick = e.target.closest?.('button, a, input, select, [role="button"]') ?? e.target;
+        e.preventDefault(); e.stopImmediatePropagation();
+      }
+    };
+    const clicked = e => { if (blockedClick && (blockedClick === e.target || blockedClick.contains?.(e.target))) { blockedClick = null; e.preventDefault(); e.stopImmediatePropagation(); } };
+    if (keepOnError) { addEventListener('pointerdown', outside, true); addEventListener('click', clicked, true); }
     ed.addEventListener('keydown', e => {
       e.stopPropagation();
       if (list?.key(e) || kind?.key(e)) return;
@@ -1611,11 +1721,11 @@ function mount(el) {
       else if (e.key === 'Enter' && multiline && !(e.ctrlKey || e.metaKey) && (e.shiftKey || ed.textContent)) { e.preventDefault(); paragraph(ed); }
       else if (e.key === 'Enter') { e.preventDefault(); finish(true, true); }
       // In a box's field, Tab keeps it and goes on to type in the next, as a form's does; Shift+Tab, the one before.
-      else if (e.key === 'Tab' && tab) { e.preventDefault(); finish(true); setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
+      else if (e.key === 'Tab' && tab) { e.preventDefault(); if (finish(true) !== false) setTimeout(() => tab(e.shiftKey ? -1 : 1)); }
       // (In a shape's words, a tab, as PowerPoint's: the next stop.)
       else if (e.key === 'Tab' && multiline && !e.shiftKey) { e.preventDefault(); document.execCommand('insertText', false, '\t'); }
     });
-    ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); if (kind && e.relatedTarget?.closest?.('.dc-kinds')) return; finish(true); });
+    ed.addEventListener('blur', e => { if (parts && e.relatedTarget?.closest?.('.fb, .float')) return addEventListener('pointerdown', outside, true); if (kind && e.relatedTarget?.closest?.('.dc-kinds')) return; finish(true, false, { focus: false, handoff: !!e.relatedTarget?.closest?.('.part-words') }); });
     return ed;
   }
   // A shape's words as they're typed, as they'll print: in its columns, its inner margins and its indent, each paragraph with its mark beside it. → what closes that.
@@ -1868,7 +1978,12 @@ function mount(el) {
     // a free text there.
     if (k === 'box' || k === 'label') {
       const f = fieldUnder(e.clientX, e.clientY);
-      if (f?.it) { pickField(f); return editField(f.m, f.it); }
+      if (f?.it) {
+        // X6 narrows a selection on mouseup. A double-click into a selected member
+        // edits the set present at its first press; a single click still narrows it.
+        if (e.detail === 2 && twice?.selected && twice.id === node.id && performance.now() - twice.t < 500 && twice.keys.length > 1 && twice.keys.includes(f.m.id)) pick(twice.keys);
+        pickField(f); return editField(f.m, f.it, undefined, { x: e.clientX, y: e.clientY });
+      }
       if (k === 'box' && twice?.selected && twice.id === node.id && !still()) return writeText(scene.byId.get(node.id));
     }
     if (UNMARKED.has(k)) return;
@@ -2034,7 +2149,11 @@ function mount(el) {
   // What a mark's words can read, by name: its entries, then a relative's ("Owner's name"), each what `{` offers and what's read.
   const wordsOf = m => Scene.readable(st(), App.notes.peek(), App.schema.peek(), m.record).map(x => x.label);
   // Whether a mark shows an entry of a label at a record (its own, or one in it), as a field or a blank.
-  const shows = (m, edge, at = m.record) =>(m.texts ?? []).some(it => it.blank ? it.blank.at === at && Tree.same(it.blank.edge, edge) : st()[it.id]?.at === at && Tree.same(st()[it.id].edge, edge));
+  const shows = (m, edge, at = m.record) => {
+    const records = st(), matches = id => !!records[id] && records[id].at === at && Tree.same(records[id].edge, edge);
+    return (m.texts ?? []).some(it => it.blank ? it.blank.at === at && Tree.same(it.blank.edge, edge) : matches(it.id))
+      || (m.design?.parts ?? []).some(part => part.sourceIds?.some(matches));
+  };
   // The pen, for a mark: where it reaches that, the pen's place; else that mark alone, as what's dragged onto a box the pen doesn't reach is.
   const scoped = (m, s = scopeOfBox()) => !s.own && s.marks?.has(m.id) ? s : { own: true };
   // What's said of one thing goes on that thing: a footnote or a free text begun on a box goes on that box, unless a hand moved the pen for this selection, and then it goes where the pen is.
@@ -2283,7 +2402,7 @@ function mount(el) {
   // loosely: once a line relates it, it goes beside its relatives (Scene). What's made on a chart, the chart shows: where
   // the view would hide it, the same change shows it there (App.showMade).
   // `guide`, the line a handle was dragged out on, stays drawn to it while it's named, so it's plain the two will be related.
-  function create(kind, at, { relate, guide, typed = '', way = null } = {}) {
+  function create(kind, at, { relate, guide, typed = '', way = null, name: givenName = null } = {}) {
     if (still() || !scene || !kind) return guide?.remove();
     if (!at) { const r = root.getBoundingClientRect(); at = graph.clientToLocal(r.left + r.width / 2, r.top + r.height / 2); }
     // (Its placeholder is the size it will be: a box of its kind's on this chart, the middle one, or else what a short name makes.)
@@ -2292,7 +2411,7 @@ function mount(el) {
     const ks = kinds(), choice = [...new Set([kind, ...ks.filter(k => k === last), ...ks])];
     let now = kind;
     guide?.setAttribute('d', guide.getAttribute('d').replace(/L[^L]*$/, `L${p.x + w / 2},${p.y + h / 2}`));
-    openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, typed, name => {
+    const finish = name => {
       guide?.remove();
       name = Tree.clean(name);
       if (!name) return;
@@ -2308,7 +2427,27 @@ function mount(el) {
       })) return;
       Shell.store.set('kind', now);
       if (relate) Shell.emit('relate-open', Object.assign([relate, id], { made: true, way })); else Shell.select([id]);
-    }, { box: { kinds: choice, kind, pick: k => { now = k; } }, escaped: () => guide?.remove() });
+    };
+    if (givenName !== null) return finish(givenName);
+    openEditor({ look: { ...Scene.DEFAULTS.text, Bold: true } }, { x: p.x, y: p.y, w, h }, typed, finish, { box: { kinds: choice, kind, pick: k => { now = k; } }, escaped: () => guide?.remove() });
+  }
+  // A visible route to a new kind as well as another instance. Its first object and Name establish
+  // the schema in one change, using the same placement and undo path as typing on the canvas.
+  async function newObject() {
+    if (still() || designing || scene?.view === Scene.MASTER) return;
+    const chart = App.chart.peek(), view = viewOf(), known = kinds();
+    let name = '', kind = lastKind();
+    const ok = await Shell.dialog({ title: `Add ${known.length === 1 && known[0] !== 'Box' ? lowered(known[0]) : 'object'}`, width: 360,
+      actions: [{ label: 'Cancel', value: false }, { label: 'Add', value: true, primary: true }],
+      body: () => Shell.html`<div class="settings">
+        <label class="field"><span>Name</span><input aria-label="Name" required autofocus autocomplete="off" onInput=${e => { name = e.target.value; e.target.setCustomValidity(Tree.clean(name) ? '' : 'Enter a name.'); }} /></label>
+        <label class="field"><span>Object type</span><input aria-label="Object type" required list="dc-object-types" value=${kind} autocomplete="off" onInput=${e => { kind = e.target.value; const value = Tree.clean(kind); e.target.setCustomValidity(!value ? 'Enter an object type.' : Tree.same(value, 'View') ? 'Choose another name for this object type.' : ''); }} /></label>
+        <p class="muted">Choose a type or type a new one.</p>
+        <datalist id="dc-object-types">${known.map(k => Shell.html`<option value=${k} />`)}</datalist>
+      </div>` });
+    if (!ok || still() || App.chart.peek() !== chart || viewOf() !== view) return;
+    kind = known.find(k => Tree.same(k, kind)) ?? Tree.clean(kind);
+    if (kind && !Tree.same(kind, 'View') && Tree.clean(name)) create(kind, null, { name });
   }
   const addAt = e => { if (!still()) create(lastKind(), graph.clientToLocal(e.clientX, e.clientY)); };
 
@@ -3119,6 +3258,15 @@ function mount(el) {
     Shell.toast('The page has no free room: the picture is over what’s drawn', { ms: 3500 });
     return { ...spot(s, w, h, near), w, h };
   }
+  // A discoverable starting point for drawing a new object type. The name is already a field;
+  // the existing shape editor and Save as object type command handle the rest of the workflow.
+  function startCard() {
+    if (still() || designing || scene?.view === Scene.MASTER) return;
+    const s = pageScale(), id = insert('rounded', { w: 216 / s, h: 96 / s, text: TextTemplate.field('Name'),
+      format: { Size: 14, Align: 'center', Valign: 'middle', Fill: '#ffffff', Outline: '#64748b' } });
+    if (id) Shell.toast('Add text or merge fields, then choose Save as object type.', { ms: 6000 });
+    return id;
+  }
   function insert(geometry, opts = {}) {
     // (While a design is edited, a text box is words begun on its box: a part, in the free band of it.)
     if (geometry === 'text' && designing && opts.x === undefined) return Designs.addWords();
@@ -3172,6 +3320,7 @@ function mount(el) {
     Shell.select([]);
     openEditor({ look: typing.look }, at, '', (text, keys, runs) => {
       if (!text.trim()) return;
+      text = TextTemplate.literal(text);
       // (Put by a hand, it stands where it's put; left to the page, it's placed again, as long as it's come out.)
       const made = Scene.shapeOf({ ...row, x: at.x, y: at.y, text }, scene), q = stands ? { x: at.x, y: at.y } : spot(scene, made.w, made.h, besideIt ? { x: besideIt.left + made.w / 2, y: besideIt.y } : { x: at.x + made.w / 2, y: at.y + made.h / 2 }, !besideIt, !!besideIt);
       const id = add({ ...row, x: round(q.x), y: round(q.y), text, ...(runs?.length && { runs }) });
@@ -3775,6 +3924,7 @@ function mount(el) {
 
   // A restyle is of the chart as it was: one that changes ends it.
   const stopDraw = effect(() => { App.scene.value; App.later?.value; clearTimeout(resting); styled = styledDrawn = null; show(true); });
+  const stopEmpty = effect(() => { const sc = App.scene.value; empty.hidden = App.readOnly.value || !sc || sc.view === Scene.MASTER || sc.marks.some(m => m.type === 'box' || (m.type === 'shape' && !m.role && !m.master)); const ks = kinds(sc); firstObject.textContent = `+ Add ${ks.length === 1 && ks[0] !== 'Box' ? lowered(ks[0]) : 'object'}`; });
   // A Key that has come to stand over a box, as a chart grew under one a hand put, or a corner holds, says so as it happens, with what mends it.
   let keyOver = null, keyView = null;
   const stopKeyOver = effect(() => {
@@ -3833,7 +3983,10 @@ function mount(el) {
     light(key, by = null) { whilePointed('light', key && by, () => fields.light(null)); if (litKey !== key) { litKey = key; paintFields(); } },
     over(cx, cy) {
       // (While a design is edited, a part stood on the page takes a row dropped too.)
-      const p = cx == null ? null : graph.clientToLocal(cx, cy), m = p && [...scene.marks].reverse().find(b => (b.type === 'box' || (designing && b.type === 'shape' && designing.keeps(b.id))) && (!designing || designing.keeps(b.id)) && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h);
+      const p = cx == null ? null : graph.clientToLocal(cx, cy), hits = p ? [...scene.marks].reverse().filter(b => (b.type === 'box' || (designing && b.type === 'shape' && designing.keeps(b.id))) && (!designing || designing.keeps(b.id)) && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) : [];
+      // An empty "Other fields" frame may cover the whole box. It must not intercept a drop
+      // on a visible part of the design beneath it.
+      const m = hits.find(b => b.type === 'shape' && !rowOf(b.id)?.rest) ?? hits[0];
       dropAt = p;
       if ((m?.id ?? null) !== dropOn) { dropOn = m?.id ?? null; paintFields(); }
       // Those it would go to lit: what the pen reaches; or else the one box it's over, where the pen doesn't reach that.
@@ -3848,7 +4001,7 @@ function mount(el) {
       paintFields();
       if (m && designing) return Designs.dropped(m, edge, at);
       // (Onto a part of a design: its token there, at the pen, the design standing. Onto the rest of the box, shown as ever.)
-      const part = m && at && [...m.parts ?? []].reverse().find(q => q.geometry !== 'line' && at.x >= q.x && at.x <= q.x + q.w && at.y >= q.y && at.y <= q.y + q.h);
+      const part = m && at && [...m.parts ?? []].reverse().find(q => q.geometry !== 'line' && !m.design.value.parts.find(p => p.id === q.part)?.rest && at.x >= q.x && at.x <= q.x + q.w && at.y >= q.y && at.y <= q.y + q.h);
       if (part && !m.design.value.parts.find(p => p.id === part.part)?.rest) return saidOfPart(`Put ${edge} in a part of ${whereSaid([m], scoped(m))}`, tx => Designs.say(tx, m, part.part, { text: Designs.tokenIn(m, part.part, edge) }, scoped(m)));
       // (A relative's, by name, is read in the words it's given; anything else is its own entry.)
       if (m && wordsOf(m).includes(edge) && !entriesOf(m).includes(edge)) return setWord([m], edge, true, scoped(m));
@@ -3886,12 +4039,12 @@ function mount(el) {
   function holdsFor(base) { const at = App.pending.peek()?.placing?.(); if (!at && base.page.composed) return null; const h = holdsOf(base); if (at) for (const [x, p] of placesBetween(base, at)) h.set(x, { ...p, over: true }); return h; }
   const canvas = {
     scene: () => scene, graph, root, selected, keys: keysOfSelection, highlight, redline, reveal, restyle, cue, hint, reach, point, toward, between, zoomTo: ids => bring(marksOf([].concat(ids ?? []).filter(Boolean))),
-    insert, create, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, relaid, relaidLook, tidyEvery, tidiedEvery, zoom, put, sizeAtPen, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
+    insert, startCard, create, newObject, remove, copy: copyOut, paste: () => paste(), duplicate, nudge, walk, align, distribute, match, order, group, ungroup, edit: key => edit(key), tidy, tidied, tidyName, relaid, relaidLook, tidyEvery, tidiedEvery, zoom, put, sizeAtPen, lockSize, turn, showOnly, canShowOnly, filter, withAnother: () => { const m = selected().find(x => x.type === 'box'); if (m) relating(m, undefined, null, true); },
     // Insert's: drawn by dragging, or a click to place; a text box typed straight in, where the page has room, or drawn.
     connect: (a, b) => { const p = scene.byId.get(a), q = scene.byId.get(b); if (p && q) connect(p, q); }, draw: (g, o) => hand.arm(g, o), drawText: () => { hand.arm('text'); insert('text'); const ed = over.querySelector('.dc-edit'); ed?.addEventListener('input', () => hand.disarm(), { once: true }); ed?.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'Enter') hand.disarm(); }); },
     table: (rows, cols, o) => hand.newTable(rows, cols, o), cell: id => hand.cell(id), cellsPicked: id => hand.cellsPicked(id), readsFrom: (id, of) => hand.readsFrom(id, of), styleGallery: (at, id) => hand.styleGallery(at, id), get StyleGallery() { return hand.StyleGallery; }, link: id => hand.setLink(id), pastePicture: f => hand.pastePicture(f), editPoints: id => hand.editPoints(id), merge: kind => hand.merge(kind), alongLine: () => hand.alongLine(), mergeable: () => hand.mergeable(), lineAmong: () => hand.lineAmong(), flip: how => hand.flip(how), turnBy: by => hand.turnBy(by), crop: id => hand.crop(id), changePicture: id => hand.changePicture(id), setDefault: () => hand.setDefault(), pane: on => hand.pane(on), repeat: () => hand.repeat(), did: fn => hand.did(fn), angleOf: m => hand.angleOf(m),
     // What's being typed part by part takes a look (Bold, a color, a size) in place of the mark it's in. → whether it did.
-    richSet: (label, v) => !!richEdit?.set(label, v),
+    richSet: (label, v) => typeof CanvasWords !== 'undefined' && CanvasWords.active.peek() ? CanvasWords.set(label, v) : !!richEdit?.set(label, v),
     fields, field: () => fieldNow(), styleField, selectLike, addText: id => { const m = marked(id); if (m) writeText(m); }, footnote: id => footnote(id ? marked(id) : undefined),
     // Editing a design: what can be touched; and the zoom, brought to the box and put back (see Designs). A part selected, of a box (see Fields).
     // The tour's step about the dots: a box's own, shown and pulsing whatever the pointer's near, its grips away.
@@ -3903,8 +4056,9 @@ function mount(el) {
     relate: () => { const s = selected(); if (s.length === 1 && s[0].type === 'box' && !still()) relating(s[0]); },
     relatable: () => { const s = selected(); return s.length === 1 && s[0].type === 'box'; },
     destroy() {
+      if (typeof CanvasWords !== 'undefined' && root.contains(CanvasWords.active.peek()?.element)) CanvasWords.close();
       nudged(); stopNudge(); stopWalk(); removeEventListener('keydown', nudgeEnds, true); removeEventListener('pointerdown', nudgeEnds, true);
-      stopDraw(); stopKeyOver(); stopUnframed(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
+      stopDraw(); stopEmpty(); stopKeyOver(); stopUnframed(); stopSel(); stopKeep(); stopAids(); clearTimeout(resting); unbind(); resized.disconnect(); removeEventListener('keydown', typeOver); CLIP.forEach(n => document.removeEventListener(n, clipboard));
       hand.destroy(); graph.dispose(); root.remove(); if (active.peek() === canvas) active.value = null;
     },
   };

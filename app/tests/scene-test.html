@@ -19,6 +19,7 @@
 <script src="../core/formulas.js"></script>
 <script src="../core/layout.js"></script>
 <script src="../core/shapes.js"></script>
+<script src="../core/text.js"></script>
 <script src="../core/scene.js"></script>
 <script src="../sample/calder-ridge.js"></script>
 <script src="../core/templates.js"></script>
@@ -1545,6 +1546,53 @@ function groupDesigns() {
   const ofKind = (s, r) => s.marks.filter(m => m.type === 'box' && m.settings.Shape.value !== 'triangle' && m.record === r)[0], R0 = computed(wb).records;
   const llcs = plain.marks.filter(m => m.type === 'box' && (Tree.index(R0).entries.get(m.record) ?? []).some(e => R0[e].edge === 'Entity Type' && R0[e].choice === 'Limited Liability Company'));
   check('(the sample has limited liability companies to design)', llcs.length > 3, llcs.length);
+  // One shared design: literal words stay the same, only explicit fields read each record.
+  {
+    const w = Log.open(SAMPLE), words = 'Name  {literal}\n\n', source = TextTemplate.literal(words) + '{Name}';
+    edit(w, tx => tx.note('Design', LLC, { id: 'explicit', name: 'Explicit fields', base: {}, parts: [
+      { id: 'words', geometry: 'text', x: 0, y: 0, w: 1, h: 1, text: source },
+    ] }, { view: MAIN }));
+    const s = scene(w), said = id => s.byId.get(id).parts[0].texts[0].text;
+    check('shared design preserves literal text, braces and paragraphs at every record', llcs.every(m => said(m.id) === words + w.notes(C).nameOf(R0, m.record)));
+    check('only inserted fields vary between instances', new Set(llcs.map(m => said(m.id))).size > 1);
+    check('design source survives save and reopen', scene(Log.open(w.toJSON())).byId.get(llcs[0].id).parts[0].texts[0].text === said(llcs[0].id));
+  }
+  // Rich runs count edited characters, not storage escapes. Repeated words and spaces must not
+  // be relocated by searching for the first matching substring when the literal text is unchanged.
+  for (const words of ['=Note {literal}\\  echo echo  ', 'A {brace}\\\n repeated repeated']) {
+    const w = Log.open(SAMPLE), from = words.lastIndexOf(words.includes('echo') ? 'echo' : 'repeated'), runs = [{ from, to: words.length, Bold: true }];
+    edit(w, tx => tx.note('Design', Tree.treeOf(R0, llcs[0].record), { id: 'rich-literal', base: {}, parts: [
+      { id: 'words', geometry: 'text', x: 0, y: 0, w: 1, h: 1, text: TextTemplate.literal(words), runs },
+    ] }, { view: MAIN }));
+    const text = scene(w).byId.get(llcs[0].id).parts[0].texts[0];
+    check('escaped rich literals retain text and exact ranges: ' + JSON.stringify(words), text.text === words && j(text.runs) === j(runs), j(text.runs));
+  }
+  {
+    const w = Log.open(SAMPLE), prefix = 'A {brace}\\ ', source = TextTemplate.literal(prefix) + '{Name} tail', from = prefix.length + '{Name} '.length;
+    edit(w, tx => tx.note('Design', Tree.treeOf(R0, llcs[0].record), { id: 'rich-field', base: {}, parts: [
+      { id: 'words', geometry: 'text', x: 0, y: 0, w: 1, h: 1, text: source, runs: [{ from, to: from + 4, Italic: true }] },
+    ] }, { view: MAIN }));
+    const text = scene(w).byId.get(llcs[0].id).parts[0].texts[0], run = text.runs?.[0];
+    check('literal escapes are decoded before a rich run follows a substituted field', run?.Italic && run.from === text.text.length - 4 && run.to === text.text.length, j(run));
+  }
+  {
+    const w = Log.open(SAMPLE), source = '{Name}  echo echo  ', runs = [{ from: 13, to: 19, Bold: true }], at = Tree.treeOf(R0, llcs[0].record);
+    let table;
+    edit(w, tx => {
+      tx.note('Design', at, { id: 'rich-repeated', base: {}, parts: [{ id: 'words', geometry: 'text', x: 0, y: 0, w: 1, h: 1, text: source, runs }] }, { view: MAIN });
+      table = tx.add('shape', { view: MAIN, geometry: 'table', x: 50, y: 50, w: 400, h: 60, table: { of: llcs[0].record, header: false, cols: [1], rows: [{ cells: [{ text: source, runs }] }] } });
+    });
+    const s = scene(w), b = s.byId.get(llcs[0].id), text = b.parts[0].texts[0], name = w.notes(C).nameOf(R0, llcs[0].record), from = name.length + 7;
+    check('field substitution keeps a styled second repeated word by position', text.runs?.[0]?.from === from && text.runs[0].to === from + 6, j(text.runs));
+    check('collapsed layout spaces do not truncate or lose a later styled span', text.lines.flatMap(l => l.spans ?? []).some(p => p.text.trim() === 'echo' && p.look.Bold) && text.lines.every(l => (l.spans ?? []).map(p => p.text).join('') === l.text), j(text.lines));
+    const cell = s.byId.get(table).texts[0];
+    check('table-cell field substitution uses the same positional projection', cell.runs?.[0]?.from === from && cell.runs[0].to === from + 6, j(cell.runs));
+    const nameId = Tree.entryAt(R0, llcs[0].record, 'Name');
+    check('mixed design text exposes its visible source record', b.design.parts[0].sourceIds.includes(nameId));
+    edit(w, tx => tx.note('Shown', Tree.treeOf(R0, nameId), false, { view: MAIN }));
+    const hidden = scene(w).byId.get(llcs[0].id);
+    check('a hidden field leaves literal words but no visible source identity', !hidden.design.parts[0].sourceIds.includes(nameId) && hidden.parts[0].texts[0].text === '  echo echo  ');
+  }
   // At a group: every box it reaches has its parts, and no other does.
   const w1 = Log.open(SAMPLE);
   edit(w1, tx => { tx.note('Shape', LLC, undefined, { view: MAIN }); tx.note('Design', LLC, preset('header'), { view: MAIN }); });
@@ -1817,8 +1865,178 @@ function aboutAnything() {
   check('… plurals of a person and a child are said right', Tree.plural('Person') === 'People' && Tree.plural('Child') === 'Children' && Tree.plural('Entity') === 'Entities');
 }
 
+function savedDesignFlow() {
+  // Persist the formerly overlapping geometry directly: opening an existing workbook must
+  // repair its rendering, without a design edit, new layout metadata or a data migration.
+  const wb = Log.open(), chart = 'saved-flow', view = 'page', kind = { kind: 'Person' };
+  const write = fn => { const tx = wb.edit({ chart, who: WHO }); fn(tx); const c = tx.commit(); if (typeof c === 'string') throw Error(c); };
+  const draw = (book = wb) => Scene.of(book, chart, view, DAY, { state: book.asOf(chart, DAY) });
+  const format = { Size: 12, Inset: { l: 3, r: 3, t: 2, b: 2 }, Valign: 'top' };
+  const summary = { id: 'summary', geometry: 'text', x: 0, y: .1, w: 1, h: .3, text: 'Team member\n{Name}\n{Title}', format };
+  const focus = { id: 'focus', geometry: 'text', x: 0, y: .3, w: 1, h: .15, text: '{Focus}', format };
+  const design = { id: 'saved-person', w: 170, h: 120, base: {}, parts: [summary, focus] };
+  write(tx => {
+    tx.add('chart', { name: 'Saved card flow' }, chart); tx.add('record', { kind: 'View' }, view);
+    for (const [id, name, title] of [['a', 'Parker', 'Research Lead'], ['b', 'Sam', 'Director of Research and Development for International Programmes']]) {
+      tx.add('record', { kind: 'Person' }, id);
+      for (const [edge, value] of [['Name', name], ['Title', title], ['Focus', 'Discovery']]) tx.add('record', { at: id, edge, field: 'text', value }, `${id}-${edge}`);
+    }
+    tx.note('Shown', kind, true, { view }); tx.note('Design', kind, design, { view });
+  });
+  const part = (s, id, name) => s.byId.get(id).parts.find(p => p.part === name);
+  const clear = (s, id) => part(s, id, 'focus').y >= part(s, id, 'summary').y + part(s, id, 'summary').h - .1;
+  const before = JSON.stringify(wb), first = draw();
+  check('saved overlapping card text flows clear for short and long record values', ['a', 'b'].every(id => clear(first, id)));
+  check('rendering repairs saved card geometry without writing to the workbook', JSON.stringify(wb) === before);
+  const instances = ['a', 'b'].map(id => Scene.instance(first, id, design, wb.notes(chart)));
+  const focusHeights = instances.map(b => b.parts.find(p => p.part === 'focus').h);
+  check('a long preceding field moves the following field without stretching its own frame', Math.abs(focusHeights[0] - focusHeights[1]) < .1, focusHeights.join(', '));
+  write(tx => tx.update('a-Title', { value: 'Research Director of International Science and Development' }));
+  const longer = draw();
+  check('ordinary record edits wrap to more lines and keep the following field clear', clear(longer, 'a') && part(longer, 'a', 'summary').texts[0].lines.length > part(first, 'a', 'summary').texts[0].lines.length);
+  const reopened = draw(Log.open(wb.toJSON()));
+  check('reopening the same saved design retains runtime separation', ['a', 'b'].every(id => clear(reopened, id)));
+
+  // A promoted backing used to retain its original shape geometry with no paint.
+  write(tx => tx.note('Design', kind, { ...design, parts: [{ ...summary, geometry: 'rounded', format: { ...format, Fill: 'none', Outline: 'none' } }, focus] }, { view }));
+  check('existing transparent shaped text participates in card flow', clear(draw(), 'a'));
+
+  const band = { id: 'band', geometry: 'rect', x: 0, y: 0, w: 1, h: .05, format: { Fill: '#225577', Outline: 'none' } };
+  const rest = { id: 'rest', rest: true, geometry: 'text', x: 0, y: .05, w: 1, h: .45 };
+  const spaced = { ...design, h: 200, parts: [band, rest, { ...summary, y: .5, h: .3 }, { ...focus, y: .8, h: .2 }] };
+  write(tx => tx.note('Design', kind, spaced, { view }));
+  const compact = draw(), gap = s => part(s, 'a', 'summary').y - part(s, 'a', 'band').y - part(s, 'a', 'band').h;
+  check('an empty Other fields band collapses after its fields move to explicit layers', part(compact, 'a', 'rest').texts.length === 0 && gap(compact) < 1 && clear(compact, 'a'), gap(compact));
+  write(tx => tx.note('Design', kind, { ...spaced, parts: [band, { id: 'avatar', geometry: 'ellipse', x: .4, y: .15, w: .2, h: .2 }, ...spaced.parts.slice(1)] }, { view }));
+  const protectedBand = draw();
+  check('independent artwork protects an otherwise empty overflow band', gap(protectedBand) > 50 && part(protectedBand, 'a', 'avatar').y < part(protectedBand, 'a', 'summary').y, gap(protectedBand));
+
+  const columns = { ...design, parts: [{ ...summary, w: .45, h: .65 }, { ...focus, x: .55, y: .2, w: .45 }, { ...focus, id: 'stamp', y: .2, rotate: 30 }] };
+  write(tx => tx.note('Design', kind, columns, { view }));
+  const independent = draw(), left = part(independent, 'a', 'summary'), right = part(independent, 'a', 'focus'), stamp = part(independent, 'a', 'stamp');
+  check('side-by-side text retains its independent vertical placement', right.x >= left.x + left.w && right.y < left.y + left.h);
+  check('rotated text overlays are not treated as stacked text', stamp.y < left.y + left.h && stamp.rotate === 30);
+  write(tx => {
+    tx.note('Design', kind, design, { view });
+    tx.note('Position', { id: 'a', kind: 'Person' }, { x: 100, y: 100, w: 170, h: 20, hand: true }, { view });
+  });
+  const fixed = draw().byId.get('a');
+  check('a user-fixed card height remains exact and reports overflowing text', fixed.h === 20 && fixed.need > 20 && fixed.spills);
+
+  // Explicit sizing and layout are independent. Legacy documents keep their existing rules.
+  const measuring = { page: { scale: 1 }, marks: [] }, row = { geometry: 'text', x: 0, y: 0, w: 160, h: 32, text: 'One\nTwo\nThree\nFour', format: { Size: 12 } };
+  const fitted = (Fit, extra = {}) => Scene.shapeOf({ ...row, format: { ...row.format, ...extra, ...(Fit && { Fit }) } }, measuring);
+  const growing = fitted('grow'), fixedText = fitted('fixed', { Shrink: true }), shrinking = fitted('shrink', { Shrink: false });
+  check('explicit Grow height expands a text frame without changing its font size', growing.h > row.h && growing.w === row.w && growing.texts[0].look.Size === 12 && !growing.spills);
+  check('explicit Fixed frame keeps its height and reports overflow instead of shrinking', fixedText.h === row.h && fixedText.spills && fixedText.texts[0].look.Size === 12 && !fixedText.look.Shrink && !fixedText.shrunk);
+  check('explicit Shrink retains the frame and supplies the effective mode to exports', shrinking.h === row.h && shrinking.shrunk < 1 && shrinking.look.Shrink && !shrinking.spills);
+  check('absent Fit preserves growing text boxes and legacy Shrink', fitted(null).h === growing.h && fitted(null, { Shrink: true }).shrunk === shrinking.shrunk);
+  const fittedColumns = fitted('grow', { Columns: { n: 2 } });
+  check('explicit Grow height also provides enough room for multiple text columns', fittedColumns.h > row.h && !fittedColumns.spills);
+
+  const instantiate = d => Scene.instance(first, 'b', d, wb.notes(chart));
+  const geometryOf = b => b.parts.map(p => [p.part, p.x, p.y, p.w, p.h]);
+  check('explicit Stack text matches the legacy layout when no layout mode was saved', j(geometryOf(instantiate(design))) === j(geometryOf(instantiate({ ...design, layout: 'stack' }))));
+  const freeDesign = { ...design, layout: 'free', parts: [{ ...summary, text: '{Name}\n{Title}\nThree\nFour\nFive\nSix\nSeven\nEight', format: { ...format, Fit: 'grow' } }, focus] };
+  const free = instantiate(freeDesign), freePart = id => free.parts.find(p => p.part === id);
+  check('Free position leaves the following field at its authored place while text grows', Math.abs(freePart('focus').y - focus.y * design.h) < .1 && freePart('summary').h > summary.h * design.h && freePart('focus').y < freePart('summary').y + freePart('summary').h);
+  check('Free position can grow the card background without stretching or moving other layers', free.h >= freePart('summary').y + freePart('summary').h - .1 && Math.abs(freePart('focus').h - instantiate({ ...design, layout: 'free' }).parts.find(p => p.part === 'focus').h) < .1);
+  const freeRest = instantiate({ ...spaced, layout: 'free' });
+  check('Free position retains an empty overflow slot instead of inferring a collapse', freeRest.parts.find(p => p.part === 'rest').h > 80 && Math.abs(freeRest.parts.find(p => p.part === 'summary').y - 100) < .1);
+  const fixedDesign = instantiate({ ...design, layout: 'stack', parts: [{ ...summary, format: { ...format, Fit: 'fixed' } }, focus] }), fixedPart = fixedDesign.parts.find(p => p.part === 'summary');
+  check('a fixed text frame inside a stacked card reports overflow without enlarging that frame', Math.abs(fixedPart.h - summary.h * design.h) < .1 && fixedPart.spills);
+  const overflow = Fit => instantiate({ ...design, parts: [{ id: 'rest', rest: true, geometry: 'text', x: 0, y: 0, w: 1, h: .01, format: { Fit, Inset: { l: 0, r: 0, t: 0, b: 0 } } }] }).parts[0];
+  const fixedOverflow = overflow('fixed'), shrunkOverflow = overflow('shrink');
+  check('the automatic fields slot also honors an explicit fixed frame', Math.abs(fixedOverflow.h - 1.2) < .1 && fixedOverflow.spills);
+  check('the automatic fields slot can shrink its text and still reports insufficient room', shrunkOverflow.shrunk < 1 && shrunkOverflow.texts[0].look.Size < fixedOverflow.texts[0].look.Size && shrunkOverflow.spills);
+  write(tx => { tx.note('Position', { id: 'a', kind: 'Person' }, undefined, { view }); tx.note('Design', kind, freeDesign, { view }); });
+  const freeSaved = draw(), freeOpened = draw(Log.open(wb.toJSON()));
+  check('explicit layout and text sizing survive save and reopen with the same geometry', j(geometryOf(freeSaved.byId.get('a'))) === j(geometryOf(freeOpened.byId.get('a'))) && freeOpened.byId.get('a').design.value.layout === 'free' && freeOpened.byId.get('a').design.value.parts[0].format.Fit === 'grow');
+
+  const collapsedFooter = { ...design, w: 300, h: 200, layout: 'free', parts: [
+    { ...summary, y: 0, h: .7, text: '{Name}\n{Title}\n{Focus}' },
+    { id: 'badge', geometry: 'ellipse', x: .7, y: .7, w: .2, h: .2 },
+    { id: 'rest', rest: true, geometry: 'text', x: 0, y: 1, w: 1, h: 0, format },
+  ] };
+  write(tx => tx.note('Design', kind, collapsedFooter, { view }));
+  const emptyFooter = draw().byId.get('a'), local = b => b.parts.filter(p => p.part !== 'rest').map(p => [p.part, p.x - b.x, p.y - b.y, p.w, p.h]);
+  check('a zero-height free footer leaves the empty card and its authored layers unchanged', emptyFooter.parts.find(p => p.part === 'rest').h === 0 && Math.abs(emptyFooter.h - 200) < .1);
+  write(tx => {
+    tx.add('record', { at: 'a', edge: 'Location', field: 'text', value: 'Garden office' }, 'a-Location');
+    tx.note('Shown', { args: [{ edge: 'Location', loc: kind }] }, true, { view });
+  });
+  const filledFooter = draw().byId.get('a'), footer = filledFooter.parts.find(p => p.part === 'rest');
+  check('shown data grows a collapsed free footer and card without rescaling existing layers', footer.h > 8 && filledFooter.h > emptyFooter.h && footer.texts.some(it => it.text.includes('Garden office')) && local(filledFooter).every((row, i) => row.every((v, k) => typeof v === 'number' ? Math.abs(v - local(emptyFooter)[i][k]) < .1 : v === local(emptyFooter)[i][k])));
+  write(tx => tx.note('Design', kind, { ...collapsedFooter, layout: 'stack' }, { view }));
+  const stackedFooter = draw().byId.get('a'), stackedRest = stackedFooter.parts.find(p => p.part === 'rest');
+  check('switching a collapsed footer to Stack counts its growth once, without a new gap', stackedRest.h > 8 && Math.abs(stackedRest.y - stackedFooter.y - 200) < .1 && Math.abs(stackedFooter.h - 200 - stackedRest.h) < .1);
+}
+
+function designResolution() {
+  const wb = Log.open(), chart = 'design-resolution', view = 'v', other = 'v2', kind = { kind: 'Object' };
+  const option = (edge, choice, loc = kind) => ({ out: { choice }, args: [{ edge, loc }] });
+  const person = option('Category', 'Person'), active = option('Status', 'Active'), own = { id: 'a', kind: 'Object' };
+  const card = (id, text) => ({ id, base: { Shape: 'rect' }, w: 150, h: 45, parts: [{ id: 'words', geometry: 'text', x: 0, y: 0, w: 1, h: 1, text }] });
+  const write = fn => { const tx = wb.edit({ chart, who: WHO }); fn(tx); const c = tx.commit(); if (typeof c === 'string') throw Error(c); };
+  const state = () => wb.asOf(chart, DAY), resolved = (id = 'a', v = view) => Scene.recordDesign(state(), wb.notes(chart), id, v);
+  const drawn = (id = 'a', v = view) => Scene.of(wb, chart, v, DAY, { state: state(), reveal: [id] }).byId.get(id)?.design ?? null;
+  const text = d => d?.value.parts.find(p => p.id === 'words')?.text;
+  const parity = (id = 'a', v = view) => j(resolved(id, v)?.value ?? null) === j(drawn(id, v)?.value ?? null);
+  write(tx => {
+    tx.add('chart', { name: 'Design resolution' }, chart);
+    for (const id of [view, other]) tx.add('record', { kind: 'View' }, id);
+    for (const id of ['a', 'b']) {
+      tx.add('record', { kind: 'Object' }, id);
+      tx.add('record', { at: id, edge: 'Name', field: 'text', value: id.toUpperCase() }, id + '-name');
+      tx.add('record', { at: id, edge: 'Category', choice: 'Person' }, id + '-category');
+      tx.add('record', { at: id, edge: 'Status', choice: 'Active' }, id + '-status');
+    }
+    tx.note('Design', kind, card('base', 'Base words'), { view });
+    tx.note('Design', person, card('person', 'Person words'), { view });
+    tx.note('Design', active, card('active', 'Active words'), { view });
+    tx.note('Order', Tree.bare(person), 10, { view }); tx.note('Order', Tree.bare(active), 20, { view });
+    tx.note('Design', own, { over: { parts: { words: { text: 'Own words', runs: [{ from: 0, to: 3, Bold: true }] } } } }, { view });
+    tx.note('Design', kind, card('other', 'Other view'), { view: other });
+  });
+  check('record design resolution shares rendered style-order precedence for equal-weight choices', parity('b') && text(resolved('b')) === 'Active words');
+  check('record design resolution layers sparse instance text and runs over the winning whole design', parity() && resolved().value.id === 'active' && text(resolved()) === 'Own words' && resolved().value.parts[0].runs[0].Bold);
+  write(tx => tx.note('Design', kind, { over: { parts: { words: { text: 'Beside field' } } } }, { view, param: 'Name' }));
+  check('parameter-scoped overrides retain their priority over ordinary style notes', parity('b') && text(resolved('b')) === 'Beside field' && text(resolved()) === 'Own words');
+  write(tx => tx.note('Design', kind, undefined, { view, param: 'Name' }));
+  write(tx => tx.note('Order', Tree.bare(person), 30, { view }));
+  check('off-page lookup follows a changed style order without a stale cached winner', parity('b') && text(resolved('b')) === 'Person words');
+  write(tx => tx.note('Shown', own, false, { view }));
+  const hidden = Scene.of(wb, chart, view, DAY, { state: state() });
+  check('a hidden record retains the exact design source it would render when revealed', !hidden.byId.has('a') && parity() && text(resolved()) === 'Own words');
+  check('off-page design resolution keeps view scopes independent', parity('a', other) && text(resolved('a', other)) === 'Other view');
+  write(tx => tx.note('Shape', own, 'ellipse', { view }));
+  check('a narrower nonrectangular Shape suppresses both rendered and off-page designs', parity() && resolved() === null);
+  write(tx => tx.note('Shape', own, 'rounded', { view }));
+  check('a narrower rectangular Shape preserves inherited source and runs', parity() && text(resolved()) === 'Own words');
+  write(tx => tx.note('Design', own, { ...card('fork', 'Fork words'), over: { parts: { words: { text: 'Fork override' } } } }, { view }));
+  check('an instance whole design replaces lower sparse layers and then applies its own override', parity() && resolved().value.id === 'fork' && text(resolved()) === 'Fork override');
+  write(tx => { tx.note('Design', own, { ...card('sandbox', 'Editing'), editing: true }, { view }); tx.note('Shape', own, 'ellipse', { view }); });
+  check('editing designs retain the existing equal-rank Shape exception', parity() && text(resolved()) === 'Editing');
+  write(tx => {
+    tx.note('Design', own, undefined, { view }); tx.note('Shape', own, undefined, { view });
+    tx.note('Design', person, undefined, { view }); tx.note('Design', active, undefined, { view });
+    tx.add('record', { at: 'a', edge: 'Branch', choice: 'Active' }, 'branch');
+    tx.add('record', { at: 'branch', edge: 'Category', choice: 'Person' }, 'nested-category');
+    tx.note('Design', option('Category', 'Person', {}), card('depth', 'Nearest owner'), { view });
+  });
+  check('repeated matching owned entries retain the shallower host-depth tie break', parity() && resolved().rank.at(-1) === -1 && text(resolved()) === 'Nearest owner');
+  const relation = { out: { tag: true }, args: ['First', 'Second', 'Third'].map(edge => ({ edge, loc: kind })) };
+  write(tx => {
+    tx.add('record', { kind: 'Object' }, 'c');
+    tx.add('record', { args: ['a', 'b', 'c'].map((at, i) => ({ edge: relation.args[i].edge, at })), tag: true }, 'group');
+    tx.note('Design', relation, card('group', 'Group source'), { view });
+  });
+  check('multi-sided relation designs reach their host boxes through the same topology', parity() && parity('b') && text(resolved()) === 'Group source' && text(resolved('b')) === 'Group source');
+  check('missing records and views have no invented design source', Scene.recordDesign(state(), wb.notes(chart), 'missing', view) === null && resolved('a', 'missing-view') === null);
+}
+
 if (location.search.includes('fresh')) window.drawFresh = json => drawAll(Log.open(json))[1];
-else Promise.resolve().then(run).then(drawnAgain).then(freeDrawing).then(groupDesigns).then(aboutAnything)
+else (location.search.includes('design-resolution') ? Promise.resolve() : Promise.resolve().then(run).then(drawnAgain).then(freeDrawing).then(groupDesigns).then(aboutAnything).then(savedDesignFlow)).then(designResolution)
   .catch(e => check('runs', false, e.stack ?? e))
   .finally(() => {
     const failed = out.filter(c => !c.ok);
